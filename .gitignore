@@ -1,0 +1,50 @@
+node_modules
+.env
+.env.local
+dist
+.turbo
+
+# Hardhat
+packages/contracts/cache
+packages/contracts/artifacts
+packages/contracts/typechain
+packages/contracts/typechain-types
+packages/contracts/coverage
+packages/contracts/coverage.json
+
+# Vite
+packages/app/dist
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Reference repos (not part of the app)
+cofhesdk/
+cofhejs/
+cofhe-hardhat-starter/
+fhenix-docs/
+fhenix-developer-docs/
+awesome-fhenix/
+blank-ui-ref/
+
+# Dev artifacts
+*.png
+*.docx
+~$*
+inspriaot*
+memory/
+tasks/
+ROADMAP.md
+VERIFICATION_REPORT.md
+MOBILE_UI_SPEC.md
+FRONTEND_BUILD_SPEC.md
+ARCHITECTURE_FIXES.md
+SUPABASE_SETUP.md
+test_reports/

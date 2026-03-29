@@ -1,0 +1,274 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.25;
+
+import "@fhenixprotocol/cofhe-contracts/FHE.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import "./utils/ReentrancyGuard.sol";
+
+interface IFHERC20Vault {
+    function transferFrom(address from, address to, InEuint64 memory encAmount) external returns (euint64);
+}
+
+interface IEventHub {
+    function emitActivity(address user1, address user2, string calldata activityType, string calldata note, uint256 refId) external;
+}
+
+/// @title GiftMoney — "Red Envelope" encrypted random splits
+/// @notice Sender distributes encrypted FHERC20 tokens across N recipients.
+///         Each recipient gets a pre-computed share (computed off-chain to avoid
+///         euint64 division). Nobody knows who got what until they unseal their share.
+///
+/// @dev Key design decisions:
+///      - Shares are pre-computed OFF-CHAIN (euint64 division not supported on-chain)
+///      - Sender encrypts each recipient's share individually, submits as InEuint64[]
+///      - Funds are transferred directly to each recipient's vault balance during creation
+///        (vault.transferFrom sender -> recipient for each share)
+///      - "Claim" is a social action: marks the envelope as "opened" for the activity feed,
+///        but funds are already in the recipient's encrypted balance
+///      - The surprise element is preserved because amounts are encrypted —
+///        recipients must unseal (with permit) to see their share amount
+///      - Only the recipient can unseal their own share via FHE.allow
+///      - Social context (who, when, note) is public; financial details are private
+///      - UUPS upgradeable, ReentrancyGuard on all mutating functions
+///      - Security zone 0 enforced everywhere
+contract GiftMoney is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
+
+    // ─── Types ──────────────────────────────────────────────────────────
+
+    struct GiftEnvelope {
+        address sender;
+        address vault;
+        uint256 recipientCount;
+        uint256 claimedCount;
+        string note;
+        uint256 timestamp;
+        bool active;
+    }
+
+    // ─── State ──────────────────────────────────────────────────────────
+
+    IEventHub public eventHub;
+
+    uint256 public nextEnvelopeId;
+    mapping(uint256 => GiftEnvelope) private _envelopes;
+
+    /// @dev Per-envelope recipient list
+    mapping(uint256 => address[]) private _recipients;
+
+    /// @dev Per-envelope per-recipient encrypted share handle (for unsealing)
+    mapping(uint256 => mapping(address => euint64)) private _shares;
+
+    /// @dev Per-envelope per-recipient "opened" status
+    mapping(uint256 => mapping(address => bool)) public opened;
+
+    /// @dev Per-envelope per-recipient membership
+    mapping(uint256 => mapping(address => bool)) public isRecipient;
+
+    /// @dev Reverse lookup: address -> envelope IDs they received
+    mapping(address => uint256[]) private _receivedEnvelopes;
+
+    /// @dev Reverse lookup: address -> envelope IDs they created
+    mapping(address => uint256[]) private _sentEnvelopes;
+
+    uint256 public constant MAX_RECIPIENTS = 30;
+
+    // ─── Events ─────────────────────────────────────────────────────────
+
+    event EnvelopeCreated(
+        uint256 indexed envelopeId,
+        address indexed sender,
+        address vault,
+        uint256 recipientCount,
+        string note,
+        uint256 timestamp
+    );
+
+    event GiftOpened(
+        uint256 indexed envelopeId,
+        address indexed recipient,
+        uint256 timestamp
+    );
+
+    // ─── Initializer ────────────────────────────────────────────────────
+
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
+    function initialize(address _eventHub) public initializer {
+        __Ownable_init(msg.sender);
+        eventHub = IEventHub(_eventHub);
+    }
+
+    // ─── Create Gift Envelope ───────────────────────────────────────────
+
+    /// @notice Create a gift envelope with pre-computed encrypted shares.
+    ///
+    ///         The sender provides encrypted share amounts for each recipient.
+    ///         Shares MUST be computed off-chain (random split, equal split, weighted, etc.)
+    ///         because euint64 division is not supported on-chain.
+    ///
+    ///         Funds are transferred directly from sender to each recipient's encrypted
+    ///         vault balance. The "surprise" is preserved because amounts are FHE-encrypted;
+    ///         recipients must unseal with a permit to see how much they received.
+    ///
+    ///         Sender must have approved this contract on the vault beforehand
+    ///         (lazy approval pattern: approvePlaintext(GiftMoney, type(uint64).max)).
+    ///
+    /// @param vault FHERC20Vault address for the token being gifted
+    /// @param recipients Array of recipient addresses
+    /// @param shares Array of encrypted share amounts (one per recipient)
+    /// @param note Public note/message (e.g., "Happy New Year!")
+    /// @return envelopeId The ID of the created envelope
+    function createEnvelope(
+        address vault,
+        address[] calldata recipients,
+        InEuint64[] memory shares,
+        string calldata note
+    ) external nonReentrant returns (uint256) {
+        uint256 count = recipients.length;
+        require(count > 0, "GiftMoney: no recipients");
+        require(count <= MAX_RECIPIENTS, "GiftMoney: max 30 recipients");
+        require(count == shares.length, "GiftMoney: length mismatch");
+
+        uint256 envelopeId = nextEnvelopeId++;
+
+        // Store envelope metadata
+        _envelopes[envelopeId] = GiftEnvelope({
+            sender: msg.sender,
+            vault: vault,
+            recipientCount: count,
+            claimedCount: 0,
+            note: note,
+            timestamp: block.timestamp,
+            active: true
+        });
+
+        IFHERC20Vault vaultContract = IFHERC20Vault(vault);
+
+        for (uint256 i = 0; i < count; i++) {
+            address recipient = recipients[i];
+            require(recipient != address(0), "GiftMoney: zero address recipient");
+            require(recipient != msg.sender, "GiftMoney: sender cannot be recipient");
+            require(!isRecipient[envelopeId][recipient], "GiftMoney: duplicate recipient");
+
+            // Transfer encrypted share directly from sender to recipient
+            // Funds land in recipient's encrypted vault balance immediately
+            // Store the actual transfer result (not a re-encrypted input) so the
+            // handle tracks the real on-chain value post-transfer
+            euint64 transferred = vaultContract.transferFrom(msg.sender, recipient, shares[i]);
+            _shares[envelopeId][recipient] = transferred;
+
+            // Grant permissions: contract can reference it, recipient can unseal it, creator can verify
+            FHE.allowThis(transferred);
+            FHE.allow(transferred, recipient);
+            FHE.allow(transferred, msg.sender);
+
+            // Track membership and reverse lookups
+            isRecipient[envelopeId][recipient] = true;
+            _recipients[envelopeId].push(recipient);
+            _receivedEnvelopes[recipient].push(envelopeId);
+        }
+
+        _sentEnvelopes[msg.sender].push(envelopeId);
+
+        emit EnvelopeCreated(envelopeId, msg.sender, vault, count, note, block.timestamp);
+        try eventHub.emitActivity(msg.sender, address(0), "gift_created", note, envelopeId) {} catch {}
+
+        return envelopeId;
+    }
+
+    // ─── Open Gift (Claim) ──────────────────────────────────────────────
+
+    /// @notice "Open" your gift envelope. This is a social action that:
+    ///         1. Marks your envelope as opened (visible on activity feed)
+    ///         2. Emits a gift_claimed event for notifications
+    ///
+    ///         Funds are already in your encrypted vault balance from createEnvelope.
+    ///         The amount remains encrypted until you unseal it with a permit.
+    ///         This function is the "open the red envelope" moment.
+    ///
+    /// @param envelopeId The envelope to open
+    function claimGift(uint256 envelopeId) external nonReentrant {
+        GiftEnvelope storage env = _envelopes[envelopeId];
+        require(env.active, "GiftMoney: envelope not active");
+        require(isRecipient[envelopeId][msg.sender], "GiftMoney: not a recipient");
+        require(!opened[envelopeId][msg.sender], "GiftMoney: already opened");
+
+        // Mark as opened
+        opened[envelopeId][msg.sender] = true;
+        env.claimedCount++;
+
+        emit GiftOpened(envelopeId, msg.sender, block.timestamp);
+        try eventHub.emitActivity(env.sender, msg.sender, "gift_claimed", env.note, envelopeId) {} catch {}
+    }
+
+    // ─── View Functions ─────────────────────────────────────────────────
+
+    /// @notice Get your encrypted gift share from an envelope.
+    ///         Unseal with a valid permit to see the amount.
+    /// @param envelopeId The envelope to query
+    /// @return The encrypted share handle
+    function getMyGift(uint256 envelopeId) external view returns (euint64) {
+        require(isRecipient[envelopeId][msg.sender], "GiftMoney: not a recipient");
+        return _shares[envelopeId][msg.sender];
+    }
+
+    /// @notice Get envelope metadata (public info only, no amounts)
+    function getEnvelope(uint256 envelopeId) external view returns (
+        address sender,
+        address vault,
+        uint256 recipientCount,
+        uint256 claimedCount,
+        string memory note,
+        uint256 timestamp,
+        bool active
+    ) {
+        GiftEnvelope storage env = _envelopes[envelopeId];
+        return (
+            env.sender,
+            env.vault,
+            env.recipientCount,
+            env.claimedCount,
+            env.note,
+            env.timestamp,
+            env.active
+        );
+    }
+
+    /// @notice Get the list of recipients for an envelope
+    function getRecipients(uint256 envelopeId) external view returns (address[] memory) {
+        return _recipients[envelopeId];
+    }
+
+    /// @notice Get all envelope IDs where user is a recipient
+    function getReceivedEnvelopes(address user) external view returns (uint256[] memory) {
+        return _receivedEnvelopes[user];
+    }
+
+    /// @notice Get all envelope IDs created by user
+    function getSentEnvelopes(address user) external view returns (uint256[] memory) {
+        return _sentEnvelopes[user];
+    }
+
+    /// @notice Check if all recipients have opened their gifts
+    function isFullyOpened(uint256 envelopeId) external view returns (bool) {
+        GiftEnvelope storage env = _envelopes[envelopeId];
+        return env.claimedCount == env.recipientCount;
+    }
+
+    /// @notice Check if a specific recipient has opened their gift
+    function hasOpened(uint256 envelopeId, address recipient) external view returns (bool) {
+        return opened[envelopeId][recipient];
+    }
+
+    // ─── Admin ──────────────────────────────────────────────────────────
+
+    function setEventHub(address _eventHub) external onlyOwner {
+        eventHub = IEventHub(_eventHub);
+    }
+
+    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
+}

@@ -1,0 +1,722 @@
+import { useState, useCallback } from "react";
+import {
+  Ghost,
+  Copy,
+  Check,
+  Plus,
+  Lock,
+  KeyRound,
+  CheckCircle2,
+  Loader2,
+  AlertCircle,
+} from "lucide-react";
+import { cn } from "@/lib/cn";
+import { useStealthPayments } from "@/hooks/useStealthPayments";
+import { useActivityFeed } from "@/hooks/useActivityFeed";
+import { CONTRACTS } from "@/lib/constants";
+
+// ---------------------------------------------------------------
+//  TYPES
+// ---------------------------------------------------------------
+
+interface GeneratedCode {
+  code: string;
+  transferId: number;
+  amount: string;
+}
+
+type TabValue = "create" | "claim";
+
+// ---------------------------------------------------------------
+//  STEP LABEL HELPER
+// ---------------------------------------------------------------
+
+function getStepLabel(step: string): string {
+  switch (step) {
+    case "approving":
+      return "Approving USDC...";
+    case "encrypting":
+      return "Encrypting recipient...";
+    case "sending":
+      return "Sending stealth payment...";
+    case "claiming":
+      return "Claiming payment...";
+    case "finalizing":
+      return "Finalizing claim...";
+    default:
+      return "Processing...";
+  }
+}
+
+// ---------------------------------------------------------------
+//  MAIN SCREEN
+// ---------------------------------------------------------------
+
+export default function Stealth() {
+  const {
+    step,
+    error,
+    txHash,
+    sendStealth,
+    claimStealth,
+    finalizeClaim,
+    reset,
+  } = useStealthPayments();
+  const { activities } = useActivityFeed();
+
+  const [activeTab, setActiveTab] = useState<TabValue>("create");
+  const [copied, setCopied] = useState<string | null>(null);
+
+  // Create form state
+  const [amount, setAmount] = useState("");
+  const [recipient, setRecipient] = useState("");
+  const [message, setMessage] = useState("");
+  const [newCode, setNewCode] = useState<GeneratedCode | null>(null);
+
+  // Claim form state
+  const [claimTransferId, setClaimTransferId] = useState("");
+  const [claimCode, setClaimCode] = useState("");
+  const [claimSuccess, setClaimSuccess] = useState(false);
+  const [finalizeId, setFinalizeId] = useState("");
+
+  const isSubmitting =
+    step !== "idle" && step !== "success" && step !== "error";
+
+  // Filter stealth activities from the activity feed
+  const stealthActivities = activities.filter(
+    (a) =>
+      a.activity_type === "stealth_sent" ||
+      a.activity_type === "stealth_claim_started" ||
+      a.activity_type === "stealth_claimed"
+  );
+
+  const handleCopy = useCallback((id: string, text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopied(id);
+    setTimeout(() => setCopied(null), 2000);
+  }, []);
+
+  // ─── Create Stealth Payment ────────────────────────────────────────
+
+  const handleCreateCode = useCallback(async () => {
+    if (!amount || !recipient) return;
+    if (!/^0x[a-fA-F0-9]{40}$/.test(recipient.trim())) {
+      return;
+    }
+
+    const result = await sendStealth(
+      amount,
+      recipient.trim(),
+      CONTRACTS.FHERC20Vault_USDC,
+      message || "Stealth payment"
+    );
+
+    if (result) {
+      setNewCode({
+        code: result.claimCode,
+        transferId: result.transferId,
+        amount: parseFloat(amount).toFixed(2),
+      });
+    }
+  }, [amount, recipient, message, sendStealth]);
+
+  // ─── Claim Stealth Payment ─────────────────────────────────────────
+
+  const handleClaim = useCallback(async () => {
+    if (!claimCode.trim() || !claimTransferId.trim()) return;
+    const transferId = parseInt(claimTransferId, 10);
+    if (isNaN(transferId)) return;
+
+    const result = await claimStealth(transferId, claimCode.trim());
+    if (result) {
+      setClaimSuccess(true);
+    }
+  }, [claimCode, claimTransferId, claimStealth]);
+
+  // ─── Finalize Claim ────────────────────────────────────────────────
+
+  const handleFinalize = useCallback(async () => {
+    if (!finalizeId.trim()) return;
+    const transferId = parseInt(finalizeId, 10);
+    if (isNaN(transferId)) return;
+    await finalizeClaim(transferId);
+  }, [finalizeId, finalizeClaim]);
+
+  return (
+    <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <div className="max-w-5xl mx-auto">
+        {/* Page Title */}
+        <div className="mb-8">
+          <h1 className="text-4xl sm:text-5xl font-heading font-semibold text-[var(--text-primary)] tracking-tight mb-2">
+            Stealth Payments
+          </h1>
+          <p className="text-base text-[var(--text-primary)]/50 leading-relaxed">
+            Send anonymous payments via claim codes
+          </p>
+        </div>
+
+        {/* Tab Switcher */}
+        <div className="flex gap-3 mb-6">
+          <button
+            onClick={() => setActiveTab("create")}
+            className={cn(
+              "flex-1 h-14 px-6 rounded-2xl font-medium transition-all",
+              activeTab === "create"
+                ? "bg-[var(--text-primary)] text-white"
+                : "bg-white/60 backdrop-blur-2xl text-[var(--text-primary)] border border-white/60 hover:bg-white/80"
+            )}
+          >
+            <div className="flex items-center justify-center gap-2">
+              <Plus size={20} />
+              <span>Create Code</span>
+            </div>
+          </button>
+          <button
+            onClick={() => setActiveTab("claim")}
+            className={cn(
+              "flex-1 h-14 px-6 rounded-2xl font-medium transition-all",
+              activeTab === "claim"
+                ? "bg-[var(--text-primary)] text-white"
+                : "bg-white/60 backdrop-blur-2xl text-[var(--text-primary)] border border-white/60 hover:bg-white/80"
+            )}
+          >
+            <div className="flex items-center justify-center gap-2">
+              <KeyRound size={20} />
+              <span>Claim Code</span>
+            </div>
+          </button>
+        </div>
+
+        {/* Create Code Tab */}
+        {activeTab === "create" && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Create Form */}
+            <div className="rounded-[2rem] glass-card p-8">
+              {newCode ? (
+                <div className="flex flex-col items-center text-center py-4">
+                  <div className="w-16 h-16 rounded-2xl bg-purple-50 flex items-center justify-center mb-4">
+                    <CheckCircle2 size={40} className="text-purple-500" />
+                  </div>
+                  <h3 className="text-xl font-heading font-medium text-[var(--text-primary)] mb-2">
+                    Stealth Payment Sent!
+                  </h3>
+                  <p className="text-sm text-[var(--text-primary)]/50 mb-4">
+                    Share the claim code and transfer ID with the recipient
+                  </p>
+
+                  <div className="w-full space-y-3 mb-4">
+                    <div className="p-4 rounded-2xl bg-purple-50 border-2 border-purple-200">
+                      <p className="text-xs text-purple-600 font-medium mb-1">
+                        Claim Code
+                      </p>
+                      <p className="font-mono text-xs text-purple-800 break-all">
+                        {newCode.code}
+                      </p>
+                    </div>
+                    <div className="p-3 rounded-2xl bg-blue-50 border border-blue-200">
+                      <p className="text-xs text-blue-600 font-medium mb-1">
+                        Transfer ID
+                      </p>
+                      <p className="font-mono text-lg font-bold text-blue-800">
+                        {newCode.transferId}
+                      </p>
+                    </div>
+                  </div>
+
+                  <p className="text-2xl font-heading font-medium text-[var(--text-primary)] mb-6">
+                    ${newCode.amount}
+                  </p>
+
+                  <div className="flex gap-3 w-full">
+                    <button
+                      onClick={() =>
+                        handleCopy(
+                          "code",
+                          `Claim Code: ${newCode.code}\nTransfer ID: ${newCode.transferId}`
+                        )
+                      }
+                      className="flex-1 h-12 rounded-2xl bg-[var(--text-primary)] text-white font-medium flex items-center justify-center gap-2"
+                    >
+                      {copied === "code" ? (
+                        <Check size={20} />
+                      ) : (
+                        <Copy size={20} />
+                      )}
+                      {copied === "code" ? "Copied!" : "Copy Details"}
+                    </button>
+                    <button
+                      onClick={() => {
+                        setNewCode(null);
+                        setAmount("");
+                        setRecipient("");
+                        setMessage("");
+                        reset();
+                      }}
+                      className="flex-1 h-12 rounded-2xl bg-black/5 text-[var(--text-primary)] font-medium"
+                    >
+                      New Code
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-center gap-3 mb-6">
+                    <div className="w-12 h-12 rounded-xl bg-purple-50 flex items-center justify-center">
+                      <Ghost size={24} className="text-purple-600" />
+                    </div>
+                    <h3 className="text-xl font-heading font-medium text-[var(--text-primary)]">
+                      New Stealth Payment
+                    </h3>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-xs text-[var(--text-primary)]/50 font-medium tracking-wide uppercase mb-2 block">
+                        Amount (USDC)
+                      </label>
+                      <div className="relative">
+                        <span className="absolute left-5 top-1/2 -translate-y-1/2 text-lg text-[var(--text-primary)]/50">
+                          $
+                        </span>
+                        <input
+                          type="text"
+                          placeholder="0.00"
+                          value={amount}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            if (/^\d*\.?\d{0,6}$/.test(v) || v === "")
+                              setAmount(v);
+                          }}
+                          className="h-14 w-full pl-10 pr-5 rounded-2xl bg-white/60 border border-black/5 focus:border-black/20 focus:ring-4 focus:ring-black/5 outline-none transition-all placeholder:text-black/30 text-lg"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-xs text-[var(--text-primary)]/50 font-medium tracking-wide uppercase mb-2 block">
+                        Recipient Address
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="0x..."
+                        value={recipient}
+                        onChange={(e) => setRecipient(e.target.value)}
+                        className="h-14 w-full px-5 rounded-2xl bg-white/60 border border-black/5 focus:border-black/20 focus:ring-4 focus:ring-black/5 outline-none transition-all placeholder:text-black/30 font-mono text-sm"
+                      />
+                      {recipient &&
+                        !/^0x[a-fA-F0-9]{40}$/.test(recipient.trim()) && (
+                          <p className="text-xs text-red-500 mt-1">
+                            Invalid Ethereum address
+                          </p>
+                        )}
+                    </div>
+
+                    <div>
+                      <label className="text-xs text-[var(--text-primary)]/50 font-medium tracking-wide uppercase mb-2 block">
+                        Note (Optional)
+                      </label>
+                      <textarea
+                        placeholder="Add a private note..."
+                        rows={3}
+                        value={message}
+                        onChange={(e) => setMessage(e.target.value)}
+                        className="w-full px-5 py-4 rounded-2xl bg-white/60 border border-black/5 focus:border-black/20 focus:ring-4 focus:ring-black/5 outline-none transition-all placeholder:text-black/30 resize-none"
+                      />
+                    </div>
+
+                    <div className="p-4 rounded-2xl bg-purple-50 border border-purple-100">
+                      <div className="flex items-start gap-3">
+                        <Lock size={20} className="text-purple-600 mt-0.5" />
+                        <div>
+                          <p className="text-sm font-medium text-purple-900">
+                            Anonymous Payment
+                          </p>
+                          <p className="text-xs text-purple-700 mt-1">
+                            The recipient identity is FHE-encrypted on-chain.
+                            Only the claim code holder can receive funds.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Processing indicator */}
+                    {isSubmitting && (
+                      <div className="p-4 rounded-2xl bg-blue-50 border border-blue-100">
+                        <div className="flex items-center gap-3">
+                          <Loader2
+                            size={20}
+                            className="text-blue-600 animate-spin"
+                          />
+                          <p className="text-sm font-medium text-blue-900">
+                            {getStepLabel(step)}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Error display */}
+                    {error && (
+                      <div className="p-4 rounded-2xl bg-red-50 border border-red-100">
+                        <div className="flex items-start gap-3">
+                          <AlertCircle
+                            size={20}
+                            className="text-red-600 mt-0.5"
+                          />
+                          <p className="text-sm text-red-800">{error}</p>
+                        </div>
+                      </div>
+                    )}
+
+                    <button
+                      disabled={
+                        isSubmitting ||
+                        !amount ||
+                        !recipient ||
+                        !/^0x[a-fA-F0-9]{40}$/.test(recipient.trim())
+                      }
+                      onClick={handleCreateCode}
+                      className="w-full h-14 px-6 rounded-2xl bg-[var(--text-primary)] text-white font-medium transition-transform active:scale-95 hover:bg-[#000000] flex items-center justify-center gap-2 disabled:opacity-50"
+                    >
+                      {isSubmitting ? (
+                        <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      ) : (
+                        <Ghost size={20} />
+                      )}
+                      <span>Send Stealth Payment</span>
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* How It Works */}
+            <div className="rounded-[2rem] glass-card p-8">
+              <h3 className="text-xl font-heading font-medium text-[var(--text-primary)] mb-6">
+                How It Works
+              </h3>
+
+              <div className="space-y-4">
+                <div className="flex gap-4">
+                  <div className="w-8 h-8 rounded-full bg-[#007AFF]/10 flex items-center justify-center flex-shrink-0">
+                    <span className="text-sm font-medium text-[#007AFF]">
+                      1
+                    </span>
+                  </div>
+                  <div>
+                    <p className="font-medium text-[var(--text-primary)] mb-1">
+                      Send Stealth Payment
+                    </p>
+                    <p className="text-sm text-[var(--text-primary)]/60">
+                      Enter amount and recipient. A claim code is generated and
+                      the recipient is FHE-encrypted on-chain.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex gap-4">
+                  <div className="w-8 h-8 rounded-full bg-[#007AFF]/10 flex items-center justify-center flex-shrink-0">
+                    <span className="text-sm font-medium text-[#007AFF]">
+                      2
+                    </span>
+                  </div>
+                  <div>
+                    <p className="font-medium text-[var(--text-primary)] mb-1">
+                      Share Claim Code
+                    </p>
+                    <p className="text-sm text-[var(--text-primary)]/60">
+                      Send the claim code and transfer ID to the recipient via
+                      any private channel
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex gap-4">
+                  <div className="w-8 h-8 rounded-full bg-[#007AFF]/10 flex items-center justify-center flex-shrink-0">
+                    <span className="text-sm font-medium text-[#007AFF]">
+                      3
+                    </span>
+                  </div>
+                  <div>
+                    <p className="font-medium text-[var(--text-primary)] mb-1">
+                      Claim &rarr; Finalize
+                    </p>
+                    <p className="text-sm text-[var(--text-primary)]/60">
+                      Recipient claims with their code, then finalizes after
+                      async FHE decryption completes
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-6 p-4 rounded-2xl bg-emerald-50 border border-emerald-100">
+                <div className="flex items-start gap-3">
+                  <Lock size={20} className="text-emerald-600 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-medium text-emerald-900">
+                      FHE Encrypted
+                    </p>
+                    <p className="text-xs text-emerald-700 mt-1">
+                      All amounts are encrypted with Fully Homomorphic
+                      Encryption. The recipient is hidden on-chain.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Claim Code Tab */}
+        {activeTab === "claim" && (
+          <div className="space-y-6">
+            {/* Claim Form */}
+            <div className="rounded-[2rem] glass-card p-8">
+              <div className="max-w-2xl mx-auto">
+                {claimSuccess ? (
+                  <div className="flex flex-col items-center text-center py-8">
+                    <div className="w-20 h-20 rounded-full bg-emerald-50 flex items-center justify-center mb-4">
+                      <CheckCircle2 size={48} className="text-emerald-500" />
+                    </div>
+                    <h3 className="text-2xl font-heading font-medium text-[var(--text-primary)] mb-2">
+                      Claim Initiated!
+                    </h3>
+                    <p className="text-[var(--text-primary)]/60 mb-6">
+                      Async FHE decryption is in progress. Use the Finalize
+                      section below to complete the claim once decryption
+                      resolves.
+                    </p>
+                    {txHash && (
+                      <p className="text-xs font-mono text-[var(--text-primary)]/40 mb-6 break-all">
+                        Tx: {txHash}
+                      </p>
+                    )}
+                    <button
+                      onClick={() => {
+                        setClaimSuccess(false);
+                        setClaimCode("");
+                        setClaimTransferId("");
+                        reset();
+                      }}
+                      className="h-12 px-8 rounded-2xl bg-[var(--text-primary)] text-white font-medium"
+                    >
+                      Claim Another
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex items-center justify-center gap-3 mb-8">
+                      <div className="w-16 h-16 rounded-2xl bg-emerald-50 flex items-center justify-center">
+                        <KeyRound size={32} className="text-emerald-600" />
+                      </div>
+                    </div>
+
+                    <h3 className="text-2xl font-heading font-medium text-[var(--text-primary)] text-center mb-2">
+                      Claim Payment
+                    </h3>
+                    <p className="text-center text-[var(--text-primary)]/60 mb-8">
+                      Enter the transfer ID and claim code to receive your
+                      payment
+                    </p>
+
+                    <div className="space-y-4">
+                      <div>
+                        <label className="text-xs text-[var(--text-primary)]/50 font-medium tracking-wide uppercase mb-2 block">
+                          Transfer ID
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="0"
+                          value={claimTransferId}
+                          onChange={(e) => setClaimTransferId(e.target.value)}
+                          className="h-14 w-full px-6 rounded-2xl bg-white/60 border border-black/5 focus:border-black/20 focus:ring-4 focus:ring-black/5 outline-none transition-all placeholder:text-black/30 text-center text-xl font-mono"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-xs text-[var(--text-primary)]/50 font-medium tracking-wide uppercase mb-2 block">
+                          Claim Code
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="0x..."
+                          value={claimCode}
+                          onChange={(e) => setClaimCode(e.target.value)}
+                          className="h-14 w-full px-6 rounded-2xl bg-white/60 border border-black/5 focus:border-black/20 focus:ring-4 focus:ring-black/5 outline-none transition-all placeholder:text-black/30 text-sm font-mono"
+                        />
+                      </div>
+
+                      {/* Processing indicator */}
+                      {isSubmitting && (
+                        <div className="p-4 rounded-2xl bg-blue-50 border border-blue-100">
+                          <div className="flex items-center gap-3">
+                            <Loader2
+                              size={20}
+                              className="text-blue-600 animate-spin"
+                            />
+                            <p className="text-sm font-medium text-blue-900">
+                              {getStepLabel(step)}
+                            </p>
+                          </div>
+                        </div>
+                      )}
+
+                      {error && (
+                        <div className="p-4 rounded-2xl bg-red-50 border border-red-100">
+                          <div className="flex items-start gap-3">
+                            <AlertCircle
+                              size={20}
+                              className="text-red-600 mt-0.5"
+                            />
+                            <p className="text-sm text-red-800">{error}</p>
+                          </div>
+                        </div>
+                      )}
+
+                      <button
+                        disabled={
+                          isSubmitting ||
+                          !claimCode.trim() ||
+                          !claimTransferId.trim()
+                        }
+                        onClick={handleClaim}
+                        className="w-full h-14 px-6 rounded-2xl bg-[var(--text-primary)] text-white font-medium transition-transform active:scale-95 hover:bg-[#000000] flex items-center justify-center gap-2 disabled:opacity-50"
+                      >
+                        {isSubmitting ? (
+                          <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        ) : (
+                          <KeyRound size={20} />
+                        )}
+                        <span>Claim Payment</span>
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Finalize Claim */}
+            <div className="rounded-[2rem] glass-card p-8">
+              <div className="max-w-2xl mx-auto">
+                <h3 className="text-xl font-heading font-medium text-[var(--text-primary)] mb-4">
+                  Finalize Claim
+                </h3>
+                <p className="text-sm text-[var(--text-primary)]/50 mb-4">
+                  After claiming, wait for FHE decryption to resolve (a few
+                  seconds), then finalize to release your funds.
+                </p>
+                <div className="flex gap-3">
+                  <input
+                    type="text"
+                    placeholder="Transfer ID"
+                    value={finalizeId}
+                    onChange={(e) => setFinalizeId(e.target.value)}
+                    className="flex-1 h-14 px-6 rounded-2xl bg-white/60 border border-black/5 focus:border-black/20 focus:ring-4 focus:ring-black/5 outline-none transition-all placeholder:text-black/30 text-center font-mono"
+                  />
+                  <button
+                    disabled={isSubmitting || !finalizeId.trim()}
+                    onClick={handleFinalize}
+                    className="h-14 px-8 rounded-2xl bg-emerald-500 text-white font-medium transition-transform active:scale-95 hover:bg-emerald-600 flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    {isSubmitting && step === "finalizing" ? (
+                      <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    ) : (
+                      <CheckCircle2 size={20} />
+                    )}
+                    <span>Finalize</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* My Stealth Activity */}
+        <div className="mt-6 rounded-[2rem] glass-card p-8">
+          <h3 className="text-xl font-heading font-medium text-[var(--text-primary)] mb-6">
+            Stealth Activity
+          </h3>
+          {stealthActivities.length === 0 ? (
+            <div className="py-12 text-center">
+              <div className="w-16 h-16 rounded-2xl bg-purple-50 flex items-center justify-center mx-auto mb-4">
+                <Ghost size={32} className="text-purple-400" />
+              </div>
+              <p className="text-lg font-heading font-medium text-[var(--text-primary)] mb-1">
+                No stealth activity
+              </p>
+              <p className="text-sm text-[var(--text-primary)]/50">
+                Stealth payments you send or receive will appear here
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {stealthActivities.map((activity) => (
+                <div
+                  key={activity.id}
+                  className="flex items-center justify-between p-6 rounded-2xl bg-white/50 border border-black/5 hover:bg-white/70 transition-all"
+                >
+                  <div className="flex items-center gap-4 flex-1">
+                    <div
+                      className={cn(
+                        "w-12 h-12 rounded-xl flex items-center justify-center",
+                        activity.activity_type === "stealth_sent"
+                          ? "bg-purple-50"
+                          : "bg-emerald-50"
+                      )}
+                    >
+                      <Ghost
+                        size={24}
+                        className={
+                          activity.activity_type === "stealth_sent"
+                            ? "text-purple-600"
+                            : "text-emerald-600"
+                        }
+                      />
+                    </div>
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <p className="text-sm font-medium text-[var(--text-primary)]">
+                          {activity.activity_type === "stealth_sent"
+                            ? "Sent"
+                            : activity.activity_type ===
+                                "stealth_claim_started"
+                              ? "Claim Started"
+                              : "Claimed"}
+                        </p>
+                      </div>
+                      <p className="text-sm text-[var(--text-primary)]/50">
+                        {activity.note}
+                        {activity.created_at &&
+                          ` \u00B7 ${new Date(activity.created_at).toLocaleDateString()}`}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <div className="text-right">
+                      <p className="text-lg font-heading font-medium encrypted-text">
+                        ${"\u2588\u2588\u2588\u2588\u2588.\u2588\u2588"}
+                      </p>
+                      <div
+                        className={cn(
+                          "inline-flex px-2 py-1 rounded-full text-xs font-medium border",
+                          activity.activity_type === "stealth_claimed"
+                            ? "bg-emerald-50 text-emerald-700 border-emerald-100"
+                            : "bg-purple-50 text-purple-700 border-purple-100"
+                        )}
+                      >
+                        {activity.activity_type === "stealth_sent"
+                          ? "sent"
+                          : activity.activity_type === "stealth_claim_started"
+                            ? "pending"
+                            : "claimed"}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

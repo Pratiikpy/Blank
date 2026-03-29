@@ -1,0 +1,18 @@
+{
+  "name": "blankpay",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Encrypted payment super-app on Fhenix CoFHE",
+  "scripts": {
+    "contracts:compile": "pnpm --filter @blankpay/contracts compile",
+    "contracts:test": "pnpm --filter @blankpay/contracts test",
+    "contracts:deploy:base-sepolia": "pnpm --filter @blankpay/contracts deploy:base-sepolia",
+    "app:dev": "pnpm --filter @blankpay/app dev",
+    "app:build": "pnpm --filter @blankpay/app build",
+    "clean": "pnpm -r clean"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  }
+}
