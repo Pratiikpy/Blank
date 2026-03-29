@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════════
---  GhostPay — Supabase Schema
+--  Blank — Supabase Schema
 --  Notification & indexing layer. Source of truth is ALWAYS blockchain.
 --  NEVER store encrypted amounts here — only public context.
 -- ═══════════════════════════════════════════════════════════════════

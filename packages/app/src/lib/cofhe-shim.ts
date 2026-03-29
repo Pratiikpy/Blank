@@ -49,6 +49,7 @@ export function useCofheReadContractAndDecrypt(_config: unknown) {
   return {
     encrypted: { data: undefined, isFetching: false },
     decrypted: { data: undefined, isFetching: false, error: null },
+    disabledDueToMissingPermit: true,
   };
 }
 

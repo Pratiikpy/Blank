@@ -80,8 +80,8 @@ export default function History() {
       if (activeFilter === "received") return isIncoming;
       if (activeFilter === "sent")
         return !isIncoming && a.activity_type === "payment";
-      if (activeFilter === "swap") return a.activity_type === "swap";
-      if (activeFilter === "stealth") return a.activity_type === "stealth";
+      if (activeFilter === "swap") return ["swap","exchange_created","exchange_filled"].includes(a.activity_type);
+      if (activeFilter === "stealth") return ["stealth_sent","stealth_claim_started","stealth_claimed"].includes(a.activity_type);
       return true;
     });
   }, [activities, activeFilter, address]);

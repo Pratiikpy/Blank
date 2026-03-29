@@ -1,21 +1,17 @@
 {
-  "name": "Blank — Encrypted Payments",
+  "name": "Blank Pay",
   "short_name": "Blank",
-  "description": "Social payments. Private amounts. Powered by FHE on Base.",
+  "description": "Private payments for the real world.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#000000",
-  "theme_color": "#000000",
+  "background_color": "#F9FAFB",
+  "theme_color": "#F9FAFB",
   "icons": [
     {
-      "src": "/icon-192.png",
-      "sizes": "192x192",
-      "type": "image/png"
-    },
-    {
-      "src": "/icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png"
+      "src": "/ghost.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
     }
   ]
 }

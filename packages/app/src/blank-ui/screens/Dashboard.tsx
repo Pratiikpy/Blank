@@ -19,6 +19,7 @@ import { cn } from "@/lib/cn";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { useActivityFeed } from "@/hooks/useActivityFeed";
 import { useEncryptedBalance } from "@/hooks/useEncryptedBalance";
+import { useShield } from "@/hooks/useShield";
 
 function getGreeting(): string {
   const hour = new Date().getHours();
@@ -44,8 +45,14 @@ export default function Dashboard() {
   const { address } = useAccount();
   const { activities, isLoading: feedLoading } = useActivityFeed();
   const balance = useEncryptedBalance();
+  const { mintTestTokens, shield, publicBalance, isMinting } = useShield();
   const isMobile = useMediaQuery("(max-width: 768px)");
   const [privacyMode, setPrivacyMode] = useState(true);
+  const [shieldAmount, setShieldAmount] = useState("");
+
+  const handleMint = async () => {
+    await mintTestTokens();
+  };
 
   const greeting = useMemo(() => getGreeting(), []);
   const displayAddress = address ? truncateAddress(address) : "";
@@ -89,7 +96,7 @@ export default function Dashboard() {
               className="text-4xl font-semibold tracking-tight text-[var(--text-primary)] mb-2"
               style={{ fontFamily: "'Outfit', 'Inter', sans-serif" }}
             >
-              {greeting}, {displayAddress || "Alex"}
+              {greeting}, {displayAddress || "there"}
             </h1>
             <p className="text-base text-[var(--text-secondary)] leading-relaxed">
               Your financial privacy is protected with Fully Homomorphic Encryption
@@ -103,6 +110,43 @@ export default function Dashboard() {
             onTogglePrivacy={() => setPrivacyMode((p) => !p)}
             activityCount={activities.length}
           />
+
+          {/* Shield Section */}
+          <div className="glass-card-static rounded-[2rem] p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-label text-[var(--text-secondary)]">DEPOSIT TO VAULT</p>
+                <p className="text-sm text-[var(--text-secondary)] mt-1">Shield USDC to enable encrypted payments</p>
+              </div>
+              <button onClick={handleMint} disabled={isMinting} className="h-10 px-4 rounded-full bg-emerald-50 text-emerald-600 font-medium text-sm hover:bg-emerald-100 transition-colors disabled:opacity-50">
+                {isMinting ? "Minting..." : "Get Test USDC"}
+              </button>
+            </div>
+            <div className="flex gap-3">
+              <div className="flex-1 relative">
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]">$</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={shieldAmount}
+                  onChange={(e) => { const v = e.target.value; if (/^\d*\.?\d{0,6}$/.test(v) || v === "") setShieldAmount(v); }}
+                  placeholder="0.00"
+                  className="h-14 w-full pl-8 pr-4 rounded-2xl bg-white/60 border border-black/5 focus:border-black/20 focus:ring-4 focus:ring-black/5 outline-none text-lg font-mono tabular-nums"
+                />
+              </div>
+              <button
+                onClick={async () => { if (shieldAmount) { await shield(shieldAmount); setShieldAmount(""); } }}
+                disabled={!shieldAmount || parseFloat(shieldAmount) <= 0}
+                className="h-14 px-8 rounded-2xl bg-[#1D1D1F] text-white font-medium hover:bg-black transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                Shield
+              </button>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-[var(--text-tertiary)]">Public USDC Balance:</span>
+              <span className="font-mono tabular-nums text-[var(--text-primary)]">{publicBalance.toLocaleString("en-US", { minimumFractionDigits: 2 })} USDC</span>
+            </div>
+          </div>
 
           {/* Quick Actions */}
           <div className="glass-card-static rounded-[2rem] p-8">
@@ -156,7 +200,7 @@ export default function Dashboard() {
             className="text-4xl sm:text-5xl font-medium tracking-tight text-[var(--text-primary)] mb-2"
             style={{ fontFamily: "'Outfit', 'Inter', sans-serif" }}
           >
-            {greeting}, {displayAddress || "Alex"}
+            {greeting}, {displayAddress || "there"}
           </h1>
           <p className="text-base text-[var(--text-secondary)] leading-relaxed">
             Your financial privacy is protected with Fully Homomorphic Encryption
@@ -202,6 +246,43 @@ export default function Dashboard() {
                   <span>{action.label}</span>
                 </button>
               ))}
+            </div>
+          </div>
+
+          {/* Shield Section (col-span-full) */}
+          <div className="col-span-full rounded-[2rem] glass-card-static p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-label text-[var(--text-secondary)]">DEPOSIT TO VAULT</p>
+                <p className="text-sm text-[var(--text-secondary)] mt-1">Shield USDC to enable encrypted payments</p>
+              </div>
+              <button onClick={handleMint} disabled={isMinting} className="h-10 px-4 rounded-full bg-emerald-50 text-emerald-600 font-medium text-sm hover:bg-emerald-100 transition-colors disabled:opacity-50">
+                {isMinting ? "Minting..." : "Get Test USDC"}
+              </button>
+            </div>
+            <div className="flex gap-3">
+              <div className="flex-1 relative">
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]">$</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={shieldAmount}
+                  onChange={(e) => { const v = e.target.value; if (/^\d*\.?\d{0,6}$/.test(v) || v === "") setShieldAmount(v); }}
+                  placeholder="0.00"
+                  className="h-14 w-full pl-8 pr-4 rounded-2xl bg-white/60 border border-black/5 focus:border-black/20 focus:ring-4 focus:ring-black/5 outline-none text-lg font-mono tabular-nums"
+                />
+              </div>
+              <button
+                onClick={async () => { if (shieldAmount) { await shield(shieldAmount); setShieldAmount(""); } }}
+                disabled={!shieldAmount || parseFloat(shieldAmount) <= 0}
+                className="h-14 px-8 rounded-2xl bg-[#1D1D1F] text-white font-medium hover:bg-black transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                Shield
+              </button>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-[var(--text-tertiary)]">Public USDC Balance:</span>
+              <span className="font-mono tabular-nums text-[var(--text-primary)]">{publicBalance.toLocaleString("en-US", { minimumFractionDigits: 2 })} USDC</span>
             </div>
           </div>
 

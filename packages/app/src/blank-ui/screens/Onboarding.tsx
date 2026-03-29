@@ -1,7 +1,7 @@
 import { useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useConnect } from "wagmi";
-import { Lock, Shield, Key, Sparkles, ArrowRight } from "lucide-react";
+import { Lock, Shield, Key, Sparkles, ArrowRight, Loader2 } from "lucide-react";
 import { cn } from "@/lib/cn";
 
 // ─── Step data with gradient icon backgrounds ─────────────────────────
@@ -29,7 +29,7 @@ const steps = [
     Icon: Key,
     gradient: "from-amber-500 to-orange-500",
     heading: "Your Keys. Your Money.",
-    subtitle: "Non-custodial and self-sovereign. Running on Base network. No company holds your funds. Complete financial privacy.",
+    subtitle: "Non-custodial and self-sovereign. Running on Base Sepolia (testnet). No company holds your funds. Complete financial privacy.",
   },
 ];
 
@@ -37,7 +37,7 @@ const steps = [
 
 export default function Onboarding() {
   const [step, setStep] = useState(0);
-  const { connectors, connect } = useConnect();
+  const { connectors, connect, isPending, error: connectError } = useConnect();
 
   const goNext = useCallback(() => {
     if (step < steps.length - 1) setStep(s => s + 1);
@@ -140,26 +140,43 @@ export default function Onboarding() {
                 Back
               </button>
             )}
-            <button
-              onClick={goNext}
-              className="flex-1 h-14 px-6 rounded-2xl bg-[#1D1D1F] text-white font-medium hover:bg-black transition-all active:scale-[0.98] flex items-center justify-center gap-2"
-            >
-              <span>{isLast ? "Get Started" : "Next"}</span>
-              <ArrowRight size={18} strokeWidth={2} />
-            </button>
+            {!isLast && (
+              <button
+                onClick={goNext}
+                className="flex-1 h-14 px-6 rounded-2xl bg-[#1D1D1F] text-white font-medium hover:bg-black transition-all active:scale-[0.98] flex items-center justify-center gap-2"
+              >
+                <span>Next</span>
+                <ArrowRight size={18} strokeWidth={2} />
+              </button>
+            )}
           </div>
 
-          {/* Connect wallet link on last step */}
+          {/* Wallet selector on last step */}
           {isLast && (
-            <motion.button
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.3 }}
-              onClick={handleConnect}
-              className="w-full text-center text-sm text-gray-400 hover:text-gray-600 mt-4 py-2 transition-colors"
-            >
-              Already have a wallet? Connect it
-            </motion.button>
+            <div className="space-y-3">
+              {connectors.map((connector) => (
+                <button
+                  key={connector.uid}
+                  onClick={() => connect({ connector })}
+                  disabled={isPending}
+                  className="w-full h-14 px-6 rounded-2xl bg-[#1D1D1F] text-white font-medium hover:bg-black transition-all active:scale-[0.98] flex items-center justify-center gap-3 disabled:opacity-50"
+                >
+                  {isPending ? (
+                    <Loader2 size={20} className="animate-spin" />
+                  ) : null}
+                  <span>Connect {connector.name}</span>
+                </button>
+              ))}
+              {connectError && (
+                <p className="text-sm text-red-500 text-center">{connectError.message}</p>
+              )}
+              <p className="text-xs text-center text-gray-400 mt-2">
+                Don&apos;t have a wallet?{" "}
+                <a href="https://metamask.io/download/" target="_blank" rel="noopener noreferrer" className="text-[#6366F1] hover:underline">
+                  Install MetaMask
+                </a>
+              </p>
+            </div>
           )}
         </div>
       </motion.div>

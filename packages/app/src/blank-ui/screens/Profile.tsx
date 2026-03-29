@@ -62,7 +62,7 @@ export default function Profile() {
       iconBg: "bg-[#007AFF]/10 text-[#007AFF]",
       label: "Wallet & Keys",
       subtitle: "Manage your wallet and recovery",
-      route: "/explore",
+      route: "/privacy",
     },
     {
       icon: <Users size={20} />,
@@ -76,14 +76,14 @@ export default function Profile() {
       iconBg: "bg-purple-50 text-purple-600",
       label: "Privacy Settings",
       subtitle: "Permits and access control",
-      route: "/explore",
+      route: "/privacy",
     },
     {
       icon: <Settings size={20} />,
       iconBg: "bg-gray-100 text-gray-600",
       label: "Settings",
       subtitle: "Preferences and notifications",
-      route: "/explore",
+      route: "/profile",
     },
   ];
 

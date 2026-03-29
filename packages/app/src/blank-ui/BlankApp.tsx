@@ -1,12 +1,14 @@
 import { lazy, Suspense } from "react";
-import { Routes, Route, useLocation, useNavigate } from "react-router-dom";
+import { Routes, Route, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { useAccount } from "wagmi";
+import { useSwitchChain } from "wagmi";
 import {
   Home,
   Send,
   Clock,
   Compass,
   User,
+  AlertTriangle,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
@@ -89,7 +91,8 @@ const hideNavRoutes = ["/send/amount", "/send/confirm", "/send/success"];
 
 // ─── Main app shell ────────────────────────────────────────────────
 export function BlankApp() {
-  const { isConnected } = useAccount();
+  const { isConnected, chain } = useAccount();
+  const { switchChain } = useSwitchChain();
   const location = useLocation();
   const isMobile = useMediaQuery("(max-width: 768px)");
 
@@ -100,6 +103,27 @@ export function BlankApp() {
         <Suspense fallback={<LoadingSpinner />}>
           <Onboarding />
         </Suspense>
+      </div>
+    );
+  }
+
+  // Network mismatch warning
+  if (isConnected && chain?.id !== 84532) {
+    return (
+      <div className="blank-app min-h-dvh flex items-center justify-center px-6">
+        <div className="glass-card-static rounded-[2rem] p-10 max-w-md text-center">
+          <div className="w-16 h-16 rounded-2xl bg-amber-50 flex items-center justify-center mx-auto mb-6">
+            <AlertTriangle size={32} className="text-amber-500" />
+          </div>
+          <h2 className="text-2xl font-heading font-semibold mb-3">Wrong Network</h2>
+          <p className="text-[var(--text-secondary)] mb-6">Please switch to Base Sepolia to use Blank Pay.</p>
+          <button
+            onClick={() => switchChain?.({ chainId: 84532 })}
+            className="h-14 w-full rounded-2xl bg-[#1D1D1F] text-white font-medium hover:bg-black transition-colors"
+          >
+            Switch to Base Sepolia
+          </button>
+        </div>
       </div>
     );
   }
@@ -134,6 +158,7 @@ export function BlankApp() {
               <Route path="/business" element={<BusinessTools />} />
               <Route path="/creators" element={<CreatorSupport />} />
               <Route path="/inheritance" element={<InheritancePlanning />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </div>
         </Suspense>

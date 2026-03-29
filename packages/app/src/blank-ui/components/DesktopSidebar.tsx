@@ -32,12 +32,12 @@ const NAV_ITEMS: NavItem[] = [
   { icon: Wallet, label: "Dashboard", path: "/" },
   { icon: Send, label: "Send & Receive", path: "/send" },
   { icon: Users, label: "Group Expenses", path: "/groups" },
-  { icon: Heart, label: "Creator Support", path: "/explore" },
-  { icon: Briefcase, label: "Business Tools", path: "/analytics" },
+  { icon: Heart, label: "Creator Support", path: "/creators" },
+  { icon: Briefcase, label: "Business Tools", path: "/business" },
   { icon: ArrowLeftRight, label: "P2P Exchange", path: "/swap" },
   { icon: EyeOff, label: "Stealth Payments", path: "/stealth" },
   { icon: Gift, label: "Gift Envelopes", path: "/gifts" },
-  { icon: Timer, label: "Inheritance", path: "/history" },
+  { icon: Timer, label: "Inheritance", path: "/inheritance" },
   { icon: Settings, label: "Settings", path: "/profile" },
 ];
 

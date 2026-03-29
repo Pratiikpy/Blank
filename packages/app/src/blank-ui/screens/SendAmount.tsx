@@ -1,5 +1,5 @@
-import { useState, useCallback } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useState, useCallback, useEffect } from "react";
+import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import { Shield, MessageSquare, ChevronLeft } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useSendPayment } from "@/hooks/useSendPayment";
@@ -28,10 +28,14 @@ function avatarColor(addr: string): string {
 export default function SendAmount() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { recipient, nickname } = (location.state as {
+  const [searchParams] = useSearchParams();
+  const locationState = location.state as {
     recipient: string;
     nickname: string;
-  }) || { recipient: "", nickname: "" };
+  } | null;
+  const recipient = locationState?.recipient || "";
+  const nickname = locationState?.nickname || "";
+  const urlRecipient = searchParams.get("to");
 
   const { setRecipient, setAmount, setNote, note, send, canProceed } =
     useSendPayment();
@@ -39,10 +43,11 @@ export default function SendAmount() {
   const [localAmount, setLocalAmount] = useState("0");
   const [showNote, setShowNote] = useState(false);
 
-  // Sync recipient on mount
-  useState(() => {
-    if (recipient) setRecipient(recipient);
-  });
+  // Sync recipient on mount - prefer URL param, then location state
+  useEffect(() => {
+    const target = recipient || urlRecipient || "";
+    if (target) setRecipient(target);
+  }, [recipient, urlRecipient, setRecipient]);
 
   const handleKey = useCallback(
     (key: string) => {
@@ -52,7 +57,7 @@ export default function SendAmount() {
           next = key;
         } else if (key === "." && prev.includes(".")) {
           return prev;
-        } else if (prev.includes(".") && prev.split(".")[1].length >= 2) {
+        } else if (prev.includes(".") && prev.split(".")[1].length >= 6) {
           return prev;
         } else {
           next = prev + key;

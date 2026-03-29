@@ -108,6 +108,7 @@ export default function Gifts() {
   const [giftRecipient, setGiftRecipient] = useState("");
   const [giftMessage, setGiftMessage] = useState("");
   const [splitType, setSplitType] = useState<"equal" | "random">("equal");
+  const [claimId, setClaimId] = useState("");
   const [sentGift, setSentGift] = useState<{
     recipient: string;
     amount: string;
@@ -627,24 +628,31 @@ export default function Gifts() {
                       </div>
                       {/* Claim button for received gifts -- user needs to know the envelope ID */}
                       {!isSent && (
-                        <button
-                          onClick={() => {
-                            // The envelope ID would come from on-chain events.
-                            // For now, prompt the user to enter it.
-                            const id = prompt(
-                              "Enter the envelope ID to claim this gift:"
-                            );
-                            if (id) handleClaim(parseInt(id, 10));
-                          }}
-                          disabled={isProcessing}
-                          className="h-10 px-5 rounded-xl bg-[var(--text-primary)] text-white text-sm font-medium transition-transform active:scale-95 hover:bg-[#000000] disabled:opacity-50"
-                        >
-                          {isProcessing ? (
-                            <Loader2 size={16} className="animate-spin" />
-                          ) : (
-                            "Claim"
-                          )}
-                        </button>
+                        <div className="flex gap-2 mt-3">
+                          <input
+                            type="text"
+                            value={claimId}
+                            onChange={(e) => setClaimId(e.target.value)}
+                            placeholder="Envelope ID"
+                            className="h-10 flex-1 px-3 rounded-xl bg-white/60 border border-black/5 text-sm"
+                          />
+                          <button
+                            onClick={() => {
+                              if (claimId) {
+                                handleClaim(parseInt(claimId, 10));
+                                setClaimId("");
+                              }
+                            }}
+                            disabled={isProcessing || !claimId}
+                            className="h-10 px-4 rounded-xl bg-emerald-500 text-white text-sm font-medium disabled:opacity-50"
+                          >
+                            {isProcessing ? (
+                              <Loader2 size={16} className="animate-spin" />
+                            ) : (
+                              "Claim"
+                            )}
+                          </button>
+                        </div>
                       )}
                     </div>
                   </div>

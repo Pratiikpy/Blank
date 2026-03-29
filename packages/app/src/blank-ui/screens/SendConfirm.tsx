@@ -13,6 +13,7 @@ export default function SendConfirm() {
   const {
     step,
     recipient,
+    amount,
     note,
     isEncrypting,
     isSending,
@@ -84,10 +85,10 @@ export default function SendConfirm() {
             <div className="flex items-center justify-between py-4">
               <span className="text-[var(--text-secondary)]">Amount</span>
               <span
-                className="text-lg font-semibold encrypted-text text-[var(--text-tertiary)]"
+                className="text-lg font-semibold font-mono tabular-nums text-[var(--text-primary)]"
                 style={{ fontFamily: "'JetBrains Mono', monospace" }}
               >
-                $&#x2588;&#x2588;&#x2588;&#x2588;.&#x2588;&#x2588;
+                ${amount || "0.00"} USDC
               </span>
             </div>
 

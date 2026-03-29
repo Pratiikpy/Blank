@@ -77,7 +77,7 @@ export default function Receive() {
             {/* QR Code */}
             <div className="w-64 h-64 rounded-3xl bg-white border-4 border-black/5 dark:border-white/10 flex items-center justify-center mb-6 shadow-sm">
               <QRCodeSVG
-                value={address}
+                value={paymentLink || address || ""}
                 size={220}
                 level="M"
                 bgColor="#FFFFFF"

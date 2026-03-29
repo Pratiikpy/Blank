@@ -15,7 +15,7 @@
 Blank is an encrypted payment platform where transaction amounts are invisible on-chain.<br />
 Built on Fully Homomorphic Encryption. The blockchain processes data it cannot read.
 
-[Launch App](https://blank-pay.vercel.app) · [Docs](https://docs.blank.finance)
+[Launch App](https://blank-omega-jade.vercel.app)
 
 </div>
 

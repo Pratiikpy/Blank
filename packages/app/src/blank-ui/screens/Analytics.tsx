@@ -34,33 +34,13 @@ function computeStats(activities: { activity_type: string }[]): ActivityStats {
   let giftCount = 0;
 
   for (const a of activities) {
-    switch (a.activity_type) {
-      case "send":
-      case "tip":
-        sentCount++;
-        break;
-      case "receive":
-      case "request_fulfilled":
-        receivedCount++;
-        break;
-      case "swap":
-        swapCount++;
-        break;
-      case "group_expense":
-      case "group_split":
-      case "debt_settled":
-        groupSplitCount++;
-        break;
-      case "stealth_sent":
-      case "stealth_claimed":
-      case "stealth_claim_started":
-        stealthCount++;
-        break;
-      case "gift_created":
-      case "gift_claimed":
-        giftCount++;
-        break;
-    }
+    const type = a.activity_type;
+    if (type === "payment" || type === "tip" || type === "group_settle") sentCount++;
+    else if (type === "request_fulfilled" || type === "gift_claimed") receivedCount++;
+    else if (type === "exchange_created" || type === "exchange_filled") swapCount++;
+    else if (type.startsWith("stealth")) stealthCount++;
+    else if (type === "group_expense") groupSplitCount++;
+    else if (type === "gift_created") giftCount++;
   }
 
   return { sentCount, receivedCount, swapCount, groupSplitCount, stealthCount, giftCount };
