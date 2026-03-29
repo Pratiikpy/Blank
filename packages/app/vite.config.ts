@@ -31,21 +31,26 @@ export default defineConfig({
     chunkSizeWarningLimit: 800,
     rollupOptions: {
       output: {
-        manualChunks: {
-          // Core React
-          "vendor-react": ["react", "react-dom", "react-router-dom"],
-          // Wagmi + Viem (blockchain)
-          "vendor-web3": ["wagmi", "viem", "@tanstack/react-query"],
-          // Framer Motion (animations)
-          "vendor-motion": ["framer-motion"],
-          // Three.js (3D effects - lazy loaded anyway)
-          "vendor-three": ["three", "@react-three/fiber", "@react-three/drei"],
-          // Recharts (charts)
-          "vendor-charts": ["recharts"],
-          // Date utilities
-          "vendor-date": ["date-fns"],
-          // Cofhe SDK
-          "vendor-cofhe": ["@cofhe/sdk", "@cofhe/react"],
+        manualChunks(id) {
+          // Keep cofhe + its MUI/emotion deps together with React to avoid isValidElementType error
+          if (id.includes("@cofhe/") || id.includes("@mui/") || id.includes("@emotion/")) {
+            return "vendor-cofhe";
+          }
+          if (id.includes("node_modules/react/") || id.includes("node_modules/react-dom/") || id.includes("react-router-dom") || id.includes("react-is")) {
+            return "vendor-react";
+          }
+          if (id.includes("wagmi") || id.includes("viem") || id.includes("@tanstack/react-query")) {
+            return "vendor-web3";
+          }
+          if (id.includes("framer-motion")) {
+            return "vendor-motion";
+          }
+          if (id.includes("recharts")) {
+            return "vendor-charts";
+          }
+          if (id.includes("date-fns")) {
+            return "vendor-date";
+          }
         },
       },
     },
