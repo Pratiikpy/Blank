@@ -9,6 +9,7 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      "@cofhe/react": path.resolve(__dirname, "./src/lib/cofhe-shim.ts"),
     },
   },
   server: {
