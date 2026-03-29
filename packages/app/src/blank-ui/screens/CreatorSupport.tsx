@@ -10,10 +10,13 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useTipCreator } from "@/hooks/useTipCreator";
-import { useAccount } from "wagmi";
+import { useAccount, useWriteContract, usePublicClient } from "wagmi";
+import { CreatorHubAbi } from "@/lib/abis";
+import { CONTRACTS } from "@/lib/constants";
 import {
   fetchCreatorProfiles,
   fetchCreatorSupporters,
+  upsertCreatorProfile,
   type CreatorProfileRow,
   type CreatorSupporterRow,
 } from "@/lib/supabase";
@@ -46,6 +49,8 @@ const tiers: TierOption[] = [
 export default function CreatorSupport() {
   const { address } = useAccount();
   const { isTipping, tip } = useTipCreator();
+  const publicClient = usePublicClient();
+  const { writeContractAsync } = useWriteContract();
 
   const [selectedTier, setSelectedTier] = useState<number | null>(null);
   const [selectedCreator, setSelectedCreator] = useState<CreatorProfileRow | null>(null);
@@ -53,6 +58,59 @@ export default function CreatorSupport() {
   const [supporters, setSupporters] = useState<CreatorSupporterRow[]>([]);
   const [isLoadingCreators, setIsLoadingCreators] = useState(false);
   const [tipMessage, setTipMessage] = useState("");
+
+  // Creator registration state
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [creatorName, setCreatorName] = useState("");
+  const [creatorBio, setCreatorBio] = useState("");
+  const [isCreatingProfile, setIsCreatingProfile] = useState(false);
+
+  // Check if current user is already a creator
+  const isCreator = creators.some(
+    (c) => c.address.toLowerCase() === address?.toLowerCase(),
+  );
+
+  const handleCreateProfile = async () => {
+    if (!address || !creatorName.trim() || !publicClient) return;
+    setIsCreatingProfile(true);
+    try {
+      // Call contract to set profile (tier amounts as uint64 in micro-units)
+      const hash = await writeContractAsync({
+        address: CONTRACTS.CreatorHub,
+        abi: CreatorHubAbi,
+        functionName: "setProfile",
+        args: [creatorName.trim(), creatorBio.trim(), BigInt(5_000000), BigInt(15_000000), BigInt(50_000000)],
+      });
+      const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
+      if (receipt.status === "reverted") throw new Error("Transaction reverted");
+
+      // Write to Supabase
+      await upsertCreatorProfile({
+        address: address.toLowerCase(),
+        name: creatorName.trim(),
+        bio: creatorBio.trim(),
+        avatar_url: "",
+        tier1_threshold: 5,
+        tier2_threshold: 15,
+        tier3_threshold: 50,
+        supporter_count: 0,
+        is_active: true,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+
+      // Refresh creators list
+      const updated = await fetchCreatorProfiles();
+      setCreators(updated);
+      setShowCreateForm(false);
+      setCreatorName("");
+      setCreatorBio("");
+    } catch (err) {
+      console.error("Failed to create profile:", err);
+    } finally {
+      setIsCreatingProfile(false);
+    }
+  };
 
   // Fetch real creator profiles from Supabase
   useEffect(() => {
@@ -107,6 +165,48 @@ export default function CreatorSupport() {
             Support your favorite creators with private tipping
           </p>
         </div>
+
+        {/* Become a Creator */}
+        {!isCreator && (
+          <div className="rounded-[2rem] glass-card p-6 mb-8">
+            <h3 className="text-lg font-heading font-semibold text-[var(--text-primary)] mb-2">
+              Become a Creator
+            </h3>
+            <p className="text-sm text-[var(--text-primary)]/50 mb-4">
+              Set up your profile to receive encrypted tips
+            </p>
+            {showCreateForm ? (
+              <div className="space-y-3">
+                <input
+                  value={creatorName}
+                  onChange={(e) => setCreatorName(e.target.value)}
+                  placeholder="Your name"
+                  className="h-12 w-full px-4 rounded-xl bg-white/60 border border-black/5 outline-none"
+                />
+                <input
+                  value={creatorBio}
+                  onChange={(e) => setCreatorBio(e.target.value)}
+                  placeholder="Bio (optional)"
+                  className="h-12 w-full px-4 rounded-xl bg-white/60 border border-black/5 outline-none"
+                />
+                <button
+                  onClick={handleCreateProfile}
+                  disabled={!creatorName.trim() || isCreatingProfile}
+                  className="h-12 w-full rounded-xl bg-[#1D1D1F] text-white font-medium disabled:opacity-30"
+                >
+                  {isCreatingProfile ? "Creating..." : "Create Profile"}
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setShowCreateForm(true)}
+                className="h-12 px-6 rounded-xl bg-[#1D1D1F] text-white font-medium"
+              >
+                Set Up Profile
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Loading State */}
         {isLoadingCreators && (

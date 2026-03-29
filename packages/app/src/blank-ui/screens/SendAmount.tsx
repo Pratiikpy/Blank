@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import { Shield, MessageSquare, ChevronLeft } from "lucide-react";
+import { useShield } from "@/hooks/useShield";
 import { cn } from "@/lib/cn";
 import { useSendPayment } from "@/hooks/useSendPayment";
 import { NumericKeypad } from "../components";
@@ -39,6 +40,7 @@ export default function SendAmount() {
 
   const { setRecipient, setAmount, setNote, note, send, canProceed } =
     useSendPayment();
+  const { publicBalance } = useShield();
 
   const [localAmount, setLocalAmount] = useState("0");
   const [showNote, setShowNote] = useState(false);
@@ -121,17 +123,29 @@ export default function SendAmount() {
 
         {/* Amount display */}
         <div className="flex-1 flex flex-col items-center justify-center py-8">
-          <p
-            className={cn(
-              "text-6xl font-semibold text-center tracking-tight transition-colors",
-              localAmount === "0"
-                ? "text-[var(--text-muted)]"
-                : "text-[var(--text-primary)]",
-            )}
-            style={{ fontFamily: "'JetBrains Mono', 'SF Mono', monospace", fontVariantNumeric: "tabular-nums" }}
-          >
-            ${localAmount}
-          </p>
+          <div className="flex items-center gap-2">
+            <p
+              className={cn(
+                "text-6xl font-semibold text-center tracking-tight transition-colors",
+                localAmount === "0"
+                  ? "text-[var(--text-muted)]"
+                  : "text-[var(--text-primary)]",
+              )}
+              style={{ fontFamily: "'JetBrains Mono', 'SF Mono', monospace", fontVariantNumeric: "tabular-nums" }}
+            >
+              ${localAmount}
+            </p>
+            <button
+              onClick={() => {
+                const max = publicBalance.toFixed(6);
+                setLocalAmount(max);
+                setAmount(max);
+              }}
+              className="text-xs font-medium text-[#6366F1] hover:text-[#4F46E5] px-2 py-1 rounded-lg hover:bg-[#6366F1]/5 transition-colors"
+            >
+              MAX
+            </button>
+          </div>
           <div className="mt-4 flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-500/10 border border-emerald-500/20">
             <Shield size={14} className="text-emerald-600 dark:text-emerald-400" />
             <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">

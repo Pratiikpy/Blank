@@ -34,6 +34,8 @@ const BusinessTools = lazy(() => import("./screens/BusinessTools"));
 const CreatorSupport = lazy(() => import("./screens/CreatorSupport"));
 const InheritancePlanning = lazy(() => import("./screens/InheritancePlanning"));
 const Requests = lazy(() => import("./screens/Requests"));
+const Contacts = lazy(() => import("./screens/Contacts"));
+const Privacy = lazy(() => import("./screens/Privacy"));
 
 // Desktop sidebar
 import { DesktopSidebar } from "./components/DesktopSidebar";
@@ -160,6 +162,8 @@ export function BlankApp() {
               <Route path="/creators" element={<CreatorSupport />} />
               <Route path="/inheritance" element={<InheritancePlanning />} />
               <Route path="/requests" element={<Requests />} />
+              <Route path="/contacts" element={<Contacts />} />
+              <Route path="/privacy" element={<Privacy />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </div>

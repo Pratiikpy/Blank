@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useAccount } from "wagmi";
 import {
   Send,
@@ -7,9 +7,15 @@ import {
   Ghost,
   KeyRound,
   Inbox,
+  Download,
+  UserPlus,
+  X,
+  ExternalLink,
+  Search,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useActivityFeed } from "@/hooks/useActivityFeed";
+import { useContacts } from "@/hooks/useContacts";
 
 type FilterTab = "all" | "received" | "sent" | "swap" | "stealth";
 
@@ -47,6 +53,31 @@ const typeIconMap: Record<
   },
 };
 
+const activityLabels: Record<string, string> = {
+  payment: "Sent payment",
+  request: "Payment request",
+  request_fulfilled: "Request fulfilled",
+  request_cancelled: "Request cancelled",
+  group_expense: "Group expense",
+  group_settle: "Debt settled",
+  tip: "Creator tip",
+  invoice_created: "Invoice created",
+  invoice_paid: "Invoice paid",
+  payroll: "Payroll sent",
+  escrow_created: "Escrow created",
+  escrow_released: "Escrow released",
+  exchange_created: "Swap offer",
+  exchange_filled: "Swap completed",
+  shield: "Deposited to vault",
+  unshield: "Withdrawn from vault",
+  mint: "Faucet tokens",
+  gift_created: "Gift sent",
+  gift_claimed: "Gift opened",
+  stealth_sent: "Anonymous payment",
+  stealth_claim_started: "Claim started",
+  stealth_claimed: "Payment claimed",
+};
+
 function truncateAddress(addr: string): string {
   return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
 }
@@ -67,10 +98,25 @@ function formatRelativeTime(isoDate: string): string {
   });
 }
 
+function getDateGroup(dateStr: string): string {
+  const date = new Date(dateStr);
+  const now = new Date();
+  const diff = now.getTime() - date.getTime();
+  const days = Math.floor(diff / 86400000);
+  if (days === 0) return "Today";
+  if (days === 1) return "Yesterday";
+  if (days < 7) return "This Week";
+  if (days < 30) return "This Month";
+  return date.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+}
+
 export default function History() {
   const { address } = useAccount();
   const { activities, isLoading } = useActivityFeed();
+  const { addContact } = useContacts();
   const [activeFilter, setActiveFilter] = useState<FilterTab>("all");
+  const [selectedTx, setSelectedTx] = useState<(typeof activities)[number] | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const filtered = useMemo(() => {
     if (activeFilter === "all") return activities;
@@ -86,17 +132,79 @@ export default function History() {
     });
   }, [activities, activeFilter, address]);
 
+  const searchedActivities = useMemo(() => {
+    if (!searchQuery) return filtered;
+    const q = searchQuery.toLowerCase();
+    return filtered.filter(
+      (a) =>
+        (a.note || "").toLowerCase().includes(q) ||
+        a.user_from.toLowerCase().includes(q) ||
+        a.user_to.toLowerCase().includes(q) ||
+        a.activity_type.includes(q),
+    );
+  }, [filtered, searchQuery]);
+
+  const groupedActivities = useMemo(() => {
+    const groups: { label: string; items: typeof searchedActivities }[] = [];
+    let currentGroup = "";
+    for (const a of searchedActivities) {
+      const group = getDateGroup(a.created_at);
+      if (group !== currentGroup) {
+        groups.push({ label: group, items: [] });
+        currentGroup = group;
+      }
+      groups[groups.length - 1].items.push(a);
+    }
+    return groups;
+  }, [searchedActivities]);
+
+  const handleExport = useCallback(() => {
+    const headers = "Date,Type,From,To,Note,TxHash\n";
+    const rows = filtered.map(a =>
+      `${a.created_at},${activityLabels[a.activity_type] || a.activity_type},${a.user_from},${a.user_to},"${(a.note || "").replace(/"/g, '""')}",${a.tx_hash}`
+    ).join("\n");
+    const blob = new Blob([headers + rows], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `blank-history-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }, [filtered]);
+
   return (
     <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="max-w-5xl mx-auto">
         {/* Page Title */}
-        <div className="mb-8">
-          <h1 className="text-4xl sm:text-5xl font-heading font-semibold text-[var(--text-primary)] tracking-tight mb-2">
-            Activity
-          </h1>
-          <p className="text-base text-[var(--text-primary)]/50 leading-relaxed">
-            Your encrypted transaction history
-          </p>
+        <div className="mb-8 flex items-start justify-between">
+          <div>
+            <h1 className="text-4xl sm:text-5xl font-heading font-semibold text-[var(--text-primary)] tracking-tight mb-2">
+              Activity
+            </h1>
+            <p className="text-base text-[var(--text-primary)]/50 leading-relaxed">
+              Your encrypted transaction history
+            </p>
+          </div>
+          {filtered.length > 0 && (
+            <button
+              onClick={handleExport}
+              className="h-10 px-4 rounded-full bg-gray-100 text-[var(--text-secondary)] text-sm font-medium hover:bg-gray-200 transition-colors flex items-center gap-2"
+            >
+              <Download size={14} />
+              Export CSV
+            </button>
+          )}
+        </div>
+
+        {/* Search Bar */}
+        <div className="relative mb-4">
+          <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]" />
+          <input
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search transactions..."
+            className="h-11 w-full pl-11 pr-4 rounded-full bg-gray-100 border-none outline-none text-sm"
+          />
         </div>
 
         {/* Filter Pills */}
@@ -139,27 +247,31 @@ export default function History() {
               ))}
             </div>
           </div>
-        ) : filtered.length === 0 ? (
+        ) : searchedActivities.length === 0 ? (
           <div className="rounded-[2rem] glass-card p-16 flex flex-col items-center justify-center">
             <div className="w-16 h-16 rounded-2xl bg-gray-50 flex items-center justify-center mb-4">
               <Inbox size={32} className="text-gray-400" />
             </div>
             <p className="text-xl font-heading font-medium text-[var(--text-primary)] mb-1">
-              No activity yet
+              {searchQuery ? "No matching transactions" : "No activity yet"}
             </p>
             <p className="text-sm text-[var(--text-primary)]/50">
-              {activeFilter === "all"
-                ? "Your transactions will appear here"
-                : `No ${activeFilter} transactions found`}
+              {searchQuery
+                ? "Try a different search term"
+                : activeFilter === "all"
+                  ? "Your transactions will appear here"
+                  : `No ${activeFilter} transactions found`}
             </p>
           </div>
         ) : (
           <div className="rounded-[2rem] glass-card p-8">
-            <h3 className="text-xl font-heading font-medium text-[var(--text-primary)] mb-6">
-              Recent Transactions
-            </h3>
-            <div className="space-y-3">
-              {filtered.map((activity) => {
+            {groupedActivities.map((group) => (
+              <div key={group.label} className="mb-4 last:mb-0">
+                <p className="text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wide px-2 py-3">
+                  {group.label}
+                </p>
+                <div className="space-y-3">
+                  {group.items.map((activity) => {
                 const isIncoming =
                   activity.user_to.toLowerCase() === address?.toLowerCase();
                 const typeInfo = typeIconMap[activity.activity_type] || {
@@ -176,7 +288,8 @@ export default function History() {
                 return (
                   <div
                     key={activity.id}
-                    className="flex items-center justify-between p-6 rounded-2xl bg-white/50 border border-black/5 hover:bg-white/70 transition-all"
+                    onClick={() => setSelectedTx(activity)}
+                    className="flex items-center justify-between p-6 rounded-2xl bg-white/50 border border-black/5 hover:bg-white/70 transition-all cursor-pointer"
                   >
                     <div className="flex items-center gap-4">
                       <div
@@ -192,9 +305,9 @@ export default function History() {
                           {activity.note || truncateAddress(otherAddress)}
                         </p>
                         <p className="text-sm text-[var(--text-primary)]/50">
-                          {activity.activity_type.charAt(0).toUpperCase() +
-                            activity.activity_type.slice(1)}{" "}
-                          &middot; {formatRelativeTime(activity.created_at)}
+                          <span className="text-xs text-[var(--text-tertiary)]">
+                            {activity.user_from.toLowerCase() === address?.toLowerCase() ? "\u2191 Sent" : "\u2193 Received"} &middot; {formatRelativeTime(activity.created_at)}
+                          </span>
                         </p>
                       </div>
                     </div>
@@ -209,9 +322,10 @@ export default function History() {
                           )}
                         >
                           {isIncoming ? "+" : "-"}$
-                          <span className="encrypted-text">
-                            {"█████.██"}
+                          <span aria-hidden="true" className="encrypted-text">
+                            {"\u2588\u2588\u2588\u2588\u2588.\u2588\u2588"}
                           </span>
+                          <span className="sr-only">Amount hidden</span>
                         </p>
                         <div
                           className={cn(
@@ -226,8 +340,79 @@ export default function History() {
                       </div>
                     </div>
                   </div>
-                );
-              })}
+                  );
+                })}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Transaction Detail Overlay */}
+        {selectedTx && (
+          <div
+            className="fixed inset-0 z-50 flex items-end sm:items-center justify-center"
+            onClick={() => setSelectedTx(null)}
+          >
+            <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" />
+            <div
+              className="relative w-full max-w-lg mx-4 mb-4 sm:mb-0 glass-card-static rounded-[2rem] p-6 space-y-4 animate-in slide-in-from-bottom-4 duration-300"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold" style={{ fontFamily: "'Outfit', sans-serif" }}>Transaction Details</h3>
+                <button onClick={() => setSelectedTx(null)} className="p-2 rounded-xl hover:bg-black/5"><X size={20} /></button>
+              </div>
+              <div className="space-y-3">
+                <div className="flex justify-between p-3 rounded-xl bg-white/50 border border-black/5">
+                  <span className="text-sm text-[var(--text-secondary)]">Type</span>
+                  <span className="text-sm font-medium">{activityLabels[selectedTx.activity_type] || selectedTx.activity_type}</span>
+                </div>
+                <div className="flex justify-between p-3 rounded-xl bg-white/50 border border-black/5">
+                  <span className="text-sm text-[var(--text-secondary)]">From</span>
+                  <span className="text-sm font-mono">{selectedTx.user_from.slice(0, 10)}...{selectedTx.user_from.slice(-6)}</span>
+                </div>
+                <div className="flex justify-between p-3 rounded-xl bg-white/50 border border-black/5">
+                  <span className="text-sm text-[var(--text-secondary)]">To</span>
+                  <span className="text-sm font-mono">{selectedTx.user_to.slice(0, 10)}...{selectedTx.user_to.slice(-6)}</span>
+                </div>
+                {selectedTx.note && (
+                  <div className="flex justify-between p-3 rounded-xl bg-white/50 border border-black/5">
+                    <span className="text-sm text-[var(--text-secondary)]">Note</span>
+                    <span className="text-sm">{selectedTx.note}</span>
+                  </div>
+                )}
+                <div className="flex justify-between p-3 rounded-xl bg-white/50 border border-black/5">
+                  <span className="text-sm text-[var(--text-secondary)]">Amount</span>
+                  <span className="text-sm font-mono encrypted-text">{"\u2588\u2588\u2588\u2588\u2588.\u2588\u2588"}</span>
+                </div>
+                <div className="flex justify-between p-3 rounded-xl bg-white/50 border border-black/5">
+                  <span className="text-sm text-[var(--text-secondary)]">Date</span>
+                  <span className="text-sm">{new Date(selectedTx.created_at).toLocaleString()}</span>
+                </div>
+                {selectedTx.tx_hash && !selectedTx.tx_hash.includes("_") && (
+                  <a
+                    href={`https://sepolia.basescan.org/tx/${selectedTx.tx_hash}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center justify-center gap-2 h-12 rounded-2xl bg-blue-50 text-blue-600 font-medium text-sm hover:bg-blue-100 transition-colors"
+                  >
+                    View on Basescan
+                    <ExternalLink size={16} />
+                  </a>
+                )}
+                <button
+                  onClick={() => {
+                    const otherAddress = selectedTx.user_from.toLowerCase() === address?.toLowerCase() ? selectedTx.user_to : selectedTx.user_from;
+                    const name = prompt("Nickname for this contact:");
+                    if (name) addContact(otherAddress, name);
+                  }}
+                  className="h-12 w-full rounded-2xl bg-gray-100 text-[var(--text-secondary)] font-medium text-sm hover:bg-gray-200 transition-colors flex items-center justify-center gap-2"
+                >
+                  <UserPlus size={16} />
+                  Add to Contacts
+                </button>
+              </div>
             </div>
           </div>
         )}

@@ -114,12 +114,68 @@ export function useInheritance() {
     }
   }, [address, publicClient, writeContractAsync, refetchPlan]);
 
+  // Start claim (as heir)
+  const startClaim = useCallback(
+    async (ownerAddress: string) => {
+      if (!address || !publicClient) return;
+      setIsProcessing(true);
+      try {
+        const hash = await writeContractAsync({
+          address: CONTRACTS.InheritanceManager,
+          abi: InheritanceManagerAbi,
+          functionName: "startClaim",
+          args: [ownerAddress as `0x${string}`],
+        });
+        const claimReceipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
+        if (claimReceipt.status === "reverted") {
+          throw new Error("Transaction reverted on-chain");
+        }
+        toast.success("Claim started! Wait for the challenge period to finalize.");
+        await refetchPlan();
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Failed to start claim");
+      } finally {
+        setIsProcessing(false);
+      }
+    },
+    [address, publicClient, writeContractAsync, refetchPlan]
+  );
+
+  // Finalize claim (as heir, after challenge period)
+  const finalizeClaim = useCallback(
+    async (ownerAddress: string) => {
+      if (!address || !publicClient) return;
+      setIsProcessing(true);
+      try {
+        const hash = await writeContractAsync({
+          address: CONTRACTS.InheritanceManager,
+          abi: InheritanceManagerAbi,
+          functionName: "finalizeClaim",
+          args: [ownerAddress as `0x${string}`],
+        });
+        const finalizeReceipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
+        if (finalizeReceipt.status === "reverted") {
+          throw new Error("Transaction reverted on-chain");
+        }
+        toast.success("Claim finalized! Funds transferred.");
+        await refetchPlan();
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Failed to finalize claim");
+      } finally {
+        setIsProcessing(false);
+      }
+    },
+    [address, publicClient, writeContractAsync, refetchPlan]
+  );
+
   return {
     plan,
     isProcessing,
     setHeir,
     heartbeat,
     removeHeir,
+    startClaim,
+    finalizeClaim,
     refetchPlan,
   };
 }

@@ -1,13 +1,13 @@
 import { useNavigate } from "react-router-dom";
-import { Shield, Check } from "lucide-react";
+import { Shield, Check, ExternalLink } from "lucide-react";
 import { useSendPayment } from "@/hooks/useSendPayment";
 
 export default function SendSuccess() {
   const navigate = useNavigate();
-  const { reset } = useSendPayment();
+  const payment = useSendPayment();
 
   const handleBackHome = () => {
-    reset();
+    payment.reset();
     navigate("/", { replace: true });
   };
 
@@ -42,7 +42,7 @@ export default function SendSuccess() {
         </p>
 
         {/* FHE badge */}
-        <div className="mb-10">
+        <div className="mb-6">
           <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-500/10 border border-emerald-500/20">
             <Shield size={16} className="text-emerald-600 dark:text-emerald-400" />
             <span className="text-sm font-medium text-emerald-600 dark:text-emerald-400">
@@ -50,6 +50,32 @@ export default function SendSuccess() {
             </span>
           </div>
         </div>
+
+        {/* Payment Details */}
+        {payment.recipient && (
+          <div className="w-full max-w-sm space-y-3 mb-10">
+            <div className="flex justify-between p-3 rounded-xl bg-white/50 border border-black/5">
+              <span className="text-sm text-[var(--text-secondary)]">To</span>
+              <span className="text-sm font-mono">
+                {payment.recipient.slice(0, 10)}...{payment.recipient.slice(-6)}
+              </span>
+            </div>
+            <div className="flex justify-between p-3 rounded-xl bg-white/50 border border-black/5">
+              <span className="text-sm text-[var(--text-secondary)]">Amount</span>
+              <span className="text-sm font-mono">${payment.amount} USDC</span>
+            </div>
+            {payment.txHash && (
+              <a
+                href={`https://sepolia.basescan.org/tx/${payment.txHash}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-center gap-2 h-12 rounded-2xl bg-blue-50 text-blue-600 font-medium text-sm hover:bg-blue-100 transition-colors w-full"
+              >
+                View on Basescan <ExternalLink size={16} />
+              </a>
+            )}
+          </div>
+        )}
 
         {/* Back to Home button */}
         <div className="w-full max-w-sm">

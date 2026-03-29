@@ -4,7 +4,6 @@ import { useAccount } from "wagmi";
 import {
   Send,
   ArrowDownLeft,
-  ArrowLeftRight,
   MoreHorizontal,
   Eye,
   EyeOff,
@@ -14,7 +13,9 @@ import {
   TrendingUp,
   CheckCircle,
   Clock,
+  Bell,
 } from "lucide-react";
+import { useCofheConnection } from "@/lib/cofhe-shim";
 import { cn } from "@/lib/cn";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { useActivityFeed } from "@/hooks/useActivityFeed";
@@ -36,8 +37,33 @@ const activityTypeIcons: Record<string, { icon: React.ReactNode; bg: string }> =
   payment: { icon: <Send size={18} />, bg: "bg-[#1D1D1F] dark:bg-white" },
   receive: { icon: <ArrowDownLeft size={18} />, bg: "bg-emerald-500" },
   shield: { icon: <Lock size={18} />, bg: "bg-amber-500" },
-  swap: { icon: <ArrowLeftRight size={18} />, bg: "bg-emerald-500" },
+  swap: { icon: <Shield size={18} />, bg: "bg-emerald-500" },
   stealth: { icon: <EyeOff size={18} />, bg: "bg-gray-900 dark:bg-gray-100" },
+};
+
+const activityLabels: Record<string, string> = {
+  payment: "Sent payment",
+  request: "Payment request",
+  request_fulfilled: "Request fulfilled",
+  request_cancelled: "Request cancelled",
+  group_expense: "Group expense",
+  group_settle: "Debt settled",
+  tip: "Creator tip",
+  invoice_created: "Invoice created",
+  invoice_paid: "Invoice paid",
+  payroll: "Payroll sent",
+  escrow_created: "Escrow created",
+  escrow_released: "Escrow released",
+  exchange_created: "Swap offer",
+  exchange_filled: "Swap completed",
+  shield: "Deposited to vault",
+  unshield: "Withdrawn from vault",
+  mint: "Faucet tokens",
+  gift_created: "Gift sent",
+  gift_claimed: "Gift opened",
+  stealth_sent: "Anonymous payment",
+  stealth_claim_started: "Claim started",
+  stealth_claimed: "Payment claimed",
 };
 
 export default function Dashboard() {
@@ -47,6 +73,7 @@ export default function Dashboard() {
   const balance = useEncryptedBalance();
   const { mintTestTokens, shield, publicBalance, isMinting } = useShield();
   const isMobile = useMediaQuery("(max-width: 768px)");
+  const { connected: cofheConnected } = useCofheConnection();
   const [privacyMode, setPrivacyMode] = useState(true);
   const [shieldAmount, setShieldAmount] = useState("");
 
@@ -57,6 +84,12 @@ export default function Dashboard() {
   const greeting = useMemo(() => getGreeting(), []);
   const displayAddress = address ? truncateAddress(address) : "";
   const recentActivities = activities.slice(0, 5);
+
+  const hasUnread = activities.length > 0 && activities.some((a) => {
+    const created = new Date(a.created_at).getTime();
+    const fiveMinAgo = Date.now() - 5 * 60 * 1000;
+    return created > fiveMinAgo && a.user_to.toLowerCase() === address?.toLowerCase();
+  });
 
   const quickActions = [
     {
@@ -72,10 +105,11 @@ export default function Dashboard() {
       route: "/receive",
     },
     {
-      label: "Swap Tokens",
-      icon: <ArrowLeftRight size={20} strokeWidth={2.2} />,
+      label: "Shield Tokens",
+      icon: <Shield size={20} strokeWidth={2.2} />,
       variant: "secondary" as const,
-      route: "/swap",
+      route: "",
+      scrollToShield: true,
     },
     {
       label: "More...",
@@ -91,17 +125,60 @@ export default function Dashboard() {
       <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
         <div className="max-w-7xl mx-auto space-y-6 px-5">
           {/* Header */}
-          <div>
-            <h1
-              className="text-4xl font-semibold tracking-tight text-[var(--text-primary)] mb-2"
-              style={{ fontFamily: "'Outfit', 'Inter', sans-serif" }}
+          <div className="flex items-start justify-between">
+            <div>
+              <h1
+                className="text-4xl font-semibold tracking-tight text-[var(--text-primary)] mb-2"
+                style={{ fontFamily: "'Outfit', 'Inter', sans-serif" }}
+              >
+                {greeting}, {displayAddress || "there"}
+              </h1>
+              <p className="text-base text-[var(--text-secondary)] leading-relaxed">
+                Your financial privacy is protected with Fully Homomorphic Encryption
+              </p>
+            </div>
+            <button
+              onClick={() => navigate("/requests")}
+              className="relative w-10 h-10 rounded-full bg-white/60 border border-black/5 flex items-center justify-center hover:bg-white/80 transition-all shrink-0 mt-1"
+              aria-label="Notifications"
             >
-              {greeting}, {displayAddress || "there"}
-            </h1>
-            <p className="text-base text-[var(--text-secondary)] leading-relaxed">
-              Your financial privacy is protected with Fully Homomorphic Encryption
-            </p>
+              <Bell size={20} className="text-[var(--text-primary)]" />
+              {hasUnread && (
+                <div className="absolute top-1 right-1 w-2.5 h-2.5 rounded-full bg-red-500 border-2 border-white" />
+              )}
+            </button>
           </div>
+
+          {/* Getting Started Card (new users only) */}
+          {activities.length === 0 && publicBalance === 0 && (
+            <div className="glass-card-static rounded-[2rem] p-6 space-y-4 border-2 border-emerald-200">
+              <h3 className="text-xl font-semibold" style={{ fontFamily: "'Outfit', sans-serif" }}>Getting Started</h3>
+              <p className="text-sm text-[var(--text-secondary)]">Complete these 3 steps to start sending private payments</p>
+              <div className="space-y-3">
+                <div className="flex items-center gap-3 p-3 rounded-xl bg-emerald-50 border border-emerald-100">
+                  <div className="w-8 h-8 rounded-full bg-emerald-500 text-white flex items-center justify-center text-sm font-bold">1</div>
+                  <div className="flex-1">
+                    <p className="text-sm font-medium">Get test USDC</p>
+                    <p className="text-xs text-[var(--text-tertiary)]">Tap the faucet button below</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 p-3 rounded-xl bg-gray-50 border border-gray-100">
+                  <div className="w-8 h-8 rounded-full bg-gray-300 text-white flex items-center justify-center text-sm font-bold">2</div>
+                  <div className="flex-1">
+                    <p className="text-sm font-medium">Shield your USDC</p>
+                    <p className="text-xs text-[var(--text-tertiary)]">Deposit tokens into your encrypted vault</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 p-3 rounded-xl bg-gray-50 border border-gray-100">
+                  <div className="w-8 h-8 rounded-full bg-gray-300 text-white flex items-center justify-center text-sm font-bold">3</div>
+                  <div className="flex-1">
+                    <p className="text-sm font-medium">Send your first private payment</p>
+                    <p className="text-xs text-[var(--text-tertiary)]">Experience encrypted transactions</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Balance Card */}
           <BalanceCard
@@ -112,11 +189,11 @@ export default function Dashboard() {
           />
 
           {/* Shield Section */}
-          <div className="glass-card-static rounded-[2rem] p-6 space-y-4">
+          <div id="shield-section" className="glass-card-static rounded-[2rem] p-6 space-y-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-label text-[var(--text-secondary)]">DEPOSIT TO VAULT</p>
-                <p className="text-sm text-[var(--text-secondary)] mt-1">Shield USDC to enable encrypted payments</p>
+                <p className="text-label text-[var(--text-secondary)]">DEPOSIT TO PRIVATE WALLET</p>
+                <p className="text-sm text-[var(--text-secondary)] mt-1">Deposit USDC to enable encrypted payments</p>
               </div>
               <button onClick={handleMint} disabled={isMinting} className="h-10 px-4 rounded-full bg-emerald-50 text-emerald-600 font-medium text-sm hover:bg-emerald-100 transition-colors disabled:opacity-50">
                 {isMinting ? "Minting..." : "Get Test USDC"}
@@ -139,7 +216,7 @@ export default function Dashboard() {
                 disabled={!shieldAmount || parseFloat(shieldAmount) <= 0}
                 className="h-14 px-8 rounded-2xl bg-[#1D1D1F] text-white font-medium hover:bg-black transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
               >
-                Shield
+                Deposit
               </button>
             </div>
             <div className="flex items-center justify-between text-sm">
@@ -174,7 +251,13 @@ export default function Dashboard() {
               {quickActions.map((action) => (
                 <button
                   key={action.label}
-                  onClick={() => navigate(action.route)}
+                  onClick={() => {
+                    if ('scrollToShield' in action && action.scrollToShield) {
+                      document.getElementById("shield-section")?.scrollIntoView({ behavior: "smooth" });
+                    } else {
+                      navigate(action.route);
+                    }
+                  }}
                   className={cn(
                     "h-14 px-6 rounded-2xl font-medium transition-all active:scale-95 flex items-center justify-center gap-3",
                     action.variant === "primary"
@@ -209,17 +292,60 @@ export default function Dashboard() {
     <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="mb-8">
-          <h1
-            className="text-4xl sm:text-5xl font-medium tracking-tight text-[var(--text-primary)] mb-2"
-            style={{ fontFamily: "'Outfit', 'Inter', sans-serif" }}
+        <div className="mb-8 flex items-start justify-between">
+          <div>
+            <h1
+              className="text-4xl sm:text-5xl font-medium tracking-tight text-[var(--text-primary)] mb-2"
+              style={{ fontFamily: "'Outfit', 'Inter', sans-serif" }}
+            >
+              {greeting}, {displayAddress || "there"}
+            </h1>
+            <p className="text-base text-[var(--text-secondary)] leading-relaxed">
+              Your financial privacy is protected with Fully Homomorphic Encryption
+            </p>
+          </div>
+          <button
+            onClick={() => navigate("/requests")}
+            className="relative w-10 h-10 rounded-full bg-white/60 border border-black/5 flex items-center justify-center hover:bg-white/80 transition-all shrink-0 mt-1"
+            aria-label="Notifications"
           >
-            {greeting}, {displayAddress || "there"}
-          </h1>
-          <p className="text-base text-[var(--text-secondary)] leading-relaxed">
-            Your financial privacy is protected with Fully Homomorphic Encryption
-          </p>
+            <Bell size={20} className="text-[var(--text-primary)]" />
+            {hasUnread && (
+              <div className="absolute top-1 right-1 w-2.5 h-2.5 rounded-full bg-red-500 border-2 border-white" />
+            )}
+          </button>
         </div>
+
+        {/* Getting Started Card (new users only) */}
+        {activities.length === 0 && publicBalance === 0 && (
+          <div className="glass-card-static rounded-[2rem] p-6 space-y-4 border-2 border-emerald-200 mb-6">
+            <h3 className="text-xl font-semibold" style={{ fontFamily: "'Outfit', sans-serif" }}>Getting Started</h3>
+            <p className="text-sm text-[var(--text-secondary)]">Complete these 3 steps to start sending private payments</p>
+            <div className="flex gap-4">
+              <div className="flex-1 flex items-center gap-3 p-3 rounded-xl bg-emerald-50 border border-emerald-100">
+                <div className="w-8 h-8 rounded-full bg-emerald-500 text-white flex items-center justify-center text-sm font-bold">1</div>
+                <div>
+                  <p className="text-sm font-medium">Get test USDC</p>
+                  <p className="text-xs text-[var(--text-tertiary)]">Tap the faucet button below</p>
+                </div>
+              </div>
+              <div className="flex-1 flex items-center gap-3 p-3 rounded-xl bg-gray-50 border border-gray-100">
+                <div className="w-8 h-8 rounded-full bg-gray-300 text-white flex items-center justify-center text-sm font-bold">2</div>
+                <div>
+                  <p className="text-sm font-medium">Shield your USDC</p>
+                  <p className="text-xs text-[var(--text-tertiary)]">Deposit tokens into your encrypted vault</p>
+                </div>
+              </div>
+              <div className="flex-1 flex items-center gap-3 p-3 rounded-xl bg-gray-50 border border-gray-100">
+                <div className="w-8 h-8 rounded-full bg-gray-300 text-white flex items-center justify-center text-sm font-bold">3</div>
+                <div>
+                  <p className="text-sm font-medium">Send your first private payment</p>
+                  <p className="text-xs text-[var(--text-tertiary)]">Experience encrypted transactions</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Bento Grid */}
         <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
@@ -246,7 +372,13 @@ export default function Dashboard() {
               {quickActions.map((action) => (
                 <button
                   key={action.label}
-                  onClick={() => navigate(action.route)}
+                  onClick={() => {
+                    if ('scrollToShield' in action && action.scrollToShield) {
+                      document.getElementById("shield-section")?.scrollIntoView({ behavior: "smooth" });
+                    } else {
+                      navigate(action.route);
+                    }
+                  }}
                   className={cn(
                     "h-14 px-6 rounded-2xl font-medium transition-all active:scale-95 flex items-center justify-center gap-3",
                     action.variant === "primary"
@@ -264,11 +396,11 @@ export default function Dashboard() {
           </div>
 
           {/* Shield Section (col-span-full) */}
-          <div className="col-span-full rounded-[2rem] glass-card-static p-6 space-y-4">
+          <div id="shield-section" className="col-span-full rounded-[2rem] glass-card-static p-6 space-y-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-label text-[var(--text-secondary)]">DEPOSIT TO VAULT</p>
-                <p className="text-sm text-[var(--text-secondary)] mt-1">Shield USDC to enable encrypted payments</p>
+                <p className="text-label text-[var(--text-secondary)]">DEPOSIT TO PRIVATE WALLET</p>
+                <p className="text-sm text-[var(--text-secondary)] mt-1">Deposit USDC to enable encrypted payments</p>
               </div>
               <button onClick={handleMint} disabled={isMinting} className="h-10 px-4 rounded-full bg-emerald-50 text-emerald-600 font-medium text-sm hover:bg-emerald-100 transition-colors disabled:opacity-50">
                 {isMinting ? "Minting..." : "Get Test USDC"}
@@ -291,7 +423,7 @@ export default function Dashboard() {
                 disabled={!shieldAmount || parseFloat(shieldAmount) <= 0}
                 className="h-14 px-8 rounded-2xl bg-[#1D1D1F] text-white font-medium hover:bg-black transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
               >
-                Shield
+                Deposit
               </button>
             </div>
             <div className="flex items-center justify-between text-sm">
@@ -334,22 +466,35 @@ export default function Dashboard() {
               Encryption Status
             </h3>
             <div className="space-y-4">
-              {/* FHE Active */}
-              <div className="flex items-center justify-between p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-100 dark:border-emerald-500/20">
+              {/* FHE Status */}
+              <div className={cn(
+                "flex items-center justify-between p-4 rounded-2xl border",
+                cofheConnected
+                  ? "bg-emerald-50 dark:bg-emerald-500/10 border-emerald-100 dark:border-emerald-500/20"
+                  : "bg-amber-50 dark:bg-amber-500/10 border-amber-100 dark:border-amber-500/20"
+              )}>
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-emerald-500 flex items-center justify-center">
+                  <div className={cn(
+                    "w-10 h-10 rounded-xl flex items-center justify-center",
+                    cofheConnected ? "bg-emerald-500" : "bg-amber-500"
+                  )}>
                     <Shield size={20} className="text-white" />
                   </div>
                   <div>
-                    <p className="font-medium text-emerald-900 dark:text-emerald-300">
-                      FHE Active
-                    </p>
-                    <p className="text-sm text-emerald-700 dark:text-emerald-400">
-                      All amounts encrypted
-                    </p>
+                    {cofheConnected ? (
+                      <>
+                        <p className="font-medium text-emerald-900 dark:text-emerald-300">FHE Active</p>
+                        <p className="text-sm text-emerald-700 dark:text-emerald-400">All amounts encrypted</p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="font-medium text-amber-900 dark:text-amber-300">Connecting to FHE...</p>
+                        <p className="text-sm text-amber-700 dark:text-amber-400">Encryption initializing</p>
+                      </>
+                    )}
                   </div>
                 </div>
-                <CheckCircle size={24} className="text-emerald-600 dark:text-emerald-400" />
+                {cofheConnected && <CheckCircle size={24} className="text-emerald-600 dark:text-emerald-400" />}
               </div>
 
               {/* Async Decryption */}
@@ -443,7 +588,7 @@ function BalanceCard({ balance, privacyMode, onTogglePrivacy, large, activityCou
                   style={{ fontFamily: "'Outfit', 'Inter', sans-serif" }}
                 >
                   {displayAmount
-                    ? "\u2588\u2588\u2588\u2588\u2588\u2588.\u2588\u2588"
+                    ? <><span aria-hidden="true">{"\u2588\u2588\u2588\u2588\u2588\u2588.\u2588\u2588"}</span><span className="sr-only">Amount hidden</span></>
                     : formattedBalance || "0.00"}
                 </h2>
               </div>
@@ -487,15 +632,10 @@ function BalanceCard({ balance, privacyMode, onTogglePrivacy, large, activityCou
                 </p>
               </div>
               <p
-                className={cn(
-                  "text-2xl font-medium",
-                  displayAmount
-                    ? "encrypted-text text-[var(--text-tertiary)]"
-                    : "decrypted-text text-[var(--text-primary)]",
-                )}
-                style={{ fontFamily: "'Outfit', 'Inter', sans-serif" }}
+                className="text-2xl font-medium text-[var(--text-primary)]"
+                style={{ fontFamily: "'Outfit', sans-serif" }}
               >
-                {displayAmount ? "\u2588\u2588\u2588\u2588\u2588\u2588" : activityCount > 0 ? `${activityCount} txns` : "—"}
+                {activityCount} transactions
               </p>
             </div>
             <div className="rounded-2xl bg-white/50 dark:bg-white/5 border border-black/5 dark:border-white/10 p-6">
@@ -605,8 +745,7 @@ function ActivityList({ activities, isLoading, address, privacyMode, onViewAll }
                       {activity.note || truncateAddress(otherAddress)}
                     </p>
                     <p className="text-sm text-[var(--text-secondary)]">
-                      {activity.activity_type.charAt(0).toUpperCase() +
-                        activity.activity_type.slice(1)}
+                      {activityLabels[activity.activity_type] || activity.activity_type.charAt(0).toUpperCase() + activity.activity_type.slice(1)}
                     </p>
                   </div>
                 </div>
@@ -620,7 +759,13 @@ function ActivityList({ activities, isLoading, address, privacyMode, onViewAll }
                         : "text-[var(--text-primary)]",
                     )}
                   >
-                    {isIncoming ? "+" : "-"}${privacyMode ? "\u2588\u2588\u2588\u2588.\u2588\u2588" : "*****"}
+                    {isIncoming ? "+" : "-"}$
+                    {privacyMode ? (
+                      <>
+                        <span aria-hidden="true">{"\u2588\u2588\u2588\u2588.\u2588\u2588"}</span>
+                        <span className="sr-only">Amount hidden</span>
+                      </>
+                    ) : "*****"}
                   </p>
                   <p className="text-sm text-[var(--text-secondary)]">
                     {isIncoming ? "Received" : "Sent"}

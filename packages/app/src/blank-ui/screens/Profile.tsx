@@ -69,7 +69,7 @@ export default function Profile() {
       iconBg: "bg-cyan-50 text-cyan-600",
       label: "Contacts",
       subtitle: "Your address book",
-      route: "/send",
+      route: "/contacts",
     },
     {
       icon: <Shield size={20} />,

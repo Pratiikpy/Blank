@@ -20,13 +20,16 @@ import { useInheritance } from "@/hooks/useInheritance";
 // ---------------------------------------------------------------
 
 export default function InheritancePlanning() {
-  const { plan, setHeir, heartbeat, removeHeir, isProcessing } = useInheritance();
+  const { plan, setHeir, heartbeat, removeHeir, startClaim, finalizeClaim, isProcessing } = useInheritance();
 
   const [showAddModal, setShowAddModal] = useState(false);
 
   // Beneficiary form
   const [bAddress, setBAddress] = useState("");
   const [bDays, setBDays] = useState("30");
+
+  // Heir claim form
+  const [claimOwner, setClaimOwner] = useState("");
 
   // Derived state from real plan
   const isActive = plan?.active ?? false;
@@ -66,10 +69,10 @@ export default function InheritancePlanning() {
       <div className="max-w-5xl mx-auto">
         <div className="mb-8">
           <h1 className="text-4xl sm:text-5xl font-heading font-semibold text-[var(--text-primary)] tracking-tight mb-2">
-            Inheritance Planning
+            Beneficiary Planning
           </h1>
           <p className="text-base text-[var(--text-primary)]/50 leading-relaxed">
-            Dead man's switch for secure fund transfer
+            Automatically transfer your funds to a trusted person if needed
           </p>
         </div>
 
@@ -162,7 +165,7 @@ export default function InheritancePlanning() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
               {/* Switch Settings */}
               <div className="rounded-[2rem] glass-card p-8">
-                <h3 className="text-xl font-heading font-medium text-[var(--text-primary)] mb-6">Switch Settings</h3>
+                <h3 className="text-xl font-heading font-medium text-[var(--text-primary)] mb-6">Transfer Settings</h3>
 
                 <div className="space-y-4">
                   <div className="p-4 rounded-2xl bg-white/50 dark:bg-white/5 border border-black/5 dark:border-white/10">
@@ -229,7 +232,7 @@ export default function InheritancePlanning() {
                       <div>
                         <p className="text-sm font-medium text-blue-900">Privacy Preserved</p>
                         <p className="text-xs text-blue-700 mt-1">
-                          Your heir won't know the amounts until the switch is triggered
+                          Your heir won't know the amounts until the automatic transfer is triggered
                         </p>
                       </div>
                     </div>
@@ -280,6 +283,51 @@ export default function InheritancePlanning() {
             </div>
           </>
         )}
+        {/* Heir Claim Section */}
+        <div className="rounded-[2rem] glass-card p-6 mt-6">
+          <h3 className="text-lg font-heading font-semibold text-[var(--text-primary)] mb-2">Claim as Heir</h3>
+          <p className="text-sm text-[var(--text-primary)]/50 mb-4">
+            If you are designated as someone's heir and the inactivity period has passed, you can initiate a claim.
+          </p>
+          <div className="space-y-3">
+            <input
+              value={claimOwner}
+              onChange={(e) => setClaimOwner(e.target.value)}
+              placeholder="Owner address (who set you as heir)"
+              className="h-12 w-full px-4 rounded-xl bg-white/60 border border-black/5 outline-none font-mono text-sm"
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={() => {
+                  if (claimOwner && /^0x[a-fA-F0-9]{40}$/.test(claimOwner)) {
+                    startClaim(claimOwner);
+                  } else {
+                    toast.error("Invalid Ethereum address");
+                  }
+                }}
+                disabled={isProcessing || !claimOwner}
+                className="h-12 flex-1 rounded-xl bg-amber-500 text-white font-medium disabled:opacity-30 flex items-center justify-center gap-2"
+              >
+                {isProcessing ? <Loader2 size={16} className="animate-spin" /> : null}
+                Start Claim
+              </button>
+              <button
+                onClick={() => {
+                  if (claimOwner && /^0x[a-fA-F0-9]{40}$/.test(claimOwner)) {
+                    finalizeClaim(claimOwner);
+                  } else {
+                    toast.error("Invalid Ethereum address");
+                  }
+                }}
+                disabled={isProcessing || !claimOwner}
+                className="h-12 flex-1 rounded-xl bg-emerald-500 text-white font-medium disabled:opacity-30 flex items-center justify-center gap-2"
+              >
+                {isProcessing ? <Loader2 size={16} className="animate-spin" /> : null}
+                Finalize Claim
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Add / Change Heir Modal */}

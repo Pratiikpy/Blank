@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useConnect } from "wagmi";
 import { Lock, Shield, Key, Sparkles, ArrowRight, Loader2 } from "lucide-react";
@@ -10,33 +10,42 @@ const steps = [
   {
     Icon: Sparkles,
     gradient: "from-purple-500 to-pink-500",
-    heading: "Welcome to Blank Pay",
-    subtitle: "The first payment app with true financial privacy. Your social life is public, but your amounts stay private.",
+    heading: "Send money privately",
+    subtitle: "Your payments are encrypted. Who you pay is visible \u2014 how much stays completely hidden.",
   },
   {
     Icon: Shield,
     gradient: "from-emerald-500 to-teal-500",
-    heading: "Fully Homomorphic Encryption",
-    subtitle: "All payment amounts are encrypted on-chain using FHE. The blockchain can process transactions without seeing the numbers.",
+    heading: "Only you see the amounts",
+    subtitle: "Your balances and transfers are encrypted on-chain. Not even the blockchain can read them.",
   },
   {
     Icon: Lock,
     gradient: "from-blue-500 to-cyan-500",
-    heading: "Privacy You Control",
-    subtitle: "Use the privacy toggle to hide or reveal your amounts. Only you control what you see. Share selectively with permits.",
+    heading: "Works everywhere you go",
+    subtitle: "Built on Base network. Fast transactions, low fees, and military-grade encryption on every payment.",
   },
   {
     Icon: Key,
     gradient: "from-amber-500 to-orange-500",
-    heading: "Your Keys. Your Money.",
-    subtitle: "Non-custodial and self-sovereign. Running on Base Sepolia (testnet). No company holds your funds. Complete financial privacy.",
+    heading: "Your keys. Your money.",
+    subtitle: "Non-custodial and self-sovereign. No company holds your funds. Complete financial privacy, always.",
   },
 ];
 
 // ─── Component ────────────────────────────────────────────────────────
 
 export default function Onboarding() {
-  const [step, setStep] = useState(0);
+  const [step, setStep] = useState(() => {
+    const seen = typeof window !== "undefined" && localStorage.getItem("blank_onboarding_seen");
+    return seen ? steps.length - 1 : 0;
+  });
+
+  useEffect(() => {
+    if (step === steps.length - 1) {
+      localStorage.setItem("blank_onboarding_seen", "true");
+    }
+  }, [step]);
   const { connectors, connect, isPending, error: connectError } = useConnect();
 
   const goNext = useCallback(() => {

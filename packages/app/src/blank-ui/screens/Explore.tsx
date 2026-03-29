@@ -114,8 +114,8 @@ const sections: FeatureSection[] = [
       {
         icon: <Clock size={20} />,
         iconBg: "bg-amber-50 text-amber-600",
-        title: "Inheritance Planning",
-        subtitle: "Dead man's switch for funds",
+        title: "Beneficiary Planning",
+        subtitle: "Automatic fund transfer to trusted contacts",
         route: "/inheritance",
       },
       {
