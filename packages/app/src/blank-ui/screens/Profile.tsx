@@ -35,7 +35,7 @@ export default function Profile() {
   const navigate = useNavigate();
   const { address } = useAccount();
   const { disconnect } = useDisconnect();
-  useEncryptedBalance();
+  const { formatted: realBalance, isDecrypted, hasBalance } = useEncryptedBalance();
   const [copied, setCopied] = useState(false);
   const [balanceRevealed, setBalanceRevealed] = useState(false);
 
@@ -143,7 +143,7 @@ export default function Profile() {
                   balanceRevealed ? "decrypted-text" : "encrypted-text",
                 )}
               >
-                ${balanceRevealed ? "12,458.32" : "██████.██"}
+                ${balanceRevealed && isDecrypted && realBalance ? realBalance : balanceRevealed && hasBalance ? "Decrypting..." : balanceRevealed ? "0.00" : "██████.██"}
               </p>
               <div className="flex items-center gap-2 mt-3">
                 <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-100">

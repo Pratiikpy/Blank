@@ -101,6 +101,7 @@ export default function Dashboard() {
             balance={balance}
             privacyMode={privacyMode}
             onTogglePrivacy={() => setPrivacyMode((p) => !p)}
+            activityCount={activities.length}
           />
 
           {/* Quick Actions */}
@@ -170,6 +171,7 @@ export default function Dashboard() {
               balance={balance}
               privacyMode={privacyMode}
               onTogglePrivacy={() => setPrivacyMode((p) => !p)}
+              activityCount={activities.length}
               large
             />
           </div>
@@ -291,9 +293,10 @@ interface BalanceCardProps {
   privacyMode: boolean;
   onTogglePrivacy: () => void;
   large?: boolean;
+  activityCount?: number;
 }
 
-function BalanceCard({ balance, privacyMode, onTogglePrivacy, large }: BalanceCardProps) {
+function BalanceCard({ balance, privacyMode, onTogglePrivacy, large, activityCount = 0 }: BalanceCardProps) {
   const formattedBalance = useMemo(() => {
     if (balance.raw === null || balance.raw === undefined) return null;
     const num = Number(balance.raw) / 1e6;
@@ -383,7 +386,7 @@ function BalanceCard({ balance, privacyMode, onTogglePrivacy, large }: BalanceCa
                 )}
                 style={{ fontFamily: "'Outfit', 'Inter', sans-serif" }}
               >
-                {displayAmount ? "\u2588\u2588\u2588\u2588\u2588\u2588" : "+$3,240"}
+                {displayAmount ? "\u2588\u2588\u2588\u2588\u2588\u2588" : activityCount > 0 ? `${activityCount} txns` : "—"}
               </p>
             </div>
             <div className="rounded-2xl bg-white/50 dark:bg-white/5 border border-black/5 dark:border-white/10 p-6">
@@ -397,7 +400,7 @@ function BalanceCard({ balance, privacyMode, onTogglePrivacy, large }: BalanceCa
                 className="text-2xl font-medium text-[var(--text-primary)]"
                 style={{ fontFamily: "'Outfit', 'Inter', sans-serif" }}
               >
-                142
+                {activityCount}
               </p>
             </div>
           </div>
