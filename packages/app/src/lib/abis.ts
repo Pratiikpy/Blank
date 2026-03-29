@@ -146,7 +146,7 @@ export const P2PExchangeAbi = [
 ] as const;
 
 export const GiftMoneyAbi = [
-  { type: "function", name: "createEnvelope", inputs: [{ name: "vault", type: "address" }, { name: "recipients", type: "address[]" }, { name: "shares", type: "tuple[]", components: [{ name: "ctHash", type: "uint256" }, { name: "securityZone", type: "uint8" }, { name: "utype", type: "uint8" }, { name: "signature", type: "bytes" }] }, { name: "note", type: "string" }], outputs: [{ name: "", type: "uint256" }], stateMutability: "nonpayable" },
+  { type: "function", name: "createEnvelope", inputs: [{ name: "vault", type: "address" }, { name: "recipients", type: "address[]" }, { name: "shares", type: "tuple[]", internalType: "struct InEuint64[]", components: [{ name: "ctHash", type: "uint256" }, { name: "securityZone", type: "uint8" }, { name: "utype", type: "uint8" }, { name: "signature", type: "bytes" }] }, { name: "note", type: "string" }], outputs: [{ name: "", type: "uint256" }], stateMutability: "nonpayable" },
   { type: "function", name: "claimGift", inputs: [{ name: "envelopeId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "getMyGift", inputs: [{ name: "envelopeId", type: "uint256" }], outputs: [{ name: "", type: "uint256" }], stateMutability: "view" },
   { type: "function", name: "getEnvelope", inputs: [{ name: "envelopeId", type: "uint256" }], outputs: [{ name: "sender", type: "address" }, { name: "vault", type: "address" }, { name: "recipientCount", type: "uint256" }, { name: "claimedCount", type: "uint256" }, { name: "note", type: "string" }, { name: "timestamp", type: "uint256" }, { name: "active", type: "bool" }], stateMutability: "view" },

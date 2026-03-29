@@ -7,6 +7,7 @@ import toast from "react-hot-toast";
 import { CONTRACTS, MAX_UINT64, type EncryptedInput } from "@/lib/constants";
 import { BusinessHubAbi, FHERC20VaultAbi, TestUSDCAbi } from "@/lib/abis";
 import { insertInvoice, insertEscrow, insertActivity } from "@/lib/supabase";
+import { extractEventId } from "@/lib/event-parser";
 import { isVaultApproved, markVaultApproved, clearVaultApproval } from "@/lib/approval";
 
 async function ensureVaultApproval(
@@ -104,8 +105,11 @@ export function useBusinessHub() {
           throw new Error("Transaction reverted on-chain");
         }
 
+        // Extract real invoice ID from event logs
+        const invoiceId = extractEventId(invoiceReceipt.logs, CONTRACTS.BusinessHub);
+
         await insertInvoice({
-          invoice_id: 0,
+          invoice_id: invoiceId,
           vendor_address: address,
           client_address: client,
           description,
@@ -282,8 +286,11 @@ export function useBusinessHub() {
           throw new Error("Transaction reverted on-chain");
         }
 
+        // Extract real escrow ID from event logs
+        const escrowId = extractEventId(escrowReceipt.logs, CONTRACTS.BusinessHub);
+
         await insertEscrow({
-          escrow_id: 0,
+          escrow_id: escrowId,
           depositor_address: address,
           beneficiary_address: beneficiary,
           arbiter_address: arbiter || "",

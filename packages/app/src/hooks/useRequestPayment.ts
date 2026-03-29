@@ -7,6 +7,7 @@ import toast from "react-hot-toast";
 import { CONTRACTS, MAX_UINT64, type EncryptedInput } from "@/lib/constants";
 import { PaymentHubAbi, FHERC20VaultAbi } from "@/lib/abis";
 import { insertPaymentRequest, updateRequestStatus, insertActivity } from "@/lib/supabase";
+import { extractEventId } from "@/lib/event-parser";
 import { broadcastAction } from "@/lib/cross-tab";
 import { invalidateBalanceQueries } from "@/lib/query-invalidation";
 import { isVaultApproved, markVaultApproved, clearVaultApproval } from "@/lib/approval";
@@ -84,9 +85,12 @@ export function useRequestPayment() {
           throw new Error("Transaction reverted on-chain");
         }
 
+        // Extract real request ID from event logs
+        const requestId = extractEventId(createReceipt.logs, CONTRACTS.PaymentHub);
+
         // Write to Supabase for real-time notification
         await insertPaymentRequest({
-          request_id: 0, // Will be updated from events
+          request_id: requestId,
           from_address: from.toLowerCase(),
           to_address: address.toLowerCase(),
           token_address: CONTRACTS.FHERC20Vault_USDC,

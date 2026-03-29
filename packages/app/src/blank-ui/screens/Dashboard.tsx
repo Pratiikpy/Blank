@@ -148,6 +148,20 @@ export default function Dashboard() {
             </div>
           </div>
 
+          {/* Unshield Section (mobile) */}
+          <div className="glass-card-static rounded-[2rem] p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-label text-[var(--text-secondary)]">WITHDRAW FROM VAULT</p>
+                <p className="text-sm text-[var(--text-secondary)] mt-1">Unshield encrypted USDC back to public balance</p>
+              </div>
+            </div>
+            <p className="text-xs text-[var(--text-tertiary)] mt-3">
+              Unshield requires async FHE decryption. Request unshield &rarr; wait for decryption &rarr; claim tokens.
+              This feature requires CoFHE to be connected.
+            </p>
+          </div>
+
           {/* Quick Actions */}
           <div className="glass-card-static rounded-[2rem] p-8">
             <h3
@@ -284,6 +298,20 @@ export default function Dashboard() {
               <span className="text-[var(--text-tertiary)]">Public USDC Balance:</span>
               <span className="font-mono tabular-nums text-[var(--text-primary)]">{publicBalance.toLocaleString("en-US", { minimumFractionDigits: 2 })} USDC</span>
             </div>
+          </div>
+
+          {/* Unshield Section */}
+          <div className="col-span-full rounded-[2rem] glass-card-static p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-label text-[var(--text-secondary)]">WITHDRAW FROM VAULT</p>
+                <p className="text-sm text-[var(--text-secondary)] mt-1">Unshield encrypted USDC back to public balance</p>
+              </div>
+            </div>
+            <p className="text-xs text-[var(--text-tertiary)] mt-3">
+              Unshield requires async FHE decryption. Request unshield &rarr; wait for decryption &rarr; claim tokens.
+              This feature requires CoFHE to be connected.
+            </p>
           </div>
 
           {/* Recent Activity (col-span-7) */}

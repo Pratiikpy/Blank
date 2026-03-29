@@ -12,6 +12,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
+import toast from "react-hot-toast";
 import { useInheritance } from "@/hooks/useInheritance";
 
 // ---------------------------------------------------------------
@@ -42,6 +43,10 @@ export default function InheritancePlanning() {
 
   const handleAddBeneficiary = async () => {
     if (!bAddress) return;
+    if (!/^0x[a-fA-F0-9]{40}$/.test(bAddress)) {
+      toast.error("Invalid Ethereum address");
+      return;
+    }
     const days = parseInt(bDays) || 30;
     await setHeir(bAddress, days);
     setShowAddModal(false);

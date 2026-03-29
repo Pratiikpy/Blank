@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import {
   Shield,
@@ -49,7 +49,10 @@ export function DesktopSidebar() {
   const navigate = useNavigate();
   const location = useLocation();
   const [privacyMode, setPrivacyMode] = useState(true);
-  const [darkMode, setDarkMode] = useState(false);
+  const [darkMode, setDarkMode] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return localStorage.getItem("blank_dark_mode") === "true";
+  });
 
   const isActive = (path: string): boolean => {
     if (path === "/") return location.pathname === "/";
@@ -63,6 +66,7 @@ export function DesktopSidebar() {
   const toggleDarkMode = useCallback(() => {
     setDarkMode((prev) => {
       const next = !prev;
+      localStorage.setItem("blank_dark_mode", String(next));
       if (next) {
         document.documentElement.classList.add("dark");
       } else {
@@ -71,6 +75,11 @@ export function DesktopSidebar() {
       return next;
     });
   }, []);
+
+  // On mount, apply saved dark mode preference
+  useEffect(() => {
+    if (darkMode) document.documentElement.classList.add("dark");
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <aside

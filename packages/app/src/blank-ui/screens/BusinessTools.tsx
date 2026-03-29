@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Receipt,
   DollarSign,
@@ -10,6 +10,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
+import toast from "react-hot-toast";
 import { useBusinessHub } from "@/hooks/useBusinessHub";
 import { useAccount } from "wagmi";
 import {
@@ -19,6 +20,7 @@ import {
   type InvoiceRow,
   type EscrowRow,
 } from "@/lib/supabase";
+import { useActivityFeed } from "@/hooks/useActivityFeed";
 
 type TabValue = "invoices" | "payroll" | "escrow";
 
@@ -45,6 +47,11 @@ const getStatusBadge = (status: string) => {
 export default function BusinessTools() {
   const { address } = useAccount();
   const { step, createInvoice, runPayroll, createEscrow, finalizeInvoice } = useBusinessHub();
+  const { activities } = useActivityFeed();
+  const payrollActivities = useMemo(
+    () => activities.filter((a) => a.activity_type === "payroll"),
+    [activities],
+  );
 
   const [activeTab, setActiveTab] = useState<TabValue>("invoices");
   const [showModal, setShowModal] = useState(false);
@@ -296,8 +303,30 @@ export default function BusinessTools() {
               <div className="text-center py-8 text-[var(--text-primary)]/40">
                 <DollarSign size={40} className="mx-auto mb-3 opacity-30" />
                 <p className="font-medium mb-1">Run encrypted payroll</p>
-                <p className="text-sm">Click "Run Payroll" to send encrypted salary payments to multiple employees at once</p>
+                <p className="text-sm">Click &ldquo;Run Payroll&rdquo; to send encrypted salary payments to multiple employees at once</p>
               </div>
+
+              {/* Payroll History */}
+              {payrollActivities.length > 0 && (
+                <div className="mt-6">
+                  <p className="text-xs font-semibold tracking-widest uppercase text-[var(--text-secondary)] mb-3">
+                    Payroll History
+                  </p>
+                  {payrollActivities.map((a) => (
+                    <div
+                      key={a.id}
+                      className="flex items-center justify-between p-3 rounded-xl bg-white/50 dark:bg-white/5 border border-black/5 dark:border-white/10 mb-2"
+                    >
+                      <span className="text-sm text-[var(--text-primary)]">
+                        {a.note || "Payroll"}
+                      </span>
+                      <span className="text-xs text-[var(--text-tertiary)]">
+                        {new Date(a.created_at).toLocaleDateString()}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -363,6 +392,22 @@ export default function BusinessTools() {
                         <p>Arbiter: {truncateAddr(escrow.arbiter_address)}</p>
                       )}
                     </div>
+
+                    {escrow.status === "active" && (
+                      <div className="flex gap-2 mt-4">
+                        <button
+                          onClick={() => {
+                            toast("Use the contract directly to mark delivered or release funds.");
+                          }}
+                          className="h-10 px-4 rounded-xl bg-emerald-50 text-emerald-600 text-sm font-medium hover:bg-emerald-100"
+                        >
+                          Release Funds
+                        </button>
+                        <button className="h-10 px-4 rounded-xl bg-red-50 text-red-600 text-sm font-medium hover:bg-red-100">
+                          Dispute
+                        </button>
+                      </div>
+                    )}
 
                     {escrow.status === "released" && (
                       <div className="mt-4 flex items-center justify-center gap-2 text-emerald-600">

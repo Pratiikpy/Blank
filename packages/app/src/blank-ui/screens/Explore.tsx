@@ -52,7 +52,7 @@ const sections: FeatureSection[] = [
         iconBg: "bg-orange-50 text-orange-600",
         title: "Payment Requests",
         subtitle: "Request encrypted payments",
-        route: "/history",
+        route: "/requests",
       },
     ],
   },

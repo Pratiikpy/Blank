@@ -7,6 +7,7 @@ import toast from "react-hot-toast";
 import { CONTRACTS, MAX_UINT64, type EncryptedInput } from "@/lib/constants";
 import { GroupManagerAbi, FHERC20VaultAbi } from "@/lib/abis";
 import { insertGroupExpense, insertGroupMembership, insertActivity } from "@/lib/supabase";
+import { extractEventId } from "@/lib/event-parser";
 import { broadcastAction } from "@/lib/cross-tab";
 import { invalidateBalanceQueries } from "@/lib/query-invalidation";
 import { isVaultApproved, markVaultApproved, clearVaultApproval } from "@/lib/approval";
@@ -72,11 +73,14 @@ export function useGroupSplit() {
         const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
         if (receipt.status === "reverted") throw new Error("Transaction reverted");
 
+        // Extract real group ID from event logs
+        const groupId = extractEventId(receipt.logs, CONTRACTS.GroupManager);
+
         // Sync memberships to Supabase
         const allMembers = [address, ...members.filter((m) => m !== address)];
         for (const member of allMembers) {
           await insertGroupMembership({
-            group_id: 0, // Will be updated from events
+            group_id: groupId,
             group_name: name,
             member_address: member,
             is_admin: member === address,
@@ -159,10 +163,13 @@ export function useGroupSplit() {
           throw new Error("Transaction reverted on-chain");
         }
 
+        // Extract real expense ID from event logs
+        const expenseId = extractEventId(expenseReceipt.logs, CONTRACTS.GroupManager);
+
         // Sync to Supabase
         await insertGroupExpense({
           group_id: groupId,
-          expense_id: 0,
+          expense_id: expenseId,
           payer_address: address,
           description,
           member_count: members.length,

@@ -92,7 +92,6 @@ function CreateGroupModal({
 }) {
   const { createGroup, isProcessing } = useGroupSplit();
   const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
   const [memberInput, setMemberInput] = useState("");
   const [members, setMembers] = useState<string[]>([]);
 
@@ -165,19 +164,6 @@ function CreateGroupModal({
             placeholder="Weekend getaway"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            className="h-14 w-full px-5 rounded-2xl bg-white/60 border border-black/10 focus:border-black/20 focus:ring-4 focus:ring-black/5 outline-none transition-all placeholder:text-black/30"
-          />
-        </div>
-
-        <div>
-          <label className="text-xs text-[var(--text-primary)]/50 font-medium tracking-wide uppercase mb-2 block">
-            Description (Optional)
-          </label>
-          <input
-            type="text"
-            placeholder="What's this group for?"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
             className="h-14 w-full px-5 rounded-2xl bg-white/60 border border-black/10 focus:border-black/20 focus:ring-4 focus:ring-black/5 outline-none transition-all placeholder:text-black/30"
           />
         </div>

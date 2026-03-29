@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { Search, ChevronRight, User, QrCode } from "lucide-react";
 import { cn } from "@/lib/cn";
@@ -43,6 +43,8 @@ export default function SendContacts() {
   }, [contacts, search]);
 
   const recentContacts = contacts.slice(0, 8);
+  const [showScanInfo, setShowScanInfo] = useState(false);
+  const dismissScanInfo = useCallback(() => setShowScanInfo(false), []);
 
   const handleSelectContact = (address: string, nickname: string) => {
     navigate("/send/amount", { state: { recipient: address, nickname } });
@@ -238,10 +240,26 @@ export default function SendContacts() {
               </div>
 
               {/* Scan QR */}
-              <button className="w-full h-14 px-6 rounded-2xl bg-black/5 dark:bg-white/10 text-[var(--text-primary)] font-medium transition-all active:scale-95 hover:bg-black/10 dark:hover:bg-white/20 flex items-center justify-center gap-2">
+              <button
+                onClick={() => setShowScanInfo(true)}
+                className="w-full h-14 px-6 rounded-2xl bg-black/5 dark:bg-white/10 text-[var(--text-primary)] font-medium transition-all active:scale-95 hover:bg-black/10 dark:hover:bg-white/20 flex items-center justify-center gap-2"
+              >
                 <QrCode size={20} strokeWidth={2.2} />
                 <span>Scan QR Code</span>
               </button>
+              {showScanInfo && (
+                <div className="mt-3 p-4 rounded-2xl bg-blue-50 dark:bg-blue-500/10 border border-blue-100 dark:border-blue-500/20">
+                  <p className="text-sm text-blue-700 dark:text-blue-300">
+                    Paste a wallet address above or use a QR scanner app to copy the address.
+                  </p>
+                  <button
+                    onClick={dismissScanInfo}
+                    className="text-xs text-blue-500 mt-2 hover:underline"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              )}
 
               {/* Encryption info */}
               <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-100 dark:border-emerald-500/20 flex items-start gap-3">
