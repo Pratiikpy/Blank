@@ -181,6 +181,12 @@ export function useSendPayment() {
     try {
       setState((s) => ({ ...s, step: "sending", encryptionProgress: 0 }));
 
+      if (!state.amount || state.amount.trim() === "") {
+        toast.error("Enter an amount");
+        setState((s) => ({ ...s, step: "input" }));
+        return;
+      }
+
       const vaultAddress = CONTRACTS.FHERC20Vault_USDC as `0x${string}`;
       const amountWei = parseUnits(state.amount, 6);
 
@@ -298,37 +304,23 @@ export function useSendPayment() {
   const sendLegacy = useCallback(async () => {
     if (!canProceed || !address) return;
 
-    try {
-      if (parseFloat(state.amount) < 0.01) {
-        toast.error("Minimum amount is $0.01");
-        return;
-      }
-
-      setState((s) => ({ ...s, step: "encrypting", encryptionProgress: 0 }));
-
-      const amountWei = parseUnits(state.amount, 6);
-
-      // Encrypt using @cofhe/react
-      const encrypted = await encryptInputsAsync([
-        Encryptable.uint64(amountWei),
-      ]);
-
-      setEncryptedAmount(encrypted[0] as unknown as Record<string, unknown>);
-
-      setState((s) => ({ ...s, step: "confirming", encryptionProgress: 100 }));
-    } catch (err) {
-      setState((s) => ({
-        ...s,
-        step: "error",
-        error: err instanceof Error ? err.message : "Encryption failed",
-      }));
-      toast.error("Encryption failed");
+    if (!state.amount || state.amount.trim() === "") {
+      toast.error("Enter an amount");
+      return;
     }
-  }, [canProceed, address, state.amount, encryptInputsAsync]);
+
+    if (parseFloat(state.amount) < 0.01) {
+      toast.error("Minimum amount is $0.01");
+      return;
+    }
+
+    // Just set step to confirming — encryption happens on confirm
+    setState((s) => ({ ...s, step: "confirming", encryptionProgress: 0 }));
+  }, [canProceed, address, state.amount]);
 
   const confirmSendLegacy = useCallback(async () => {
-    if (!encryptedAmount || !address) return;
-    if (state.step === "sending") return; // Already submitting
+    if (!address) return;
+    if (state.step === "sending" || state.step === "encrypting") return;
 
     if (!publicClient) {
       toast.error("Connection lost. Please refresh.");
@@ -336,17 +328,31 @@ export function useSendPayment() {
     }
 
     try {
-      setState((s) => ({ ...s, step: "sending" }));
+      if (!state.amount || state.amount.trim() === "") {
+        toast.error("Enter an amount");
+        return;
+      }
+
+      // Step 1: Encrypt
+      setState((s) => ({ ...s, step: "encrypting", encryptionProgress: 0 }));
 
       const vaultAddress = CONTRACTS.FHERC20Vault_USDC as `0x${string}`;
+      const amountWei = parseUnits(state.amount, 6);
 
-      // Approve PaymentHub as a spender on the vault (lazy, cached for 24h)
+      const encrypted = await encryptInputsAsync([
+        Encryptable.uint64(amountWei),
+      ]);
+      const encAmount = encrypted[0] as unknown as EncryptedInput;
+
+      // Step 2: Approve + Send
+      setState((s) => ({ ...s, step: "sending", encryptionProgress: 100 }));
+
       if (!isVaultApproved(CONTRACTS.PaymentHub)) {
         const approveHash = await writeContractAsync({
           address: CONTRACTS.FHERC20Vault_USDC,
           abi: FHERC20VaultAbi,
           functionName: "approvePlaintext",
-          args: [CONTRACTS.PaymentHub, BigInt("0xFFFFFFFFFFFFFFFF")], // MAX_UINT64
+          args: [CONTRACTS.PaymentHub, BigInt("0xFFFFFFFFFFFFFFFF")],
         });
         await publicClient.waitForTransactionReceipt({ hash: approveHash, confirmations: 1 });
         markVaultApproved(CONTRACTS.PaymentHub);
@@ -356,12 +362,10 @@ export function useSendPayment() {
         address: CONTRACTS.PaymentHub,
         abi: PaymentHubAbi,
         functionName: "sendPayment",
-        // Type assertion: cofhe SDK encrypt returns opaque encrypted input objects
-        // whose shape doesn't match wagmi's strict ABI-inferred arg types
         args: [
           state.recipient as `0x${string}`,
           vaultAddress,
-          encryptedAmount as unknown as EncryptedInput,
+          encAmount,
           state.note || "",
         ],
       });
