@@ -368,6 +368,9 @@ export function useSendPayment() {
           encAmount,
           state.note || "",
         ],
+        // FHE transactions can't be gas-estimated (precompile not available in simulation)
+        // Set manual gas limit — FHE operations use ~2-5M gas
+        gas: BigInt(5_000_000),
       });
 
       // Save pending tx for crash recovery (#71)
