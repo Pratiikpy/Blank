@@ -17,22 +17,22 @@ export const BASE_SEPOLIA = {
 // These will be updated after running `deploy-all` task
 
 export const CONTRACTS = {
-  TestUSDC: "0xcd42991C767C9CCbabBc3c7Ef0d48B34B2698e4A" as `0x${string}`,
-  TokenRegistry: "0x101303feBb5164D1E547986C0616B6294A673E83" as `0x${string}`,
-  EventHub: "0xc3FB0CA99FC4774bF82E968E1a4F9217f5E4EF09" as `0x${string}`,
-  FHERC20Vault_USDC: "0x08F62F07686242D95E4CDfA23eCa6a8F820744f1" as `0x${string}`,
-  PaymentHub: "0xE2087A39cEa3C77566DF15936c2750511f808148" as `0x${string}`,
-  GroupManager: "0x9C295E5A130a5776b287dcC77b41d4b55165C8Be" as `0x${string}`,
-  CreatorHub: "0x845A25c4d4d0Acfc9AfDd3016A1D55b986Bad4F9" as `0x${string}`,
-  BusinessHub: "0x4064e0EAD50a05F2A5a574ce4c3dd1b54BBA591c" as `0x${string}`,
-  P2PExchange: "0xeE7D8987bC625A949a1355E3d5415d0419afd8BC" as `0x${string}`,
-  InheritanceManager: "0x6695937AEa5388EB66C919FCe5976Fb739E1ebEa" as `0x${string}`,
-  PaymentReceipts: "0x24ae70Ec10932070C582C1a34A1bb54773B02823" as `0x${string}`,
-  EncryptedFlags: "0x34a6B92b0FB16c68a281c7c1565F1e99A5741a43" as `0x${string}`,
-  GiftMoney: "0xD73168B5c9D22EC9dc741d9c0C24e5Fa2bc04B55" as `0x${string}`,
-  PrivacyRouter: "0xd7273777D160e87BE1A59C1844792CaFE538016a" as `0x${string}`,
-  StealthPayments: "0x5E2acDfa64B2438eB0bf8E0bEF627F29F1461758" as `0x${string}`,
-  MockDEX: "0x206E0782b6c928486837A94c296c7e41a3Eb8FbD" as `0x${string}`,
+  TestUSDC: "0x6377eF23B3464019EcF35528be6Eb6d6D57d0b1a" as `0x${string}`,
+  TokenRegistry: "0x68890C23C94e25706F064f8C1d07e04462B9Ec2E" as `0x${string}`,
+  EventHub: "0xD764e11e4D1e9E308B5E002E7092C43D1E84a590" as `0x${string}`,
+  FHERC20Vault_USDC: "0x789f0bC466E172eD737493e9796a6d0a3aB0ff23" as `0x${string}`,
+  PaymentHub: "0xF420102Dea1acf437bfc49ded5F4E2f5ed32e831" as `0x${string}`,
+  GroupManager: "0x1749E0E08f86211D8239F40BdEcb9497704f9D3d" as `0x${string}`,
+  CreatorHub: "0x5dc36868c89F38F56856DDD55096E3F115cC12ea" as `0x${string}`,
+  BusinessHub: "0xEfD67E33f12a7b3A221d25f965f70d1BE6721EFD" as `0x${string}`,
+  P2PExchange: "0xDa606096d5C2bdE73ccB418771e12630030Ff116" as `0x${string}`,
+  InheritanceManager: "0x289714c46F3c47B2E610191d924dC9bDf22973d5" as `0x${string}`,
+  PaymentReceipts: "0x23f0530e107cCF940093c238bbc97EbdAD6fAD7c" as `0x${string}`,
+  EncryptedFlags: "0x75FF37Bda28EC6A0D39db7E8Ea5CC6527febDA75" as `0x${string}`,
+  GiftMoney: "0x8cf23ab40D38504706dc54664c72a378215c5b8c" as `0x${string}`,
+  PrivacyRouter: "0x30E7041580587F28E84D9166710275814d44Cc7B" as `0x${string}`,
+  StealthPayments: "0x98Dfb7cb7e1bb6795222F21Fe960C81079601C97" as `0x${string}`,
+  MockDEX: "0xb202fEED447452C0934236119012A6508DaB4821" as `0x${string}`,
 } as const;
 
 // ─── App Configuration ──────────────────────────────────────────────

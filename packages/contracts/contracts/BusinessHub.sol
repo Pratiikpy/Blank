@@ -174,8 +174,7 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         // Store the match validation for async verification
         _invoicePaymentValidation[invoiceId] = exactMatch;
 
-        // Decryption is now client-side (v0.1.3) — client calls publishDecryptResult()
-        // after decrypting off-chain, then getDecryptResultSafe() reads the stored result.
+        FHE.decrypt(exactMatch);
 
         // Mark as PaymentPending — not fully Paid until match is verified
         inv.status = InvoiceStatus.PaymentPending;

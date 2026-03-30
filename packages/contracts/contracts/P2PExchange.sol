@@ -137,8 +137,7 @@ contract P2PExchange is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         // Store the validation handle for the offer so it can be queried
         _offerValidation[offerId] = tradeValid;
 
-        // Decryption is now client-side (v0.1.3) — client calls publishDecryptResult()
-        // after decrypting off-chain, then getTradeValidation() reads via getDecryptResultSafe().
+        FHE.decrypt(tradeValid);
 
         o.filled = true;
         o.active = false;
