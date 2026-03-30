@@ -148,9 +148,9 @@ export function useSendPayment() {
     setState((s) => ({ ...s, token: value }));
   }, []);
 
+  // cofheConnected removed from gate — encryption happens on confirm, not proceed
   const canProceed =
     isConnected &&
-    cofheConnected &&
     !!publicClient &&
     state.recipient.length > 0 &&
     state.amount.length > 0 &&

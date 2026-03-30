@@ -144,7 +144,7 @@ function CreateGroupModal({
         className="glass-elevated w-full max-w-lg mx-4 mb-4 sm:mb-0 p-8 space-y-5"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between" style={{ position: "relative", zIndex: 10 }}>
           <h2 className="text-2xl font-heading font-medium text-[var(--text-primary)]">
             Create New Group
           </h2>
