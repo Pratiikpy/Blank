@@ -116,7 +116,8 @@ export default function CreatorSupport() {
 
   const handleCreateProfile = async () => {
     if (!address) { toast.error("Connect wallet first"); return; }
-    if (!creatorName.trim() || !publicClient) return;
+    if (!creatorName.trim()) { toast.error("Enter a creator name"); return; }
+    if (!publicClient) { toast.error("Wallet not connected"); return; }
     setIsCreatingProfile(true);
     try {
       // Call contract to set profile (tier amounts as uint64 in micro-units)
@@ -125,6 +126,7 @@ export default function CreatorSupport() {
         abi: CreatorHubAbi,
         functionName: "setProfile",
         args: [creatorName.trim(), creatorBio.trim(), BigInt(5_000000), BigInt(15_000000), BigInt(50_000000)],
+        gas: BigInt(5_000_000), // CoFHE: manual gas limit (precompile breaks estimation)
       });
       const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
       if (receipt.status === "reverted") throw new Error("Transaction reverted");

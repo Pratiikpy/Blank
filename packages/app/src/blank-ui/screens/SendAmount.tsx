@@ -79,7 +79,7 @@ export default function SendAmount() {
   }, [setAmount]);
 
   const handleContinue = async () => {
-    if (!canProceed) return;
+    if (!canProceed) { toast.error("Enter an amount and select a recipient"); return; }
     await send();
     navigate("/send/confirm");
   };

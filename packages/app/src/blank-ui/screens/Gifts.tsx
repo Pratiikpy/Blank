@@ -186,11 +186,11 @@ export default function Gifts() {
           ? [giftRecipient.trim().toLowerCase()]
           : [];
 
-    if (allRecipients.length === 0) return;
+    if (allRecipients.length === 0) { toast.error("Add at least one recipient"); return; }
 
     // Validate all addresses
     for (const r of allRecipients) {
-      if (!/^0x[a-fA-F0-9]{40}$/.test(r)) return;
+      if (!/^0x[a-fA-F0-9]{40}$/.test(r)) { toast.error("Invalid recipient address: " + r.slice(0, 10) + "..."); return; }
     }
 
     const shares =

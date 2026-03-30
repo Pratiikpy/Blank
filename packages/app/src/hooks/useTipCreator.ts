@@ -23,6 +23,7 @@ async function ensureVaultApproval(
       abi: FHERC20VaultAbi,
       functionName: "approvePlaintext",
       args: [spenderAddress, MAX_UINT64],
+      gas: BigInt(5_000_000), // CoFHE: manual gas limit (precompile breaks estimation)
     });
     toast.success("Approval granted!", { id: toastId });
   } catch (err) {

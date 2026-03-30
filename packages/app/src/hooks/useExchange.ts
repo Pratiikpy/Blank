@@ -74,6 +74,7 @@ export function useExchange() {
             abi: FHERC20VaultAbi,
             functionName: "approvePlaintext",
             args: [CONTRACTS.P2PExchange, MAX_UINT64],
+            gas: BigInt(5_000_000), // CoFHE: manual gas limit (precompile breaks estimation)
           });
           const approveReceipt = await publicClient.waitForTransactionReceipt({ hash: approveHash, confirmations: 1 });
           if (approveReceipt.status === "reverted") {
@@ -124,6 +125,7 @@ export function useExchange() {
             wantWei,
             expiryTimestamp,
           ],
+          gas: BigInt(5_000_000), // CoFHE: manual gas limit (precompile breaks estimation)
         });
 
         const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
@@ -201,6 +203,7 @@ export function useExchange() {
             abi: FHERC20VaultAbi,
             functionName: "approvePlaintext",
             args: [CONTRACTS.P2PExchange, MAX_UINT64],
+            gas: BigInt(5_000_000), // CoFHE: manual gas limit (precompile breaks estimation)
           });
           const fillApproveReceipt = await publicClient.waitForTransactionReceipt({ hash: approveHash, confirmations: 1 });
           if (fillApproveReceipt.status === "reverted") {
@@ -277,6 +280,7 @@ export function useExchange() {
           abi: P2PExchangeAbi,
           functionName: "cancelOffer",
           args: [BigInt(offerId)],
+          gas: BigInt(5_000_000), // CoFHE: manual gas limit (precompile breaks estimation)
         });
 
         const cancelReceipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });

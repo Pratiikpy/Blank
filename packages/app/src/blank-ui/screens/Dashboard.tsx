@@ -107,7 +107,8 @@ export default function Dashboard() {
   }, [isMinting]);
 
   const handleUnshield = async () => {
-    if (!unshieldAmount || parseFloat(unshieldAmount) <= 0 || !address) return;
+    if (!unshieldAmount || parseFloat(unshieldAmount) <= 0) { toast.error("Enter an amount to unshield"); return; }
+    if (!address) return;
     try {
       setUnshieldStep("encrypting");
       const amountWei = parseUnits(unshieldAmount, 6);
@@ -273,7 +274,7 @@ export default function Dashboard() {
                 />
               </div>
               <button
-                onClick={async () => { if (shieldAmount) { await shield(shieldAmount); setShieldAmount(""); } }}
+                onClick={async () => { if (!shieldAmount || parseFloat(shieldAmount) <= 0) { toast.error("Enter an amount to deposit"); return; } await shield(shieldAmount); setShieldAmount(""); }}
                 disabled={!shieldAmount || parseFloat(shieldAmount) <= 0}
                 className="h-14 px-8 rounded-2xl bg-[#1D1D1F] text-white font-medium hover:bg-black transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                 aria-label="Deposit to vault"
@@ -551,7 +552,7 @@ export default function Dashboard() {
                 />
               </div>
               <button
-                onClick={async () => { if (shieldAmount) { await shield(shieldAmount); setShieldAmount(""); } }}
+                onClick={async () => { if (!shieldAmount || parseFloat(shieldAmount) <= 0) { toast.error("Enter an amount to deposit"); return; } await shield(shieldAmount); setShieldAmount(""); }}
                 disabled={!shieldAmount || parseFloat(shieldAmount) <= 0}
                 className="h-14 px-8 rounded-2xl bg-[#1D1D1F] text-white font-medium hover:bg-black transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                 aria-label="Deposit to vault"

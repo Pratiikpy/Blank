@@ -137,7 +137,7 @@ export default function BusinessTools() {
   }, [step, loadData]);
 
   const handleCreateInvoice = async () => {
-    if (!invoiceClient || !invoiceAmount) return;
+    if (!invoiceClient || !invoiceAmount) { toast.error("Enter client address and amount"); return; }
     if (!isAddress(invoiceClient)) {
       toast.error("Invalid Ethereum address");
       return;
@@ -157,7 +157,8 @@ export default function BusinessTools() {
   const handleRunPayroll = async () => {
     const addresses = payAddresses.split(",").map((a) => a.trim()).filter(Boolean);
     const amounts = payAmounts.split(",").map((a) => a.trim()).filter(Boolean);
-    if (addresses.length === 0 || addresses.length !== amounts.length) return;
+    if (addresses.length === 0) { toast.error("Enter at least one employee address"); return; }
+    if (addresses.length !== amounts.length) { toast.error("Number of addresses must match number of amounts"); return; }
     if (addresses.length > MAX_PAYROLL_SIZE) {
       toast.error(`Maximum ${MAX_PAYROLL_SIZE} employees per payroll batch`);
       return;
@@ -178,7 +179,7 @@ export default function BusinessTools() {
   };
 
   const handleCreateEscrow = async () => {
-    if (!escrowBeneficiary || !escrowAmount) return;
+    if (!escrowBeneficiary || !escrowAmount) { toast.error("Enter beneficiary address and amount"); return; }
     if (!isAddress(escrowBeneficiary)) {
       toast.error("Invalid beneficiary address");
       return;

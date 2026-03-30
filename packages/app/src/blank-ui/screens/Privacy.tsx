@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { usePrivacy } from "@/hooks/usePrivacy";
+import toast from "react-hot-toast";
 
 export default function Privacy() {
   const navigate = useNavigate();
@@ -35,7 +36,8 @@ export default function Privacy() {
   const [shareHours, setShareHours] = useState("168"); // 7 days
 
   const handleShare = async () => {
-    if (!shareAddress.trim() || !/^0x[a-fA-F0-9]{40}$/.test(shareAddress.trim())) return;
+    if (!shareAddress.trim()) { toast.error("Enter a wallet address"); return; }
+    if (!/^0x[a-fA-F0-9]{40}$/.test(shareAddress.trim())) { toast.error("Invalid Ethereum address"); return; }
     await sharePermit(shareAddress.trim(), shareLevel, parseInt(shareHours) || 168);
     setShareAddress("");
     setShowShareForm(false);

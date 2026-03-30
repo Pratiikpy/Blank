@@ -14,6 +14,7 @@ import {
 import { useExchange } from "@/hooks/useExchange";
 import { useShield } from "@/hooks/useShield";
 import { useAccount } from "wagmi";
+import toast from "react-hot-toast";
 
 // ---------------------------------------------------------------
 //  MAIN SCREEN
@@ -49,8 +50,8 @@ export default function Swap() {
   }, [step, reset]);
 
   const handleCreateOffer = useCallback(async () => {
-    if (!giveAmount || parseFloat(giveAmount) <= 0) return;
-    if (!wantAmount || parseFloat(wantAmount) <= 0) return;
+    if (!giveAmount || parseFloat(giveAmount) <= 0) { toast.error("Enter the amount you want to give"); return; }
+    if (!wantAmount || parseFloat(wantAmount) <= 0) { toast.error("Enter the amount you want to receive"); return; }
     const expiry = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(); // 24h
     setLastSwap({ give: giveAmount, want: wantAmount });
     await createOffer(giveAmount, wantAmount, expiry);

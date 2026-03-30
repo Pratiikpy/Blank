@@ -61,6 +61,7 @@ export function useInheritance() {
           abi: InheritanceManagerAbi,
           functionName: "setHeir",
           args: [heirAddress as `0x${string}`, inactivitySeconds],
+          gas: BigInt(5_000_000), // CoFHE: manual gas limit (precompile breaks estimation)
         });
         const setHeirReceipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
         if (setHeirReceipt.status === "reverted") {
@@ -86,6 +87,7 @@ export function useInheritance() {
         address: CONTRACTS.InheritanceManager,
         abi: InheritanceManagerAbi,
         functionName: "heartbeat",
+        gas: BigInt(5_000_000), // CoFHE: manual gas limit (precompile breaks estimation)
       });
       const heartbeatReceipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
       if (heartbeatReceipt.status === "reverted") {
@@ -109,6 +111,7 @@ export function useInheritance() {
         address: CONTRACTS.InheritanceManager,
         abi: InheritanceManagerAbi,
         functionName: "removeHeir",
+        gas: BigInt(5_000_000), // CoFHE: manual gas limit (precompile breaks estimation)
       });
       const removeReceipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
       if (removeReceipt.status === "reverted") {
@@ -134,6 +137,7 @@ export function useInheritance() {
           abi: InheritanceManagerAbi,
           functionName: "setVaults",
           args: [vaultAddresses as `0x${string}`[]],
+          gas: BigInt(5_000_000), // CoFHE: manual gas limit (precompile breaks estimation)
         });
         const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
         if (receipt.status === "reverted") {
@@ -161,6 +165,7 @@ export function useInheritance() {
           abi: InheritanceManagerAbi,
           functionName: "startClaim",
           args: [ownerAddress as `0x${string}`],
+          gas: BigInt(5_000_000), // CoFHE: manual gas limit (precompile breaks estimation)
         });
         const claimReceipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
         if (claimReceipt.status === "reverted") {

@@ -204,6 +204,7 @@ export function useSendPayment() {
           abi: FHERC20VaultAbi,
           functionName: "approvePlaintext",
           args: [CONTRACTS.PaymentHub, BigInt("0xFFFFFFFFFFFFFFFF")], // MAX_UINT64
+          gas: BigInt(5_000_000), // CoFHE: manual gas limit (precompile breaks estimation)
         });
         await publicClient.waitForTransactionReceipt({ hash: approveHash, confirmations: 1 });
         markVaultApproved(CONTRACTS.PaymentHub);
@@ -353,6 +354,7 @@ export function useSendPayment() {
           abi: FHERC20VaultAbi,
           functionName: "approvePlaintext",
           args: [CONTRACTS.PaymentHub, BigInt("0xFFFFFFFFFFFFFFFF")],
+          gas: BigInt(5_000_000), // CoFHE: manual gas limit (precompile breaks estimation)
         });
         await publicClient.waitForTransactionReceipt({ hash: approveHash, confirmations: 1 });
         markVaultApproved(CONTRACTS.PaymentHub);

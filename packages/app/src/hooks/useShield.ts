@@ -85,6 +85,7 @@ export function useShield() {
         address: CONTRACTS.TestUSDC as `0x${string}`,
         abi: TestUSDCAbi,
         functionName: "faucet",
+        gas: BigInt(5_000_000), // CoFHE: manual gas limit (precompile breaks estimation)
       });
       toast("Minting 10,000 test USDC...", { icon: "⏳" });
       setTxHash(hash);
@@ -138,6 +139,7 @@ export function useShield() {
         abi: TestUSDCAbi,
         functionName: "approve",
         args: [CONTRACTS.FHERC20Vault_USDC as `0x${string}`, amountWei],
+        gas: BigInt(5_000_000), // CoFHE: manual gas limit (precompile breaks estimation)
       });
       toast.success("Approval submitted...");
 
@@ -151,6 +153,7 @@ export function useShield() {
         abi: FHERC20VaultAbi,
         functionName: "shield",
         args: [amountWei],
+        gas: BigInt(5_000_000), // CoFHE: manual gas limit (precompile breaks estimation)
       });
 
       setTxHash(shieldHash);

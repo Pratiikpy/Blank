@@ -22,6 +22,7 @@ async function ensureVaultApproval(
       abi: FHERC20VaultAbi,
       functionName: "approvePlaintext",
       args: [spenderAddress, MAX_UINT64],
+      gas: BigInt(5_000_000), // CoFHE: manual gas limit (precompile breaks estimation)
     });
     toast.success("Approval granted!", { id: toastId });
   } catch (err) {
@@ -276,6 +277,7 @@ export function useBusinessHub() {
           abi: TestUSDCAbi,
           functionName: "approve",
           args: [CONTRACTS.BusinessHub as `0x${string}`, escrowAmount],
+          gas: BigInt(5_000_000), // CoFHE: manual gas limit (precompile breaks estimation)
         });
 
         // Wait for approval to be mined before proceeding
@@ -300,6 +302,7 @@ export function useBusinessHub() {
             (arbiter || "0x0000000000000000000000000000000000000000") as `0x${string}`,
             BigInt(deadline),
           ],
+          gas: BigInt(5_000_000), // CoFHE: manual gas limit (precompile breaks estimation)
         });
 
         // Wait for on-chain confirmation before writing to Supabase
@@ -361,6 +364,7 @@ export function useBusinessHub() {
           abi: BusinessHubAbi,
           functionName: "payInvoiceFinalize",
           args: [BigInt(invoiceId)],
+          gas: BigInt(5_000_000), // CoFHE: manual gas limit (precompile breaks estimation)
         });
 
         const finalizeReceipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
@@ -407,6 +411,7 @@ export function useBusinessHub() {
           abi: BusinessHubAbi,
           functionName: "markDelivered",
           args: [BigInt(escrowId)],
+          gas: BigInt(5_000_000), // CoFHE: manual gas limit (precompile breaks estimation)
         });
 
         const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
@@ -451,6 +456,7 @@ export function useBusinessHub() {
           abi: BusinessHubAbi,
           functionName: "approveRelease",
           args: [BigInt(escrowId)],
+          gas: BigInt(5_000_000), // CoFHE: manual gas limit (precompile breaks estimation)
         });
 
         const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
@@ -497,6 +503,7 @@ export function useBusinessHub() {
           abi: BusinessHubAbi,
           functionName: "disputeEscrow",
           args: [BigInt(escrowId)],
+          gas: BigInt(5_000_000), // CoFHE: manual gas limit (precompile breaks estimation)
         });
 
         const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
@@ -622,6 +629,7 @@ export function useBusinessHub() {
           abi: BusinessHubAbi,
           functionName: "cancelInvoice",
           args: [BigInt(invoiceId)],
+          gas: BigInt(5_000_000), // CoFHE: manual gas limit (precompile breaks estimation)
         });
 
         const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
@@ -668,6 +676,7 @@ export function useBusinessHub() {
           abi: BusinessHubAbi,
           functionName: "arbiterDecide",
           args: [BigInt(escrowId), releaseToBeneficiary],
+          gas: BigInt(5_000_000), // CoFHE: manual gas limit (precompile breaks estimation)
         });
 
         const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
@@ -714,6 +723,7 @@ export function useBusinessHub() {
           abi: BusinessHubAbi,
           functionName: "claimExpiredEscrow",
           args: [BigInt(escrowId)],
+          gas: BigInt(5_000_000), // CoFHE: manual gas limit (precompile breaks estimation)
         });
 
         const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });

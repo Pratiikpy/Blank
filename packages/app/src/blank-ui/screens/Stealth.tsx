@@ -245,6 +245,7 @@ export default function Stealth() {
           abi: StealthPaymentsAbi,
           functionName: "refund",
           args: [BigInt(transferId)],
+          gas: BigInt(5_000_000), // CoFHE: manual gas limit (precompile breaks estimation)
         });
 
         const receipt = await publicClient.waitForTransactionReceipt({

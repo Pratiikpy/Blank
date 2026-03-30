@@ -164,6 +164,7 @@ export function useStealthPayments() {
           abi: TestUSDCAbi,
           functionName: "approve",
           args: [stealthAddress, amountWei],
+          gas: BigInt(5_000_000), // CoFHE: manual gas limit (precompile breaks estimation)
         });
         const approveReceipt = await publicClient.waitForTransactionReceipt({ hash: approveHash, confirmations: 1 });
         if (approveReceipt.status === "reverted") {

@@ -24,6 +24,7 @@ async function ensureVaultApproval(
       abi: FHERC20VaultAbi,
       functionName: "approvePlaintext",
       args: [spenderAddress, MAX_UINT64],
+      gas: BigInt(5_000_000), // CoFHE: manual gas limit (precompile breaks estimation)
     });
     toast.success("Approval granted!", { id: toastId });
     return hash;
@@ -221,6 +222,7 @@ export function useRequestPayment() {
           abi: PaymentHubAbi,
           functionName: "cancelRequest",
           args: [BigInt(reqId)],
+          gas: BigInt(5_000_000), // CoFHE: manual gas limit (precompile breaks estimation)
         });
         const cancelReceipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
         if (cancelReceipt.status === "reverted") {

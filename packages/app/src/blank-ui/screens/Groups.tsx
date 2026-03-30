@@ -294,7 +294,9 @@ function AddExpenseModal({
   );
 
   const handleAddExpense = useCallback(async () => {
-    if (!description.trim() || !amount.trim() || !address) return;
+    if (!description.trim()) { toast.error("Enter a description"); return; }
+    if (!amount.trim()) { toast.error("Enter an amount"); return; }
+    if (!address) { toast.error("Connect wallet first"); return; }
     if (!customSharesValid) {
       toast.error("Custom shares must sum to the total amount");
       return;
