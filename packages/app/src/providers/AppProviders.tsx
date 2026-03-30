@@ -6,7 +6,7 @@ import { useEffect } from "react";
 import { wagmiConfig } from "@/lib/wagmi-config";
 import { cleanupOldStorage } from "@/lib/storage";
 import { setQueryClient, invalidateAllQueries } from "@/lib/query-invalidation";
-import { CofheProvider } from "@/lib/cofhe-shim";
+
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -35,10 +35,8 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
   return (
     <WagmiProvider config={wagmiConfig}>
       <QueryClientProvider client={queryClient}>
-        <CofheProvider>
         <WalletDesyncGuard />
         {children}
-        </CofheProvider>
         <Toaster
           position="top-right"
           toastOptions={{
