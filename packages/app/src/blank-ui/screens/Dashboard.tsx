@@ -752,14 +752,27 @@ interface BalanceCardProps {
 }
 
 function BalanceCard({ balance, privacyMode, onTogglePrivacy, large, activityCount = 0 }: BalanceCardProps) {
+  // Use balance.formatted from the hook — it handles decrypted values correctly.
+  // balance.raw is the encrypted ciphertext handle (NOT the actual amount).
+  // balance.isDecrypted tells us if the SDK successfully decrypted the value.
+  // balance.totalDeposited is a plaintext aggregate from the vault contract.
   const formattedBalance = useMemo(() => {
-    if (balance.raw === null || balance.raw === undefined) return null;
-    const num = Number(balance.raw) / 1e6;
-    return new Intl.NumberFormat("en-US", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(num);
-  }, [balance.raw]);
+    if (balance.isDecrypted && balance.formatted && balance.formatted !== "Encrypted") {
+      return balance.formatted;
+    }
+    // If we have totalDeposited (plaintext aggregate), use it as approximate
+    if (balance.totalDeposited > 0 && balance.hasBalance) {
+      return new Intl.NumberFormat("en-US", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }).format(balance.totalDeposited);
+    }
+    // If hasBalance is true but can't decrypt, show encrypted indicator
+    if (balance.hasBalance) {
+      return null; // Will show "Encrypted" placeholder
+    }
+    return "0.00";
+  }, [balance.isDecrypted, balance.formatted, balance.totalDeposited, balance.hasBalance]);
 
   const displayAmount = privacyMode && !balance.isRevealed;
 
@@ -790,11 +803,11 @@ function BalanceCard({ balance, privacyMode, onTogglePrivacy, large, activityCou
                 >
                   {displayAmount
                     ? <><span aria-hidden="true">{"\u2588\u2588\u2588\u2588\u2588\u2588.\u2588\u2588"}</span><span className="sr-only">Amount hidden</span></>
-                    : formattedBalance || "0.00"}
+                    : formattedBalance ?? <><span aria-hidden="true">{"\u2588\u2588\u2588\u2588.\u2588\u2588"}</span><span className="sr-only">Encrypted</span></>}
                 </h2>
               </div>
-              {!displayAmount && formattedBalance === null && (
-                <p className="text-xs text-[var(--text-tertiary)] mt-1">Balance not yet decrypted</p>
+              {!displayAmount && formattedBalance === null && balance.hasBalance && (
+                <p className="text-xs text-emerald-600 mt-1 flex items-center gap-1"><Lock size={10} /> Balance encrypted — decryption requires CoFHE permit</p>
               )}
             </div>
             <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-500/10 border border-emerald-500/20">
