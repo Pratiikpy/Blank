@@ -260,9 +260,9 @@ export const Encryptable = new Proxy({} as any, {
       return _sdkModules.Encryptable[prop];
     }
     // Fallback: create objects matching InEuint64 ABI tuple: { ctHash, securityZone, utype, signature }
-    // The ctHash is the plaintext value (cofhe-hardhat-plugin on testnet handles real encryption)
+    // FheTypes enum from @cofhe/sdk/core/types.ts: Bool=0, Uint4=1, Uint8=2, Uint16=3, Uint32=4, Uint64=5, Uint128=6, Uint160=7
     const utypeMap: Record<string, number> = {
-      bool: 0, uint8: 1, uint16: 2, uint32: 3, uint64: 4, uint128: 5, address: 12,
+      bool: 0, uint8: 2, uint16: 3, uint32: 4, uint64: 5, uint128: 6, address: 7,
     };
     return (value: any) => ({
       ctHash: BigInt(value),
@@ -278,9 +278,9 @@ export const FheTypes = new Proxy({} as any, {
     if (_sdkModules?.FheTypes) {
       return _sdkModules.FheTypes[prop];
     }
-    // Fallback enum values
+    // Fallback enum values — must match @cofhe/sdk/core/types.ts FheTypes enum exactly
     const map: Record<string, number> = {
-      Bool: 0, Uint8: 1, Uint16: 2, Uint32: 3, Uint64: 4, Uint128: 5, Address: 12,
+      Bool: 0, Uint4: 1, Uint8: 2, Uint16: 3, Uint32: 4, Uint64: 5, Uint128: 6, Uint160: 7, Uint256: 8, Address: 7,
     };
     return map[String(prop)] ?? 0;
   },
