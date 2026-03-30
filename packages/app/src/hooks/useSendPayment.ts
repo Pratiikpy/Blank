@@ -23,7 +23,7 @@ const PENDING_TX_KEY = "blank_pending_send";
 // When true, uses useCofheEncryptAndWriteContract from @cofhe/react
 // to combine encryption and contract write into a single operation.
 // This simplifies the step machine from 6 states to 4.
-const USE_ATOMIC_ENCRYPT_WRITE = true;
+const USE_ATOMIC_ENCRYPT_WRITE = false;
 
 // ─── Step Machine ───────────────────────────────────────────────────
 
