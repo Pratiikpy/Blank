@@ -103,6 +103,7 @@ export function useBusinessHub() {
             description,
             BigInt(dueDate),
           ],
+          gas: BigInt(5_000_000), // FHE: manual gas limit (precompile can't be estimated)
         });
 
         // Wait for on-chain confirmation before writing to Supabase
@@ -206,6 +207,7 @@ export function useBusinessHub() {
             // Type assertion: cofhe SDK encrypt returns opaque encrypted input objects
             encSalaries as unknown as EncryptedInput[],
           ],
+          gas: BigInt(5_000_000), // FHE: manual gas limit (precompile can't be estimated)
         });
 
         // Wait for on-chain confirmation before writing to Supabase
@@ -569,6 +571,7 @@ export function useBusinessHub() {
             BigInt(invoiceId),
             encAmount as unknown as EncryptedInput,
           ],
+          gas: BigInt(5_000_000), // FHE: manual gas limit (precompile can't be estimated)
         });
 
         const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });

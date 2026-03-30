@@ -82,6 +82,7 @@ export function useRequestPayment() {
             encAmount as unknown as EncryptedInput,
             note,
           ],
+          gas: BigInt(5_000_000), // FHE: manual gas limit (precompile can't be estimated)
         });
 
         // Wait for on-chain confirmation before writing to Supabase
@@ -167,6 +168,7 @@ export function useRequestPayment() {
           functionName: "fulfillRequest",
           // Type assertion: cofhe SDK encrypted input (see above)
           args: [BigInt(reqId), encAmount as unknown as EncryptedInput],
+          gas: BigInt(5_000_000), // FHE: manual gas limit (precompile can't be estimated)
         });
 
         // Wait for on-chain confirmation before writing to Supabase

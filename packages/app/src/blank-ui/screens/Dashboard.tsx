@@ -119,6 +119,7 @@ export default function Dashboard() {
         functionName: "requestUnshield",
         // Type assertion: cofhe SDK encrypt returns opaque encrypted input objects
         args: [encAmount as unknown as EncryptedInput],
+        gas: BigInt(5_000_000), // FHE: manual gas limit (precompile can't be estimated)
       });
       if (publicClient) {
         await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });

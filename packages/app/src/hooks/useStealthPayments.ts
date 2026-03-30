@@ -195,6 +195,7 @@ export function useStealthPayments() {
             vault as `0x${string}`,
             note,
           ],
+          gas: BigInt(5_000_000), // FHE: manual gas limit (precompile can't be estimated)
         });
 
         const receipt = await publicClient.waitForTransactionReceipt({
@@ -335,6 +336,7 @@ export function useStealthPayments() {
               abi: StealthPaymentsAbi,
               functionName: "finalizeClaim",
               args: [BigInt(transferId)],
+              gas: BigInt(5_000_000), // FHE: manual gas limit (precompile can't be estimated)
             });
 
             const receipt = await publicClient.waitForTransactionReceipt({
@@ -430,6 +432,7 @@ export function useStealthPayments() {
           abi: StealthPaymentsAbi,
           functionName: "claimStealth",
           args: [BigInt(transferId), claimCode as `0x${string}`],
+          gas: BigInt(5_000_000), // FHE: manual gas limit (precompile can't be estimated)
         });
 
         const receipt = await publicClient.waitForTransactionReceipt({
@@ -509,6 +512,7 @@ export function useStealthPayments() {
           abi: StealthPaymentsAbi,
           functionName: "finalizeClaim",
           args: [BigInt(transferId)],
+          gas: BigInt(5_000_000), // FHE: manual gas limit (precompile can't be estimated)
         });
 
         const receipt = await publicClient.waitForTransactionReceipt({

@@ -202,6 +202,7 @@ export function useInheritance() {
             functionName: "finalizeClaim",
             chain: baseSepolia,
             account: address,
+            gas: BigInt(5_000_000), // FHE: manual gas limit (precompile can't be estimated)
           },
           args: [
             ownerAddress as `0x${string}`,

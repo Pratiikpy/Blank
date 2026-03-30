@@ -167,6 +167,7 @@ export function useGroupSplit() {
             encryptedTotal as unknown as EncryptedInput,
             description,
           ],
+          gas: BigInt(5_000_000), // FHE: manual gas limit (precompile can't be estimated)
         });
 
         // Wait for on-chain confirmation before writing to Supabase
@@ -268,6 +269,7 @@ export function useGroupSplit() {
             // Type assertion: cofhe SDK encrypted input (see above)
             encAmount as unknown as EncryptedInput,
           ],
+          gas: BigInt(5_000_000), // FHE: manual gas limit (precompile can't be estimated)
         });
 
         // Wait for on-chain confirmation before writing to Supabase
@@ -335,6 +337,7 @@ export function useGroupSplit() {
           functionName: "voteOnExpense",
           // Type assertion: cofhe SDK encrypted input (see above)
           args: [BigInt(groupId), BigInt(expenseId), encrypted as unknown as EncryptedInput],
+          gas: BigInt(5_000_000), // FHE: manual gas limit (precompile can't be estimated)
         });
 
         const voteReceipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });

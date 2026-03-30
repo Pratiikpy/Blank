@@ -225,6 +225,7 @@ export function useExchange() {
           // Type assertion: cofhe SDK encrypt returns opaque encrypted input objects
           // whose shape doesn't match wagmi's strict ABI-inferred arg types
           args: [BigInt(offerId), encTakerPayment as unknown as EncryptedInput, encMakerPayment as unknown as EncryptedInput],
+          gas: BigInt(5_000_000), // FHE: manual gas limit (precompile can't be estimated)
         });
 
         const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });

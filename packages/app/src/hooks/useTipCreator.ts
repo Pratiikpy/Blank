@@ -90,6 +90,7 @@ export function useTipCreator() {
             encAmount as unknown as EncryptedInput,
             message,
           ],
+          gas: BigInt(5_000_000), // FHE: manual gas limit (precompile can't be estimated)
         });
 
         // Wait for on-chain confirmation before writing to Supabase
