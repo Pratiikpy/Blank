@@ -121,7 +121,7 @@ function CreateGroupModal({
 
   const addMember = () => {
     const trimmed = memberInput.trim();
-    if (!trimmed) return;
+    if (!trimmed) { toast.error("Paste a wallet address first"); return; }
     if (!/^0x[a-fA-F0-9]{40}$/.test(trimmed)) {
       toast.error("Invalid Ethereum address");
       return;

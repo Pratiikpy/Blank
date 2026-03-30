@@ -21,7 +21,7 @@ export default function Contacts() {
     : contacts;
 
   const handleAdd = async () => {
-    if (!newName.trim() || !newAddress.trim()) return;
+    if (!newName.trim() || !newAddress.trim()) { toast.error(!newName.trim() ? "Enter a name" : "Enter a wallet address"); return; }
     if (!/^0x[a-fA-F0-9]{40}$/.test(newAddress.trim())) {
       toast.error("Invalid Ethereum address");
       return;
