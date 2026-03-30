@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect } from "react";
 import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import { Shield, MessageSquare, ChevronLeft } from "lucide-react";
 import { useShield } from "@/hooks/useShield";
+import { useEncryptedBalance } from "@/hooks/useEncryptedBalance";
 import { cn } from "@/lib/cn";
 import { useSendPayment } from "@/hooks/useSendPayment";
 import { NumericKeypad } from "../components";
@@ -39,6 +40,7 @@ export default function SendAmount() {
   const { setRecipient, setAmount, setNote, note, send, canProceed } =
     useSendPayment();
   const { publicBalance } = useShield();
+  const balance = useEncryptedBalance();
 
   const [localAmount, setLocalAmount] = useState("0");
   const [showNote, setShowNote] = useState(false);
@@ -135,7 +137,9 @@ export default function SendAmount() {
             </p>
             <button
               onClick={() => {
-                const max = publicBalance.toFixed(6);
+                // Use vault (shielded) balance for MAX, not public balance
+                const vaultBal = balance.totalDeposited || 0;
+                const max = vaultBal > 0 ? vaultBal.toFixed(6) : publicBalance.toFixed(6);
                 setLocalAmount(max);
                 setAmount(max);
               }}

@@ -58,11 +58,34 @@ const initialState: SendPaymentState = {
   encryptionProgress: 0,
 };
 
+// Module-level singleton state so it persists across route navigations
+// (SendContacts → SendAmount → SendConfirm → SendSuccess all share this)
+let _sharedState: SendPaymentState = { ...initialState };
+const _listeners = new Set<() => void>();
+
+
+
 export function useSendPayment() {
   const { address, isConnected } = useAccount();
   const { connected: cofheConnected } = useCofheConnection();
   const publicClient = usePublicClient();
-  const [state, setState] = useState<SendPaymentState>(initialState);
+  const [state, _setLocalState] = useState<SendPaymentState>(() => _sharedState);
+
+  // Wrapped setState that syncs to shared singleton
+  const setState = useCallback((updater: SendPaymentState | ((prev: SendPaymentState) => SendPaymentState)) => {
+    const newState = typeof updater === "function" ? updater(_sharedState) : updater;
+    _sharedState = newState;
+    _setLocalState(newState);
+    _listeners.forEach((l) => l());
+  }, []);
+
+  // Sync local state with shared state on mount (for cross-route persistence)
+  useEffect(() => {
+    const listener = () => _setLocalState({ ..._sharedState });
+    _listeners.add(listener);
+    _setLocalState({ ..._sharedState });
+    return () => { _listeners.delete(listener); };
+  }, []);
 
   // ─── Pending TX recovery on mount (#71) ─────────────────────────────
   useEffect(() => {
