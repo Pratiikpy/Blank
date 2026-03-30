@@ -162,8 +162,8 @@ contract FHERC20Vault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         FHE.allowThis(_pendingUnshields[msg.sender]);
         FHE.allow(_pendingUnshields[msg.sender], msg.sender);
 
-        // Trigger async decryption
-        FHE.decrypt(_pendingUnshields[msg.sender]);
+        // Decryption is now client-side (v0.1.3) — client calls publishDecryptResult()
+        // after decrypting off-chain, then claimUnshield() reads via getDecryptResultSafe().
 
         emit UnshieldRequested(msg.sender, address(underlyingToken), block.timestamp);
         try eventHub.emitActivity(msg.sender, address(0), "unshield", "", 0) {} catch {}

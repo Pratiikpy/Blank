@@ -193,8 +193,8 @@ contract PrivacyRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         // User can verify their swap intent (read the encrypted amount they submitted)
         FHE.allowSender(transferred);
 
-        // Request async decryption — result available via FHE.getDecryptResultSafe()
-        FHE.decrypt(transferred);
+        // Decryption is now client-side (v0.1.3) — client calls publishDecryptResult()
+        // after decrypting off-chain, then executeSwap() reads via getDecryptResultSafe().
 
         // Store pending swap
         uint256 swapId = nextSwapId++;

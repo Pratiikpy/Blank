@@ -254,8 +254,8 @@ contract StealthPayments is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
             pending: true
         });
 
-        // Request async decryption of the conditional amount
-        FHE.decrypt(conditionalAmount);
+        // Decryption is now client-side (v0.1.3) — client calls publishDecryptResult()
+        // after decrypting off-chain, then finalizeClaim() reads via getDecryptResultSafe().
 
         emit StealthClaimStarted(transferId, msg.sender, block.timestamp);
     }
