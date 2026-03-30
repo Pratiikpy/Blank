@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Shield, Check, ExternalLink } from "lucide-react";
 import { useSendPayment } from "@/hooks/useSendPayment";
@@ -10,6 +11,12 @@ export default function SendSuccess() {
     payment.reset();
     navigate("/", { replace: true });
   };
+
+  // Auto-redirect to home after 8 seconds
+  useEffect(() => {
+    const timer = setTimeout(handleBackHome, 8000);
+    return () => clearTimeout(timer);
+  }, []);
 
   return (
     <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
