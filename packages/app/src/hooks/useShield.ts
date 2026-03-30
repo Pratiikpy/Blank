@@ -114,6 +114,11 @@ export function useShield() {
     if (!address || !CONTRACTS.TestUSDC || !CONTRACTS.FHERC20Vault_USDC) return null;
 
     try {
+      if (!amount || amount.trim() === "") {
+        toast.error("Enter an amount");
+        return null;
+      }
+
       setStep("approving");
       setError(null);
 

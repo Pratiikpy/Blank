@@ -319,7 +319,10 @@ export default function Stealth() {
 
   const handleCreateCode = useCallback(async () => {
     if (!address) { toast.error("Connect wallet first"); return; }
-    if (!amount || !recipient) return;
+    if (!amount || !recipient) {
+      toast.error(!amount ? "Enter an amount" : "Enter a recipient address");
+      return;
+    }
     if (!/^0x[a-fA-F0-9]{40}$/.test(recipient.trim())) {
       return;
     }

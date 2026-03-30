@@ -54,6 +54,12 @@ export function useTipCreator() {
       try {
         submittingRef.current = true;
         setIsTipping(true);
+
+        if (!amount || amount.trim() === "") {
+          toast.error("Enter an amount");
+          return;
+        }
+
         const amountWei = parseUnits(amount, 6);
 
         // Ensure the CreatorHub contract is approved to transferFrom on the vault

@@ -79,6 +79,12 @@ export function useBusinessHub() {
           markVaultApproved(CONTRACTS.BusinessHub);
         }
 
+        if (!amount || amount.trim() === "") {
+          toast.error("Enter an amount");
+          setStep("idle");
+          return;
+        }
+
         setStep("encrypting");
         const amountWei = parseUnits(amount, 6);
         const [encAmount] = await encryptInputsAsync([Encryptable.uint64(amountWei)]);
@@ -175,6 +181,15 @@ export function useBusinessHub() {
           markVaultApproved(CONTRACTS.BusinessHub);
         }
 
+        // Validate all amounts before encrypting
+        for (const a of amounts) {
+          if (!a || a.trim() === "") {
+            toast.error("All employee amounts must be filled in");
+            setStep("idle");
+            return;
+          }
+        }
+
         setStep("encrypting");
         const encSalaries = await encryptInputsAsync(
           amounts.map((a) => Encryptable.uint64(parseUnits(a, 6)))
@@ -242,6 +257,11 @@ export function useBusinessHub() {
       }
 
       try {
+        if (!amount || amount.trim() === "") {
+          toast.error("Enter an amount");
+          return;
+        }
+
         clearTimeout(resetTimerRef.current);
         // Step 1: Approve BusinessHub to spend the underlying ERC20 (TestUSDC)
         // The contract calls underlying.transferFrom(msg.sender, address(this), plaintextAmount)
@@ -519,6 +539,11 @@ export function useBusinessHub() {
       }
 
       try {
+        if (!amount || amount.trim() === "") {
+          toast.error("Enter an amount");
+          return;
+        }
+
         clearTimeout(resetTimerRef.current);
         setStep("approving");
 

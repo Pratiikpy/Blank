@@ -182,6 +182,15 @@ export function useGiftMoney() {
           markVaultApproved(CONTRACTS.GiftMoney);
         }
 
+        // Validate all share amounts before encrypting
+        for (const s of shares) {
+          if (!s || s.trim() === "") {
+            toast.error("All gift share amounts must be filled in");
+            setState((s) => ({ ...s, step: "input", isProcessing: false }));
+            return;
+          }
+        }
+
         // Encrypt each share individually
         setState((s) => ({ ...s, step: "encrypting", encryptionProgress: 0 }));
 

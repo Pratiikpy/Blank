@@ -82,6 +82,30 @@ export function useExchange() {
           markVaultApproved(CONTRACTS.P2PExchange);
         }
 
+        if (!amountGive || amountGive.trim() === "") {
+          toast.error("Enter an amount to give");
+          setStep("idle");
+          return;
+        }
+        if (!amountWant || amountWant.trim() === "") {
+          toast.error("Enter an amount to receive");
+          setStep("idle");
+          return;
+        }
+
+        const parsedGive = parseFloat(amountGive);
+        const parsedWant = parseFloat(amountWant);
+        if (isNaN(parsedGive) || parsedGive <= 0) {
+          toast.error("Enter a valid amount to give");
+          setStep("idle");
+          return;
+        }
+        if (isNaN(parsedWant) || parsedWant <= 0) {
+          toast.error("Enter a valid amount to receive");
+          setStep("idle");
+          return;
+        }
+
         setStep("sending");
 
         // Convert amounts to uint256 (6 decimals for USDC)
@@ -118,8 +142,8 @@ export function useExchange() {
           maker_address: address.toLowerCase(),
           token_give: CONTRACTS.FHERC20Vault_USDC,
           token_want: CONTRACTS.FHERC20Vault_USDC,
-          amount_give: parseFloat(amountGive),
-          amount_want: parseFloat(amountWant),
+          amount_give: parsedGive,
+          amount_want: parsedWant,
           expiry: expiryDate,
           status: "active",
           taker_address: "",

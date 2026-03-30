@@ -60,6 +60,11 @@ export function useRequestPayment() {
       }
 
       try {
+        if (!amount || amount.trim() === "") {
+          toast.error("Enter an amount");
+          return;
+        }
+
         setStep("encrypting");
         const amountWei = parseUnits(amount, 6);
         const [encAmount] = await encryptInputsAsync([Encryptable.uint64(amountWei)]);
@@ -132,6 +137,11 @@ export function useRequestPayment() {
       }
 
       try {
+        if (!amount || amount.trim() === "") {
+          toast.error("Enter an amount");
+          return;
+        }
+
         // Ensure the PaymentHub contract is approved to transferFrom on the vault
         if (!isVaultApproved(CONTRACTS.PaymentHub)) {
           const approvalHash = await ensureVaultApproval(

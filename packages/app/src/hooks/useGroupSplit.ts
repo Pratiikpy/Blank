@@ -131,6 +131,18 @@ export function useGroupSplit() {
           markVaultApproved(CONTRACTS.GroupManager);
         }
 
+        // Validate all share amounts before encrypting
+        for (const s of shares) {
+          if (!s || s.trim() === "") {
+            toast.error("All share amounts must be filled in");
+            return;
+          }
+        }
+        if (!totalAmount || totalAmount.trim() === "") {
+          toast.error("Enter a total amount");
+          return;
+        }
+
         // Encrypt each person's share individually
         const encryptedShares = await encryptInputsAsync(
           shares.map((s) => Encryptable.uint64(parseUnits(s, 6)))
@@ -225,6 +237,11 @@ export function useGroupSplit() {
         submittingRef.current = true;
         setIsProcessing(true);
 
+        if (!amount || amount.trim() === "") {
+          toast.error("Enter an amount");
+          return;
+        }
+
         // Ensure the GroupManager contract is approved to transferFrom on the vault
         if (!isVaultApproved(CONTRACTS.GroupManager)) {
           await ensureVaultApproval(
@@ -302,6 +319,11 @@ export function useGroupSplit() {
       submittingRef.current = true;
       setIsProcessing(true);
       try {
+        if (!votes || votes.trim() === "") {
+          toast.error("Enter a vote amount");
+          return;
+        }
+
         const votesWei = parseUnits(votes, 6);
         const [encrypted] = await encryptInputsAsync([
           Encryptable.uint64(votesWei),
