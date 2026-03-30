@@ -322,9 +322,7 @@ Blank/
 │       ├── tasks/                    # Deployment scripts (4 phases)
 │       └── deployments/              # Deployed addresses per network
 │
-├── ARCHITECTURE.md                   # Detailed system architecture
-├── DESIGN_SYSTEM.md                  # UI/UX design specifications
-└── CLAUDE.md                         # Development guidelines
+
 ```
 
 ---
