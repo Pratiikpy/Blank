@@ -121,39 +121,50 @@ export function useCofheEncrypt() {
   const encryptInputsAsync = useCallback(async (items: unknown[]) => {
     setIsEncrypting(true);
     try {
+      console.log("[cofhe-shim] encryptInputsAsync called with", items.length, "items");
+      console.log("[cofhe-shim] SDK state: loaded=", _sdkLoaded, "failed=", _sdkFailed, "client=", !!_sdkClient);
+
       // Wait for SDK to load if not yet ready
       const sdkReady = await loadSdk();
+      console.log("[cofhe-shim] SDK ready:", sdkReady, "client connected:", _sdkClient?.connected);
 
       // Try to connect client if not connected
       if (sdkReady && _sdkClient && !_sdkClient.connected) {
         try {
-          // Get viem clients from window.ethereum if available
+          console.log("[cofhe-shim] Attempting SDK connect via window.ethereum...");
           const { createPublicClient, createWalletClient, custom } = await import("viem");
           const { baseSepolia } = await import("viem/chains");
           if (typeof window !== "undefined" && (window as any).ethereum) {
             const pc = createPublicClient({ chain: baseSepolia, transport: custom((window as any).ethereum) });
             const wc = createWalletClient({ chain: baseSepolia, transport: custom((window as any).ethereum) });
             await _sdkClient.connect(pc, wc);
+            console.log("[cofhe-shim] SDK connected successfully");
+          } else {
+            console.warn("[cofhe-shim] No window.ethereum available");
           }
         } catch (connectErr) {
-          console.warn("[cofhe-shim] SDK connect during encrypt:", connectErr);
+          console.warn("[cofhe-shim] SDK connect during encrypt FAILED:", connectErr);
         }
       }
 
       // Try real SDK encryption
       if (sdkReady && _sdkClient) {
         try {
-          // SDK's Encryptable creates items with { data, utype, securityZone }
-          // Our proxy might create { ctHash, ... } — need to handle both
+          console.log("[cofhe-shim] Starting REAL encryption with SDK...");
+          console.log("[cofhe-shim] Items to encrypt:", JSON.stringify(items, (_, v) => typeof v === 'bigint' ? v.toString() : v));
           const encrypted = await _sdkClient.encryptInputs(items).execute();
+          console.log("[cofhe-shim] REAL encryption SUCCESS:", JSON.stringify(encrypted, (_, v) => typeof v === 'bigint' ? v.toString() : v).substring(0, 200));
           return encrypted;
         } catch (err) {
-          console.warn("[cofhe-shim] Real encryption failed, using fallback:", err);
+          console.error("[cofhe-shim] REAL encryption FAILED:", err);
+          console.error("[cofhe-shim] Error details:", (err as any)?.message, (err as any)?.code, (err as any)?.cause);
         }
+      } else {
+        console.warn("[cofhe-shim] SDK not available for encryption. loaded:", sdkReady, "client:", !!_sdkClient);
       }
 
-      // Fallback: return items as-is (will likely cause contract revert on mainnet)
-      console.warn("[cofhe-shim] Using fallback pass-through — transactions may revert without real CoFHE encryption");
+      // Fallback: return items as-is (will cause contract revert without real signature)
+      console.warn("[cofhe-shim] ⚠️ USING FALLBACK — no real encryption. Transaction WILL revert on-chain.");
       return items;
     } finally {
       setIsEncrypting(false);
