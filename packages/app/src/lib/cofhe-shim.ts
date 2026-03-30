@@ -243,8 +243,17 @@ export const Encryptable = new Proxy({} as any, {
     if (_sdkModules?.Encryptable) {
       return _sdkModules.Encryptable[prop];
     }
-    // Fallback: return a function that creates a passthrough object
-    return (value: any) => ({ data: value, utype: 0, securityZone: 0 });
+    // Fallback: create objects matching InEuint64 ABI tuple: { ctHash, securityZone, utype, signature }
+    // The ctHash is the plaintext value (cofhe-hardhat-plugin on testnet handles real encryption)
+    const utypeMap: Record<string, number> = {
+      bool: 0, uint8: 1, uint16: 2, uint32: 3, uint64: 4, uint128: 5, address: 12,
+    };
+    return (value: any) => ({
+      ctHash: BigInt(value),
+      securityZone: 0,
+      utype: utypeMap[String(prop)] ?? 4,
+      signature: "0x",
+    });
   },
 });
 

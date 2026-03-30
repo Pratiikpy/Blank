@@ -78,9 +78,9 @@ export default function SendAmount() {
     });
   }, [setAmount]);
 
-  const handleContinue = () => {
+  const handleContinue = async () => {
     if (!canProceed) return;
-    send();
+    await send();
     navigate("/send/confirm");
   };
 
