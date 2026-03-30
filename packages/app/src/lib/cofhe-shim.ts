@@ -121,23 +121,39 @@ export function useCofheEncrypt() {
   const encryptInputsAsync = useCallback(async (items: unknown[]) => {
     setIsEncrypting(true);
     try {
-      // Try real SDK encryption
-      if (_sdkLoaded && _sdkClient && _sdkClient.connected) {
-        try {
-          const encryptableItems = items.filter(
-            (item: any) => typeof item === "object" && item !== null && "utype" in item && "data" in item
-          );
+      // Wait for SDK to load if not yet ready
+      const sdkReady = await loadSdk();
 
-          if (encryptableItems.length > 0) {
-            const encrypted = await _sdkClient.encryptInputs(encryptableItems).execute();
-            return encrypted;
+      // Try to connect client if not connected
+      if (sdkReady && _sdkClient && !_sdkClient.connected) {
+        try {
+          // Get viem clients from window.ethereum if available
+          const { createPublicClient, createWalletClient, custom } = await import("viem");
+          const { baseSepolia } = await import("viem/chains");
+          if (typeof window !== "undefined" && (window as any).ethereum) {
+            const pc = createPublicClient({ chain: baseSepolia, transport: custom((window as any).ethereum) });
+            const wc = createWalletClient({ chain: baseSepolia, transport: custom((window as any).ethereum) });
+            await _sdkClient.connect(pc, wc);
           }
-        } catch (err) {
-          console.warn("[cofhe-shim] Real encryption failed, passing through:", err);
+        } catch (connectErr) {
+          console.warn("[cofhe-shim] SDK connect during encrypt:", connectErr);
         }
       }
 
-      // Fallback: pass items through (cofhe-hardhat-plugin handles encryption on testnet)
+      // Try real SDK encryption
+      if (sdkReady && _sdkClient) {
+        try {
+          // SDK's Encryptable creates items with { data, utype, securityZone }
+          // Our proxy might create { ctHash, ... } — need to handle both
+          const encrypted = await _sdkClient.encryptInputs(items).execute();
+          return encrypted;
+        } catch (err) {
+          console.warn("[cofhe-shim] Real encryption failed, using fallback:", err);
+        }
+      }
+
+      // Fallback: return items as-is (will likely cause contract revert on mainnet)
+      console.warn("[cofhe-shim] Using fallback pass-through — transactions may revert without real CoFHE encryption");
       return items;
     } finally {
       setIsEncrypting(false);
