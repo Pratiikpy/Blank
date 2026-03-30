@@ -175,7 +175,8 @@ export default function Gifts() {
 
   const handleSendGift = useCallback(async () => {
     if (!address) { toast.error("Connect wallet first"); return; }
-    if (!giftAmount) return;
+    if (!giftAmount) { toast.error("Enter a gift amount"); return; }
+    if (!giftRecipient.trim() && recipients.length === 0) { toast.error("Add at least one recipient"); return; }
 
     // Build final recipient list
     const allRecipients =
