@@ -157,6 +157,8 @@ export function useCofheEncryptAndWriteContract() {
     encryptAndWrite: async (_params: any) => {
       throw new Error("Use writeContractAsync directly with Encryptable values");
     },
+    encryption: { isEncrypting: false },
+    write: { isPending: false },
     atomicEncryption: { isEncrypting: false },
     atomicWrite: { isPending: false },
   };

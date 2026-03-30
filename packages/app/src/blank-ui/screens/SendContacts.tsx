@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { Search, ChevronRight, User, ClipboardPaste } from "lucide-react";
+import { Search, ChevronRight, User, ClipboardPaste, Send } from "lucide-react";
+import toast from "react-hot-toast";
 import { isAddress, zeroAddress } from "viem";
 import { cn } from "@/lib/cn";
 import { useContacts } from "@/hooks/useContacts";
@@ -224,15 +225,18 @@ export default function SendContacts() {
                 </label>
                 <div className="relative">
                   <input
+                    id="direct-address-input"
                     type="text"
                     placeholder="0x..."
                     aria-label="Wallet address"
                     className="h-14 w-full px-5 rounded-2xl bg-white/60 dark:bg-white/5 border border-black/5 dark:border-white/10 focus:border-black/20 dark:focus:border-white/20 focus:ring-4 focus:ring-black/5 dark:focus:ring-white/5 outline-none transition-all placeholder:text-[var(--text-tertiary)] font-mono text-sm"
                     onKeyDown={(e) => {
                       if (e.key === "Enter") {
-                        const input = (e.target as HTMLInputElement).value;
+                        const input = (e.target as HTMLInputElement).value.trim();
                         if (isAddress(input) && input !== zeroAddress) {
                           handleSelectContact(input, truncateAddress(input));
+                        } else if (input.length > 0) {
+                          toast.error("Invalid Ethereum address");
                         }
                       }
                     }}
@@ -240,14 +244,49 @@ export default function SendContacts() {
                 </div>
               </div>
 
-              {/* Scan QR */}
+              {/* Continue button */}
               <button
-                onClick={() => setShowScanInfo(true)}
+                onClick={() => {
+                  const el = document.getElementById("direct-address-input") as HTMLInputElement | null;
+                  const input = el?.value?.trim() || "";
+                  if (!input) {
+                    toast.error("Enter a wallet address");
+                    return;
+                  }
+                  if (!isAddress(input) || input === zeroAddress) {
+                    toast.error("Invalid Ethereum address");
+                    return;
+                  }
+                  handleSelectContact(input, truncateAddress(input));
+                }}
+                className="w-full h-14 px-6 rounded-2xl bg-[#1D1D1F] text-white font-medium transition-all active:scale-95 hover:bg-[#2D2D2F] flex items-center justify-center gap-2"
+              >
+                <Send size={18} />
+                <span>Continue</span>
+              </button>
+
+              {/* Paste from clipboard */}
+              <button
+                onClick={async () => {
+                  try {
+                    const text = await navigator.clipboard.readText();
+                    const el = document.getElementById("direct-address-input") as HTMLInputElement | null;
+                    if (el) {
+                      el.value = text.trim();
+                      el.focus();
+                    }
+                    if (isAddress(text.trim()) && text.trim() !== zeroAddress) {
+                      handleSelectContact(text.trim(), truncateAddress(text.trim()));
+                    }
+                  } catch {
+                    toast.error("Could not read clipboard");
+                  }
+                }}
                 className="w-full h-14 px-6 rounded-2xl bg-black/5 dark:bg-white/10 text-[var(--text-primary)] font-medium transition-all active:scale-95 hover:bg-black/10 dark:hover:bg-white/20 flex items-center justify-center gap-2"
-                aria-label="Paste address"
+                aria-label="Paste address from clipboard"
               >
                 <ClipboardPaste size={20} strokeWidth={2.2} />
-                <span>Paste Address</span>
+                <span>Paste from Clipboard</span>
               </button>
               {showScanInfo && (
                 <div className="mt-3 p-4 rounded-2xl bg-blue-50 dark:bg-blue-500/10 border border-blue-100 dark:border-blue-500/20">
