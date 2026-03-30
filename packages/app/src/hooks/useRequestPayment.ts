@@ -99,6 +99,17 @@ export function useRequestPayment() {
           tx_hash: hash,
         });
 
+        await insertActivity({
+          tx_hash: hash,
+          user_from: address.toLowerCase(),
+          user_to: from.toLowerCase(),
+          activity_type: "request_created",
+          contract_address: CONTRACTS.PaymentHub,
+          note,
+          token_address: CONTRACTS.FHERC20Vault_USDC,
+          block_number: Number(createReceipt.blockNumber),
+        });
+
         setStep("success");
         toast.success("Payment request sent!");
       } catch (err) {

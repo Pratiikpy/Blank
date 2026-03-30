@@ -1,9 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.25;
 
+import "@fhenixprotocol/cofhe-contracts/FHE.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "./utils/ReentrancyGuard.sol";
+
+interface IFHERC20Vault {
+    function transferFrom(address from, address to, InEuint64 memory encAmount) external returns (euint64);
+}
 
 interface IEventHub {
     function emitActivity(address user1, address user2, string calldata activityType, string calldata note, uint256 refId) external;
@@ -25,6 +30,7 @@ contract InheritanceManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
         uint256 lastHeartbeat;      // Last time owner proved they're active
         uint256 claimStartedAt;     // When heir started claim (0 if no active claim)
         bool active;
+        address[] vaults;           // FHERC20Vaults to transfer on claim
     }
 
     uint256 public constant CHALLENGE_PERIOD = 7 days;
@@ -40,6 +46,7 @@ contract InheritanceManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
     event ClaimStarted(address indexed owner, address indexed heir, uint256 timestamp);
     event ClaimCancelled(address indexed owner, uint256 timestamp);
     event ClaimFinalized(address indexed owner, address indexed heir, uint256 timestamp);
+    event VaultsUpdated(address indexed owner, address[] vaults, uint256 timestamp);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() { _disableInitializers(); }
@@ -54,13 +61,13 @@ contract InheritanceManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
         require(heir != address(0) && heir != msg.sender, "InheritanceManager: invalid heir");
         require(inactivityPeriod >= MIN_INACTIVITY, "InheritanceManager: min 30 days");
 
-        plans[msg.sender] = InheritancePlan({
-            heir: heir,
-            inactivityPeriod: inactivityPeriod,
-            lastHeartbeat: block.timestamp,
-            claimStartedAt: 0,
-            active: true
-        });
+        InheritancePlan storage plan = plans[msg.sender];
+        plan.heir = heir;
+        plan.inactivityPeriod = inactivityPeriod;
+        plan.lastHeartbeat = block.timestamp;
+        plan.claimStartedAt = 0;
+        plan.active = true;
+        // plan.vaults is preserved from any previous setVaults call
 
         emit HeirSet(msg.sender, heir, inactivityPeriod, block.timestamp);
         try eventHub.emitActivity(msg.sender, heir, "heir_set", "", 0) {} catch {}
@@ -71,6 +78,18 @@ contract InheritanceManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
         require(plans[msg.sender].active, "InheritanceManager: no plan");
         plans[msg.sender].active = false;
         emit HeirRemoved(msg.sender, block.timestamp);
+    }
+
+    /// @notice Set or update the vaults protected by this inheritance plan.
+    ///         Owner MUST approve this contract (InheritanceManager) on each vault
+    ///         via vault.approvePlaintext(inheritanceManager, type(uint64).max)
+    ///         so that finalizeClaim can transfer balances to the heir.
+    /// @param _vaults Array of FHERC20Vault addresses to protect
+    function setVaults(address[] calldata _vaults) external nonReentrant {
+        InheritancePlan storage plan = plans[msg.sender];
+        require(plan.active, "InheritanceManager: no plan");
+        plan.vaults = _vaults;
+        emit VaultsUpdated(msg.sender, _vaults, block.timestamp);
     }
 
     /// @notice Prove you're still active. Also cancels any pending claims.
@@ -107,9 +126,19 @@ contract InheritanceManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
     }
 
     /// @notice Heir finalizes the claim after the 7-day challenge period.
-    ///         Frontend handles the actual FHERC20Vault transfers — this contract
-    ///         just validates the timing and marks the plan as claimed.
-    function finalizeClaim(address owner_) external nonReentrant {
+    ///         Transfers all vault balances from the owner to the heir.
+    ///
+    ///         The heir provides encrypted amounts for each vault — one per vault in the plan.
+    ///         To drain the full balance, encrypt type(uint64).max for each vault.
+    ///         The vault's transferFrom uses FHE.select (no revert on insufficient balance),
+    ///         so over-requesting is safe — it transfers up to the available balance.
+    ///
+    ///         PREREQUISITE: The owner MUST have approved this contract on each vault
+    ///         via vault.approvePlaintext(inheritanceManager, type(uint64).max).
+    ///
+    /// @param owner_ The address of the plan owner whose funds are being claimed
+    /// @param encAmounts Encrypted amounts to transfer from each vault (one per vault in plan.vaults)
+    function finalizeClaim(address owner_, InEuint64[] memory encAmounts) external nonReentrant {
         InheritancePlan storage plan = plans[owner_];
         require(plan.active, "InheritanceManager: no plan");
         require(msg.sender == plan.heir, "InheritanceManager: not heir");
@@ -118,10 +147,24 @@ contract InheritanceManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
             block.timestamp > plan.claimStartedAt + CHALLENGE_PERIOD,
             "InheritanceManager: challenge period active"
         );
+        require(
+            encAmounts.length == plan.vaults.length,
+            "InheritanceManager: amounts/vaults length mismatch"
+        );
 
         plan.active = false;
 
-        emit ClaimFinalized(owner_, msg.sender, block.timestamp);
+        // Transfer all vault balances from owner to heir
+        for (uint256 i = 0; i < plan.vaults.length; i++) {
+            IFHERC20Vault vault = IFHERC20Vault(plan.vaults[i]);
+            // vault.transferFrom checks both balance AND allowance via FHE.select
+            // Returns the actual encrypted amount transferred (zero if insufficient)
+            euint64 transferred = vault.transferFrom(owner_, plan.heir, encAmounts[i]);
+            // Grant the heir permission to read the transferred amount handle
+            FHE.allowTransient(transferred, plan.heir);
+        }
+
+        emit ClaimFinalized(owner_, plan.heir, block.timestamp);
         try eventHub.emitActivity(msg.sender, owner_, "claim_finalized", "", 0) {} catch {}
     }
 
@@ -129,10 +172,10 @@ contract InheritanceManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
 
     function getPlan(address owner_) external view returns (
         address heir, uint256 inactivityPeriod, uint256 lastHeartbeat,
-        uint256 claimStartedAt, bool active
+        uint256 claimStartedAt, bool active, address[] memory vaults
     ) {
         InheritancePlan storage p = plans[owner_];
-        return (p.heir, p.inactivityPeriod, p.lastHeartbeat, p.claimStartedAt, p.active);
+        return (p.heir, p.inactivityPeriod, p.lastHeartbeat, p.claimStartedAt, p.active, p.vaults);
     }
 
     function isClaimable(address owner_) external view returns (bool) {

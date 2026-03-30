@@ -44,6 +44,7 @@ contract GiftMoney is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         string note;
         uint256 timestamp;
         bool active;
+        uint256 expiryTimestamp; // 0 = no expiry; >0 = UX-only expiry (funds already transferred)
     }
 
     // ─── State ──────────────────────────────────────────────────────────
@@ -90,6 +91,17 @@ contract GiftMoney is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         uint256 timestamp
     );
 
+    event EnvelopeDeactivated(
+        uint256 indexed envelopeId,
+        address indexed sender,
+        uint256 timestamp
+    );
+
+    event EnvelopeExpirySet(
+        uint256 indexed envelopeId,
+        uint256 expiryTimestamp
+    );
+
     // ─── Initializer ────────────────────────────────────────────────────
 
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -121,13 +133,17 @@ contract GiftMoney is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     /// @param recipients Array of recipient addresses
     /// @param shares Array of encrypted share amounts (one per recipient)
     /// @param note Public note/message (e.g., "Happy New Year!")
+    /// @param expiryTimestamp UX-only expiry (0 = no expiry). Must be in the future if set.
+    ///        Since funds transfer immediately, this is for display/social tracking only.
     /// @return envelopeId The ID of the created envelope
     function createEnvelope(
         address vault,
         address[] calldata recipients,
         InEuint64[] memory shares,
-        string calldata note
+        string calldata note,
+        uint256 expiryTimestamp
     ) external nonReentrant returns (uint256) {
+        require(expiryTimestamp == 0 || expiryTimestamp > block.timestamp, "GiftMoney: expiry must be future");
         uint256 count = recipients.length;
         require(count > 0, "GiftMoney: no recipients");
         require(count <= MAX_RECIPIENTS, "GiftMoney: max 30 recipients");
@@ -143,7 +159,8 @@ contract GiftMoney is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
             claimedCount: 0,
             note: note,
             timestamp: block.timestamp,
-            active: true
+            active: true,
+            expiryTimestamp: expiryTimestamp
         });
 
         IFHERC20Vault vaultContract = IFHERC20Vault(vault);
@@ -205,6 +222,48 @@ contract GiftMoney is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         try eventHub.emitActivity(env.sender, msg.sender, "gift_claimed", env.note, envelopeId) {} catch {}
     }
 
+    // ─── Expiry & Deactivation ──────────────────────────────────────────
+
+    /// @notice Set or update the expiry timestamp on an envelope.
+    ///         UX-only: funds are already in recipients' vault balances.
+    ///         Useful for reminding recipients to "open" before a date.
+    /// @param envelopeId The envelope to update
+    /// @param expiryTimestamp Must be in the future (or 0 to clear)
+    function setExpiry(uint256 envelopeId, uint256 expiryTimestamp) external {
+        GiftEnvelope storage env = _envelopes[envelopeId];
+        require(msg.sender == env.sender, "GiftMoney: not sender");
+        require(env.active, "GiftMoney: envelope not active");
+        require(expiryTimestamp == 0 || expiryTimestamp > block.timestamp, "GiftMoney: expiry must be future");
+
+        env.expiryTimestamp = expiryTimestamp;
+
+        emit EnvelopeExpirySet(envelopeId, expiryTimestamp);
+    }
+
+    /// @notice Check whether an envelope has passed its expiry timestamp.
+    ///         Returns false if no expiry is set.
+    /// @param envelopeId The envelope to check
+    /// @return True if an expiry is set and the current time is past it
+    function isExpired(uint256 envelopeId) external view returns (bool) {
+        GiftEnvelope storage env = _envelopes[envelopeId];
+        return env.expiryTimestamp > 0 && block.timestamp > env.expiryTimestamp;
+    }
+
+    /// @notice Deactivate an envelope. Only the sender can call this.
+    ///         Marks the envelope as inactive so recipients see it as closed.
+    ///         Funds are NOT moved — they remain in recipients' vault balances.
+    /// @param envelopeId The envelope to deactivate
+    function deactivateEnvelope(uint256 envelopeId) external {
+        GiftEnvelope storage env = _envelopes[envelopeId];
+        require(msg.sender == env.sender, "GiftMoney: not sender");
+        require(env.active, "GiftMoney: already inactive");
+
+        env.active = false;
+
+        emit EnvelopeDeactivated(envelopeId, msg.sender, block.timestamp);
+        try eventHub.emitActivity(msg.sender, address(0), "gift_deactivated", env.note, envelopeId) {} catch {}
+    }
+
     // ─── View Functions ─────────────────────────────────────────────────
 
     /// @notice Get your encrypted gift share from an envelope.
@@ -224,7 +283,8 @@ contract GiftMoney is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         uint256 claimedCount,
         string memory note,
         uint256 timestamp,
-        bool active
+        bool active,
+        uint256 expiryTimestamp
     ) {
         GiftEnvelope storage env = _envelopes[envelopeId];
         return (
@@ -234,7 +294,8 @@ contract GiftMoney is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
             env.claimedCount,
             env.note,
             env.timestamp,
-            env.active
+            env.active,
+            env.expiryTimestamp
         );
     }
 

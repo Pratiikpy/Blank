@@ -38,7 +38,7 @@ export default function Contacts() {
         <div className="flex items-center gap-4 mb-8">
           <button
             onClick={() => navigate(-1)}
-            className="w-10 h-10 rounded-full bg-white border border-black/5 flex items-center justify-center shadow-sm"
+            className="w-11 h-11 rounded-full bg-white border border-black/5 flex items-center justify-center shadow-sm"
             aria-label="Go back"
           >
             <ChevronLeft size={20} />
@@ -57,6 +57,7 @@ export default function Contacts() {
           <button
             onClick={() => setShowAdd(!showAdd)}
             className="h-10 px-4 rounded-full bg-[#1D1D1F] text-white text-sm font-medium flex items-center gap-2"
+            aria-label="Add contact"
           >
             <Plus size={16} /> Add
           </button>
@@ -102,6 +103,7 @@ export default function Contacts() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search contacts..."
+            aria-label="Search contacts"
             className="h-12 w-full pl-11 pr-4 rounded-full bg-gray-100 border-none outline-none text-sm"
           />
         </div>

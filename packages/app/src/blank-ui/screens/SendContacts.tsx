@@ -1,12 +1,11 @@
 import { useState, useMemo, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { Search, ChevronRight, User, QrCode } from "lucide-react";
+import { Search, ChevronRight, User, ClipboardPaste } from "lucide-react";
+import { isAddress, zeroAddress } from "viem";
 import { cn } from "@/lib/cn";
 import { useContacts } from "@/hooks/useContacts";
 
-function truncateAddress(addr: string): string {
-  return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
-}
+import { truncateAddress } from "@/lib/address";
 
 /** Generate a deterministic pastel background from an address string. */
 function avatarColor(addr: string): string {
@@ -87,6 +86,7 @@ export default function SendContacts() {
                   type="text"
                   className="h-14 w-full pl-12 pr-5 rounded-2xl bg-white/60 dark:bg-white/5 border border-black/5 dark:border-white/10 focus:border-black/20 dark:focus:border-white/20 focus:ring-4 focus:ring-black/5 dark:focus:ring-white/5 outline-none transition-all placeholder:text-[var(--text-tertiary)]"
                   placeholder="Name or address"
+                  aria-label="Search contacts"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                 />
@@ -157,7 +157,7 @@ export default function SendContacts() {
                       ? "No contacts found"
                       : "No contacts yet. Add one to get started."}
                   </p>
-                  {search && search.startsWith("0x") && search.length === 42 && (
+                  {search && isAddress(search) && search !== zeroAddress && (
                     <button
                       onClick={() =>
                         handleSelectContact(search, truncateAddress(search))
@@ -226,11 +226,12 @@ export default function SendContacts() {
                   <input
                     type="text"
                     placeholder="0x..."
+                    aria-label="Wallet address"
                     className="h-14 w-full px-5 rounded-2xl bg-white/60 dark:bg-white/5 border border-black/5 dark:border-white/10 focus:border-black/20 dark:focus:border-white/20 focus:ring-4 focus:ring-black/5 dark:focus:ring-white/5 outline-none transition-all placeholder:text-[var(--text-tertiary)] font-mono text-sm"
                     onKeyDown={(e) => {
                       if (e.key === "Enter") {
                         const input = (e.target as HTMLInputElement).value;
-                        if (input.startsWith("0x") && input.length === 42) {
+                        if (isAddress(input) && input !== zeroAddress) {
                           handleSelectContact(input, truncateAddress(input));
                         }
                       }
@@ -243,9 +244,10 @@ export default function SendContacts() {
               <button
                 onClick={() => setShowScanInfo(true)}
                 className="w-full h-14 px-6 rounded-2xl bg-black/5 dark:bg-white/10 text-[var(--text-primary)] font-medium transition-all active:scale-95 hover:bg-black/10 dark:hover:bg-white/20 flex items-center justify-center gap-2"
+                aria-label="Paste address"
               >
-                <QrCode size={20} strokeWidth={2.2} />
-                <span>Scan QR Code</span>
+                <ClipboardPaste size={20} strokeWidth={2.2} />
+                <span>Paste Address</span>
               </button>
               {showScanInfo && (
                 <div className="mt-3 p-4 rounded-2xl bg-blue-50 dark:bg-blue-500/10 border border-blue-100 dark:border-blue-500/20">
@@ -255,6 +257,7 @@ export default function SendContacts() {
                   <button
                     onClick={dismissScanInfo}
                     className="text-xs text-blue-500 mt-2 hover:underline"
+                    aria-label="Dismiss"
                   >
                     Dismiss
                   </button>

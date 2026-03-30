@@ -319,6 +319,18 @@ export function useGroupSplit() {
         if (voteReceipt.status === "reverted") {
           throw new Error("Transaction reverted on-chain");
         }
+
+        await insertActivity({
+          tx_hash: hash,
+          user_from: address.toLowerCase(),
+          user_to: address.toLowerCase(),
+          activity_type: "group_vote",
+          contract_address: CONTRACTS.GroupManager,
+          note: `Voted on expense #${expenseId} in group #${groupId}`,
+          token_address: CONTRACTS.FHERC20Vault_USDC,
+          block_number: Number(voteReceipt.blockNumber),
+        });
+
         toast.success("Vote submitted!");
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Vote failed");
@@ -330,5 +342,101 @@ export function useGroupSplit() {
     [address, publicClient, writeContractAsync, encryptInputsAsync]
   );
 
-  return { isProcessing, computeEqualSplit, createGroup, addExpense, settleDebt, voteOnExpense };
+  // Leave a group (removes self from membership)
+  const leaveGroup = useCallback(
+    async (groupId: number) => {
+      if (!address || !publicClient) {
+        toast.error("Connection lost");
+        return;
+      }
+      if (submittingRef.current) return;
+
+      submittingRef.current = true;
+      setIsProcessing(true);
+      try {
+        const hash = await writeContractAsync({
+          address: CONTRACTS.GroupManager as `0x${string}`,
+          abi: GroupManagerAbi,
+          functionName: "leaveGroup",
+          args: [BigInt(groupId)],
+        });
+
+        const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
+        if (receipt.status === "reverted") {
+          throw new Error("Transaction reverted on-chain");
+        }
+
+        await insertActivity({
+          tx_hash: hash,
+          user_from: address.toLowerCase(),
+          user_to: address.toLowerCase(),
+          activity_type: "group_left",
+          contract_address: CONTRACTS.GroupManager,
+          note: `Left group #${groupId}`,
+          token_address: CONTRACTS.FHERC20Vault_USDC,
+          block_number: Number(receipt.blockNumber),
+        });
+
+        broadcastAction("activity_added");
+        toast.success("Left the group!");
+        return hash;
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Failed to leave group");
+      } finally {
+        submittingRef.current = false;
+        setIsProcessing(false);
+      }
+    },
+    [address, publicClient, writeContractAsync]
+  );
+
+  // Archive a group (admin only, deactivates group)
+  const archiveGroup = useCallback(
+    async (groupId: number) => {
+      if (!address || !publicClient) {
+        toast.error("Connection lost");
+        return;
+      }
+      if (submittingRef.current) return;
+
+      submittingRef.current = true;
+      setIsProcessing(true);
+      try {
+        const hash = await writeContractAsync({
+          address: CONTRACTS.GroupManager as `0x${string}`,
+          abi: GroupManagerAbi,
+          functionName: "archiveGroup",
+          args: [BigInt(groupId)],
+        });
+
+        const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
+        if (receipt.status === "reverted") {
+          throw new Error("Transaction reverted on-chain");
+        }
+
+        await insertActivity({
+          tx_hash: hash,
+          user_from: address.toLowerCase(),
+          user_to: address.toLowerCase(),
+          activity_type: "group_archived",
+          contract_address: CONTRACTS.GroupManager,
+          note: `Archived group #${groupId}`,
+          token_address: CONTRACTS.FHERC20Vault_USDC,
+          block_number: Number(receipt.blockNumber),
+        });
+
+        broadcastAction("activity_added");
+        toast.success("Group archived!");
+        return hash;
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Failed to archive group");
+      } finally {
+        submittingRef.current = false;
+        setIsProcessing(false);
+      }
+    },
+    [address, publicClient, writeContractAsync]
+  );
+
+  return { isProcessing, computeEqualSplit, createGroup, addExpense, settleDebt, voteOnExpense, leaveGroup, archiveGroup };
 }

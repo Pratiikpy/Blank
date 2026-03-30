@@ -4,9 +4,7 @@ import { QRCodeSVG } from "qrcode.react";
 import { Copy, Check, Share2, Shield } from "lucide-react";
 import toast from "react-hot-toast";
 
-function truncateAddress(addr: string): string {
-  return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
-}
+import { truncateAddress } from "@/lib/address";
 
 export default function Receive() {
   const { address } = useAccount();
@@ -128,6 +126,7 @@ export default function Receive() {
               <button
                 onClick={() => copyToClipboard(address, "address")}
                 className="w-full h-14 px-6 rounded-2xl bg-[#1D1D1F] dark:bg-white text-white dark:text-[#0A0A0A] font-medium transition-all active:scale-95 hover:bg-[#000000] dark:hover:bg-gray-100 flex items-center justify-center gap-2"
+                aria-label="Copy address"
               >
                 {copiedField === "address" ? (
                   <>
@@ -156,6 +155,7 @@ export default function Receive() {
               <button
                 onClick={() => copyToClipboard(paymentLink, "link")}
                 className="w-full h-14 px-6 rounded-2xl bg-black/5 dark:bg-white/10 text-[var(--text-primary)] font-medium transition-all active:scale-95 hover:bg-black/10 dark:hover:bg-white/20 flex items-center justify-center gap-2"
+                aria-label="Copy payment link"
               >
                 {copiedField === "link" ? (
                   <>
@@ -174,6 +174,7 @@ export default function Receive() {
               <button
                 onClick={handleShare}
                 className="w-full h-14 px-6 rounded-2xl bg-[#1D1D1F] dark:bg-white text-white dark:text-[#0A0A0A] font-medium transition-all active:scale-95 hover:bg-[#000000] dark:hover:bg-gray-100 flex items-center justify-center gap-2"
+                aria-label="Share payment link"
               >
                 <Share2 size={20} strokeWidth={2.2} />
                 <span>Share Payment Link</span>

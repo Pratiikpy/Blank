@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import {
   Ghost,
   Copy,
@@ -9,11 +9,18 @@ import {
   CheckCircle2,
   Loader2,
   AlertCircle,
+  Undo2,
+  Search,
+  Send,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
+import toast from "react-hot-toast";
 import { useStealthPayments } from "@/hooks/useStealthPayments";
+import { useAccount, useWriteContract, usePublicClient } from "wagmi";
 import { useActivityFeed } from "@/hooks/useActivityFeed";
 import { CONTRACTS } from "@/lib/constants";
+import { StealthPaymentsAbi } from "@/lib/abis";
+import { keccak256, encodePacked, formatUnits } from "viem";
 
 // ---------------------------------------------------------------
 //  TYPES
@@ -25,7 +32,26 @@ interface GeneratedCode {
   amount: string;
 }
 
-type TabValue = "create" | "claim";
+interface SentTransferInfo {
+  transferId: number;
+  plaintextAmount: bigint;
+  note: string;
+  timestamp: number;
+  claimed: boolean;
+  finalized: boolean;
+}
+
+interface StoredClaimCode {
+  claimCode: string;
+  transferId: number;
+  recipientAddress: string;
+  createdAt: number;
+}
+
+type TabValue = "create" | "claim" | "sent";
+
+const STEALTH_CLAIM_CODES_KEY = "blank_stealth_claim_codes";
+const REFUND_WINDOW_SECONDS = 30 * 24 * 60 * 60; // 30 days
 
 // ---------------------------------------------------------------
 //  STEP LABEL HELPER
@@ -53,15 +79,21 @@ function getStepLabel(step: string): string {
 // ---------------------------------------------------------------
 
 export default function Stealth() {
+  const { address } = useAccount();
   const {
     step,
     error,
     txHash,
+    isWaitingForDecryption,
+    decryptionProgress,
     sendStealth,
     claimStealth,
     finalizeClaim,
+    getMyPendingClaims,
     reset,
   } = useStealthPayments();
+  const { writeContractAsync } = useWriteContract();
+  const publicClient = usePublicClient();
   const { activities } = useActivityFeed();
 
   const [activeTab, setActiveTab] = useState<TabValue>("create");
@@ -79,8 +111,17 @@ export default function Stealth() {
   const [claimSuccess, setClaimSuccess] = useState(false);
   const [finalizeId, setFinalizeId] = useState("");
 
+  // Sent payments / refund state
+  const [sentTransfers, setSentTransfers] = useState<SentTransferInfo[]>([]);
+  const [loadingSent, setLoadingSent] = useState(false);
+  const [refundingId, setRefundingId] = useState<number | null>(null);
+
+  // Pending claims discovery state
+  const [checkingClaims, setCheckingClaims] = useState(false);
+  const [discoveredClaims, setDiscoveredClaims] = useState<number[]>([]);
+
   const isSubmitting =
-    step !== "idle" && step !== "success" && step !== "error";
+    step !== "idle" && step !== "success" && step !== "error" && step !== "waiting_for_decryption";
 
   // Filter stealth activities from the activity feed
   const stealthActivities = activities.filter(
@@ -96,9 +137,188 @@ export default function Stealth() {
     setTimeout(() => setCopied(null), 2000);
   }, []);
 
+  // ─── localStorage Claim Code Helpers ──────────────────────────────
+
+  const saveClaimCodeToStorage = useCallback(
+    (code: string, transferId: number, recipientAddr: string) => {
+      if (!address) return;
+      const key = `${STEALTH_CLAIM_CODES_KEY}_${address.toLowerCase()}`;
+      try {
+        const existing: StoredClaimCode[] = JSON.parse(
+          localStorage.getItem(key) || "[]"
+        );
+        existing.push({
+          claimCode: code,
+          transferId,
+          recipientAddress: recipientAddr,
+          createdAt: Date.now(),
+        });
+        localStorage.setItem(key, JSON.stringify(existing));
+      } catch {
+        // Storage full or corrupt -- non-critical
+      }
+    },
+    [address]
+  );
+
+  const getStoredClaimCodes = useCallback((): StoredClaimCode[] => {
+    if (!address) return [];
+    const key = `${STEALTH_CLAIM_CODES_KEY}_${address.toLowerCase()}`;
+    try {
+      return JSON.parse(localStorage.getItem(key) || "[]");
+    } catch {
+      return [];
+    }
+  }, [address]);
+
+  // ─── Load Sent Transfers (for refund tab) ─────────────────────────
+
+  const loadSentTransfers = useCallback(async () => {
+    if (!address || !publicClient) return;
+    setLoadingSent(true);
+    try {
+      const stealthAddress = CONTRACTS.StealthPayments as `0x${string}`;
+      const ids = (await publicClient.readContract({
+        address: stealthAddress,
+        abi: StealthPaymentsAbi,
+        functionName: "getSenderTransfers",
+        args: [address],
+      })) as bigint[];
+
+      const infos: SentTransferInfo[] = [];
+      for (const id of ids) {
+        try {
+          const result = (await publicClient.readContract({
+            address: stealthAddress,
+            abi: StealthPaymentsAbi,
+            functionName: "getTransferInfo",
+            args: [id],
+          })) as [string, string, string, bigint, string, string, bigint, boolean, boolean];
+
+          infos.push({
+            transferId: Number(id),
+            plaintextAmount: result[3],
+            note: result[5],
+            timestamp: Number(result[6]),
+            claimed: result[7],
+            finalized: result[8],
+          });
+        } catch {
+          // Skip transfers that fail to load
+        }
+      }
+
+      // Sort newest first
+      infos.sort((a, b) => b.timestamp - a.timestamp);
+      setSentTransfers(infos);
+    } catch (err) {
+      console.warn("Failed to load sent transfers:", err);
+      toast.error("Failed to load sent payments");
+    } finally {
+      setLoadingSent(false);
+    }
+  }, [address, publicClient]);
+
+  // Load sent transfers when "sent" tab is activated
+  useEffect(() => {
+    if (activeTab === "sent") {
+      loadSentTransfers();
+    }
+  }, [activeTab, loadSentTransfers]);
+
+  // ─── Refund Handler ───────────────────────────────────────────────
+
+  const handleRefund = useCallback(
+    async (transferId: number) => {
+      if (!address || !writeContractAsync || !publicClient) {
+        toast.error("Connect wallet first");
+        return;
+      }
+
+      setRefundingId(transferId);
+      const refundToastId = toast.loading("Processing refund...");
+
+      try {
+        const stealthAddress = CONTRACTS.StealthPayments as `0x${string}`;
+        const hash = await writeContractAsync({
+          address: stealthAddress,
+          abi: StealthPaymentsAbi,
+          functionName: "refund",
+          args: [BigInt(transferId)],
+        });
+
+        const receipt = await publicClient.waitForTransactionReceipt({
+          hash,
+          confirmations: 1,
+        });
+
+        if (receipt.status === "reverted") {
+          throw new Error("Refund transaction reverted");
+        }
+
+        toast.success("Refund successful!", { id: refundToastId });
+        // Reload the sent transfers list
+        loadSentTransfers();
+      } catch (err) {
+        const msg =
+          err instanceof Error ? err.message : "Refund failed";
+        toast.error(msg, { id: refundToastId });
+      } finally {
+        setRefundingId(null);
+      }
+    },
+    [address, writeContractAsync, publicClient, loadSentTransfers]
+  );
+
+  // ─── Check for Pending Claims ─────────────────────────────────────
+
+  const handleCheckPendingClaims = useCallback(async () => {
+    if (!address) {
+      toast.error("Connect wallet first");
+      return;
+    }
+
+    setCheckingClaims(true);
+    setDiscoveredClaims([]);
+
+    try {
+      const storedCodes = getStoredClaimCodes();
+      if (storedCodes.length === 0) {
+        toast("No stored claim codes found. Claim codes are saved when you send stealth payments.", { icon: "\u2139\uFE0F" });
+        setCheckingClaims(false);
+        return;
+      }
+
+      // Compute claim code hashes for each stored code
+      const hashes: `0x${string}`[] = storedCodes.map((sc) =>
+        keccak256(
+          encodePacked(
+            ["bytes32", "address"],
+            [sc.claimCode as `0x${string}`, sc.recipientAddress as `0x${string}`]
+          )
+        )
+      );
+
+      const pending = await getMyPendingClaims(hashes);
+
+      if (pending.length === 0) {
+        toast.success("No pending claims found");
+      } else {
+        setDiscoveredClaims(pending);
+        toast.success(`Found ${pending.length} pending claim(s)!`);
+      }
+    } catch (err) {
+      console.warn("Check pending claims failed:", err);
+      toast.error("Failed to check pending claims");
+    } finally {
+      setCheckingClaims(false);
+    }
+  }, [address, getStoredClaimCodes, getMyPendingClaims]);
+
   // ─── Create Stealth Payment ────────────────────────────────────────
 
   const handleCreateCode = useCallback(async () => {
+    if (!address) { toast.error("Connect wallet first"); return; }
     if (!amount || !recipient) return;
     if (!/^0x[a-fA-F0-9]{40}$/.test(recipient.trim())) {
       return;
@@ -117,8 +337,10 @@ export default function Stealth() {
         transferId: result.transferId,
         amount: parseFloat(amount).toFixed(2),
       });
+      // Save claim code to localStorage for pending claims discovery
+      saveClaimCodeToStorage(result.claimCode, result.transferId, recipient.trim());
     }
-  }, [amount, recipient, message, sendStealth]);
+  }, [address, amount, recipient, message, sendStealth, saveClaimCodeToStorage]);
 
   // ─── Claim Stealth Payment ─────────────────────────────────────────
 
@@ -156,9 +378,12 @@ export default function Stealth() {
         </div>
 
         {/* Tab Switcher */}
-        <div className="flex gap-3 mb-6">
+        <div className="flex gap-3 mb-6" role="tablist" aria-label="Stealth payment tabs">
           <button
             onClick={() => setActiveTab("create")}
+            role="tab"
+            aria-selected={activeTab === "create"}
+            aria-label="Create code"
             className={cn(
               "flex-1 h-14 px-6 rounded-2xl font-medium transition-all",
               activeTab === "create"
@@ -173,6 +398,9 @@ export default function Stealth() {
           </button>
           <button
             onClick={() => setActiveTab("claim")}
+            role="tab"
+            aria-selected={activeTab === "claim"}
+            aria-label="Claim code"
             className={cn(
               "flex-1 h-14 px-6 rounded-2xl font-medium transition-all",
               activeTab === "claim"
@@ -183,6 +411,23 @@ export default function Stealth() {
             <div className="flex items-center justify-center gap-2">
               <KeyRound size={20} />
               <span>Claim Code</span>
+            </div>
+          </button>
+          <button
+            onClick={() => setActiveTab("sent")}
+            role="tab"
+            aria-selected={activeTab === "sent"}
+            aria-label="My sent payments"
+            className={cn(
+              "flex-1 h-14 px-6 rounded-2xl font-medium transition-all",
+              activeTab === "sent"
+                ? "bg-[var(--text-primary)] text-white"
+                : "bg-white/60 backdrop-blur-2xl text-[var(--text-primary)] border border-white/60 hover:bg-white/80"
+            )}
+          >
+            <div className="flex items-center justify-center gap-2">
+              <Send size={20} />
+              <span>My Sent</span>
             </div>
           </button>
         </div>
@@ -236,6 +481,7 @@ export default function Stealth() {
                         )
                       }
                       className="flex-1 h-12 rounded-2xl bg-[var(--text-primary)] text-white font-medium flex items-center justify-center gap-2"
+                      aria-label="Copy claim details"
                     >
                       {copied === "code" ? (
                         <Check size={20} />
@@ -486,9 +732,26 @@ export default function Stealth() {
                       resolves.
                     </p>
                     {txHash && (
-                      <p className="text-xs font-mono text-[var(--text-primary)]/40 mb-6 break-all">
+                      <p className="text-xs font-mono text-[var(--text-primary)]/40 mb-4 break-all">
                         Tx: {txHash}
                       </p>
+                    )}
+                    {isWaitingForDecryption && (
+                      <div className="w-full p-4 rounded-2xl bg-amber-50 border border-amber-200 mb-6">
+                        <div className="flex items-center gap-3">
+                          <Loader2 size={18} className="text-amber-600 animate-spin" />
+                          <p className="text-sm text-amber-600 animate-pulse font-medium">
+                            {decryptionProgress}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                    {!isWaitingForDecryption && (
+                      <div className="w-full p-4 rounded-2xl bg-emerald-50 border border-emerald-200 mb-6">
+                        <p className="text-sm text-emerald-700 font-medium">
+                          Decryption complete -- you can finalize below or it was auto-finalized.
+                        </p>
+                      </div>
                     )}
                     <button
                       onClick={() => {
@@ -560,6 +823,21 @@ export default function Stealth() {
                         </div>
                       )}
 
+                      {/* Decryption polling progress */}
+                      {isWaitingForDecryption && (
+                        <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200">
+                          <div className="flex items-center gap-3">
+                            <Loader2
+                              size={20}
+                              className="text-amber-600 animate-spin"
+                            />
+                            <p className="text-sm text-amber-600 animate-pulse font-medium">
+                              {decryptionProgress}
+                            </p>
+                          </div>
+                        </div>
+                      )}
+
                       {error && (
                         <div className="p-4 rounded-2xl bg-red-50 border border-red-100">
                           <div className="flex items-start gap-3">
@@ -575,13 +853,14 @@ export default function Stealth() {
                       <button
                         disabled={
                           isSubmitting ||
+                          isWaitingForDecryption ||
                           !claimCode.trim() ||
                           !claimTransferId.trim()
                         }
                         onClick={handleClaim}
                         className="w-full h-14 px-6 rounded-2xl bg-[var(--text-primary)] text-white font-medium transition-transform active:scale-95 hover:bg-[#000000] flex items-center justify-center gap-2 disabled:opacity-50"
                       >
-                        {isSubmitting ? (
+                        {isSubmitting || isWaitingForDecryption ? (
                           <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                         ) : (
                           <KeyRound size={20} />
@@ -600,9 +879,12 @@ export default function Stealth() {
                 <h3 className="text-xl font-heading font-medium text-[var(--text-primary)] mb-4">
                   Finalize Claim
                 </h3>
-                <p className="text-sm text-[var(--text-primary)]/50 mb-4">
+                <p className="text-sm text-[var(--text-primary)]/50 mb-2">
                   After claiming, wait for FHE decryption to resolve (a few
                   seconds), then finalize to release your funds.
+                </p>
+                <p className="text-xs text-amber-600 mb-4">
+                  FHE decryption takes ~30s after claiming
                 </p>
                 <div className="flex gap-3">
                   <input
@@ -624,6 +906,236 @@ export default function Stealth() {
                     )}
                     <span>Finalize</span>
                   </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Pending Claims Discovery */}
+            <div className="rounded-[2rem] glass-card p-8">
+              <div className="max-w-2xl mx-auto">
+                <h3 className="text-xl font-heading font-medium text-[var(--text-primary)] mb-2">
+                  Check for Pending Claims
+                </h3>
+                <p className="text-sm text-[var(--text-primary)]/50 mb-4">
+                  If you previously sent stealth payments, check if any are still
+                  unclaimed using your stored claim codes.
+                </p>
+                <button
+                  disabled={checkingClaims}
+                  onClick={handleCheckPendingClaims}
+                  className="w-full h-14 px-6 rounded-2xl bg-blue-500 text-white font-medium transition-transform active:scale-95 hover:bg-blue-600 flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {checkingClaims ? (
+                    <Loader2 size={20} className="animate-spin" />
+                  ) : (
+                    <Search size={20} />
+                  )}
+                  <span>
+                    {checkingClaims
+                      ? "Checking..."
+                      : "Check for Pending Claims"}
+                  </span>
+                </button>
+
+                {discoveredClaims.length > 0 && (
+                  <div className="mt-4 space-y-2">
+                    <p className="text-sm font-medium text-[var(--text-primary)]">
+                      Found {discoveredClaims.length} pending claim(s):
+                    </p>
+                    {discoveredClaims.map((tid) => (
+                      <div
+                        key={tid}
+                        className="flex items-center justify-between p-4 rounded-2xl bg-blue-50 border border-blue-200"
+                      >
+                        <div>
+                          <p className="text-sm font-medium text-blue-900">
+                            Transfer #{tid}
+                          </p>
+                          <p className="text-xs text-blue-700">
+                            Unclaimed -- use this Transfer ID above to claim
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => {
+                            setClaimTransferId(String(tid));
+                            toast.success(
+                              `Transfer ID #${tid} auto-filled. Enter the claim code to proceed.`
+                            );
+                          }}
+                          className="h-10 px-4 rounded-xl bg-blue-500 text-white text-sm font-medium hover:bg-blue-600 transition-colors"
+                        >
+                          Use
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Sent Payments Tab */}
+        {activeTab === "sent" && (
+          <div className="space-y-6">
+            <div className="rounded-[2rem] glass-card p-8">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-xl font-heading font-medium text-[var(--text-primary)]">
+                  My Sent Payments
+                </h3>
+                <button
+                  disabled={loadingSent}
+                  onClick={loadSentTransfers}
+                  className="h-10 px-4 rounded-xl bg-black/5 text-[var(--text-primary)] text-sm font-medium hover:bg-black/10 transition-colors flex items-center gap-2 disabled:opacity-50"
+                >
+                  {loadingSent ? (
+                    <Loader2 size={16} className="animate-spin" />
+                  ) : (
+                    <Search size={16} />
+                  )}
+                  <span>Refresh</span>
+                </button>
+              </div>
+
+              {loadingSent && sentTransfers.length === 0 ? (
+                <div className="py-12 text-center">
+                  <Loader2
+                    size={32}
+                    className="text-purple-400 animate-spin mx-auto mb-4"
+                  />
+                  <p className="text-sm text-[var(--text-primary)]/50">
+                    Loading sent payments from chain...
+                  </p>
+                </div>
+              ) : sentTransfers.length === 0 ? (
+                <div className="py-12 text-center">
+                  <div className="w-16 h-16 rounded-2xl bg-purple-50 flex items-center justify-center mx-auto mb-4">
+                    <Send size={32} className="text-purple-400" />
+                  </div>
+                  <p className="text-lg font-heading font-medium text-[var(--text-primary)] mb-1">
+                    No sent payments
+                  </p>
+                  <p className="text-sm text-[var(--text-primary)]/50">
+                    Stealth payments you send will appear here
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {sentTransfers.map((transfer) => {
+                    const now = Math.floor(Date.now() / 1000);
+                    const age = now - transfer.timestamp;
+                    const canRefund =
+                      !transfer.claimed &&
+                      !transfer.finalized &&
+                      age >= REFUND_WINDOW_SECONDS;
+                    const isRefunding = refundingId === transfer.transferId;
+                    const daysOld = Math.floor(age / 86400);
+                    const daysUntilRefund = Math.max(
+                      0,
+                      Math.ceil(
+                        (REFUND_WINDOW_SECONDS - age) / 86400
+                      )
+                    );
+
+                    return (
+                      <div
+                        key={transfer.transferId}
+                        className="flex items-center justify-between p-6 rounded-2xl bg-white/50 border border-black/5 hover:bg-white/70 transition-all"
+                      >
+                        <div className="flex items-center gap-4 flex-1">
+                          <div
+                            className={cn(
+                              "w-12 h-12 rounded-xl flex items-center justify-center",
+                              transfer.finalized
+                                ? "bg-emerald-50"
+                                : transfer.claimed
+                                  ? "bg-blue-50"
+                                  : "bg-purple-50"
+                            )}
+                          >
+                            <Ghost
+                              size={24}
+                              className={
+                                transfer.finalized
+                                  ? "text-emerald-600"
+                                  : transfer.claimed
+                                    ? "text-blue-600"
+                                    : "text-purple-600"
+                              }
+                            />
+                          </div>
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-1">
+                              <p className="text-sm font-medium text-[var(--text-primary)]">
+                                Transfer #{transfer.transferId}
+                              </p>
+                              <div
+                                className={cn(
+                                  "inline-flex px-2 py-0.5 rounded-full text-xs font-medium border",
+                                  transfer.finalized
+                                    ? "bg-emerald-50 text-emerald-700 border-emerald-100"
+                                    : transfer.claimed
+                                      ? "bg-blue-50 text-blue-700 border-blue-100"
+                                      : "bg-purple-50 text-purple-700 border-purple-100"
+                                )}
+                              >
+                                {transfer.finalized
+                                  ? "claimed"
+                                  : transfer.claimed
+                                    ? "claim pending"
+                                    : "unclaimed"}
+                              </div>
+                            </div>
+                            <p className="text-sm text-[var(--text-primary)]/50">
+                              {transfer.note || "Stealth payment"}
+                              {" \u00B7 "}
+                              {daysOld}d ago
+                              {" \u00B7 "}
+                              {formatUnits(transfer.plaintextAmount, 6)} USDC
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          {canRefund ? (
+                            <button
+                              disabled={isRefunding}
+                              onClick={() =>
+                                handleRefund(transfer.transferId)
+                              }
+                              className="h-10 px-4 rounded-xl bg-red-500 text-white text-sm font-medium hover:bg-red-600 transition-colors flex items-center gap-2 disabled:opacity-50"
+                            >
+                              {isRefunding ? (
+                                <Loader2
+                                  size={16}
+                                  className="animate-spin"
+                                />
+                              ) : (
+                                <Undo2 size={16} />
+                              )}
+                              <span>Refund</span>
+                            </button>
+                          ) : !transfer.claimed && !transfer.finalized ? (
+                            <p className="text-xs text-[var(--text-primary)]/40 text-right">
+                              Refund in {daysUntilRefund}d
+                            </p>
+                          ) : null}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              <div className="mt-4 p-4 rounded-2xl bg-amber-50 border border-amber-100">
+                <div className="flex items-start gap-3">
+                  <AlertCircle
+                    size={18}
+                    className="text-amber-600 mt-0.5"
+                  />
+                  <p className="text-xs text-amber-700">
+                    Refunds are available after 30 days for unclaimed payments.
+                    Once a payment is claimed, it cannot be refunded.
+                  </p>
                 </div>
               </div>
             </div>

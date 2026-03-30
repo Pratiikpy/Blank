@@ -104,11 +104,15 @@ export function useTipCreator() {
           block_number: Number(tipReceipt.blockNumber),
         });
 
-        await insertCreatorSupporter({
-          creator_address: creator,
-          supporter_address: address,
-          message,
-        });
+        try {
+          await insertCreatorSupporter({
+            creator_address: creator,
+            supporter_address: address,
+            message,
+          });
+        } catch (supporterErr) {
+          console.warn("Failed to insert creator supporter record:", supporterErr);
+        }
 
         // Notify other tabs and invalidate cached balances
         broadcastAction("balance_changed");

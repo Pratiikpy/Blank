@@ -1,5 +1,5 @@
 import { lazy, Suspense } from "react";
-import { Routes, Route, Navigate, useLocation, useNavigate } from "react-router-dom";
+import { Routes, Route, useLocation, useNavigate } from "react-router-dom";
 import { useAccount } from "wagmi";
 import { useSwitchChain } from "wagmi";
 import {
@@ -36,9 +36,15 @@ const InheritancePlanning = lazy(() => import("./screens/InheritancePlanning"));
 const Requests = lazy(() => import("./screens/Requests"));
 const Contacts = lazy(() => import("./screens/Contacts"));
 const Privacy = lazy(() => import("./screens/Privacy"));
+const Settings = lazy(() => import("./screens/Settings"));
+const Help = lazy(() => import("./screens/Help"));
+const TransactionDetail = lazy(() => import("./screens/TransactionDetail"));
 
 // Desktop sidebar
 import { DesktopSidebar } from "./components/DesktopSidebar";
+
+// Global search
+import { GlobalSearch } from "./components/GlobalSearch";
 
 // ─── Loading spinner ───────────────────────────────────────────────
 function LoadingSpinner() {
@@ -89,8 +95,22 @@ function BottomNav() {
   );
 }
 
+// ─── 404 page ─────────────────────────────────────────────────────
+function NotFoundPage() {
+  const navigate = useNavigate();
+  return (
+    <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-6">
+      <h1 className="text-6xl font-heading font-bold text-[var(--text-primary)] mb-4">404</h1>
+      <p className="text-[var(--text-secondary)] mb-6">Page not found</p>
+      <button onClick={() => navigate("/")} className="h-12 px-6 rounded-full bg-[#1D1D1F] text-white font-medium">
+        Go Home
+      </button>
+    </div>
+  );
+}
+
 // ─── Routes that should hide the bottom nav ────────────────────────
-const hideNavRoutes = ["/send/amount", "/send/confirm", "/send/success"];
+const hideNavRoutes = ["/send/amount", "/send/confirm", "/send/success", "/tx/"];
 
 // ─── Main app shell ────────────────────────────────────────────────
 export function BlankApp() {
@@ -123,6 +143,7 @@ export function BlankApp() {
           <button
             onClick={() => switchChain?.({ chainId: 84532 })}
             className="h-14 w-full rounded-2xl bg-[#1D1D1F] text-white font-medium hover:bg-black transition-colors"
+            aria-label="Switch to Base Sepolia network"
           >
             Switch to Base Sepolia
           </button>
@@ -143,6 +164,16 @@ export function BlankApp() {
       <main className={cn("min-h-dvh", !isMobile && "ml-72")}>
         <Suspense fallback={<LoadingSpinner />}>
           <div className={cn("p-8", isMobile && "pb-20 p-4")}>
+            {/* Global Search — desktop: full bar, mobile: compact icon that expands */}
+            {isMobile ? (
+              <div className="flex justify-end mb-4">
+                <GlobalSearch compact />
+              </div>
+            ) : (
+              <div className="max-w-xl mb-6">
+                <GlobalSearch />
+              </div>
+            )}
             <Routes>
               <Route path="/" element={<Dashboard />} />
               <Route path="/send" element={<SendContacts />} />
@@ -164,7 +195,10 @@ export function BlankApp() {
               <Route path="/requests" element={<Requests />} />
               <Route path="/contacts" element={<Contacts />} />
               <Route path="/privacy" element={<Privacy />} />
-              <Route path="*" element={<Navigate to="/" replace />} />
+              <Route path="/settings" element={<Settings />} />
+              <Route path="/help" element={<Help />} />
+              <Route path="/tx/:id" element={<TransactionDetail />} />
+              <Route path="*" element={<NotFoundPage />} />
             </Routes>
           </div>
         </Suspense>

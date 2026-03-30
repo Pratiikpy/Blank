@@ -18,9 +18,7 @@ import { cn } from "@/lib/cn";
 import toast from "react-hot-toast";
 import { useEncryptedBalance } from "@/hooks/useEncryptedBalance";
 
-function truncateAddress(addr: string): string {
-  return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
-}
+import { truncateAddress } from "@/lib/address";
 
 interface MenuItem {
   icon: React.ReactNode;
@@ -83,7 +81,7 @@ export default function Profile() {
       iconBg: "bg-gray-100 text-gray-600",
       label: "Settings",
       subtitle: "Preferences and notifications",
-      route: "/profile",
+      route: "/settings",
     },
   ];
 
@@ -171,6 +169,7 @@ export default function Profile() {
               <button
                 onClick={copyAddress}
                 className="h-10 px-5 rounded-xl bg-black/5 text-[var(--text-primary)] font-medium transition-all hover:bg-black/10 flex items-center gap-2 shrink-0 ml-4"
+                aria-label="Copy address"
               >
                 {copied ? (
                   <Check size={16} className="text-emerald-600" />
@@ -256,6 +255,7 @@ export default function Profile() {
           <button
             onClick={handleSignOut}
             className="w-full h-14 px-6 rounded-2xl bg-red-50 text-red-600 font-medium transition-all hover:bg-red-100 flex items-center justify-center gap-2 border border-red-100"
+            aria-label="Disconnect wallet"
           >
             <LogOut size={20} />
             <span>Sign Out</span>

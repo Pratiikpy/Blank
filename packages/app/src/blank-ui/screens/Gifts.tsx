@@ -8,8 +8,11 @@ import {
   CheckCircle2,
   Loader2,
   AlertCircle,
+  XCircle,
+  Clock,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
+import toast from "react-hot-toast";
 import { useGiftMoney } from "@/hooks/useGiftMoney";
 import { useAccount } from "wagmi";
 import { useActivityFeed } from "@/hooks/useActivityFeed";
@@ -66,6 +69,23 @@ const themes: ThemeOption[] = [
 type TabValue = "received" | "sent";
 
 // ---------------------------------------------------------------
+//  ENVELOPE ID PARSER
+// ---------------------------------------------------------------
+
+/** Extract envelope ID from an activity note like "[envelope:42] Birthday: ..." */
+function parseEnvelopeId(note: string | null | undefined): number | null {
+  if (!note) return null;
+  const match = note.match(/^\[envelope:(\d+)\]/);
+  return match ? parseInt(match[1], 10) : null;
+}
+
+/** Strip the "[envelope:N] " prefix from a note for display */
+function stripEnvelopePrefix(note: string | null | undefined): string {
+  if (!note) return "";
+  return note.replace(/^\[envelope:\d+\]\s*/, "");
+}
+
+// ---------------------------------------------------------------
 //  STEP LABEL HELPER
 // ---------------------------------------------------------------
 
@@ -96,6 +116,7 @@ export default function Gifts() {
     error,
     createGift,
     claimGift,
+    deactivateEnvelope,
     computeEqualSplits,
     computeRandomSplits,
     reset,
@@ -107,6 +128,7 @@ export default function Gifts() {
   const [giftAmount, setGiftAmount] = useState("");
   const [giftRecipient, setGiftRecipient] = useState("");
   const [giftMessage, setGiftMessage] = useState("");
+  const [giftExpiry, setGiftExpiry] = useState("");
   const [splitType, setSplitType] = useState<"equal" | "random">("equal");
   const [claimId, setClaimId] = useState("");
   const [sentGift, setSentGift] = useState<{
@@ -152,7 +174,8 @@ export default function Gifts() {
   // ─── Send Gift ─────────────────────────────────────────────────────
 
   const handleSendGift = useCallback(async () => {
-    if (!giftAmount || !address) return;
+    if (!address) { toast.error("Connect wallet first"); return; }
+    if (!giftAmount) return;
 
     // Build final recipient list
     const allRecipients =
@@ -179,11 +202,17 @@ export default function Gifts() {
       ? `${theme?.name || "Gift"}: ${giftMessage}`
       : theme?.name || "Gift";
 
+    // Compute expiry timestamp (0 means no expiry)
+    const expiryTs = giftExpiry
+      ? Math.floor(new Date(giftExpiry).getTime() / 1000)
+      : 0;
+
     const result = await createGift(
       CONTRACTS.FHERC20Vault_USDC,
       shares,
       allRecipients,
-      note
+      note,
+      expiryTs
     );
 
     if (result) {
@@ -200,6 +229,7 @@ export default function Gifts() {
     }
   }, [
     giftAmount,
+    giftExpiry,
     address,
     recipients,
     giftRecipient,
@@ -269,6 +299,7 @@ export default function Gifts() {
                 setGiftAmount("");
                 setGiftRecipient("");
                 setGiftMessage("");
+                setGiftExpiry("");
                 setSelectedTheme(null);
                 setRecipients([]);
                 reset();
@@ -345,6 +376,7 @@ export default function Gifts() {
                       type="button"
                       onClick={addRecipient}
                       className="h-10 px-4 rounded-xl bg-black/5 text-[var(--text-primary)] text-xs font-medium hover:bg-black/10"
+                      aria-label="Add recipient"
                     >
                       Add
                     </button>
@@ -364,6 +396,7 @@ export default function Gifts() {
                               )
                             }
                             className="hover:text-red-500"
+                            aria-label={`Remove recipient ${r.slice(0, 6)}...${r.slice(-4)}`}
                           >
                             x
                           </button>
@@ -419,6 +452,25 @@ export default function Gifts() {
                     className="w-full px-5 py-4 rounded-2xl bg-white/60 border border-black/5 focus:border-black/20 focus:ring-4 focus:ring-black/5 outline-none transition-all placeholder:text-black/30 resize-none"
                   />
                 </div>
+
+                <div>
+                  <label className="text-xs text-[var(--text-primary)]/50 font-medium tracking-wide uppercase mb-2 block">
+                    Expiry Date (Optional)
+                  </label>
+                  <div className="relative">
+                    <Clock size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--text-primary)]/30" />
+                    <input
+                      type="datetime-local"
+                      value={giftExpiry}
+                      onChange={(e) => setGiftExpiry(e.target.value)}
+                      min={new Date().toISOString().slice(0, 16)}
+                      className="h-14 w-full pl-11 pr-5 rounded-2xl bg-white/60 border border-black/5 focus:border-black/20 focus:ring-4 focus:ring-black/5 outline-none transition-all text-sm"
+                    />
+                  </div>
+                  <p className="text-xs text-[var(--text-primary)]/40 mt-1">
+                    Leave empty for no expiry. Expired envelopes can be deactivated by the sender.
+                  </p>
+                </div>
               </div>
             </div>
 
@@ -437,6 +489,8 @@ export default function Gifts() {
                     <button
                       key={theme.id}
                       onClick={() => setSelectedTheme(theme.id)}
+                      aria-label={`Select ${theme.name} theme`}
+                      aria-pressed={isSelected}
                       className={cn(
                         "p-6 rounded-2xl border-2 transition-all",
                         isSelected
@@ -530,9 +584,12 @@ export default function Gifts() {
         )}
 
         {/* Tab Toggle for Sent/Received Gifts */}
-        <div className="flex gap-3 mb-6">
+        <div className="flex gap-3 mb-6" role="tablist" aria-label="Gift tabs">
           <button
             onClick={() => setActiveTab("received")}
+            role="tab"
+            aria-selected={activeTab === "received"}
+            aria-label="Received gifts"
             className={cn(
               "flex-1 h-14 px-6 rounded-2xl font-medium transition-all",
               activeTab === "received"
@@ -544,6 +601,9 @@ export default function Gifts() {
           </button>
           <button
             onClick={() => setActiveTab("sent")}
+            role="tab"
+            aria-selected={activeTab === "sent"}
+            aria-label="Sent gifts"
             className={cn(
               "flex-1 h-14 px-6 rounded-2xl font-medium transition-all",
               activeTab === "sent"
@@ -590,6 +650,8 @@ export default function Gifts() {
                 const otherAddress = isSent
                   ? activity.user_to
                   : activity.user_from;
+                const envelopeId = parseEnvelopeId(activity.note);
+                const displayNote = stripEnvelopePrefix(activity.note);
 
                 return (
                   <div
@@ -606,7 +668,12 @@ export default function Gifts() {
                           {otherAddress.slice(0, 6)}...{otherAddress.slice(-4)}
                         </p>
                         <p className="text-sm text-[var(--text-primary)]/50">
-                          {activity.note}
+                          {displayNote}
+                          {envelopeId != null && (
+                            <span className="ml-1 text-xs font-mono text-[var(--text-primary)]/30">
+                              #{envelopeId}
+                            </span>
+                          )}
                           {activity.created_at &&
                             ` \u00B7 ${new Date(activity.created_at).toLocaleDateString()}`}
                         </p>
@@ -626,8 +693,22 @@ export default function Gifts() {
                           {isSent ? "sent" : "received"}
                         </div>
                       </div>
-                      {/* Claim button for received gifts -- user needs to know the envelope ID */}
-                      {!isSent && (
+                      {/* Auto-claim for received gifts with known envelope ID */}
+                      {!isSent && envelopeId != null && (
+                        <button
+                          onClick={() => handleClaim(envelopeId)}
+                          disabled={isProcessing}
+                          className="h-10 px-4 rounded-xl bg-emerald-500 text-white text-sm font-medium disabled:opacity-50"
+                        >
+                          {isProcessing ? (
+                            <Loader2 size={16} className="animate-spin" />
+                          ) : (
+                            "Claim"
+                          )}
+                        </button>
+                      )}
+                      {/* Fallback manual input for gifts without embedded envelope ID */}
+                      {!isSent && envelopeId == null && (
                         <div className="flex gap-2 mt-3">
                           <input
                             type="text"
@@ -653,6 +734,25 @@ export default function Gifts() {
                             )}
                           </button>
                         </div>
+                      )}
+                      {/* Deactivate button for sent gifts */}
+                      {isSent && envelopeId != null && (
+                        <button
+                          onClick={() => {
+                            if (window.confirm("Deactivate this envelope? This cannot be undone.")) {
+                              deactivateEnvelope(envelopeId);
+                            }
+                          }}
+                          disabled={isProcessing}
+                          className="h-10 px-4 rounded-xl bg-red-50 text-red-600 border border-red-100 text-sm font-medium disabled:opacity-50 flex items-center gap-1.5 hover:bg-red-100 transition-colors"
+                        >
+                          {isProcessing ? (
+                            <Loader2 size={14} className="animate-spin" />
+                          ) : (
+                            <XCircle size={14} />
+                          )}
+                          <span>Deactivate</span>
+                        </button>
                       )}
                     </div>
                   </div>

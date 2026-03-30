@@ -7,6 +7,7 @@ import toast from "react-hot-toast";
 import { CONTRACTS, MAX_UINT64, type EncryptedInput } from "@/lib/constants";
 import { GiftMoneyAbi, FHERC20VaultAbi } from "@/lib/abis";
 import { insertActivity } from "@/lib/supabase";
+import { extractEventId } from "@/lib/event-parser";
 import { broadcastAction } from "@/lib/cross-tab";
 import { invalidateBalanceQueries } from "@/lib/query-invalidation";
 import { isVaultApproved, markVaultApproved, clearVaultApproval } from "@/lib/approval";
@@ -143,7 +144,8 @@ export function useGiftMoney() {
       vault: string,
       shares: string[],
       recipients: string[],
-      note: string
+      note: string,
+      expiryTimestamp: number = 0
     ) => {
       if (!address || !connected) return;
       if (state.isProcessing) return; // Already submitting
@@ -203,6 +205,7 @@ export function useGiftMoney() {
             // whose shape doesn't match wagmi's strict ABI-inferred arg types
             encryptedShares as unknown as EncryptedInput[],
             note,
+            BigInt(expiryTimestamp),
           ],
         });
 
@@ -228,6 +231,12 @@ export function useGiftMoney() {
           localStorage.setItem(GIFT_RATE_KEY, JSON.stringify(timestamps));
         } catch {}
 
+        // Extract envelope ID from the contract event logs
+        const envelopeId = extractEventId(giftReceipt.logs, CONTRACTS.GiftMoney);
+        const envelopeNote = envelopeId
+          ? `[envelope:${envelopeId}] ${note || "Gift envelope"}`
+          : note || "Gift envelope";
+
         // Notify other tabs and invalidate cached balances
         broadcastAction("balance_changed");
         broadcastAction("activity_added");
@@ -242,11 +251,23 @@ export function useGiftMoney() {
             user_to: recipient.toLowerCase(),
             activity_type: "gift_created",
             contract_address: giftMoneyAddress,
-            note,
+            note: envelopeNote,
             token_address: CONTRACTS.TestUSDC,
             block_number: Number(giftReceipt.blockNumber),
           });
         }
+
+        // Activity entry for the sender
+        await insertActivity({
+          tx_hash: `${hash}_sender`,
+          user_from: address.toLowerCase(),
+          user_to: address.toLowerCase(),
+          activity_type: "gift_created",
+          contract_address: giftMoneyAddress,
+          note: envelopeNote,
+          token_address: CONTRACTS.TestUSDC,
+          block_number: Number(giftReceipt.blockNumber),
+        });
 
         toast.success("Gift envelope created!");
         return hash;
@@ -331,6 +352,111 @@ export function useGiftMoney() {
     [address, connected, state.isProcessing, writeContractAsync, publicClient]
   );
 
+  // ─── Deactivate Envelope ─────────────────────────────────────────────
+
+  const deactivateEnvelope = useCallback(
+    async (envelopeId: number) => {
+      if (!address || !connected) return;
+      if (state.isProcessing) return;
+
+      if (!publicClient) {
+        toast.error("Connection lost. Please refresh.");
+        return;
+      }
+
+      try {
+        setState((s) => ({ ...s, step: "sending", isProcessing: true, error: null }));
+
+        const giftMoneyAddress = CONTRACTS.GiftMoney as `0x${string}`;
+
+        const hash = await writeContractAsync({
+          address: giftMoneyAddress,
+          abi: GiftMoneyAbi,
+          functionName: "deactivateEnvelope",
+          args: [BigInt(envelopeId)],
+        });
+
+        const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
+        if (receipt.status === "reverted") {
+          throw new Error("Transaction reverted on-chain");
+        }
+
+        setState((s) => ({
+          ...s,
+          step: "success",
+          isProcessing: false,
+          txHash: hash,
+        }));
+
+        broadcastAction("activity_added");
+        toast.success("Envelope deactivated");
+        return hash;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Failed to deactivate envelope";
+        setState((s) => ({
+          ...s,
+          step: "error",
+          isProcessing: false,
+          error: msg,
+        }));
+        toast.error(msg);
+      }
+    },
+    [address, connected, state.isProcessing, writeContractAsync, publicClient]
+  );
+
+  // ─── Set Expiry ────────────────────────────────────────────────────
+
+  const setExpiry = useCallback(
+    async (envelopeId: number, expiryTimestamp: number) => {
+      if (!address || !connected) return;
+      if (state.isProcessing) return;
+
+      if (!publicClient) {
+        toast.error("Connection lost. Please refresh.");
+        return;
+      }
+
+      try {
+        setState((s) => ({ ...s, step: "sending", isProcessing: true, error: null }));
+
+        const giftMoneyAddress = CONTRACTS.GiftMoney as `0x${string}`;
+
+        const hash = await writeContractAsync({
+          address: giftMoneyAddress,
+          abi: GiftMoneyAbi,
+          functionName: "setExpiry",
+          args: [BigInt(envelopeId), BigInt(expiryTimestamp)],
+        });
+
+        const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
+        if (receipt.status === "reverted") {
+          throw new Error("Transaction reverted on-chain");
+        }
+
+        setState((s) => ({
+          ...s,
+          step: "success",
+          isProcessing: false,
+          txHash: hash,
+        }));
+
+        toast.success("Expiry updated");
+        return hash;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Failed to set expiry";
+        setState((s) => ({
+          ...s,
+          step: "error",
+          isProcessing: false,
+          error: msg,
+        }));
+        toast.error(msg);
+      }
+    },
+    [address, connected, state.isProcessing, writeContractAsync, publicClient]
+  );
+
   // ─── Reset ──────────────────────────────────────────────────────────
 
   const reset = useCallback(() => {
@@ -341,6 +467,8 @@ export function useGiftMoney() {
     ...state,
     createGift,
     claimGift,
+    deactivateEnvelope,
+    setExpiry,
     computeRandomSplits,
     computeEqualSplits,
     reset,

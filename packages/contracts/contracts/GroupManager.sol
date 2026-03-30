@@ -58,6 +58,9 @@ contract GroupManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     /// @dev Vote deduplication: groupId → expenseId → voter → hasVoted
     mapping(uint256 => mapping(uint256 => mapping(address => bool))) private _hasVoted;
 
+    /// @dev Expense archived flag: groupId → expenseId → archived
+    mapping(uint256 => mapping(uint256 => bool)) public expenseArchived;
+
     // ─── Events ─────────────────────────────────────────────────────────
 
     event GroupCreated(uint256 indexed groupId, string name, address[] members, uint256 timestamp);
@@ -66,6 +69,8 @@ contract GroupManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     event AdminAdded(uint256 indexed groupId, address indexed admin, uint256 timestamp);
     event ExpenseAdded(uint256 indexed groupId, uint256 expenseId, address indexed payer, string description, uint256 timestamp);
     event DebtSettled(uint256 indexed groupId, address indexed from, address indexed to, uint256 timestamp);
+    event GroupArchived(uint256 indexed groupId, uint256 timestamp);
+    event ExpenseArchived(uint256 indexed groupId, uint256 expenseId, uint256 timestamp);
 
     // ─── Initializer ────────────────────────────────────────────────────
 
@@ -123,6 +128,48 @@ contract GroupManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         require(isMember[groupId][admin], "GroupManager: not a member");
         isAdmin[groupId][admin] = true;
         emit AdminAdded(groupId, admin, block.timestamp);
+    }
+
+    /// @notice Leave a group. Last admin cannot leave (must promote another first).
+    function leaveGroup(uint256 groupId) external nonReentrant {
+        require(isMember[groupId][msg.sender], "GroupManager: not a member");
+        require(
+            !isAdmin[groupId][msg.sender] || _groups[groupId].members.length > 1,
+            "GroupManager: last admin cannot leave"
+        );
+
+        // Remove from members array
+        Group storage group = _groups[groupId];
+        for (uint256 i = 0; i < group.members.length; i++) {
+            if (group.members[i] == msg.sender) {
+                group.members[i] = group.members[group.members.length - 1];
+                group.members.pop();
+                break;
+            }
+        }
+
+        isMember[groupId][msg.sender] = false;
+        isAdmin[groupId][msg.sender] = false;
+
+        // Remove from user's groups
+        uint256[] storage userGroups = _userGroups[msg.sender];
+        for (uint256 i = 0; i < userGroups.length; i++) {
+            if (userGroups[i] == groupId) {
+                userGroups[i] = userGroups[userGroups.length - 1];
+                userGroups.pop();
+                break;
+            }
+        }
+
+        try eventHub.emitActivity(msg.sender, address(0), "member_left", "", groupId) {} catch {}
+        emit MemberRemoved(groupId, msg.sender, block.timestamp);
+    }
+
+    /// @notice Archive a group. Only admins. Sets group to inactive.
+    function archiveGroup(uint256 groupId) external nonReentrant {
+        require(isAdmin[groupId][msg.sender], "GroupManager: not admin");
+        _groups[groupId].active = false;
+        emit GroupArchived(groupId, block.timestamp);
     }
 
     function _addMemberInternal(uint256 groupId, address member) internal {
@@ -186,6 +233,17 @@ contract GroupManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
         emit ExpenseAdded(groupId, expenseId, msg.sender, description, block.timestamp);
         try eventHub.emitActivity(msg.sender, address(0), "group_expense", description, groupId) {} catch {}
+    }
+
+    /// @notice Archive an expense (bookkeeping only).
+    ///         Does NOT reverse debt changes — those are encrypted and irreversible.
+    function archiveExpense(uint256 groupId, uint256 expenseId) external nonReentrant {
+        require(isAdmin[groupId][msg.sender], "GroupManager: not admin");
+        require(expenseId < _groups[groupId].expenseCount, "GroupManager: invalid expense");
+        require(!expenseArchived[groupId][expenseId], "GroupManager: already archived");
+
+        expenseArchived[groupId][expenseId] = true;
+        emit ExpenseArchived(groupId, expenseId, block.timestamp);
     }
 
     // ─── Settle Debts ───────────────────────────────────────────────────

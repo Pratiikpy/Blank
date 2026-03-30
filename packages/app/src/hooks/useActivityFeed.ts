@@ -49,7 +49,7 @@ export function useActivityFeed() {
     setIsLoading(true);
 
     try {
-      const data = await fetchActivities(address);
+      const data = await fetchActivities(address, 100);
       if (data.length > 0) {
         setActivities(data);
         data.forEach((a) => addToCappedSet(notifiedTxs.current, a.tx_hash));

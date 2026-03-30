@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo, useEffect } from "react";
-import { useAccount } from "wagmi";
+import { useAccount, useDisconnect } from "wagmi";
 import {
   useCofheActivePermit,
 } from "@cofhe/react";
@@ -16,7 +16,6 @@ interface SharedPermitsState {
   sharedPermits: SharedPermit[];
 }
 
-const PERMIT_DURATION_SECONDS = 7 * 24 * 60 * 60; // 7 days in seconds
 const STORAGE_KEY = "blank_permit_state";
 
 function loadSharedPermits(address: string): SharedPermit[] {
@@ -24,7 +23,10 @@ function loadSharedPermits(address: string): SharedPermit[] {
     const stored = localStorage.getItem(`${STORAGE_KEY}_${address.toLowerCase()}`);
     if (!stored) return [];
     const parsed = JSON.parse(stored) as Partial<SharedPermitsState & { sharedPermits: SharedPermit[] }>;
-    return parsed.sharedPermits ?? [];
+    const loaded = parsed.sharedPermits ?? [];
+    // Filter out expired shared permits on load
+    const validShares = loaded.filter((s) => s.expiresAt > Date.now());
+    return validShares;
   } catch {
     return [];
   }
@@ -70,11 +72,8 @@ export function usePrivacy() {
   }, [activePermitData?.permit]);
 
   // The SDK Permit type does not include a creation timestamp.
-  // Estimate as expiration minus the default duration we use (7 days).
-  const permitCreatedAt = useMemo(() => {
-    if (!activePermitData?.permit) return null;
-    return activePermitData.permit.expiration * 1000 - PERMIT_DURATION_SECONDS * 1000;
-  }, [activePermitData?.permit]);
+  // We no longer expose a fake "created at" -- the UI will show only expiry.
+  const permitCreatedAt = null;
 
   // Check if permit is expiring soon (< 1 hour) or already expired
   const isExpiringSoon =
@@ -90,18 +89,26 @@ export function usePrivacy() {
   // public API. The CofheProvider handles permits on wallet connection.
   // isCreating is kept as a stable false for consumers that read it.
   const isCreating = false;
+  const { disconnect } = useDisconnect();
 
   const createPermit = useCallback(async () => {
     if (!address) return;
     // The CofheProvider auto-creates permits on wallet connection.
     // Manual permit creation requires the SDK's internal mutation
     // which is not yet exported in the public @cofhe/react API.
-    // If you need to renew, disconnect and reconnect your wallet.
-    toast("To renew your permit, disconnect and reconnect your wallet.", {
+    toast("Permit is automatically created when you connect your wallet. To renew, use the Reconnect Wallet button below.", {
       icon: "\uD83D\uDD11",
       duration: 5000,
     });
   }, [address]);
+
+  const reconnectWallet = useCallback(() => {
+    disconnect();
+    toast("Wallet disconnected. Please reconnect to create a fresh permit.", {
+      icon: "\uD83D\uDD04",
+      duration: 4000,
+    });
+  }, [disconnect]);
 
   // ── Custom shared permits (localStorage) ───────────────────────────
   const [sharedPermits, setSharedPermits] = useState<SharedPermit[]>(
@@ -171,6 +178,7 @@ export function usePrivacy() {
     isExpiringSoon,
     isExpired,
     createPermit,
+    reconnectWallet,
     sharePermit,
     revokePermit,
   };

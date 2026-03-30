@@ -1,5 +1,6 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { useAccount } from "wagmi";
+import { useNavigate } from "react-router-dom";
 import {
   Send,
   ArrowDownLeft,
@@ -16,6 +17,8 @@ import {
 import { cn } from "@/lib/cn";
 import { useActivityFeed } from "@/hooks/useActivityFeed";
 import { useContacts } from "@/hooks/useContacts";
+
+const PAGE_SIZE = 20;
 
 type FilterTab = "all" | "received" | "sent" | "swap" | "stealth";
 
@@ -78,9 +81,7 @@ const activityLabels: Record<string, string> = {
   stealth_claimed: "Payment claimed",
 };
 
-function truncateAddress(addr: string): string {
-  return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
-}
+import { truncateAddress } from "@/lib/address";
 
 function formatRelativeTime(isoDate: string): string {
   const now = Date.now();
@@ -112,11 +113,13 @@ function getDateGroup(dateStr: string): string {
 
 export default function History() {
   const { address } = useAccount();
+  const navigate = useNavigate();
   const { activities, isLoading } = useActivityFeed();
   const { addContact } = useContacts();
   const [activeFilter, setActiveFilter] = useState<FilterTab>("all");
   const [selectedTx, setSelectedTx] = useState<(typeof activities)[number] | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
   const filtered = useMemo(() => {
     if (activeFilter === "all") return activities;
@@ -144,10 +147,20 @@ export default function History() {
     );
   }, [filtered, searchQuery]);
 
+  // Reset visible count when filter or search changes
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+  }, [activeFilter, searchQuery]);
+
+  const visibleActivities = useMemo(
+    () => searchedActivities.slice(0, visibleCount),
+    [searchedActivities, visibleCount],
+  );
+
   const groupedActivities = useMemo(() => {
-    const groups: { label: string; items: typeof searchedActivities }[] = [];
+    const groups: { label: string; items: typeof visibleActivities }[] = [];
     let currentGroup = "";
-    for (const a of searchedActivities) {
+    for (const a of visibleActivities) {
       const group = getDateGroup(a.created_at);
       if (group !== currentGroup) {
         groups.push({ label: group, items: [] });
@@ -156,7 +169,7 @@ export default function History() {
       groups[groups.length - 1].items.push(a);
     }
     return groups;
-  }, [searchedActivities]);
+  }, [visibleActivities]);
 
   const handleExport = useCallback(() => {
     const headers = "Date,Type,From,To,Note,TxHash\n";
@@ -189,6 +202,7 @@ export default function History() {
             <button
               onClick={handleExport}
               className="h-10 px-4 rounded-full bg-gray-100 text-[var(--text-secondary)] text-sm font-medium hover:bg-gray-200 transition-colors flex items-center gap-2"
+              aria-label="Export transactions as CSV"
             >
               <Download size={14} />
               Export CSV
@@ -203,15 +217,19 @@ export default function History() {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search transactions..."
+            aria-label="Search transactions"
             className="h-11 w-full pl-11 pr-4 rounded-full bg-gray-100 border-none outline-none text-sm"
           />
         </div>
 
         {/* Filter Pills */}
-        <div className="flex gap-3 mb-6">
+        <div className="flex gap-3 mb-6" role="tablist" aria-label="Transaction filters">
           {filterTabs.map((tab) => (
             <button
               key={tab.key}
+              role="tab"
+              aria-selected={activeFilter === tab.key}
+              aria-label={`Filter by ${tab.label.toLowerCase()}`}
               onClick={() => setActiveFilter(tab.key)}
               className={cn(
                 "h-12 px-6 rounded-full font-medium transition-all whitespace-nowrap",
@@ -288,7 +306,10 @@ export default function History() {
                 return (
                   <div
                     key={activity.id}
-                    onClick={() => setSelectedTx(activity)}
+                    onClick={() => navigate(`/tx/${activity.id}`)}
+                    role="link"
+                    tabIndex={0}
+                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") navigate(`/tx/${activity.id}`); }}
                     className="flex items-center justify-between p-6 rounded-2xl bg-white/50 border border-black/5 hover:bg-white/70 transition-all cursor-pointer"
                   >
                     <div className="flex items-center gap-4">
@@ -345,6 +366,14 @@ export default function History() {
                 </div>
               </div>
             ))}
+            {visibleCount < searchedActivities.length && (
+              <button
+                onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}
+                className="w-full h-12 rounded-2xl bg-white/50 border border-black/5 text-sm font-medium text-[var(--text-secondary)] hover:bg-white/70 transition-all mt-3"
+              >
+                Load more ({searchedActivities.length - visibleCount} remaining)
+              </button>
+            )}
           </div>
         )}
 
@@ -361,7 +390,7 @@ export default function History() {
             >
               <div className="flex items-center justify-between">
                 <h3 className="text-lg font-semibold" style={{ fontFamily: "'Outfit', sans-serif" }}>Transaction Details</h3>
-                <button onClick={() => setSelectedTx(null)} className="p-2 rounded-xl hover:bg-black/5"><X size={20} /></button>
+                <button onClick={() => setSelectedTx(null)} className="p-2 rounded-xl hover:bg-black/5" aria-label="Close"><X size={20} /></button>
               </div>
               <div className="space-y-3">
                 <div className="flex justify-between p-3 rounded-xl bg-white/50 border border-black/5">
@@ -396,6 +425,7 @@ export default function History() {
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center justify-center gap-2 h-12 rounded-2xl bg-blue-50 text-blue-600 font-medium text-sm hover:bg-blue-100 transition-colors"
+                    aria-label="View transaction on Basescan"
                   >
                     View on Basescan
                     <ExternalLink size={16} />
@@ -408,6 +438,7 @@ export default function History() {
                     if (name) addContact(otherAddress, name);
                   }}
                   className="h-12 w-full rounded-2xl bg-gray-100 text-[var(--text-secondary)] font-medium text-sm hover:bg-gray-200 transition-colors flex items-center justify-center gap-2"
+                  aria-label="Add to contacts"
                 >
                   <UserPlus size={16} />
                   Add to Contacts

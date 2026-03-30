@@ -6,7 +6,7 @@ import { Encryptable } from "@cofhe/sdk";
 import toast from "react-hot-toast";
 import { CONTRACTS, MAX_UINT64, type EncryptedInput } from "@/lib/constants";
 import { BusinessHubAbi, FHERC20VaultAbi, TestUSDCAbi } from "@/lib/abis";
-import { insertInvoice, insertEscrow, insertActivity } from "@/lib/supabase";
+import { insertInvoice, insertEscrow, insertActivity, updateEscrowStatus, updateInvoiceStatus } from "@/lib/supabase";
 import { extractEventId } from "@/lib/event-parser";
 import { isVaultApproved, markVaultApproved, clearVaultApproval } from "@/lib/approval";
 
@@ -295,6 +295,7 @@ export function useBusinessHub() {
           beneficiary_address: beneficiary,
           arbiter_address: arbiter || "",
           description,
+          plaintext_amount: parseFloat(amount),
           deadline: new Date(deadline * 1000).toISOString(),
           status: "active",
           tx_hash: hash,
@@ -344,6 +345,20 @@ export function useBusinessHub() {
         if (finalizeReceipt.status === "reverted") {
           throw new Error("Transaction reverted on-chain");
         }
+
+        await insertActivity({
+          tx_hash: hash,
+          user_from: address.toLowerCase(),
+          user_to: address.toLowerCase(),
+          activity_type: "invoice_finalized",
+          contract_address: CONTRACTS.BusinessHub,
+          note: `Finalized invoice #${invoiceId}`,
+          token_address: CONTRACTS.FHERC20Vault_USDC,
+          block_number: Number(finalizeReceipt.blockNumber),
+        });
+
+        await updateInvoiceStatus(hash, "paid");
+
         toast.success("Invoice finalized!");
         setStepWithReset("success", 3000);
       } catch (err) {
@@ -354,7 +369,354 @@ export function useBusinessHub() {
     [address, publicClient, writeContractAsync, step]
   );
 
+  const markDelivered = useCallback(
+    async (escrowId: number) => {
+      if (!address || !publicClient) {
+        toast.error("Connection lost");
+        return;
+      }
+      if (step !== "idle") return;
+
+      clearTimeout(resetTimerRef.current);
+      setStep("sending");
+      try {
+        const hash = await writeContractAsync({
+          address: CONTRACTS.BusinessHub as `0x${string}`,
+          abi: BusinessHubAbi,
+          functionName: "markDelivered",
+          args: [BigInt(escrowId)],
+        });
+
+        const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
+        if (receipt.status === "reverted") {
+          throw new Error("Transaction reverted on-chain");
+        }
+
+        await insertActivity({
+          tx_hash: hash,
+          user_from: address.toLowerCase(),
+          user_to: address.toLowerCase(),
+          activity_type: "escrow_delivered",
+          contract_address: CONTRACTS.BusinessHub,
+          note: `Marked escrow #${escrowId} as delivered`,
+          token_address: CONTRACTS.FHERC20Vault_USDC,
+          block_number: Number(receipt.blockNumber),
+        });
+
+        toast.success("Marked as delivered!");
+        setStepWithReset("success", 3000);
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Failed to mark delivered");
+        setStepWithReset("error", 5000);
+      }
+    },
+    [address, publicClient, writeContractAsync, step],
+  );
+
+  const approveRelease = useCallback(
+    async (escrowId: number) => {
+      if (!address || !publicClient) {
+        toast.error("Connection lost");
+        return;
+      }
+      if (step !== "idle") return;
+
+      clearTimeout(resetTimerRef.current);
+      setStep("sending");
+      try {
+        const hash = await writeContractAsync({
+          address: CONTRACTS.BusinessHub as `0x${string}`,
+          abi: BusinessHubAbi,
+          functionName: "approveRelease",
+          args: [BigInt(escrowId)],
+        });
+
+        const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
+        if (receipt.status === "reverted") {
+          throw new Error("Transaction reverted on-chain");
+        }
+
+        await updateEscrowStatus(escrowId, "released");
+
+        await insertActivity({
+          tx_hash: hash,
+          user_from: address.toLowerCase(),
+          user_to: address.toLowerCase(),
+          activity_type: "escrow_released",
+          contract_address: CONTRACTS.BusinessHub,
+          note: `Released escrow #${escrowId}`,
+          token_address: CONTRACTS.FHERC20Vault_USDC,
+          block_number: Number(receipt.blockNumber),
+        });
+
+        toast.success("Escrow funds released!");
+        setStepWithReset("success", 3000);
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Failed to release escrow");
+        setStepWithReset("error", 5000);
+      }
+    },
+    [address, publicClient, writeContractAsync, step],
+  );
+
+  const disputeEscrow = useCallback(
+    async (escrowId: number) => {
+      if (!address || !publicClient) {
+        toast.error("Connection lost");
+        return;
+      }
+      if (step !== "idle") return;
+
+      clearTimeout(resetTimerRef.current);
+      setStep("sending");
+      try {
+        const hash = await writeContractAsync({
+          address: CONTRACTS.BusinessHub as `0x${string}`,
+          abi: BusinessHubAbi,
+          functionName: "disputeEscrow",
+          args: [BigInt(escrowId)],
+        });
+
+        const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
+        if (receipt.status === "reverted") {
+          throw new Error("Transaction reverted on-chain");
+        }
+
+        await updateEscrowStatus(escrowId, "disputed");
+
+        await insertActivity({
+          tx_hash: hash,
+          user_from: address.toLowerCase(),
+          user_to: address.toLowerCase(),
+          activity_type: "escrow_disputed",
+          contract_address: CONTRACTS.BusinessHub,
+          note: `Disputed escrow #${escrowId}`,
+          token_address: CONTRACTS.FHERC20Vault_USDC,
+          block_number: Number(receipt.blockNumber),
+        });
+
+        toast.success("Escrow disputed");
+        setStepWithReset("success", 3000);
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Failed to dispute escrow");
+        setStepWithReset("error", 5000);
+      }
+    },
+    [address, publicClient, writeContractAsync, step],
+  );
+
+  const payInvoice = useCallback(
+    async (invoiceId: number, amount: string) => {
+      if (!address || !connected) {
+        toast.error("Please connect your wallet");
+        return;
+      }
+      if (step === "approving" || step === "encrypting" || step === "sending") return;
+
+      if (!publicClient) {
+        toast.error("Connection lost. Please refresh.");
+        return;
+      }
+
+      try {
+        clearTimeout(resetTimerRef.current);
+        setStep("approving");
+
+        if (!isVaultApproved(CONTRACTS.BusinessHub)) {
+          await ensureVaultApproval(
+            writeContractAsync,
+            CONTRACTS.FHERC20Vault_USDC as `0x${string}`,
+            CONTRACTS.BusinessHub as `0x${string}`,
+          );
+          markVaultApproved(CONTRACTS.BusinessHub);
+        }
+
+        setStep("encrypting");
+        const amountWei = parseUnits(amount, 6);
+        const [encAmount] = await encryptInputsAsync([Encryptable.uint64(amountWei)]);
+
+        setStep("sending");
+        const hash = await writeContractAsync({
+          address: CONTRACTS.BusinessHub as `0x${string}`,
+          abi: BusinessHubAbi,
+          functionName: "payInvoice",
+          args: [
+            BigInt(invoiceId),
+            encAmount as unknown as EncryptedInput,
+          ],
+        });
+
+        const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
+        if (receipt.status === "reverted") {
+          throw new Error("Transaction reverted on-chain");
+        }
+
+        await updateInvoiceStatus(hash, "payment_pending");
+
+        await insertActivity({
+          tx_hash: hash,
+          user_from: address.toLowerCase(),
+          user_to: address.toLowerCase(),
+          activity_type: "invoice_payment",
+          contract_address: CONTRACTS.BusinessHub,
+          note: `Paid invoice #${invoiceId}`,
+          token_address: CONTRACTS.FHERC20Vault_USDC,
+          block_number: Number(receipt.blockNumber),
+        });
+
+        setStepWithReset("success", 3000);
+        toast.success("Invoice payment submitted!");
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Payment failed";
+        if (msg.includes("allowance") || msg.includes("approve") || msg.includes("insufficient") || msg.includes("transfer amount exceeds")) {
+          clearVaultApproval(CONTRACTS.BusinessHub);
+        }
+        setStepWithReset("error", 5000);
+        toast.error(msg);
+      }
+    },
+    [address, connected, step, encryptInputsAsync, writeContractAsync, publicClient]
+  );
+
+  const cancelInvoice = useCallback(
+    async (invoiceId: number) => {
+      if (!address || !publicClient) {
+        toast.error("Connection lost");
+        return;
+      }
+      if (step !== "idle") return;
+
+      clearTimeout(resetTimerRef.current);
+      setStep("sending");
+      try {
+        const hash = await writeContractAsync({
+          address: CONTRACTS.BusinessHub as `0x${string}`,
+          abi: BusinessHubAbi,
+          functionName: "cancelInvoice",
+          args: [BigInt(invoiceId)],
+        });
+
+        const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
+        if (receipt.status === "reverted") {
+          throw new Error("Transaction reverted on-chain");
+        }
+
+        await updateInvoiceStatus(hash, "cancelled");
+
+        await insertActivity({
+          tx_hash: hash,
+          user_from: address.toLowerCase(),
+          user_to: address.toLowerCase(),
+          activity_type: "invoice_cancelled",
+          contract_address: CONTRACTS.BusinessHub,
+          note: `Cancelled invoice #${invoiceId}`,
+          token_address: CONTRACTS.FHERC20Vault_USDC,
+          block_number: Number(receipt.blockNumber),
+        });
+
+        toast.success("Invoice cancelled");
+        setStepWithReset("success", 3000);
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Failed to cancel invoice");
+        setStepWithReset("error", 5000);
+      }
+    },
+    [address, publicClient, writeContractAsync, step]
+  );
+
+  const arbiterDecide = useCallback(
+    async (escrowId: number, releaseToBeneficiary: boolean) => {
+      if (!address || !publicClient) {
+        toast.error("Connection lost");
+        return;
+      }
+      if (step !== "idle") return;
+
+      clearTimeout(resetTimerRef.current);
+      setStep("sending");
+      try {
+        const hash = await writeContractAsync({
+          address: CONTRACTS.BusinessHub as `0x${string}`,
+          abi: BusinessHubAbi,
+          functionName: "arbiterDecide",
+          args: [BigInt(escrowId), releaseToBeneficiary],
+        });
+
+        const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
+        if (receipt.status === "reverted") {
+          throw new Error("Transaction reverted on-chain");
+        }
+
+        await updateEscrowStatus(escrowId, releaseToBeneficiary ? "released" : "expired");
+
+        await insertActivity({
+          tx_hash: hash,
+          user_from: address.toLowerCase(),
+          user_to: address.toLowerCase(),
+          activity_type: "escrow_arbiter_decided",
+          contract_address: CONTRACTS.BusinessHub,
+          note: `Arbiter ${releaseToBeneficiary ? "released" : "rejected"} escrow #${escrowId}`,
+          token_address: CONTRACTS.FHERC20Vault_USDC,
+          block_number: Number(receipt.blockNumber),
+        });
+
+        toast.success(releaseToBeneficiary ? "Funds released to beneficiary" : "Funds returned to depositor");
+        setStepWithReset("success", 3000);
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Arbiter decision failed");
+        setStepWithReset("error", 5000);
+      }
+    },
+    [address, publicClient, writeContractAsync, step]
+  );
+
+  const claimExpiredEscrow = useCallback(
+    async (escrowId: number) => {
+      if (!address || !publicClient) {
+        toast.error("Connection lost");
+        return;
+      }
+      if (step !== "idle") return;
+
+      clearTimeout(resetTimerRef.current);
+      setStep("sending");
+      try {
+        const hash = await writeContractAsync({
+          address: CONTRACTS.BusinessHub as `0x${string}`,
+          abi: BusinessHubAbi,
+          functionName: "claimExpiredEscrow",
+          args: [BigInt(escrowId)],
+        });
+
+        const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
+        if (receipt.status === "reverted") {
+          throw new Error("Transaction reverted on-chain");
+        }
+
+        await updateEscrowStatus(escrowId, "expired");
+
+        await insertActivity({
+          tx_hash: hash,
+          user_from: address.toLowerCase(),
+          user_to: address.toLowerCase(),
+          activity_type: "escrow_expired_claimed",
+          contract_address: CONTRACTS.BusinessHub,
+          note: `Claimed expired escrow #${escrowId}`,
+          token_address: CONTRACTS.FHERC20Vault_USDC,
+          block_number: Number(receipt.blockNumber),
+        });
+
+        toast.success("Expired escrow funds reclaimed!");
+        setStepWithReset("success", 3000);
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Failed to claim expired escrow");
+        setStepWithReset("error", 5000);
+      }
+    },
+    [address, publicClient, writeContractAsync, step]
+  );
+
   const reset = useCallback(() => setStep("idle"), []);
 
-  return { step, createInvoice, runPayroll, createEscrow, finalizeInvoice, reset };
+  return { step, createInvoice, runPayroll, createEscrow, finalizeInvoice, markDelivered, approveRelease, disputeEscrow, payInvoice, cancelInvoice, arbiterDecide, claimExpiredEscrow, reset };
 }

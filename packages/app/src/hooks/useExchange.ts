@@ -6,12 +6,14 @@ import { Encryptable } from "@cofhe/sdk";
 import { P2PExchangeAbi, FHERC20VaultAbi } from "@/lib/abis";
 import { CONTRACTS, MAX_UINT64, type EncryptedInput } from "@/lib/constants";
 import {
+  supabase,
   insertExchangeOffer,
   fetchActiveOffers,
   updateOfferStatus,
   insertActivity,
   type ExchangeOfferRow,
 } from "@/lib/supabase";
+import { extractEventId } from "@/lib/event-parser";
 import toast from "react-hot-toast";
 import { isVaultApproved, markVaultApproved, clearVaultApproval } from "@/lib/approval";
 
@@ -37,6 +39,18 @@ export function useExchange() {
 
   useEffect(() => {
     loadOffers();
+  }, [loadOffers]);
+
+  // Realtime subscription for exchange offers
+  useEffect(() => {
+    if (!supabase) return;
+    const channel = supabase
+      .channel('exchange_offers_realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'exchange_offers' }, () => {
+        loadOffers();
+      })
+      .subscribe();
+    return () => { supabase!.removeChannel(channel); };
   }, [loadOffers]);
 
   // Create a new swap offer
@@ -96,17 +110,8 @@ export function useExchange() {
         // Write to Supabase
         // Exchange offer amounts are intentionally public for discovery
         // (matches P2PExchange.sol which uses public uint256 amounts for order matching)
-        // Try to extract offer ID from OfferCreated event in receipt logs
-        let offerId = Date.now(); // fallback
-        try {
-          for (const log of receipt.logs) {
-            const topic1 = log.topics[1];
-            if (log.address.toLowerCase() === CONTRACTS.P2PExchange.toLowerCase() && topic1) {
-              offerId = Number(BigInt(topic1));
-              break;
-            }
-          }
-        } catch {}
+        // Extract offer ID from OfferCreated event in receipt logs
+        const offerId = extractEventId(receipt.logs, CONTRACTS.P2PExchange);
 
         await insertExchangeOffer({
           offer_id: offerId,
@@ -254,6 +259,18 @@ export function useExchange() {
           throw new Error("Transaction reverted on-chain");
         }
         await updateOfferStatus(offerId, "cancelled");
+
+        await insertActivity({
+          tx_hash: hash,
+          user_from: address.toLowerCase(),
+          user_to: address.toLowerCase(),
+          activity_type: "exchange_cancelled",
+          contract_address: CONTRACTS.P2PExchange,
+          note: `Cancelled swap offer #${offerId}`,
+          token_address: CONTRACTS.FHERC20Vault_USDC,
+          block_number: Number(cancelReceipt.blockNumber),
+        });
+
         toast.success("Offer cancelled");
         await loadOffers();
       } catch (err) {

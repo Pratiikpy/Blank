@@ -4,9 +4,7 @@ import { Shield, Lock, Zap, Info, ChevronLeft } from "lucide-react";
 import { useSendPayment } from "@/hooks/useSendPayment";
 import { cn } from "@/lib/cn";
 
-function truncateAddress(addr: string): string {
-  return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
-}
+import { truncateAddress } from "@/lib/address";
 
 export default function SendConfirm() {
   const navigate = useNavigate();
@@ -112,7 +110,7 @@ export default function SendConfirm() {
               <span className="text-[var(--text-secondary)]">Est. gas</span>
               <div className="flex items-center gap-1.5">
                 <Zap size={14} className="text-amber-500" />
-                <span className="text-[var(--text-primary)]">~1.2M gas</span>
+                <span className="text-[var(--text-primary)]">~1.2M gas (estimated)</span>
               </div>
             </div>
 

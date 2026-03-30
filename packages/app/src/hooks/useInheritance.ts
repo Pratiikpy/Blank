@@ -1,8 +1,12 @@
 import { useState, useCallback } from "react";
 import { useAccount, useWriteContract, useReadContract, usePublicClient } from "wagmi";
+import { baseSepolia } from "viem/chains";
+import { useCofheEncryptAndWriteContract } from "@cofhe/react";
 import { InheritanceManagerAbi } from "@/lib/abis";
 import { CONTRACTS } from "@/lib/constants";
 import toast from "react-hot-toast";
+
+const MAX_UINT64 = BigInt("18446744073709551615"); // type(uint64).max
 
 interface InheritancePlan {
   heir: string;
@@ -10,6 +14,7 @@ interface InheritancePlan {
   lastHeartbeat: number;
   claimStartedAt: number;
   active: boolean;
+  vaults: string[];
 }
 
 export function useInheritance() {
@@ -18,18 +23,21 @@ export function useInheritance() {
   const { writeContractAsync } = useWriteContract();
   const [isProcessing, setIsProcessing] = useState(false);
 
+  // Atomic encrypt + write for finalizeClaim (encrypted InEuint64[] amounts)
+  const { encryptAndWrite } = useCofheEncryptAndWriteContract();
+
   // Read current plan
   const { data: planData, refetch: refetchPlan } = useReadContract({
     address: CONTRACTS.InheritanceManager,
     abi: InheritanceManagerAbi,
     functionName: "getPlan",
     args: address ? [address] : undefined,
-    query: { enabled: !!address },
+    query: { enabled: !!address, refetchInterval: 60_000 },
   });
 
   // Type assertion: wagmi returns unknown for untyped ABIs; getPlan returns
-  // a struct decoded as a tuple [address, uint256, uint256, uint256, bool]
-  const planTuple = planData as readonly [string, bigint, bigint, bigint, boolean] | undefined;
+  // a struct decoded as a tuple [address, uint256, uint256, uint256, bool, address[]]
+  const planTuple = planData as readonly [string, bigint, bigint, bigint, boolean, readonly string[]] | undefined;
   const plan: InheritancePlan | null = planTuple
     ? {
         heir: planTuple[0],
@@ -37,6 +45,7 @@ export function useInheritance() {
         lastHeartbeat: Number(planTuple[2]),
         claimStartedAt: Number(planTuple[3]),
         active: planTuple[4],
+        vaults: [...planTuple[5]],
       }
     : null;
 
@@ -114,6 +123,33 @@ export function useInheritance() {
     }
   }, [address, publicClient, writeContractAsync, refetchPlan]);
 
+  // Set vaults protected by the inheritance plan
+  const setVaults = useCallback(
+    async (vaultAddresses: string[]) => {
+      if (!address || !publicClient) return;
+      setIsProcessing(true);
+      try {
+        const hash = await writeContractAsync({
+          address: CONTRACTS.InheritanceManager,
+          abi: InheritanceManagerAbi,
+          functionName: "setVaults",
+          args: [vaultAddresses as `0x${string}`[]],
+        });
+        const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
+        if (receipt.status === "reverted") {
+          throw new Error("Transaction reverted on-chain");
+        }
+        toast.success("Vaults updated for inheritance plan!");
+        await refetchPlan();
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Failed to set vaults");
+      } finally {
+        setIsProcessing(false);
+      }
+    },
+    [address, publicClient, writeContractAsync, refetchPlan]
+  );
+
   // Start claim (as heir)
   const startClaim = useCallback(
     async (ownerAddress: string) => {
@@ -142,17 +178,37 @@ export function useInheritance() {
   );
 
   // Finalize claim (as heir, after challenge period)
+  // Reads the owner's plan to get the vault list, encrypts type(uint64).max for each vault
+  // (to drain the full balance), and calls finalizeClaim with the encrypted amounts.
   const finalizeClaim = useCallback(
-    async (ownerAddress: string) => {
+    async (ownerAddress: string, vaultCount: number) => {
       if (!address || !publicClient) return;
+      if (vaultCount === 0) {
+        toast.error("No vaults configured in the owner's inheritance plan");
+        return;
+      }
       setIsProcessing(true);
       try {
-        const hash = await writeContractAsync({
-          address: CONTRACTS.InheritanceManager,
-          abi: InheritanceManagerAbi,
-          functionName: "finalizeClaim",
-          args: [ownerAddress as `0x${string}`],
+        // Encrypt type(uint64).max for each vault — the vault's transferFrom uses
+        // FHE.select so over-requesting is safe (transfers up to available balance).
+        // The ABI's InEuint64[] internalType annotation tells @cofhe/react to
+        // auto-encrypt these plaintext values.
+        const maxAmounts = Array.from({ length: vaultCount }, () => MAX_UINT64);
+
+        const hash = await encryptAndWrite({
+          params: {
+            address: CONTRACTS.InheritanceManager,
+            abi: InheritanceManagerAbi,
+            functionName: "finalizeClaim",
+            chain: baseSepolia,
+            account: address,
+          },
+          args: [
+            ownerAddress as `0x${string}`,
+            maxAmounts,
+          ],
         });
+
         const finalizeReceipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
         if (finalizeReceipt.status === "reverted") {
           throw new Error("Transaction reverted on-chain");
@@ -165,13 +221,14 @@ export function useInheritance() {
         setIsProcessing(false);
       }
     },
-    [address, publicClient, writeContractAsync, refetchPlan]
+    [address, publicClient, encryptAndWrite, refetchPlan]
   );
 
   return {
     plan,
     isProcessing,
     setHeir,
+    setVaults,
     heartbeat,
     removeHeir,
     startClaim,

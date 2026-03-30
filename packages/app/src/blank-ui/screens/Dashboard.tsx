@@ -1,6 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useAccount } from "wagmi";
+import { useAccount, useWriteContract, usePublicClient } from "wagmi";
+import { parseUnits } from "viem";
 import {
   Send,
   ArrowDownLeft,
@@ -14,13 +15,19 @@ import {
   CheckCircle,
   Clock,
   Bell,
+  Loader2,
+  AlertCircle,
 } from "lucide-react";
-import { useCofheConnection } from "@/lib/cofhe-shim";
+import { useCofheConnection, useCofheEncrypt } from "@/lib/cofhe-shim";
+import { Encryptable } from "@cofhe/sdk";
 import { cn } from "@/lib/cn";
+import toast from "react-hot-toast";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { useActivityFeed } from "@/hooks/useActivityFeed";
 import { useEncryptedBalance } from "@/hooks/useEncryptedBalance";
 import { useShield } from "@/hooks/useShield";
+import { CONTRACTS, type EncryptedInput } from "@/lib/constants";
+import { FHERC20VaultAbi } from "@/lib/abis";
 
 function getGreeting(): string {
   const hour = new Date().getHours();
@@ -29,9 +36,7 @@ function getGreeting(): string {
   return "Good evening";
 }
 
-function truncateAddress(addr: string): string {
-  return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
-}
+import { truncateAddress } from "@/lib/address";
 
 const activityTypeIcons: Record<string, { icon: React.ReactNode; bg: string }> = {
   payment: { icon: <Send size={18} />, bg: "bg-[#1D1D1F] dark:bg-white" },
@@ -71,14 +76,68 @@ export default function Dashboard() {
   const { address } = useAccount();
   const { activities, isLoading: feedLoading } = useActivityFeed();
   const balance = useEncryptedBalance();
-  const { mintTestTokens, shield, publicBalance, isMinting } = useShield();
+  const { mintTestTokens, shield, publicBalance, isMinting, step: shieldStep, error: shieldError, reset: resetShield } = useShield();
   const isMobile = useMediaQuery("(max-width: 768px)");
   const { connected: cofheConnected } = useCofheConnection();
   const [privacyMode, setPrivacyMode] = useState(true);
   const [shieldAmount, setShieldAmount] = useState("");
+  const [unshieldAmount, setUnshieldAmount] = useState("");
+  const [unshieldStep, setUnshieldStep] = useState<"idle" | "encrypting" | "requesting" | "success" | "error">("idle");
+  const [faucetCooldown, setFaucetCooldown] = useState(0);
+  const { encryptInputsAsync } = useCofheEncrypt();
+  const { writeContractAsync } = useWriteContract();
+  const publicClient = usePublicClient();
+
+  // Faucet cooldown timer — check localStorage on mount and tick down every second
+  useEffect(() => {
+    const FAUCET_COOLDOWN_MS = 60_000;
+    const FAUCET_KEY = "blank_last_faucet";
+    const computeRemaining = () => {
+      const last = parseInt(localStorage.getItem(FAUCET_KEY) || "0");
+      const elapsed = Date.now() - last;
+      return elapsed < FAUCET_COOLDOWN_MS ? Math.ceil((FAUCET_COOLDOWN_MS - elapsed) / 1000) : 0;
+    };
+    setFaucetCooldown(computeRemaining());
+    const interval = setInterval(() => {
+      const remaining = computeRemaining();
+      setFaucetCooldown(remaining);
+      if (remaining <= 0) clearInterval(interval);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [isMinting]);
+
+  const handleUnshield = async () => {
+    if (!unshieldAmount || parseFloat(unshieldAmount) <= 0 || !address) return;
+    try {
+      setUnshieldStep("encrypting");
+      const amountWei = parseUnits(unshieldAmount, 6);
+      const [encAmount] = await encryptInputsAsync([Encryptable.uint64(amountWei)]);
+      setUnshieldStep("requesting");
+      const hash = await writeContractAsync({
+        address: CONTRACTS.FHERC20Vault_USDC as `0x${string}`,
+        abi: FHERC20VaultAbi,
+        functionName: "requestUnshield",
+        // Type assertion: cofhe SDK encrypt returns opaque encrypted input objects
+        args: [encAmount as unknown as EncryptedInput],
+      });
+      if (publicClient) {
+        await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
+      }
+      setUnshieldStep("success");
+      setUnshieldAmount("");
+      toast.success("Unshield requested! Claim your tokens once decryption completes.");
+    } catch (err) {
+      setUnshieldStep("error");
+      toast.error(err instanceof Error ? err.message : "Unshield request failed");
+    }
+  };
 
   const handleMint = async () => {
-    await mintTestTokens();
+    try {
+      await mintTestTokens();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to mint test tokens");
+    }
   };
 
   const greeting = useMemo(() => getGreeting(), []);
@@ -195,8 +254,8 @@ export default function Dashboard() {
                 <p className="text-label text-[var(--text-secondary)]">DEPOSIT TO PRIVATE WALLET</p>
                 <p className="text-sm text-[var(--text-secondary)] mt-1">Deposit USDC to enable encrypted payments</p>
               </div>
-              <button onClick={handleMint} disabled={isMinting} className="h-10 px-4 rounded-full bg-emerald-50 text-emerald-600 font-medium text-sm hover:bg-emerald-100 transition-colors disabled:opacity-50">
-                {isMinting ? "Minting..." : "Get Test USDC"}
+              <button onClick={handleMint} disabled={isMinting || faucetCooldown > 0} className="h-10 px-4 rounded-full bg-emerald-50 text-emerald-600 font-medium text-sm hover:bg-emerald-100 transition-colors disabled:opacity-50" aria-label="Get test USDC">
+                {isMinting ? "Minting..." : faucetCooldown > 0 ? `Try again in ${faucetCooldown}s` : "Get Test USDC"}
               </button>
             </div>
             <div className="flex gap-3">
@@ -208,6 +267,7 @@ export default function Dashboard() {
                   value={shieldAmount}
                   onChange={(e) => { const v = e.target.value; if (/^\d*\.?\d{0,6}$/.test(v) || v === "") setShieldAmount(v); }}
                   placeholder="0.00"
+                  aria-label="Shield amount"
                   className="h-14 w-full pl-8 pr-4 rounded-2xl bg-white/60 border border-black/5 focus:border-black/20 focus:ring-4 focus:ring-black/5 outline-none text-lg font-mono tabular-nums"
                 />
               </div>
@@ -215,28 +275,98 @@ export default function Dashboard() {
                 onClick={async () => { if (shieldAmount) { await shield(shieldAmount); setShieldAmount(""); } }}
                 disabled={!shieldAmount || parseFloat(shieldAmount) <= 0}
                 className="h-14 px-8 rounded-2xl bg-[#1D1D1F] text-white font-medium hover:bg-black transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                aria-label="Deposit to vault"
               >
                 Deposit
               </button>
             </div>
             <div className="flex items-center justify-between text-sm">
+              <span className="text-[var(--text-tertiary)]">Vault Balance (Encrypted):</span>
+              <span className="font-mono tabular-nums text-[var(--text-primary)]">{balance.formatted || "\u2588\u2588\u2588\u2588.\u2588\u2588"}</span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
               <span className="text-[var(--text-tertiary)]">Public USDC Balance:</span>
               <span className="font-mono tabular-nums text-[var(--text-primary)]">{publicBalance.toLocaleString("en-US", { minimumFractionDigits: 2 })} USDC</span>
             </div>
+            {/* Shield progress states */}
+            {shieldStep === "approving" && (
+              <div className="flex items-center gap-2 text-sm text-amber-600">
+                <Loader2 size={16} className="animate-spin" />
+                <span>Approving USDC...</span>
+              </div>
+            )}
+            {shieldStep === "shielding" && (
+              <div className="flex items-center gap-2 text-sm text-blue-600">
+                <Loader2 size={16} className="animate-spin" />
+                <span>Shielding tokens...</span>
+              </div>
+            )}
+            {shieldStep === "success" && (
+              <div className="flex items-center gap-2 text-sm text-emerald-600">
+                <CheckCircle size={16} />
+                <span>Shielding complete!</span>
+              </div>
+            )}
+            {shieldStep === "error" && (
+              <div className="flex items-center justify-between text-sm">
+                <div className="flex items-center gap-2 text-red-600">
+                  <AlertCircle size={16} />
+                  <span>{shieldError || "Shield failed"}</span>
+                </div>
+                <button onClick={resetShield} className="text-xs font-medium text-red-600 underline hover:text-red-700" aria-label="Retry shield">Retry</button>
+              </div>
+            )}
           </div>
 
           {/* Unshield Section (mobile) */}
-          <div className="glass-card-static rounded-[2rem] p-6">
+          <div className="glass-card-static rounded-[2rem] p-6 space-y-4">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-label text-[var(--text-secondary)]">WITHDRAW FROM VAULT</p>
                 <p className="text-sm text-[var(--text-secondary)] mt-1">Unshield encrypted USDC back to public balance</p>
               </div>
             </div>
-            <p className="text-xs text-[var(--text-tertiary)] mt-3">
-              Unshield requires async FHE decryption. Request unshield &rarr; wait for decryption &rarr; claim tokens.
-              This feature requires CoFHE to be connected.
+            <p className="text-xs text-[var(--text-tertiary)]">
+              Two-step process: request unshield (async FHE decryption) then claim tokens once ready.
             </p>
+            <div className="flex gap-3">
+              <div className="flex-1 relative">
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]">$</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={unshieldAmount}
+                  onChange={(e) => { const v = e.target.value; if (/^\d*\.?\d{0,6}$/.test(v) || v === "") setUnshieldAmount(v); }}
+                  placeholder="0.00"
+                  aria-label="Unshield amount"
+                  className="h-14 w-full pl-8 pr-4 rounded-2xl bg-white/60 border border-black/5 focus:border-black/20 focus:ring-4 focus:ring-black/5 outline-none text-lg font-mono tabular-nums"
+                />
+              </div>
+              <button
+                onClick={handleUnshield}
+                disabled={!unshieldAmount || parseFloat(unshieldAmount) <= 0 || unshieldStep === "encrypting" || unshieldStep === "requesting"}
+                className="h-14 px-6 rounded-2xl bg-amber-600 text-white font-medium hover:bg-amber-700 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                aria-label="Request unshield"
+              >
+                {unshieldStep === "encrypting" ? (
+                  <span className="flex items-center gap-2"><Loader2 size={16} className="animate-spin" />Encrypting...</span>
+                ) : unshieldStep === "requesting" ? (
+                  <span className="flex items-center gap-2"><Loader2 size={16} className="animate-spin" />Requesting...</span>
+                ) : "Request Unshield"}
+              </button>
+            </div>
+            {unshieldStep === "success" && (
+              <div className="flex items-center gap-2 text-sm text-emerald-600">
+                <CheckCircle size={16} />
+                <span>Unshield requested! Use &ldquo;Claim&rdquo; once decryption completes.</span>
+              </div>
+            )}
+            {unshieldStep === "error" && (
+              <div className="flex items-center gap-2 text-sm text-red-600">
+                <AlertCircle size={16} />
+                <span>Unshield request failed. Try again.</span>
+              </div>
+            )}
           </div>
 
           {/* Quick Actions */}
@@ -402,8 +532,8 @@ export default function Dashboard() {
                 <p className="text-label text-[var(--text-secondary)]">DEPOSIT TO PRIVATE WALLET</p>
                 <p className="text-sm text-[var(--text-secondary)] mt-1">Deposit USDC to enable encrypted payments</p>
               </div>
-              <button onClick={handleMint} disabled={isMinting} className="h-10 px-4 rounded-full bg-emerald-50 text-emerald-600 font-medium text-sm hover:bg-emerald-100 transition-colors disabled:opacity-50">
-                {isMinting ? "Minting..." : "Get Test USDC"}
+              <button onClick={handleMint} disabled={isMinting || faucetCooldown > 0} className="h-10 px-4 rounded-full bg-emerald-50 text-emerald-600 font-medium text-sm hover:bg-emerald-100 transition-colors disabled:opacity-50" aria-label="Get test USDC">
+                {isMinting ? "Minting..." : faucetCooldown > 0 ? `Try again in ${faucetCooldown}s` : "Get Test USDC"}
               </button>
             </div>
             <div className="flex gap-3">
@@ -415,6 +545,7 @@ export default function Dashboard() {
                   value={shieldAmount}
                   onChange={(e) => { const v = e.target.value; if (/^\d*\.?\d{0,6}$/.test(v) || v === "") setShieldAmount(v); }}
                   placeholder="0.00"
+                  aria-label="Shield amount"
                   className="h-14 w-full pl-8 pr-4 rounded-2xl bg-white/60 border border-black/5 focus:border-black/20 focus:ring-4 focus:ring-black/5 outline-none text-lg font-mono tabular-nums"
                 />
               </div>
@@ -422,28 +553,98 @@ export default function Dashboard() {
                 onClick={async () => { if (shieldAmount) { await shield(shieldAmount); setShieldAmount(""); } }}
                 disabled={!shieldAmount || parseFloat(shieldAmount) <= 0}
                 className="h-14 px-8 rounded-2xl bg-[#1D1D1F] text-white font-medium hover:bg-black transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                aria-label="Deposit to vault"
               >
                 Deposit
               </button>
             </div>
             <div className="flex items-center justify-between text-sm">
+              <span className="text-[var(--text-tertiary)]">Vault Balance (Encrypted):</span>
+              <span className="font-mono tabular-nums text-[var(--text-primary)]">{balance.formatted || "\u2588\u2588\u2588\u2588.\u2588\u2588"}</span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
               <span className="text-[var(--text-tertiary)]">Public USDC Balance:</span>
               <span className="font-mono tabular-nums text-[var(--text-primary)]">{publicBalance.toLocaleString("en-US", { minimumFractionDigits: 2 })} USDC</span>
             </div>
+            {/* Shield progress states */}
+            {shieldStep === "approving" && (
+              <div className="flex items-center gap-2 text-sm text-amber-600">
+                <Loader2 size={16} className="animate-spin" />
+                <span>Approving USDC...</span>
+              </div>
+            )}
+            {shieldStep === "shielding" && (
+              <div className="flex items-center gap-2 text-sm text-blue-600">
+                <Loader2 size={16} className="animate-spin" />
+                <span>Shielding tokens...</span>
+              </div>
+            )}
+            {shieldStep === "success" && (
+              <div className="flex items-center gap-2 text-sm text-emerald-600">
+                <CheckCircle size={16} />
+                <span>Shielding complete!</span>
+              </div>
+            )}
+            {shieldStep === "error" && (
+              <div className="flex items-center justify-between text-sm">
+                <div className="flex items-center gap-2 text-red-600">
+                  <AlertCircle size={16} />
+                  <span>{shieldError || "Shield failed"}</span>
+                </div>
+                <button onClick={resetShield} className="text-xs font-medium text-red-600 underline hover:text-red-700" aria-label="Retry shield">Retry</button>
+              </div>
+            )}
           </div>
 
           {/* Unshield Section */}
-          <div className="col-span-full rounded-[2rem] glass-card-static p-6">
+          <div className="col-span-full rounded-[2rem] glass-card-static p-6 space-y-4">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-label text-[var(--text-secondary)]">WITHDRAW FROM VAULT</p>
                 <p className="text-sm text-[var(--text-secondary)] mt-1">Unshield encrypted USDC back to public balance</p>
               </div>
             </div>
-            <p className="text-xs text-[var(--text-tertiary)] mt-3">
-              Unshield requires async FHE decryption. Request unshield &rarr; wait for decryption &rarr; claim tokens.
-              This feature requires CoFHE to be connected.
+            <p className="text-xs text-[var(--text-tertiary)]">
+              Two-step process: request unshield (async FHE decryption) then claim tokens once ready.
             </p>
+            <div className="flex gap-3">
+              <div className="flex-1 relative">
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]">$</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={unshieldAmount}
+                  onChange={(e) => { const v = e.target.value; if (/^\d*\.?\d{0,6}$/.test(v) || v === "") setUnshieldAmount(v); }}
+                  placeholder="0.00"
+                  aria-label="Unshield amount"
+                  className="h-14 w-full pl-8 pr-4 rounded-2xl bg-white/60 border border-black/5 focus:border-black/20 focus:ring-4 focus:ring-black/5 outline-none text-lg font-mono tabular-nums"
+                />
+              </div>
+              <button
+                onClick={handleUnshield}
+                disabled={!unshieldAmount || parseFloat(unshieldAmount) <= 0 || unshieldStep === "encrypting" || unshieldStep === "requesting"}
+                className="h-14 px-6 rounded-2xl bg-amber-600 text-white font-medium hover:bg-amber-700 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                aria-label="Request unshield"
+              >
+                {unshieldStep === "encrypting" ? (
+                  <span className="flex items-center gap-2"><Loader2 size={16} className="animate-spin" />Encrypting...</span>
+                ) : unshieldStep === "requesting" ? (
+                  <span className="flex items-center gap-2"><Loader2 size={16} className="animate-spin" />Requesting...</span>
+                ) : "Request Unshield"}
+              </button>
+            </div>
+            {unshieldStep === "success" && (
+              <div className="flex items-center gap-2 text-sm text-emerald-600">
+                <CheckCircle size={16} />
+                <span>Unshield requested! Use &ldquo;Claim&rdquo; once decryption completes.</span>
+              </div>
+            )}
+            {unshieldStep === "error" && (
+              <div className="flex items-center gap-2 text-sm text-red-600">
+                <AlertCircle size={16} />
+                <span>Unshield request failed. Try again.</span>
+              </div>
+            )}
           </div>
 
           {/* Recent Activity (col-span-7) */}
@@ -592,6 +793,9 @@ function BalanceCard({ balance, privacyMode, onTogglePrivacy, large, activityCou
                     : formattedBalance || "0.00"}
                 </h2>
               </div>
+              {!displayAmount && formattedBalance === null && (
+                <p className="text-xs text-[var(--text-tertiary)] mt-1">Balance not yet decrypted</p>
+              )}
             </div>
             <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-500/10 border border-emerald-500/20">
               <Shield size={16} className="text-emerald-600 dark:text-emerald-400" />
@@ -684,6 +888,7 @@ function ActivityList({ activities, isLoading, address, privacyMode, onViewAll }
         <button
           onClick={onViewAll}
           className="text-sm font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+          aria-label="View all activity"
         >
           View All
         </button>
@@ -760,12 +965,8 @@ function ActivityList({ activities, isLoading, address, privacyMode, onViewAll }
                     )}
                   >
                     {isIncoming ? "+" : "-"}$
-                    {privacyMode ? (
-                      <>
-                        <span aria-hidden="true">{"\u2588\u2588\u2588\u2588.\u2588\u2588"}</span>
-                        <span className="sr-only">Amount hidden</span>
-                      </>
-                    ) : "*****"}
+                    <span aria-hidden="true">{"\u2588\u2588\u2588\u2588.\u2588\u2588"}</span>
+                    <span className="sr-only">Encrypted amount</span>
                   </p>
                   <p className="text-sm text-[var(--text-secondary)]">
                     {isIncoming ? "Received" : "Sent"}

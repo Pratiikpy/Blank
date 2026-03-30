@@ -12,6 +12,7 @@ import {
   Gift,
   Timer,
   Settings,
+  HelpCircle,
   Sun,
   Moon,
 } from "lucide-react";
@@ -38,7 +39,8 @@ const NAV_ITEMS: NavItem[] = [
   { icon: EyeOff, label: "Stealth Payments", path: "/stealth" },
   { icon: Gift, label: "Gift Envelopes", path: "/gifts" },
   { icon: Timer, label: "Inheritance", path: "/inheritance" },
-  { icon: Settings, label: "Settings", path: "/profile" },
+  { icon: Settings, label: "Settings", path: "/settings" },
+  { icon: HelpCircle, label: "Help & FAQ", path: "/help" },
 ];
 
 // ═══════════════════════════════════════════════════════════════════

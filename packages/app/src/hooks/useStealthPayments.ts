@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { useAccount, useWriteContract, usePublicClient } from "wagmi";
 import { parseUnits, keccak256, encodePacked } from "viem";
 import { useCofheEncrypt, useCofheConnection } from "@cofhe/react";
@@ -16,6 +16,7 @@ export type StealthStep =
   | "encrypting"
   | "sending"
   | "claiming"
+  | "waiting_for_decryption"
   | "finalizing"
   | "success"
   | "error";
@@ -24,13 +25,22 @@ export interface StealthPaymentsState {
   step: StealthStep;
   error: string | null;
   txHash: string | null;
+  isWaitingForDecryption: boolean;
+  decryptionProgress: string;
 }
 
 const initialState: StealthPaymentsState = {
   step: "idle",
   error: null,
   txHash: null,
+  isWaitingForDecryption: false,
+  decryptionProgress: "",
 };
+
+// ─── Polling Constants ─────────────────────────────────────────────
+
+const DECRYPTION_POLL_INTERVAL_MS = 3_000;
+const DECRYPTION_TIMEOUT_MS = 60_000;
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
@@ -78,6 +88,28 @@ export function useStealthPayments() {
   // Double-submit guard: prevents concurrent submissions
   const submittingRef = useRef(false);
 
+  // Polling refs for async FHE decryption
+  const pollingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollingStartTimeRef = useRef<number>(0);
+
+  /** Stop any active decryption polling interval. */
+  const stopPolling = useCallback(() => {
+    if (pollingIntervalRef.current !== null) {
+      clearInterval(pollingIntervalRef.current);
+      pollingIntervalRef.current = null;
+    }
+    pollingStartTimeRef.current = 0;
+  }, []);
+
+  // Clean up polling on unmount
+  useEffect(() => {
+    return () => {
+      if (pollingIntervalRef.current !== null) {
+        clearInterval(pollingIntervalRef.current);
+      }
+    };
+  }, []);
+
   // ─── Send Stealth Payment ──────────────────────────────────────────
   //
   // Flow:
@@ -121,7 +153,7 @@ export function useStealthPayments() {
 
         // Step 2: Approve underlying ERC20 (TestUSDC) for StealthPayments
         // The contract calls underlying.safeTransferFrom(msg.sender, address(this), amount)
-        setState({ step: "approving", error: null, txHash: null });
+        setState({ step: "approving", error: null, txHash: null, isWaitingForDecryption: false, decryptionProgress: "" });
 
         const amountWei = parseUnits(amount, 6);
         const stealthAddress = CONTRACTS.StealthPayments as `0x${string}`;
@@ -194,7 +226,7 @@ export function useStealthPayments() {
 
         toast.success("Stealth payment sent!", { id: sendToastId });
 
-        setState({ step: "success", error: null, txHash: hash });
+        setState({ step: "success", error: null, txHash: hash, isWaitingForDecryption: false, decryptionProgress: "" });
 
         // Sync to Supabase — note: user_to is address(0) because on-chain
         // the recipient is encrypted. Only the claim reveals the recipient.
@@ -212,7 +244,7 @@ export function useStealthPayments() {
         return { claimCode, transferId };
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Stealth payment failed";
-        setState({ step: "error", error: msg, txHash: null });
+        setState({ step: "error", error: msg, txHash: null, isWaitingForDecryption: false, decryptionProgress: "" });
         toast.error(msg);
         return null;
       } finally {
@@ -220,6 +252,140 @@ export function useStealthPayments() {
       }
     },
     [address, connected, publicClient, encryptInputsAsync, writeContractAsync]
+  );
+
+  // ─── Async Decryption Polling ──────────────────────────────────────
+  //
+  // After claimStealth() triggers async FHE decryption, poll by simulating
+  // the finalizeClaim() call every DECRYPTION_POLL_INTERVAL_MS seconds.
+  // When the simulation succeeds (decryption ready), send the real tx.
+  // Timeout after DECRYPTION_TIMEOUT_MS with a user-facing message.
+
+  const startDecryptionPolling = useCallback(
+    (transferId: number) => {
+      // Prevent stacking multiple polling loops
+      stopPolling();
+
+      pollingStartTimeRef.current = Date.now();
+
+      setState((s) => ({
+        ...s,
+        step: "waiting_for_decryption",
+        isWaitingForDecryption: true,
+        decryptionProgress: "Waiting for FHE decryption (0s)...",
+      }));
+
+      const decryptToastId = toast.loading("Decrypting... This may take up to 60 seconds.");
+
+      pollingIntervalRef.current = setInterval(async () => {
+        const elapsed = Date.now() - pollingStartTimeRef.current;
+        const elapsedSec = Math.round(elapsed / 1_000);
+
+        // ── Timeout check ──
+        if (elapsed >= DECRYPTION_TIMEOUT_MS) {
+          stopPolling();
+          toast.error("Decryption timed out. You can try finalizing manually later.", {
+            id: decryptToastId,
+          });
+          setState((s) => ({
+            ...s,
+            step: "error",
+            error: "Decryption timed out after 60 seconds. Try finalizing manually.",
+            isWaitingForDecryption: false,
+            decryptionProgress: "",
+          }));
+          return;
+        }
+
+        // ── Progress update ──
+        setState((s) => ({
+          ...s,
+          decryptionProgress: `Waiting for FHE decryption (${elapsedSec}s)...`,
+        }));
+
+        // ── Simulate finalizeClaim to check if decryption is ready ──
+        if (!publicClient || !address) return;
+
+        const stealthAddress = CONTRACTS.StealthPayments as `0x${string}`;
+
+        try {
+          await publicClient.simulateContract({
+            address: stealthAddress,
+            abi: StealthPaymentsAbi,
+            functionName: "finalizeClaim",
+            args: [BigInt(transferId)],
+            account: address,
+          });
+
+          // Simulation succeeded — decryption is ready! Stop polling and finalize.
+          stopPolling();
+
+          setState((s) => ({
+            ...s,
+            step: "finalizing",
+            decryptionProgress: "Decryption complete! Finalizing...",
+          }));
+          toast.loading("Decryption complete! Sending finalize transaction...", {
+            id: decryptToastId,
+          });
+
+          try {
+            const hash = await writeContractAsync({
+              address: stealthAddress,
+              abi: StealthPaymentsAbi,
+              functionName: "finalizeClaim",
+              args: [BigInt(transferId)],
+            });
+
+            const receipt = await publicClient.waitForTransactionReceipt({
+              hash,
+              confirmations: 1,
+            });
+
+            if (receipt.status === "reverted") {
+              throw new Error("Finalize transaction reverted on-chain");
+            }
+
+            toast.success("Claim finalized! Funds released.", { id: decryptToastId });
+
+            setState({
+              step: "success",
+              error: null,
+              txHash: hash,
+              isWaitingForDecryption: false,
+              decryptionProgress: "",
+            });
+
+            await insertActivity({
+              tx_hash: hash,
+              user_from: address.toLowerCase(),
+              user_to: address.toLowerCase(),
+              activity_type: "stealth_claimed",
+              contract_address: stealthAddress,
+              note: `Finalized stealth claim #${transferId}`,
+              token_address: CONTRACTS.TestUSDC,
+              block_number: Number(receipt.blockNumber),
+            });
+          } catch (finalizeErr) {
+            const msg =
+              finalizeErr instanceof Error
+                ? finalizeErr.message
+                : "Finalize transaction failed";
+            toast.error(msg, { id: decryptToastId });
+            setState({
+              step: "error",
+              error: msg,
+              txHash: null,
+              isWaitingForDecryption: false,
+              decryptionProgress: "",
+            });
+          }
+        } catch {
+          // Simulation reverted — decryption not ready yet, keep polling
+        }
+      }, DECRYPTION_POLL_INTERVAL_MS);
+    },
+    [address, publicClient, writeContractAsync, stopPolling]
   );
 
   // ─── Claim Stealth Payment (Phase 1) ──────────────────────────────
@@ -248,7 +414,13 @@ export function useStealthPayments() {
       submittingRef.current = true;
 
       try {
-        setState({ step: "claiming", error: null, txHash: null });
+        setState({
+          step: "claiming",
+          error: null,
+          txHash: null,
+          isWaitingForDecryption: false,
+          decryptionProgress: "",
+        });
 
         const stealthAddress = CONTRACTS.StealthPayments as `0x${string}`;
 
@@ -268,9 +440,7 @@ export function useStealthPayments() {
           throw new Error("Transaction reverted on-chain");
         }
 
-        toast.success("Claim initiated! Waiting for decryption...", { id: claimToastId });
-
-        setState({ step: "success", error: null, txHash: hash });
+        toast.success("Claim initiated! Polling for decryption...", { id: claimToastId });
 
         await insertActivity({
           tx_hash: hash,
@@ -283,17 +453,27 @@ export function useStealthPayments() {
           block_number: Number(receipt.blockNumber),
         });
 
+        // Start automatic polling for decryption readiness.
+        // Once decryption completes, finalizeClaim() is called automatically.
+        startDecryptionPolling(transferId);
+
         return hash;
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Claim failed";
-        setState({ step: "error", error: msg, txHash: null });
+        setState({
+          step: "error",
+          error: msg,
+          txHash: null,
+          isWaitingForDecryption: false,
+          decryptionProgress: "",
+        });
         toast.error(msg);
         return null;
       } finally {
         submittingRef.current = false;
       }
     },
-    [address, connected, publicClient, writeContractAsync]
+    [address, connected, publicClient, writeContractAsync, startDecryptionPolling]
   );
 
   // ─── Finalize Claim (Phase 2: After Async Decrypt) ────────────────
@@ -319,7 +499,7 @@ export function useStealthPayments() {
       submittingRef.current = true;
 
       try {
-        setState({ step: "finalizing", error: null, txHash: null });
+        setState({ step: "finalizing", error: null, txHash: null, isWaitingForDecryption: false, decryptionProgress: "" });
 
         const stealthAddress = CONTRACTS.StealthPayments as `0x${string}`;
 
@@ -341,7 +521,7 @@ export function useStealthPayments() {
 
         toast.success("Claim finalized! Funds released.", { id: finalizeToastId });
 
-        setState({ step: "success", error: null, txHash: hash });
+        setState({ step: "success", error: null, txHash: hash, isWaitingForDecryption: false, decryptionProgress: "" });
 
         await insertActivity({
           tx_hash: hash,
@@ -363,7 +543,7 @@ export function useStealthPayments() {
         } else {
           toast.error(msg);
         }
-        setState({ step: "error", error: msg, txHash: null });
+        setState({ step: "error", error: msg, txHash: null, isWaitingForDecryption: false, decryptionProgress: "" });
         return null;
       } finally {
         submittingRef.current = false;
@@ -414,20 +594,24 @@ export function useStealthPayments() {
   // ─── Reset ────────────────────────────────────────────────────────
 
   const reset = useCallback(() => {
+    stopPolling();
     setState(initialState);
-  }, []);
+  }, [stopPolling]);
 
   return {
     // State
     step: state.step,
     error: state.error,
     txHash: state.txHash,
+    isWaitingForDecryption: state.isWaitingForDecryption,
+    decryptionProgress: state.decryptionProgress,
 
     // Actions
     sendStealth,
     claimStealth,
     finalizeClaim,
     getMyPendingClaims,
+    stopPolling,
     reset,
   };
 }

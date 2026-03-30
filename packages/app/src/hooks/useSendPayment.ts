@@ -10,7 +10,8 @@ import {
 import { Encryptable } from "@cofhe/sdk";
 import toast from "react-hot-toast";
 import { CONTRACTS, type EncryptedInput } from "@/lib/constants";
-import { FHERC20VaultAbi } from "@/lib/abis";
+import { FHERC20VaultAbi, PaymentHubAbi } from "@/lib/abis";
+import { isVaultApproved, markVaultApproved, clearVaultApproval } from "@/lib/approval";
 import { insertActivity } from "@/lib/supabase";
 import { broadcastAction } from "@/lib/cross-tab";
 import { invalidateBalanceQueries } from "@/lib/query-invalidation";
@@ -127,6 +128,7 @@ export function useSendPayment() {
   const canProceed =
     isConnected &&
     cofheConnected &&
+    !!publicClient &&
     state.recipient.length > 0 &&
     state.amount.length > 0 &&
     parseFloat(state.amount) > 0 &&
@@ -159,38 +161,47 @@ export function useSendPayment() {
       const vaultAddress = CONTRACTS.FHERC20Vault_USDC as `0x${string}`;
       const amountWei = parseUnits(state.amount, 6);
 
-      if (amountWei === 0n) {
-        toast.error("Amount must be greater than zero");
+      if (amountWei === 0n || parseFloat(state.amount) < 0.01) {
+        toast.error("Minimum amount is $0.01");
         setState((s) => ({ ...s, step: "input" }));
         return;
       }
 
-      // No vault approval needed here: FHERC20Vault.transfer() moves from
-      // msg.sender's own encrypted balance (not transferFrom). Approval is
-      // only required when an intermediary contract (PaymentHub, GroupManager,
-      // etc.) calls vault.transferFrom() on the user's behalf.
+      // Approve PaymentHub as a spender on the vault (lazy, cached for 24h)
+      if (!isVaultApproved(CONTRACTS.PaymentHub)) {
+        setState((s) => ({ ...s, step: "encrypting" })); // Show approving state
+        const approveHash = await writeContractAsync({
+          address: CONTRACTS.FHERC20Vault_USDC,
+          abi: FHERC20VaultAbi,
+          functionName: "approvePlaintext",
+          args: [CONTRACTS.PaymentHub, BigInt("0xFFFFFFFFFFFFFFFF")], // MAX_UINT64
+        });
+        await publicClient.waitForTransactionReceipt({ hash: approveHash, confirmations: 1 });
+        markVaultApproved(CONTRACTS.PaymentHub);
+      }
 
-      // Atomic encrypt + write: the SDK hook handles:
-      //   1. Extracting the encAmount field from args based on ABI internalType
+      // Atomic encrypt + write via PaymentHub.sendPayment():
+      //   1. Extracts the encAmount field from args based on ABI internalType
       //      (our ABI annotates encAmount with internalType: "struct InEuint64")
-      //   2. Encrypting it (ZK proof + ciphertext generation)
-      //   3. Inserting the encrypted result back into args
-      //   4. Calling walletClient.writeContract
+      //   2. Encrypts it (ZK proof + ciphertext generation)
+      //   3. Inserts the encrypted result back into args
+      //   4. Calls walletClient.writeContract
       //
-      // We pass the raw plaintext bigint for the encrypted param.
-      // The SDK's extractEncryptableValues reads the ABI's internalType
-      // to determine this is an InEuint64 and wraps it as Encryptable.uint64().
+      // PaymentHub calls vault.transferFrom() on the user's behalf, which
+      // is why the approval step above is required.
       const hash = await encryptAndWrite({
         params: {
-          address: vaultAddress,
-          abi: FHERC20VaultAbi,
-          functionName: "transfer",
+          address: CONTRACTS.PaymentHub,
+          abi: PaymentHubAbi,
+          functionName: "sendPayment",
           chain: baseSepolia,
           account: address,
         },
         args: [
           state.recipient as `0x${string}`,
+          vaultAddress,
           amountWei,
+          state.note || "",
         ],
       });
 
@@ -241,6 +252,11 @@ export function useSendPayment() {
 
       toast.success("Payment sent!");
     } catch (err) {
+      // Clear cached approval on allowance/transfer errors so next attempt re-approves
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/allowance|approve|insufficient|ERC20/i.test(msg)) {
+        clearVaultApproval(CONTRACTS.PaymentHub);
+      }
       setState((s) => ({
         ...s,
         step: "error",
@@ -250,7 +266,7 @@ export function useSendPayment() {
         err instanceof Error ? err.message : "Transaction failed"
       );
     }
-  }, [address, state.step, state.amount, state.recipient, state.note, encryptAndWrite, publicClient]);
+  }, [address, state.step, state.amount, state.recipient, state.note, encryptAndWrite, writeContractAsync, publicClient]);
 
   // ─── Legacy path: separate encrypt then write ──────────────────────
   // Kept as fallback when USE_ATOMIC_ENCRYPT_WRITE is false.
@@ -260,6 +276,11 @@ export function useSendPayment() {
     if (!canProceed || !address) return;
 
     try {
+      if (parseFloat(state.amount) < 0.01) {
+        toast.error("Minimum amount is $0.01");
+        return;
+      }
+
       setState((s) => ({ ...s, step: "encrypting", encryptionProgress: 0 }));
 
       const amountWei = parseUnits(state.amount, 6);
@@ -296,13 +317,30 @@ export function useSendPayment() {
 
       const vaultAddress = CONTRACTS.FHERC20Vault_USDC as `0x${string}`;
 
+      // Approve PaymentHub as a spender on the vault (lazy, cached for 24h)
+      if (!isVaultApproved(CONTRACTS.PaymentHub)) {
+        const approveHash = await writeContractAsync({
+          address: CONTRACTS.FHERC20Vault_USDC,
+          abi: FHERC20VaultAbi,
+          functionName: "approvePlaintext",
+          args: [CONTRACTS.PaymentHub, BigInt("0xFFFFFFFFFFFFFFFF")], // MAX_UINT64
+        });
+        await publicClient.waitForTransactionReceipt({ hash: approveHash, confirmations: 1 });
+        markVaultApproved(CONTRACTS.PaymentHub);
+      }
+
       const hash = await writeContractAsync({
-        address: vaultAddress,
-        abi: FHERC20VaultAbi,
-        functionName: "transfer",
+        address: CONTRACTS.PaymentHub,
+        abi: PaymentHubAbi,
+        functionName: "sendPayment",
         // Type assertion: cofhe SDK encrypt returns opaque encrypted input objects
         // whose shape doesn't match wagmi's strict ABI-inferred arg types
-        args: [state.recipient as `0x${string}`, encryptedAmount as unknown as EncryptedInput],
+        args: [
+          state.recipient as `0x${string}`,
+          vaultAddress,
+          encryptedAmount as unknown as EncryptedInput,
+          state.note || "",
+        ],
       });
 
       // Save pending tx for crash recovery (#71)
@@ -350,6 +388,11 @@ export function useSendPayment() {
 
       toast.success("Payment sent!");
     } catch (err) {
+      // Clear cached approval on allowance/transfer errors so next attempt re-approves
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/allowance|approve|insufficient|ERC20/i.test(msg)) {
+        clearVaultApproval(CONTRACTS.PaymentHub);
+      }
       setState((s) => ({
         ...s,
         step: "error",
@@ -357,7 +400,7 @@ export function useSendPayment() {
       }));
       toast.error("Transaction failed");
     }
-  }, [encryptedAmount, address, state.step, state.recipient, writeContractAsync, publicClient]);
+  }, [encryptedAmount, address, state.step, state.recipient, state.note, writeContractAsync, publicClient]);
 
   // ─── Route to correct implementation ───────────────────────────────
 
@@ -372,12 +415,13 @@ export function useSendPayment() {
   }, []);
 
   const goBack = useCallback(() => {
+    if (state.step === "encrypting" || state.step === "sending") return;
     setState((s) => {
       if (s.step === "confirming") return { ...s, step: "input" };
       if (s.step === "error") return { ...s, step: "input", error: null };
       return s;
     });
-  }, []);
+  }, [state.step]);
 
   return {
     ...state,

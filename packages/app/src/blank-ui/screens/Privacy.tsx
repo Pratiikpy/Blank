@@ -9,6 +9,7 @@ import {
   Trash2,
   Plus,
   AlertTriangle,
+  RefreshCw,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { usePrivacy } from "@/hooks/usePrivacy";
@@ -17,13 +18,13 @@ export default function Privacy() {
   const navigate = useNavigate();
   const {
     hasPermit,
-    permitCreatedAt,
     permitExpiresAt,
     isExpiringSoon,
     isExpired,
     isCreating,
     sharedPermits,
     createPermit,
+    reconnectWallet,
     sharePermit,
     revokePermit,
   } = usePrivacy();
@@ -67,7 +68,7 @@ export default function Privacy() {
         <div className="flex items-center gap-4 mb-8">
           <button
             onClick={() => navigate(-1)}
-            className="w-10 h-10 rounded-full bg-white border border-black/5 flex items-center justify-center shadow-sm"
+            className="w-11 h-11 rounded-full bg-white border border-black/5 flex items-center justify-center shadow-sm"
             aria-label="Go back"
           >
             <ChevronLeft size={20} />
@@ -123,11 +124,13 @@ export default function Privacy() {
               </span>
             </div>
             <div className="flex justify-between p-3 rounded-xl bg-white/50 border border-black/5">
-              <span className="text-sm text-[var(--text-secondary)]">Created</span>
-              <span className="text-sm font-mono">{formatDate(permitCreatedAt)}</span>
+              <span className="text-sm text-[var(--text-secondary)]">Expires</span>
+              <span className="text-sm font-mono">
+                {permitExpiresAt ? formatDate(permitExpiresAt) : "N/A"}
+              </span>
             </div>
             <div className="flex justify-between p-3 rounded-xl bg-white/50 border border-black/5">
-              <span className="text-sm text-[var(--text-secondary)]">Expires</span>
+              <span className="text-sm text-[var(--text-secondary)]">Time Left</span>
               <span className="text-sm font-mono">
                 {permitExpiresAt ? timeRemaining(permitExpiresAt) : "N/A"}
               </span>
@@ -148,11 +151,21 @@ export default function Privacy() {
               onClick={createPermit}
               disabled={isCreating}
               className="mt-4 w-full h-12 rounded-xl bg-[#1D1D1F] text-white font-medium disabled:opacity-50 flex items-center justify-center gap-2"
+              aria-label="Create or renew FHE permit"
             >
               <KeyRound size={16} />
               {isCreating ? "Creating..." : "Create / Renew Permit"}
             </button>
           )}
+
+          <button
+            onClick={reconnectWallet}
+            className="mt-3 w-full h-11 rounded-xl bg-white border border-black/10 text-[var(--text-primary)] font-medium flex items-center justify-center gap-2 text-sm hover:bg-gray-50 transition-colors"
+            aria-label="Reconnect wallet to renew permit"
+          >
+            <RefreshCw size={15} />
+            Reconnect Wallet to Renew Permit
+          </button>
         </div>
 
         {/* Shared Access */}
@@ -164,16 +177,17 @@ export default function Privacy() {
               </div>
               <div>
                 <h3 className="text-lg font-semibold text-[var(--text-primary)]">
-                  Shared Access
+                  Local Access Log
                 </h3>
                 <p className="text-sm text-[var(--text-secondary)]">
-                  Addresses that can view your data
+                  Track addresses you intend to share with
                 </p>
               </div>
             </div>
             <button
               onClick={() => setShowShareForm(!showShareForm)}
               className="h-9 px-3 rounded-full bg-[#1D1D1F] text-white text-sm font-medium flex items-center gap-1.5"
+              aria-label="Share access"
             >
               <Plus size={14} /> Share
             </button>
@@ -211,7 +225,7 @@ export default function Privacy() {
                   onClick={handleShare}
                   className="h-11 flex-1 rounded-lg bg-[#1D1D1F] text-white font-medium text-sm"
                 >
-                  Grant Access
+                  Log Access
                 </button>
                 <button
                   onClick={() => setShowShareForm(false)}
@@ -223,14 +237,21 @@ export default function Privacy() {
             </div>
           )}
 
+          <div className="mb-4 p-3 rounded-xl bg-blue-50/60 border border-blue-100 flex items-start gap-2">
+            <AlertTriangle size={14} className="text-blue-500 mt-0.5 shrink-0" />
+            <p className="text-xs text-blue-700 leading-relaxed">
+              Shared access is tracked locally on this device only. On-chain permit sharing requires CoFHE SDK integration and is not yet available.
+            </p>
+          </div>
+
           {sharedPermits.length === 0 ? (
             <div className="py-8 text-center">
               <UserCheck size={28} className="mx-auto mb-2 text-gray-300" />
               <p className="text-sm text-[var(--text-secondary)]">
-                No shared access grants
+                No access log entries
               </p>
               <p className="text-xs text-[var(--text-tertiary)] mt-1">
-                Share permits with auditors or accountants
+                Track addresses you plan to share access with
               </p>
             </div>
           ) : (
@@ -281,7 +302,7 @@ export default function Privacy() {
             {[
               { n: 1, text: "Your wallet signs a message to derive a sealing key" },
               { n: 2, text: "The permit allows you to decrypt your own encrypted data" },
-              { n: 3, text: "Shared permits let auditors verify balances without seeing amounts" },
+              { n: 3, text: "The Local Access Log lets you track who you intend to share with (on-chain sharing coming soon)" },
               { n: 4, text: "Permits expire after 7 days for security -- reconnect to renew" },
             ].map(({ n, text }) => (
               <div key={n} className="flex gap-3">

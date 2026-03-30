@@ -113,6 +113,7 @@ export interface EscrowRow {
   beneficiary_address: string;
   arbiter_address: string;
   description: string;
+  plaintext_amount?: number;
   deadline: string | null;
   status: "active" | "released" | "disputed" | "expired";
   tx_hash: string;
@@ -172,6 +173,24 @@ export async function insertActivity(activity: Omit<ActivityRow, "id" | "created
     });
   } catch (err) {
     console.warn("insertActivity:", err instanceof Error ? err.message : err);
+  }
+}
+
+export async function fetchActivityById(id: string): Promise<ActivityRow | null> {
+  if (!supabase) return null;
+  try {
+    return await withRetry(async () => {
+      const { data, error } = await supabase!
+        .from("activities")
+        .select("*")
+        .eq("id", id)
+        .single();
+      if (error) throw error;
+      return data;
+    });
+  } catch (err) {
+    console.warn("fetchActivityById:", err instanceof Error ? err.message : err);
+    return null;
   }
 }
 
@@ -317,7 +336,7 @@ export async function fetchCreatorProfile(address: string): Promise<CreatorProfi
 
 export async function insertCreatorSupporter(supporter: Omit<CreatorSupporterRow, "id" | "created_at">) {
   if (!supabase) return;
-  const { error } = await supabase.from("creator_supporters").upsert(supporter, { onConflict: "creator_address,supporter_address" });
+  const { error } = await supabase.from("creator_supporters").insert(supporter);
   if (error) console.warn("insertCreatorSupporter:", error.message);
 }
 
@@ -365,7 +384,7 @@ export async function fetchClientInvoices(address: string): Promise<InvoiceRow[]
   return data || [];
 }
 
-export async function updateInvoiceStatus(txHash: string, status: "paid" | "cancelled") {
+export async function updateInvoiceStatus(txHash: string, status: "paid" | "cancelled" | "payment_pending") {
   if (!supabase) return;
   const { error } = await supabase.from("invoices").update({ status }).eq("tx_hash", txHash);
   if (error) console.warn("updateInvoiceStatus:", error.message);
@@ -374,6 +393,28 @@ export async function updateInvoiceStatus(txHash: string, status: "paid" | "canc
 // ═══════════════════════════════════════════════════════════════════
 //  ESCROWS
 // ═══════════════════════════════════════════════════════════════════
+
+export async function insertGroupSettlement(settlement: {
+  tx_hash: string;
+  user_from: string;
+  user_to: string;
+  group_id: number;
+  note: string;
+  contract_address: string;
+  token_address: string;
+  block_number: number;
+}) {
+  return insertActivity({
+    tx_hash: settlement.tx_hash,
+    user_from: settlement.user_from,
+    user_to: settlement.user_to,
+    activity_type: "group_settlement",
+    contract_address: settlement.contract_address,
+    note: settlement.note,
+    token_address: settlement.token_address,
+    block_number: settlement.block_number,
+  });
+}
 
 export async function insertEscrow(escrow: Omit<EscrowRow, "id" | "created_at" | "updated_at">) {
   if (!supabase) return;

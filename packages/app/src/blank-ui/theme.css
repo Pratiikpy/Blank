@@ -68,8 +68,8 @@
 
   --text-primary: #F5F5F7;
   --text-secondary: #A1A1AA;
-  --text-tertiary: #71717A;
-  --text-muted: #3F3F46;
+  --text-tertiary: #A1A1AA;
+  --text-muted: #71717A;
 
   --accent: #34D399;
   --accent-light: #6EE7B7;
@@ -845,4 +845,14 @@
 
 .dark .blank-app ::selection {
   background: rgba(52, 211, 153, 0.2);
+}
+
+/* ─── Keyboard Focus Indicators ──────────────────── */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--accent, #10B981);
+  outline-offset: 2px;
 }

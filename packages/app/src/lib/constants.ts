@@ -22,15 +22,15 @@ export const CONTRACTS = {
   EventHub: "0x19A29d280983dF7Fcb7b957f33559927456D52b8" as `0x${string}`,
   FHERC20Vault_USDC: "0x62a8559AfE6147cCA57D1bd8CC4F0Fc72D97BA38" as `0x${string}`,
   PaymentHub: "0x9000eB2d1F207261B5fDf7Aba8CFA2a23D40c85A" as `0x${string}`,
-  GroupManager: "0x91136d7c3029D9F7E768dc4Beaed584Fa57d53c4" as `0x${string}`,
+  GroupManager: "0x91136d7c3029D9F7E768dc4Beaed584Fa57d53c4" as `0x${string}`, // V2: proxy unchanged (upgraded in place — storage-safe)
   CreatorHub: "0x9649b402FE50E8255eF7b9B46C244086715c86f0" as `0x${string}`,
-  BusinessHub: "0x4137dD45097559b0d9d081896060b46c276566e3" as `0x${string}`,
+  BusinessHub: "0x4137dD45097559b0d9d081896060b46c276566e3" as `0x${string}`, // V2: proxy unchanged (ABI-only update, upgraded in place)
   P2PExchange: "0xe439c7f19B7E3CAB4e0b78ecda484534EE9dC88C" as `0x${string}`,
-  InheritanceManager: "0x976b79128D1d4269942EA4500e89A18D8918DDB5" as `0x${string}`,
+  InheritanceManager: "0xEc4EE51DD5C09Cd2896b7Dd8569F9217B843843c" as `0x${string}`, // V2: fresh proxy deployed (struct changed)
   PaymentReceipts: "0xC458E7D3A16B48ccF3180cc20b1c127283C26215" as `0x${string}`,
   EncryptedFlags: "0x308862f79cCd0f625F2EBc1998E7B14a1D9d85C9" as `0x${string}`,
   // --- Wave 2 Contracts (deployed via deploy-new-features) ---
-  GiftMoney: "0x53CBAF7407Ab26cd4C75a04587bb3F7172C2a084" as `0x${string}`,
+  GiftMoney: "0xE924Bd7e61b81ee3A43D488502ff4Ff3c09E471F" as `0x${string}`, // V2: fresh proxy deployed (struct changed)
   PrivacyRouter: "0xE2333a6c58E21A8Cc45982612a31dB1440D9888A" as `0x${string}`,
   StealthPayments: "0x16369CD4B9533795dCdc0D67DB3E4c621ef97D68" as `0x${string}`,
   MockDEX: "0x2d45d8B82a1fB7b2F60D3359F8dF36bCDb7B3f2c" as `0x${string}`,

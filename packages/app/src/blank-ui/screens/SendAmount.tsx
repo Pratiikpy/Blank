@@ -6,9 +6,7 @@ import { cn } from "@/lib/cn";
 import { useSendPayment } from "@/hooks/useSendPayment";
 import { NumericKeypad } from "../components";
 
-function truncateAddress(addr: string): string {
-  return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
-}
+import { truncateAddress } from "@/lib/address";
 
 function avatarColor(addr: string): string {
   const colors = [
@@ -142,6 +140,7 @@ export default function SendAmount() {
                 setAmount(max);
               }}
               className="text-xs font-medium text-[#6366F1] hover:text-[#4F46E5] px-2 py-1 rounded-lg hover:bg-[#6366F1]/5 transition-colors"
+              aria-label="Set maximum amount"
             >
               MAX
             </button>
@@ -166,6 +165,7 @@ export default function SendAmount() {
                 type="text"
                 className="h-14 w-full pl-11 pr-5 rounded-2xl bg-white/60 dark:bg-white/5 border border-black/5 dark:border-white/10 focus:border-black/20 dark:focus:border-white/20 focus:ring-4 focus:ring-black/5 dark:focus:ring-white/5 outline-none transition-all placeholder:text-[var(--text-tertiary)]"
                 placeholder="What is this for?"
+                aria-label="Payment note"
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
                 maxLength={280}
@@ -176,6 +176,7 @@ export default function SendAmount() {
             <button
               onClick={() => setShowNote(true)}
               className="w-full text-center text-emerald-600 dark:text-emerald-400 font-medium py-3 hover:underline transition-colors"
+              aria-label="Add a note"
             >
               Add a note
             </button>

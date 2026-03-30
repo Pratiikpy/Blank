@@ -7,6 +7,8 @@ import {
   Receipt,
   Handshake,
   Vote,
+  LogOut,
+  Archive,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useGroupSplit } from "@/hooks/useGroupSplit";
@@ -190,6 +192,7 @@ function CreateGroupModal({
               type="button"
               onClick={addMember}
               className="h-12 w-12 rounded-2xl bg-[var(--text-primary)] text-white flex items-center justify-center"
+              aria-label="Add member"
             >
               <Plus size={20} />
             </button>
@@ -209,6 +212,7 @@ function CreateGroupModal({
                       setMembers(members.filter((_, idx) => idx !== i))
                     }
                     className="text-[var(--text-primary)]/40 hover:text-red-500"
+                    aria-label={`Remove member ${m.slice(0, 6)}...${m.slice(-4)}`}
                   >
                     <X size={14} />
                   </button>
@@ -262,26 +266,51 @@ function AddExpenseModal({
   const [amount, setAmount] = useState("");
   const [memberInput, setMemberInput] = useState("");
   const [expenseMembers, setExpenseMembers] = useState<string[]>([]);
+  const [splitMode, setSplitMode] = useState<"equal" | "custom">("equal");
+  const [customShares, setCustomShares] = useState<Record<string, string>>({});
+
+  const allMembers =
+    expenseMembers.length > 0
+      ? expenseMembers
+      : address
+        ? [address.toLowerCase()]
+        : [];
+
+  // Compute shares based on split mode
+  const computedShares: string[] = (() => {
+    if (splitMode === "custom") {
+      return allMembers.map((m) => customShares[m] || "0");
+    }
+    if (!amount || allMembers.length === 0) return allMembers.map(() => "0");
+    const perPerson = computeEqualSplit(amount, allMembers.length);
+    return allMembers.map(() => perPerson);
+  })();
+
+  const customSharesTotal = splitMode === "custom"
+    ? computedShares.reduce((sum, s) => sum + parseFloat(s || "0"), 0)
+    : 0;
+  const customSharesValid = splitMode === "equal" || (
+    amount !== "" && Math.abs(customSharesTotal - parseFloat(amount || "0")) < 0.000001
+  );
 
   const handleAddExpense = useCallback(async () => {
     if (!description.trim() || !amount.trim() || !address) return;
-    const allMembers =
-      expenseMembers.length > 0
-        ? expenseMembers
-        : [address.toLowerCase()];
-    const perPerson = computeEqualSplit(amount, allMembers.length);
-    const shares = allMembers.map(() => perPerson);
-    await addExpense(groupId, amount, allMembers, shares, description);
+    if (!customSharesValid) {
+      toast.error("Custom shares must sum to the total amount");
+      return;
+    }
+    await addExpense(groupId, amount, allMembers, computedShares, description);
     onAdded();
     onClose();
   }, [
     description,
     amount,
     address,
-    expenseMembers,
+    allMembers,
+    computedShares,
+    customSharesValid,
     groupId,
     addExpense,
-    computeEqualSplit,
     onAdded,
     onClose,
   ]);
@@ -342,7 +371,7 @@ function AddExpenseModal({
                 setExpenseMembers([...expenseMembers, trimmed.toLowerCase()]);
                 setMemberInput("");
               }
-            }} className="h-12 w-12 rounded-2xl bg-[var(--text-primary)] text-white flex items-center justify-center">
+            }} className="h-12 w-12 rounded-2xl bg-[var(--text-primary)] text-white flex items-center justify-center" aria-label="Add member to expense">
               <Plus size={20} />
             </button>
           </div>
@@ -351,7 +380,7 @@ function AddExpenseModal({
               {expenseMembers.map((m, i) => (
                 <div key={i} className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/5 text-xs font-mono">
                   <span>{m.slice(0, 6)}...{m.slice(-4)}</span>
-                  <button onClick={() => setExpenseMembers(expenseMembers.filter((_, idx) => idx !== i))} className="text-[var(--text-primary)]/40 hover:text-red-500"><X size={12} /></button>
+                  <button onClick={() => setExpenseMembers(expenseMembers.filter((_, idx) => idx !== i))} className="text-[var(--text-primary)]/40 hover:text-red-500" aria-label={`Remove member ${m.slice(0, 6)}...${m.slice(-4)}`}><X size={12} /></button>
                 </div>
               ))}
             </div>
@@ -359,9 +388,90 @@ function AddExpenseModal({
           <p className="text-xs text-[var(--text-primary)]/40 mt-2">Leave empty to expense to yourself only</p>
         </div>
 
+        {/* Split Mode Toggle */}
+        {allMembers.length > 1 && (
+          <div>
+            <label className="text-xs text-[var(--text-primary)]/50 font-medium tracking-wide uppercase mb-2 block">Split Mode</label>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setSplitMode("equal")}
+                className={cn(
+                  "flex-1 h-12 rounded-2xl font-medium text-sm transition-all",
+                  splitMode === "equal"
+                    ? "bg-[var(--text-primary)] text-white"
+                    : "bg-black/5 text-[var(--text-primary)] hover:bg-black/10"
+                )}
+              >
+                Equal Split
+              </button>
+              <button
+                type="button"
+                onClick={() => setSplitMode("custom")}
+                className={cn(
+                  "flex-1 h-12 rounded-2xl font-medium text-sm transition-all",
+                  splitMode === "custom"
+                    ? "bg-[var(--text-primary)] text-white"
+                    : "bg-black/5 text-[var(--text-primary)] hover:bg-black/10"
+                )}
+              >
+                Custom Split
+              </button>
+            </div>
+            {splitMode === "custom" && (
+              <div className="mt-3 space-y-2">
+                {allMembers.map((m) => (
+                  <div key={m} className="flex items-center gap-3">
+                    <span className="text-xs font-mono text-[var(--text-primary)]/60 w-28 truncate">
+                      {m.slice(0, 8)}...{m.slice(-4)}
+                    </span>
+                    <div className="relative flex-1">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-[var(--text-primary)]/50">$</span>
+                      <input
+                        type="text"
+                        placeholder="0.00"
+                        value={customShares[m] || ""}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          if (/^\d*\.?\d{0,6}$/.test(v) || v === "") {
+                            setCustomShares({ ...customShares, [m]: v });
+                          }
+                        }}
+                        className="h-10 w-full pl-8 pr-3 rounded-xl bg-white/60 border border-black/10 focus:border-black/20 focus:ring-4 focus:ring-black/5 outline-none transition-all text-sm font-mono"
+                      />
+                    </div>
+                  </div>
+                ))}
+                {amount && (
+                  <p className={cn(
+                    "text-xs mt-1",
+                    customSharesValid ? "text-emerald-600" : "text-red-500"
+                  )}>
+                    Total: ${customSharesTotal.toFixed(6)} / ${parseFloat(amount || "0").toFixed(6)}
+                    {customSharesValid ? " (matches)" : " (must match total)"}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Split Preview */}
+        {amount && allMembers.length > 0 && (
+          <div className="bg-gray-50 rounded-xl p-3 space-y-1">
+            <p className="text-xs font-medium text-[var(--text-secondary)]">Split Preview</p>
+            {computedShares.map((share, i) => (
+              <div key={i} className="flex justify-between text-sm">
+                <span className="text-[var(--text-primary)]/70">{allMembers[i].slice(0, 8)}...</span>
+                <span className="font-mono text-[var(--text-primary)]">${share}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
         <div className="flex gap-3 pt-2">
           <button onClick={onClose} className="flex-1 h-14 px-6 rounded-2xl bg-black/5 text-[var(--text-primary)] font-medium transition-all hover:bg-black/10">Cancel</button>
-          <button onClick={handleAddExpense} disabled={isProcessing || !description.trim() || !amount.trim()}
+          <button onClick={handleAddExpense} disabled={isProcessing || !description.trim() || !amount.trim() || !customSharesValid}
             className="flex-1 h-14 px-6 rounded-2xl bg-[var(--text-primary)] text-white font-medium transition-transform active:scale-95 hover:bg-[#000000] flex items-center justify-center gap-2 disabled:opacity-50">
             {isProcessing ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Receipt size={20} />}
             <span>Add Expense</span>
@@ -462,15 +572,30 @@ function VoteModal({
   onClose: () => void;
 }) {
   const { voteOnExpense, isProcessing } = useGroupSplit();
-  const [expenseId, setExpenseId] = useState("0");
+  const [selectedExpenseId, setSelectedExpenseId] = useState<number | null>(null);
   const [votes, setVotes] = useState("");
+  const [expenses, setExpenses] = useState<GroupExpenseRow[]>([]);
+  const [loadingExpenses, setLoadingExpenses] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoadingExpenses(true);
+    fetchGroupExpenses(groupId).then((data) => {
+      if (!cancelled) {
+        setExpenses(data);
+        setLoadingExpenses(false);
+      }
+    }).catch(() => {
+      if (!cancelled) setLoadingExpenses(false);
+    });
+    return () => { cancelled = true; };
+  }, [groupId]);
 
   const handleVote = useCallback(async () => {
-    if (!votes.trim()) return;
-    const expId = parseInt(expenseId, 10) || 0;
-    await voteOnExpense(groupId, expId, votes);
+    if (!votes.trim() || selectedExpenseId === null) return;
+    await voteOnExpense(groupId, selectedExpenseId, votes);
     onClose();
-  }, [groupId, expenseId, votes, voteOnExpense, onClose]);
+  }, [groupId, selectedExpenseId, votes, voteOnExpense, onClose]);
 
   return (
     <div
@@ -492,9 +617,45 @@ function VoteModal({
         </div>
 
         <div>
-          <label className="text-xs text-[var(--text-primary)]/50 font-medium tracking-wide uppercase mb-2 block">Expense ID</label>
-          <input type="text" placeholder="0" value={expenseId} onChange={(e) => setExpenseId(e.target.value)}
-            className="h-14 w-full px-5 rounded-2xl bg-white/60 border border-black/10 focus:border-black/20 focus:ring-4 focus:ring-black/5 outline-none transition-all placeholder:text-black/30" />
+          <label className="text-xs text-[var(--text-primary)]/50 font-medium tracking-wide uppercase mb-2 block">Select Expense</label>
+          {loadingExpenses ? (
+            <div className="space-y-2">
+              {[1, 2].map((i) => (
+                <div key={i} className="h-16 rounded-2xl bg-black/5 animate-pulse" />
+              ))}
+            </div>
+          ) : expenses.length === 0 ? (
+            <div className="p-6 rounded-2xl bg-white/60 border border-black/10 text-center">
+              <p className="text-sm text-[var(--text-primary)]/50">No expenses to vote on</p>
+            </div>
+          ) : (
+            <div className="space-y-2 max-h-48 overflow-y-auto">
+              {expenses.map((exp) => (
+                <button
+                  key={exp.expense_id}
+                  type="button"
+                  onClick={() => setSelectedExpenseId(exp.expense_id)}
+                  className={cn(
+                    "w-full text-left p-4 rounded-2xl border transition-all",
+                    selectedExpenseId === exp.expense_id
+                      ? "bg-[var(--text-primary)]/5 border-[var(--text-primary)]/30 ring-2 ring-[var(--text-primary)]/10"
+                      : "bg-white/60 border-black/10 hover:border-black/20"
+                  )}
+                >
+                  <p className="text-sm font-medium text-[var(--text-primary)]">{exp.description}</p>
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className="text-xs text-[var(--text-primary)]/50 font-mono">
+                      {exp.payer_address.slice(0, 6)}...{exp.payer_address.slice(-4)}
+                    </span>
+                    <span className="text-xs text-[var(--text-primary)]/30">&middot;</span>
+                    <span className="text-xs text-[var(--text-primary)]/50">
+                      {new Date(exp.created_at).toLocaleDateString()}
+                    </span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         <div>
@@ -509,7 +670,7 @@ function VoteModal({
 
         <div className="flex gap-3 pt-2">
           <button onClick={onClose} className="flex-1 h-14 px-6 rounded-2xl bg-black/5 text-[var(--text-primary)] font-medium transition-all hover:bg-black/10">Cancel</button>
-          <button onClick={handleVote} disabled={isProcessing || !votes.trim()}
+          <button onClick={handleVote} disabled={isProcessing || !votes.trim() || selectedExpenseId === null}
             className="flex-1 h-14 px-6 rounded-2xl bg-[var(--text-primary)] text-white font-medium transition-transform active:scale-95 hover:bg-[#000000] flex items-center justify-center gap-2 disabled:opacity-50">
             {isProcessing ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Vote size={20} />}
             <span>Submit Vote</span>
@@ -530,12 +691,18 @@ function GroupCard({
   onAddExpense,
   onSettleDebt,
   onVote,
+  onLeave,
+  onArchive,
+  isProcessing,
 }: {
   group: GroupMembershipRow;
   expenses: GroupExpenseRow[];
   onAddExpense: (groupId: number) => void;
   onSettleDebt: (groupId: number) => void;
   onVote: (groupId: number) => void;
+  onLeave: (groupId: number) => void;
+  onArchive: (groupId: number) => void;
+  isProcessing: boolean;
 }) {
   const color = addressToColor(group.member_address);
 
@@ -645,6 +812,36 @@ function GroupCard({
           <Vote size={18} />
         </button>
       </div>
+
+      {/* Leave / Archive Actions */}
+      <div className="flex gap-2 mt-3">
+        <button
+          onClick={() => {
+            if (window.confirm("Leave this group? You will no longer see expenses or debts.")) {
+              onLeave(group.group_id);
+            }
+          }}
+          disabled={isProcessing}
+          className="flex-1 h-10 px-4 rounded-xl bg-amber-50 text-amber-700 border border-amber-100 font-medium transition-all active:scale-95 hover:bg-amber-100 flex items-center justify-center gap-2 text-sm disabled:opacity-50"
+        >
+          <LogOut size={16} />
+          <span>Leave Group</span>
+        </button>
+        {group.is_admin && (
+          <button
+            onClick={() => {
+              if (window.confirm("Archive this group? It will be deactivated for all members.")) {
+                onArchive(group.group_id);
+              }
+            }}
+            disabled={isProcessing}
+            className="flex-1 h-10 px-4 rounded-xl bg-red-50 text-red-600 border border-red-100 font-medium transition-all active:scale-95 hover:bg-red-100 flex items-center justify-center gap-2 text-sm disabled:opacity-50"
+          >
+            <Archive size={16} />
+            <span>Archive Group</span>
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -655,6 +852,7 @@ function GroupCard({
 
 export default function Groups() {
   const { address } = useAccount();
+  const { leaveGroup, archiveGroup, isProcessing: groupActionProcessing } = useGroupSplit();
   const [showCreate, setShowCreate] = useState(false);
   const [expenseGroupId, setExpenseGroupId] = useState<number | null>(null);
   const [settleGroupId, setSettleGroupId] = useState<number | null>(null);
@@ -788,6 +986,15 @@ export default function Groups() {
                 onAddExpense={setExpenseGroupId}
                 onSettleDebt={setSettleGroupId}
                 onVote={setVoteGroupId}
+                onLeave={async (gid) => {
+                  await leaveGroup(gid);
+                  refreshData();
+                }}
+                onArchive={async (gid) => {
+                  await archiveGroup(gid);
+                  refreshData();
+                }}
+                isProcessing={groupActionProcessing}
               />
             ))}
           </div>

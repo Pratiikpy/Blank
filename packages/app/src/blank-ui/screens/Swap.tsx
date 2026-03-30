@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import {
   ArrowDownUp,
   Lock,
@@ -8,6 +8,8 @@ import {
   Loader2,
   X,
   AlertTriangle,
+  ChevronDown,
+  Clock,
 } from "lucide-react";
 import { useExchange } from "@/hooks/useExchange";
 import { useShield } from "@/hooks/useShield";
@@ -25,6 +27,15 @@ export default function Swap() {
   const [giveAmount, setGiveAmount] = useState("");
   const [wantAmount, setWantAmount] = useState("");
   const [lastSwap, setLastSwap] = useState<{ give: string; want: string } | null>(null);
+  const [sortBy, setSortBy] = useState<"newest" | "oldest" | "amount-high" | "amount-low">("newest");
+
+  // Auto-clear error after 5 seconds
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => reset(), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [error, reset]);
 
   // Clear success state after 4 seconds
   useEffect(() => {
@@ -58,8 +69,27 @@ export default function Swap() {
   };
 
   const activeOffers = offers.filter((o) => o.status === "active");
-  const myOffers = activeOffers.filter((o) => o.maker_address === address?.toLowerCase());
-  const otherOffers = activeOffers.filter((o) => o.maker_address !== address?.toLowerCase());
+  const nonExpiredOffers = activeOffers.filter((o) => !o.expiry || new Date(o.expiry) > new Date());
+  const expiredOffers = activeOffers.filter((o) => o.expiry && new Date(o.expiry) <= new Date());
+
+  const sortOffers = useCallback((list: typeof offers) => {
+    return [...list].sort((a, b) => {
+      switch (sortBy) {
+        case "oldest":
+          return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+        case "amount-high":
+          return b.amount_give - a.amount_give;
+        case "amount-low":
+          return a.amount_give - b.amount_give;
+        case "newest":
+        default:
+          return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      }
+    });
+  }, [sortBy]);
+
+  const myOffers = useMemo(() => sortOffers(nonExpiredOffers.filter((o) => o.maker_address === address?.toLowerCase())), [sortOffers, nonExpiredOffers, address]);
+  const otherOffers = useMemo(() => sortOffers(nonExpiredOffers.filter((o) => o.maker_address !== address?.toLowerCase())), [sortOffers, nonExpiredOffers, address]);
 
   return (
     <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -124,8 +154,18 @@ export default function Swap() {
               <div className="p-4 rounded-2xl bg-red-50 border border-red-100">
                 <div className="flex items-start gap-2">
                   <AlertTriangle size={16} className="text-red-500 mt-0.5 flex-shrink-0" />
-                  <p className="text-xs text-red-700 break-all">{error}</p>
+                  <p className="text-xs text-red-700 break-all flex-1">{error}</p>
+                  <button onClick={() => reset()} className="text-red-400 hover:text-red-600 flex-shrink-0" aria-label="Dismiss error">
+                    <X size={14} />
+                  </button>
                 </div>
+                <button
+                  onClick={handleCreateOffer}
+                  disabled={!giveAmount || !wantAmount || parseFloat(giveAmount) <= 0 || parseFloat(wantAmount) <= 0 || isSubmitting}
+                  className="mt-2 h-8 px-4 rounded-xl bg-red-100 text-red-700 text-xs font-medium hover:bg-red-200 transition-colors disabled:opacity-50"
+                >
+                  Retry
+                </button>
               </div>
             )}
           </div>
@@ -160,6 +200,7 @@ export default function Swap() {
                     value={giveAmount}
                     onChange={(e) => setGiveAmount(e.target.value)}
                     placeholder="0.00"
+                    aria-label="Amount you give"
                     className="w-full bg-transparent text-3xl font-heading font-medium text-[var(--text-primary)] outline-none placeholder:text-black/20"
                   />
                 </div>
@@ -183,6 +224,7 @@ export default function Swap() {
                     value={wantAmount}
                     onChange={(e) => setWantAmount(e.target.value)}
                     placeholder="0.00"
+                    aria-label="Amount you want"
                     className="w-full bg-transparent text-3xl font-heading font-medium text-[var(--text-primary)] outline-none placeholder:text-black/20"
                   />
                 </div>
@@ -227,6 +269,26 @@ export default function Swap() {
             )}
           </div>
         </div>
+
+        {/* Sort Dropdown */}
+        {(otherOffers.length > 0 || myOffers.length > 0) && (
+          <div className="flex items-center justify-end mb-4">
+            <div className="relative">
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
+                className="appearance-none h-10 pl-4 pr-9 rounded-xl bg-white/60 border border-black/10 text-sm font-medium text-[var(--text-primary)] cursor-pointer focus:outline-none focus:ring-2 focus:ring-black/10"
+                aria-label="Sort offers"
+              >
+                <option value="newest">Newest First</option>
+                <option value="oldest">Oldest First</option>
+                <option value="amount-high">Amount (High to Low)</option>
+                <option value="amount-low">Amount (Low to High)</option>
+              </select>
+              <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-primary)]/40 pointer-events-none" />
+            </div>
+          </div>
+        )}
 
         {/* Active Offers from Others */}
         {otherOffers.length > 0 && (
@@ -304,13 +366,60 @@ export default function Swap() {
                     </div>
                   </div>
                   <button
-                    onClick={() => cancelOffer(offer.offer_id)}
+                    onClick={() => {
+                      if (!window.confirm("Cancel this offer? This cannot be undone.")) return;
+                      cancelOffer(offer.offer_id);
+                    }}
                     disabled={isSubmitting}
                     className="h-10 px-5 rounded-xl bg-red-50 text-red-600 text-sm font-medium hover:bg-red-100 border border-red-100 transition-all active:scale-95 disabled:opacity-50 flex items-center gap-1"
+                    aria-label="Cancel offer"
                   >
                     <X size={14} />
                     Cancel
                   </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Expired Offers */}
+        {expiredOffers.length > 0 && (
+          <div className="rounded-[2rem] glass-card p-8 mb-6 opacity-60">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-xl font-heading font-medium text-[var(--text-primary)]/50">
+                Expired Offers
+              </h3>
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-gray-100 border border-gray-200">
+                <Clock size={16} className="text-gray-400" />
+                <span className="text-sm font-medium text-gray-400">
+                  {expiredOffers.length} Expired
+                </span>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              {expiredOffers.map((offer) => (
+                <div
+                  key={offer.id}
+                  className="flex items-center justify-between p-6 rounded-2xl bg-white/30 border border-black/5"
+                >
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 rounded-xl bg-gray-100 flex items-center justify-center">
+                      <ArrowLeftRight size={24} className="text-gray-400" />
+                    </div>
+                    <div>
+                      <p className="font-medium text-[var(--text-primary)]/50">
+                        {offer.amount_give} USDC &rarr; {offer.amount_want} USDC
+                      </p>
+                      <p className="text-sm text-[var(--text-primary)]/30">
+                        {offer.maker_address.slice(0, 6)}...{offer.maker_address.slice(-4)} &middot; Expired {formatTime(offer.expiry!)}
+                      </p>
+                    </div>
+                  </div>
+                  <span className="text-xs px-3 py-1.5 rounded-full bg-gray-100 text-gray-400 border border-gray-200 font-medium">
+                    Expired
+                  </span>
                 </div>
               ))}
             </div>

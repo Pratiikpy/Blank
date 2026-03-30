@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useReadContract } from "wagmi";
 import {
   Clock,
   AlertTriangle,
@@ -10,19 +11,192 @@ import {
   Plus,
   Loader2,
   Trash2,
+  Vault,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import toast from "react-hot-toast";
 import { useInheritance } from "@/hooks/useInheritance";
+import { InheritanceManagerAbi } from "@/lib/abis";
+import { CONTRACTS } from "@/lib/constants";
+
+// ---------------------------------------------------------------
+//  AVAILABLE VAULTS (the user can protect these in their plan)
+// ---------------------------------------------------------------
+
+const AVAILABLE_VAULTS: { address: string; label: string }[] = [
+  { address: CONTRACTS.FHERC20Vault_USDC, label: "USDC Vault" },
+];
+
+// ---------------------------------------------------------------
+//  VAULT SELECTOR MODAL
+// ---------------------------------------------------------------
+
+function VaultSelectorModal({
+  currentVaults,
+  isProcessing,
+  onSave,
+  onClose,
+}: {
+  currentVaults: string[];
+  isProcessing: boolean;
+  onSave: (vaults: string[]) => Promise<void>;
+  onClose: () => void;
+}) {
+  const [selected, setSelected] = useState<Set<string>>(
+    () => new Set(currentVaults.map((v) => v.toLowerCase()))
+  );
+  const [customVault, setCustomVault] = useState("");
+
+  const toggle = (addr: string) => {
+    const key = addr.toLowerCase();
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const addCustomVault = () => {
+    const trimmed = customVault.trim();
+    if (!/^0x[a-fA-F0-9]{40}$/.test(trimmed)) {
+      toast.error("Invalid vault address");
+      return;
+    }
+    setSelected((prev) => new Set(prev).add(trimmed.toLowerCase()));
+    setCustomVault("");
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+      <div className="w-full max-w-lg rounded-[2rem] bg-white dark:bg-gray-900 shadow-2xl p-8">
+        <div className="flex items-center justify-between mb-6">
+          <h3 className="text-2xl font-heading font-medium text-[var(--text-primary)]">
+            Select Protected Vaults
+          </h3>
+          <button onClick={onClose} className="p-2 hover:bg-black/5 rounded-xl">
+            <X size={24} className="text-[var(--text-primary)]/50" />
+          </button>
+        </div>
+
+        <p className="text-sm text-[var(--text-primary)]/50 mb-4">
+          Choose which vaults your heir will be able to claim from. Only selected vaults are included in the inheritance plan.
+        </p>
+
+        <div className="space-y-2 mb-4">
+          {AVAILABLE_VAULTS.map((vault) => {
+            const isSelected = selected.has(vault.address.toLowerCase());
+            return (
+              <button
+                key={vault.address}
+                type="button"
+                onClick={() => toggle(vault.address)}
+                className={cn(
+                  "w-full flex items-center justify-between p-4 rounded-2xl border-2 transition-all text-left",
+                  isSelected
+                    ? "bg-indigo-50 border-indigo-200"
+                    : "bg-white/50 border-black/5 hover:border-black/10"
+                )}
+              >
+                <div className="flex items-center gap-3">
+                  <div className={cn(
+                    "w-8 h-8 rounded-lg flex items-center justify-center",
+                    isSelected ? "bg-indigo-100" : "bg-gray-100"
+                  )}>
+                    <Vault size={16} className={isSelected ? "text-indigo-600" : "text-gray-400"} />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-[var(--text-primary)]">{vault.label}</p>
+                    <p className="text-xs font-mono text-[var(--text-primary)]/40">
+                      {vault.address.slice(0, 6)}...{vault.address.slice(-4)}
+                    </p>
+                  </div>
+                </div>
+                <div className={cn(
+                  "w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all",
+                  isSelected ? "bg-indigo-500 border-indigo-500" : "border-black/20"
+                )}>
+                  {isSelected && <CheckCircle2 size={14} className="text-white" />}
+                </div>
+              </button>
+            );
+          })}
+
+          {/* Custom vault addresses that were added */}
+          {[...selected].filter(
+            (s) => !AVAILABLE_VAULTS.some((av) => av.address.toLowerCase() === s)
+          ).map((addr) => (
+            <div
+              key={addr}
+              className="flex items-center justify-between p-4 rounded-2xl bg-indigo-50 border-2 border-indigo-200"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center">
+                  <Vault size={16} className="text-indigo-600" />
+                </div>
+                <p className="text-xs font-mono text-[var(--text-primary)]">
+                  {addr.slice(0, 10)}...{addr.slice(-6)}
+                </p>
+              </div>
+              <button
+                onClick={() => toggle(addr)}
+                className="text-red-400 hover:text-red-600"
+                aria-label="Remove vault"
+              >
+                <X size={16} />
+              </button>
+            </div>
+          ))}
+        </div>
+
+        {/* Add custom vault */}
+        <div className="flex gap-2 mb-6">
+          <input
+            type="text"
+            value={customVault}
+            onChange={(e) => setCustomVault(e.target.value)}
+            placeholder="Custom vault address 0x..."
+            className="flex-1 h-12 px-4 rounded-2xl bg-white/60 border border-black/10 focus:border-black/20 focus:ring-4 focus:ring-black/5 outline-none font-mono text-sm"
+          />
+          <button
+            type="button"
+            onClick={addCustomVault}
+            className="h-12 px-4 rounded-2xl bg-black/5 text-[var(--text-primary)] font-medium hover:bg-black/10 text-sm"
+          >
+            Add
+          </button>
+        </div>
+
+        <div className="flex gap-3">
+          <button
+            onClick={onClose}
+            className="flex-1 h-14 rounded-2xl bg-black/5 text-[var(--text-primary)] font-medium"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => onSave([...selected])}
+            disabled={isProcessing}
+            className="flex-1 h-14 rounded-2xl bg-[var(--text-primary)] text-white font-medium flex items-center justify-center gap-2 disabled:opacity-50"
+          >
+            {isProcessing ? <Loader2 size={20} className="animate-spin" /> : <Vault size={20} />}
+            {isProcessing ? "Saving..." : `Save ${selected.size} Vault${selected.size !== 1 ? "s" : ""}`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ---------------------------------------------------------------
 //  MAIN SCREEN
 // ---------------------------------------------------------------
 
 export default function InheritancePlanning() {
-  const { plan, setHeir, heartbeat, removeHeir, startClaim, finalizeClaim, isProcessing } = useInheritance();
+  const { plan, setHeir, setVaults, heartbeat, removeHeir, startClaim, finalizeClaim, isProcessing } = useInheritance();
 
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showVaultModal, setShowVaultModal] = useState(false);
 
   // Beneficiary form
   const [bAddress, setBAddress] = useState("");
@@ -31,10 +205,24 @@ export default function InheritancePlanning() {
   // Heir claim form
   const [claimOwner, setClaimOwner] = useState("");
 
+  // Read the owner's plan when claiming (to get their vault count for finalizeClaim)
+  const isValidClaimOwner = /^0x[a-fA-F0-9]{40}$/.test(claimOwner);
+  const { data: ownerPlanData } = useReadContract({
+    address: CONTRACTS.InheritanceManager,
+    abi: InheritanceManagerAbi,
+    functionName: "getPlan",
+    args: isValidClaimOwner ? [claimOwner as `0x${string}`] : undefined,
+    query: { enabled: isValidClaimOwner },
+  });
+  const ownerPlanTuple = ownerPlanData as readonly [string, bigint, bigint, bigint, boolean, readonly string[]] | undefined;
+  const ownerVaultCount = ownerPlanTuple?.[5]?.length ?? 0;
+
   // Derived state from real plan
   const isActive = plan?.active ?? false;
   const nowSeconds = Math.floor(Date.now() / 1000);
-  const daysSinceCheckin = plan ? Math.max(0, Math.floor((nowSeconds - plan.lastHeartbeat) / 86400)) : 0;
+  const daysSinceCheckin = plan && plan.lastHeartbeat > 0
+    ? Math.max(0, Math.floor((nowSeconds - plan.lastHeartbeat) / 86400))
+    : 0;
   const daysRemaining = plan ? Math.max(0, Math.floor((plan.lastHeartbeat + plan.inactivityPeriod - nowSeconds) / 86400)) : 0;
   const inactivityDays = plan ? Math.floor(plan.inactivityPeriod / 86400) : 0;
   const heirAddress = plan?.heir ?? "";
@@ -58,6 +246,7 @@ export default function InheritancePlanning() {
   };
 
   const handleRemoveBeneficiary = async () => {
+    if (!window.confirm("Remove inheritance plan? This will deactivate your dead man's switch.")) return;
     await removeHeir();
   };
 
@@ -241,6 +430,70 @@ export default function InheritancePlanning() {
               </div>
             </div>
 
+            {/* Protected Vaults */}
+            <div className="rounded-[2rem] glass-card p-8 mb-6">
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center">
+                    <Vault size={20} className="text-indigo-600" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-heading font-medium text-[var(--text-primary)]">Protected Vaults</h3>
+                    <p className="text-sm text-[var(--text-primary)]/50">
+                      {plan?.vaults?.length ?? 0} vault{(plan?.vaults?.length ?? 0) !== 1 ? "s" : ""} protected
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowVaultModal(true)}
+                  disabled={isProcessing}
+                  className="h-12 px-6 rounded-2xl bg-[var(--text-primary)] text-white font-medium transition-transform active:scale-95 hover:bg-[#000000] flex items-center gap-2 disabled:opacity-60"
+                >
+                  <Vault size={18} />
+                  <span>Manage Vaults</span>
+                </button>
+              </div>
+
+              {plan?.vaults && plan.vaults.length > 0 ? (
+                <div className="space-y-2">
+                  {plan.vaults.map((v) => {
+                    const known = AVAILABLE_VAULTS.find(
+                      (av) => av.address.toLowerCase() === v.toLowerCase()
+                    );
+                    return (
+                      <div
+                        key={v}
+                        className="flex items-center justify-between p-4 rounded-2xl bg-white/50 dark:bg-white/5 border border-black/5 dark:border-white/10"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center">
+                            <Vault size={16} className="text-indigo-500" />
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium text-[var(--text-primary)]">
+                              {known?.label ?? "Unknown Vault"}
+                            </p>
+                            <p className="text-xs font-mono text-[var(--text-primary)]/40">
+                              {v.slice(0, 6)}...{v.slice(-4)}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="px-3 py-1 rounded-full bg-emerald-50 border border-emerald-100 text-xs font-medium text-emerald-600">
+                          Protected
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="p-6 rounded-2xl bg-amber-50/50 border border-amber-100 text-center">
+                  <p className="text-sm text-amber-800">
+                    No vaults configured. Add vaults to specify which funds your heir can claim.
+                  </p>
+                </div>
+              )}
+            </div>
+
             {/* Heir Info */}
             <div className="rounded-[2rem] glass-card p-8">
               <div className="flex items-center justify-between mb-6">
@@ -289,6 +542,37 @@ export default function InheritancePlanning() {
           <p className="text-sm text-[var(--text-primary)]/50 mb-4">
             If you are designated as someone's heir and the inactivity period has passed, you can initiate a claim.
           </p>
+
+          {plan && plan.claimStartedAt > 0 && (() => {
+            const claimDate = new Date(plan.claimStartedAt * 1000);
+            const challengeEndSeconds = plan.claimStartedAt + 7 * 86400;
+            const challengeEndDate = new Date(challengeEndSeconds * 1000);
+            const remainingSeconds = Math.max(0, challengeEndSeconds - nowSeconds);
+            const remainingDays = Math.floor(remainingSeconds / 86400);
+            const remainingHours = Math.floor((remainingSeconds % 86400) / 3600);
+            const isReady = remainingSeconds === 0;
+            return (
+              <div className="mb-4 p-4 rounded-2xl bg-white/50 dark:bg-white/5 border border-black/5 dark:border-white/10 space-y-1">
+                <p className="text-sm text-[var(--text-primary)]">
+                  <span className="font-medium">Claim started:</span> {claimDate.toLocaleDateString()}
+                </p>
+                <p className="text-sm text-[var(--text-primary)]">
+                  <span className="font-medium">Challenge period ends:</span> {challengeEndDate.toLocaleDateString()}
+                </p>
+                {isReady ? (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-100 text-emerald-600 text-sm font-medium mt-1">
+                    <CheckCircle2 size={16} />
+                    Ready to Finalize
+                  </span>
+                ) : (
+                  <p className="text-sm text-amber-600 font-medium">
+                    Time remaining: {remainingDays} day{remainingDays !== 1 ? "s" : ""}, {remainingHours} hour{remainingHours !== 1 ? "s" : ""}
+                  </p>
+                )}
+              </div>
+            );
+          })()}
+
           <div className="space-y-3">
             <input
               value={claimOwner}
@@ -314,16 +598,20 @@ export default function InheritancePlanning() {
               <button
                 onClick={() => {
                   if (claimOwner && /^0x[a-fA-F0-9]{40}$/.test(claimOwner)) {
-                    finalizeClaim(claimOwner);
+                    if (ownerVaultCount === 0) {
+                      toast.error("Owner has no vaults configured in their plan");
+                      return;
+                    }
+                    finalizeClaim(claimOwner, ownerVaultCount);
                   } else {
                     toast.error("Invalid Ethereum address");
                   }
                 }}
-                disabled={isProcessing || !claimOwner}
+                disabled={isProcessing || !claimOwner || ownerVaultCount === 0}
                 className="h-12 flex-1 rounded-xl bg-emerald-500 text-white font-medium disabled:opacity-30 flex items-center justify-center gap-2"
               >
                 {isProcessing ? <Loader2 size={16} className="animate-spin" /> : null}
-                Finalize Claim
+                Finalize Claim{ownerVaultCount > 0 ? ` (${ownerVaultCount} vault${ownerVaultCount !== 1 ? "s" : ""})` : ""}
               </button>
             </div>
           </div>
@@ -331,6 +619,19 @@ export default function InheritancePlanning() {
       </div>
 
       {/* Add / Change Heir Modal */}
+      {/* Vault Selector Modal */}
+      {showVaultModal && (
+        <VaultSelectorModal
+          currentVaults={plan?.vaults ?? []}
+          isProcessing={isProcessing}
+          onSave={async (vaults) => {
+            await setVaults(vaults);
+            setShowVaultModal(false);
+          }}
+          onClose={() => setShowVaultModal(false)}
+        />
+      )}
+
       {showAddModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
           <div className="w-full max-w-lg rounded-[2rem] bg-white dark:bg-gray-900 shadow-2xl p-8">

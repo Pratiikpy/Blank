@@ -90,6 +90,11 @@ export const GroupManagerAbi = [
   { type: "event", name: "MemberAdded", inputs: [{ name: "groupId", type: "uint256", indexed: true }, { name: "member", type: "address", indexed: true }, { name: "timestamp", type: "uint256", indexed: false }] },
   { type: "event", name: "AdminAdded", inputs: [{ name: "groupId", type: "uint256", indexed: true }, { name: "admin", type: "address", indexed: true }, { name: "timestamp", type: "uint256", indexed: false }] },
   { type: "event", name: "DebtSettled", inputs: [{ name: "groupId", type: "uint256", indexed: true }, { name: "from", type: "address", indexed: true }, { name: "to", type: "address", indexed: true }, { name: "timestamp", type: "uint256", indexed: false }] },
+  { type: "function", name: "leaveGroup", inputs: [{ name: "groupId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "archiveGroup", inputs: [{ name: "groupId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "event", name: "GroupArchived", inputs: [{ name: "groupId", type: "uint256", indexed: true }, { name: "timestamp", type: "uint256", indexed: false }] },
+  { type: "event", name: "MemberRemoved", inputs: [{ name: "groupId", type: "uint256", indexed: true }, { name: "member", type: "address", indexed: true }, { name: "timestamp", type: "uint256", indexed: false }] },
+  { type: "event", name: "ExpenseArchived", inputs: [{ name: "groupId", type: "uint256", indexed: true }, { name: "expenseId", type: "uint256", indexed: false }, { name: "timestamp", type: "uint256", indexed: false }] },
 ] as const;
 
 export const CreatorHubAbi = [
@@ -146,10 +151,13 @@ export const P2PExchangeAbi = [
 ] as const;
 
 export const GiftMoneyAbi = [
-  { type: "function", name: "createEnvelope", inputs: [{ name: "vault", type: "address" }, { name: "recipients", type: "address[]" }, { name: "shares", type: "tuple[]", internalType: "struct InEuint64[]", components: [{ name: "ctHash", type: "uint256" }, { name: "securityZone", type: "uint8" }, { name: "utype", type: "uint8" }, { name: "signature", type: "bytes" }] }, { name: "note", type: "string" }], outputs: [{ name: "", type: "uint256" }], stateMutability: "nonpayable" },
+  { type: "function", name: "createEnvelope", inputs: [{ name: "vault", type: "address" }, { name: "recipients", type: "address[]" }, { name: "shares", type: "tuple[]", internalType: "struct InEuint64[]", components: [{ name: "ctHash", type: "uint256" }, { name: "securityZone", type: "uint8" }, { name: "utype", type: "uint8" }, { name: "signature", type: "bytes" }] }, { name: "note", type: "string" }, { name: "expiryTimestamp", type: "uint256" }], outputs: [{ name: "", type: "uint256" }], stateMutability: "nonpayable" },
   { type: "function", name: "claimGift", inputs: [{ name: "envelopeId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "getMyGift", inputs: [{ name: "envelopeId", type: "uint256" }], outputs: [{ name: "", type: "uint256" }], stateMutability: "view" },
-  { type: "function", name: "getEnvelope", inputs: [{ name: "envelopeId", type: "uint256" }], outputs: [{ name: "sender", type: "address" }, { name: "vault", type: "address" }, { name: "recipientCount", type: "uint256" }, { name: "claimedCount", type: "uint256" }, { name: "note", type: "string" }, { name: "timestamp", type: "uint256" }, { name: "active", type: "bool" }], stateMutability: "view" },
+  { type: "function", name: "getEnvelope", inputs: [{ name: "envelopeId", type: "uint256" }], outputs: [{ name: "sender", type: "address" }, { name: "vault", type: "address" }, { name: "recipientCount", type: "uint256" }, { name: "claimedCount", type: "uint256" }, { name: "note", type: "string" }, { name: "timestamp", type: "uint256" }, { name: "active", type: "bool" }, { name: "expiryTimestamp", type: "uint256" }], stateMutability: "view" },
+  { type: "function", name: "setExpiry", inputs: [{ name: "envelopeId", type: "uint256" }, { name: "expiryTimestamp", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "isExpired", inputs: [{ name: "envelopeId", type: "uint256" }], outputs: [{ name: "", type: "bool" }], stateMutability: "view" },
+  { type: "function", name: "deactivateEnvelope", inputs: [{ name: "envelopeId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "getRecipients", inputs: [{ name: "envelopeId", type: "uint256" }], outputs: [{ name: "", type: "address[]" }], stateMutability: "view" },
   { type: "function", name: "getReceivedEnvelopes", inputs: [{ name: "user", type: "address" }], outputs: [{ name: "", type: "uint256[]" }], stateMutability: "view" },
   { type: "function", name: "getSentEnvelopes", inputs: [{ name: "user", type: "address" }], outputs: [{ name: "", type: "uint256[]" }], stateMutability: "view" },
@@ -158,16 +166,26 @@ export const GiftMoneyAbi = [
   { type: "function", name: "isFullyOpened", inputs: [{ name: "envelopeId", type: "uint256" }], outputs: [{ name: "", type: "bool" }], stateMutability: "view" },
   { type: "event", name: "EnvelopeCreated", inputs: [{ name: "envelopeId", type: "uint256", indexed: true }, { name: "sender", type: "address", indexed: true }, { name: "vault", type: "address", indexed: false }, { name: "recipientCount", type: "uint256", indexed: false }, { name: "note", type: "string", indexed: false }, { name: "timestamp", type: "uint256", indexed: false }] },
   { type: "event", name: "GiftOpened", inputs: [{ name: "envelopeId", type: "uint256", indexed: true }, { name: "recipient", type: "address", indexed: true }, { name: "timestamp", type: "uint256", indexed: false }] },
+  { type: "event", name: "EnvelopeDeactivated", inputs: [{ name: "envelopeId", type: "uint256", indexed: true }, { name: "sender", type: "address", indexed: true }, { name: "timestamp", type: "uint256", indexed: false }] },
+  { type: "event", name: "EnvelopeExpirySet", inputs: [{ name: "envelopeId", type: "uint256", indexed: true }, { name: "expiryTimestamp", type: "uint256", indexed: false }] },
 ] as const;
 
 export const InheritanceManagerAbi = [
   { type: "function", name: "setHeir", inputs: [{ name: "heir", type: "address" }, { name: "inactivityPeriod", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "removeHeir", inputs: [], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "heartbeat", inputs: [], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "setVaults", inputs: [{ name: "_vaults", type: "address[]" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "startClaim", inputs: [{ name: "owner_", type: "address" }], outputs: [], stateMutability: "nonpayable" },
-  { type: "function", name: "finalizeClaim", inputs: [{ name: "owner_", type: "address" }], outputs: [], stateMutability: "nonpayable" },
-  { type: "function", name: "getPlan", inputs: [{ name: "owner_", type: "address" }], outputs: [{ name: "heir", type: "address" }, { name: "inactivityPeriod", type: "uint256" }, { name: "lastHeartbeat", type: "uint256" }, { name: "claimStartedAt", type: "uint256" }, { name: "active", type: "bool" }], stateMutability: "view" },
+  { type: "function", name: "finalizeClaim", inputs: [{ name: "owner_", type: "address" }, { name: "encAmounts", type: "tuple[]", internalType: "struct InEuint64[]", components: InEuint64Components }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "getPlan", inputs: [{ name: "owner_", type: "address" }], outputs: [{ name: "heir", type: "address" }, { name: "inactivityPeriod", type: "uint256" }, { name: "lastHeartbeat", type: "uint256" }, { name: "claimStartedAt", type: "uint256" }, { name: "active", type: "bool" }, { name: "vaults", type: "address[]" }], stateMutability: "view" },
   { type: "function", name: "isClaimable", inputs: [{ name: "owner_", type: "address" }], outputs: [{ name: "", type: "bool" }], stateMutability: "view" },
+  { type: "event", name: "VaultsUpdated", inputs: [{ name: "owner", type: "address", indexed: true }, { name: "vaults", type: "address[]", indexed: false }, { name: "timestamp", type: "uint256", indexed: false }] },
+  { type: "event", name: "HeirSet", inputs: [{ name: "owner", type: "address", indexed: true }, { name: "heir", type: "address", indexed: true }, { name: "inactivityPeriod", type: "uint256", indexed: false }, { name: "timestamp", type: "uint256", indexed: false }] },
+  { type: "event", name: "HeirRemoved", inputs: [{ name: "owner", type: "address", indexed: true }, { name: "timestamp", type: "uint256", indexed: false }] },
+  { type: "event", name: "Heartbeat", inputs: [{ name: "owner", type: "address", indexed: true }, { name: "timestamp", type: "uint256", indexed: false }] },
+  { type: "event", name: "ClaimStarted", inputs: [{ name: "owner", type: "address", indexed: true }, { name: "heir", type: "address", indexed: true }, { name: "timestamp", type: "uint256", indexed: false }] },
+  { type: "event", name: "ClaimCancelled", inputs: [{ name: "owner", type: "address", indexed: true }, { name: "timestamp", type: "uint256", indexed: false }] },
+  { type: "event", name: "ClaimFinalized", inputs: [{ name: "owner", type: "address", indexed: true }, { name: "heir", type: "address", indexed: true }, { name: "timestamp", type: "uint256", indexed: false }] },
 ] as const;
 
 // ─── Encrypted input tuple for InEaddress (same struct layout as InEuint64) ──

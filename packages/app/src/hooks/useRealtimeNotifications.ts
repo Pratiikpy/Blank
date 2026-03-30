@@ -61,6 +61,19 @@ export function useRealtimeNotifications() {
 
     // ─── Helper: format notification message ──────────────────────
     function formatActivityMessage(activityType: string, from: string, note: string): string {
+      // Parse envelope ID from gift notes (format: "[envelope:123] ...")
+      let giftMsg = `${from} sent you a gift`;
+      if (activityType === "gift_created" && note) {
+        const envMatch = note.match(/^\[envelope:(\d+)\]\s*(.*)/);
+        if (envMatch) {
+          const envId = envMatch[1];
+          const displayNote = envMatch[2];
+          giftMsg = `${from} sent you a gift! Envelope #${envId}${displayNote ? ` "${displayNote}"` : ""}`;
+        } else if (note) {
+          giftMsg = `${from} sent you a gift "${note}"`;
+        }
+      }
+
       const messages: Record<string, string> = {
         payment: `${from} sent you a payment${note ? ` "${note}"` : ""}`,
         tip: `${from} tipped you${note ? ` "${note}"` : ""}`,
@@ -77,7 +90,7 @@ export function useRealtimeNotifications() {
         group_expense: `New group expense from ${from}`,
         group_settle: `${from} settled a group debt`,
         shield: `${from} shielded tokens`,
-        gift_created: `${from} sent you a gift${note ? ` "${note}"` : ""}`,
+        gift_created: giftMsg,
         gift_claimed: `${from} opened a gift envelope`,
         debt_settled: `${from} settled a group debt`,
       };
