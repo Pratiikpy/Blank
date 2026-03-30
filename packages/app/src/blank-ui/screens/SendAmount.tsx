@@ -1,13 +1,13 @@
 import { useState, useCallback, useEffect } from "react";
 import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import { Shield, MessageSquare, ChevronLeft } from "lucide-react";
-import { useShield } from "@/hooks/useShield";
 import { useEncryptedBalance } from "@/hooks/useEncryptedBalance";
 import { cn } from "@/lib/cn";
 import { useSendPayment } from "@/hooks/useSendPayment";
 import { NumericKeypad } from "../components";
 
 import { truncateAddress } from "@/lib/address";
+import toast from "react-hot-toast";
 
 function avatarColor(addr: string): string {
   const colors = [
@@ -39,7 +39,6 @@ export default function SendAmount() {
 
   const { setRecipient, setAmount, setNote, note, send, canProceed } =
     useSendPayment();
-  const { publicBalance } = useShield();
   const balance = useEncryptedBalance();
 
   const [localAmount, setLocalAmount] = useState("0");
@@ -137,11 +136,19 @@ export default function SendAmount() {
             </p>
             <button
               onClick={() => {
-                // Use vault (shielded) balance for MAX, not public balance
-                const vaultBal = balance.totalDeposited || 0;
-                const max = vaultBal > 0 ? vaultBal.toFixed(6) : publicBalance.toFixed(6);
-                setLocalAmount(max);
-                setAmount(max);
+                // Use decrypted vault balance if available, otherwise show warning
+                if (balance.isDecrypted && balance.raw !== null) {
+                  const max = (Number(balance.raw) / 1e6).toFixed(6);
+                  setLocalAmount(max);
+                  setAmount(max);
+                } else if (balance.totalDeposited > 0) {
+                  // Approximate from vault aggregate (only correct for single-user testnet)
+                  const max = balance.totalDeposited.toFixed(6);
+                  setLocalAmount(max);
+                  setAmount(max);
+                } else {
+                  toast("Enter amount manually — encrypted balance can't be read yet");
+                }
               }}
               className="text-xs font-medium text-[#6366F1] hover:text-[#4F46E5] px-2 py-1 rounded-lg hover:bg-[#6366F1]/5 transition-colors"
               aria-label="Set maximum amount"
