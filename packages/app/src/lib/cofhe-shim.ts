@@ -113,63 +113,48 @@ export function useCofheConnection() {
   };
 }
 
-// ─── useCofheEncrypt ────────────────────────────────────────────────
+// ─── useCofheEncrypt (CipherPay pattern — wagmi clients, no fresh viem) ──
 
 export function useCofheEncrypt() {
   const [isEncrypting, setIsEncrypting] = useState(false);
+  const { data: walletClient } = useWalletClient();
+  const publicClient = usePublicClient();
 
   const encryptInputsAsync = useCallback(async (items: unknown[]) => {
     setIsEncrypting(true);
     try {
       console.log("[cofhe-shim] encryptInputsAsync called with", items.length, "items");
-      console.log("[cofhe-shim] SDK state: loaded=", _sdkLoaded, "failed=", _sdkFailed, "client=", !!_sdkClient);
 
-      // Wait for SDK to load if not yet ready
       const sdkReady = await loadSdk();
-      console.log("[cofhe-shim] SDK ready:", sdkReady, "client connected:", _sdkClient?.connected);
 
-      // Try to connect client if not connected
-      if (sdkReady && _sdkClient && !_sdkClient.connected) {
+      // Connect using wagmi clients (CipherPay pattern — NOT fresh viem clients)
+      if (sdkReady && _sdkClient && !_sdkClient.connected && publicClient && walletClient) {
         try {
-          console.log("[cofhe-shim] Attempting SDK connect via window.ethereum...");
-          const { createPublicClient, createWalletClient, custom } = await import("viem");
-          const { sepolia } = await import("viem/chains");
-          if (typeof window !== "undefined" && (window as any).ethereum) {
-            const pc = createPublicClient({ chain: sepolia, transport: custom((window as any).ethereum) });
-            const wc = createWalletClient({ chain: sepolia, transport: custom((window as any).ethereum) });
-            await _sdkClient.connect(pc, wc);
-            console.log("[cofhe-shim] SDK connected successfully");
-          } else {
-            console.warn("[cofhe-shim] No window.ethereum available");
-          }
+          console.log("[cofhe-shim] Connecting SDK with wagmi clients...");
+          await _sdkClient.connect(publicClient as any, walletClient as any);
+          console.log("[cofhe-shim] SDK connected via wagmi ✓");
         } catch (connectErr) {
-          console.warn("[cofhe-shim] SDK connect during encrypt FAILED:", connectErr);
+          console.warn("[cofhe-shim] SDK wagmi connect failed:", connectErr);
         }
       }
 
-      // Try real SDK encryption
       if (sdkReady && _sdkClient) {
         try {
-          console.log("[cofhe-shim] Starting REAL encryption with SDK...");
-          console.log("[cofhe-shim] Items to encrypt:", JSON.stringify(items, (_, v) => typeof v === 'bigint' ? v.toString() : v));
+          console.log("[cofhe-shim] Starting REAL encryption...");
           const encrypted = await _sdkClient.encryptInputs(items).execute();
-          console.log("[cofhe-shim] REAL encryption SUCCESS:", JSON.stringify(encrypted, (_, v) => typeof v === 'bigint' ? v.toString() : v).substring(0, 200));
+          console.log("[cofhe-shim] REAL encryption SUCCESS ✓");
           return encrypted;
         } catch (err) {
           console.error("[cofhe-shim] REAL encryption FAILED:", err);
-          console.error("[cofhe-shim] Error details:", (err as any)?.message, (err as any)?.code, (err as any)?.cause);
         }
-      } else {
-        console.warn("[cofhe-shim] SDK not available for encryption. loaded:", sdkReady, "client:", !!_sdkClient);
       }
 
-      // Fallback: return items as-is (will cause contract revert without real signature)
-      console.warn("[cofhe-shim] ⚠️ USING FALLBACK — no real encryption. Transaction WILL revert on-chain.");
+      console.warn("[cofhe-shim] ⚠️ FALLBACK — transaction will revert without real signature");
       return items;
     } finally {
       setIsEncrypting(false);
     }
-  }, []);
+  }, [publicClient, walletClient]);
 
   return {
     encryptInputsAsync,
