@@ -9,6 +9,7 @@ import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
 interface IFHERC20Vault {
     function transferFrom(address from, address to, InEuint64 memory encAmount) external returns (euint64);
+    function transferFromVerified(address from, address to, euint64 amount) external returns (euint64);
     function underlyingToken() external view returns (address);
 }
 
@@ -154,7 +155,9 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         require(inv.status == InvoiceStatus.Pending, "BusinessHub: not pending");
         require(msg.sender == inv.client, "BusinessHub: not the client");
 
+        // Verify encrypted input here (msg.sender = client) before cross-contract call
         euint64 payment = FHE.asEuint64(encAmount);
+        FHE.allowTransient(payment, inv.vault);
 
         // Verify the encrypted payment matches the encrypted invoice amount exactly.
         // The client should decrypt the invoice amount off-chain first, then encrypt
@@ -163,11 +166,11 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         FHE.allowThis(exactMatch);
         FHE.allowSender(exactMatch);
 
-        // Transfer the full encAmount to vendor via vault.
+        // Transfer the full encAmount to vendor via vault using pre-verified handle.
         // Since we verified exactMatch, if true this transfers exactly the invoice amount.
         // If exactMatch is false, the transfer still happens but the invoice won't be
         // marked as paid — see payInvoiceFinalize().
-        euint64 vendorReceived = IFHERC20Vault(inv.vault).transferFrom(msg.sender, inv.vendor, encAmount);
+        euint64 vendorReceived = IFHERC20Vault(inv.vault).transferFromVerified(msg.sender, inv.vendor, payment);
         FHE.allowSender(vendorReceived);
         FHE.allow(vendorReceived, inv.vendor);
 
@@ -236,7 +239,10 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         IFHERC20Vault v = IFHERC20Vault(vault);
         for (uint256 i = 0; i < count; i++) {
             require(employees[i] != address(0), "BusinessHub: zero address");
-            euint64 actual = v.transferFrom(msg.sender, employees[i], salaries[i]);
+            // Verify encrypted input here (msg.sender = employer) before cross-contract call
+            euint64 verifiedSalary = FHE.asEuint64(salaries[i]);
+            FHE.allowTransient(verifiedSalary, vault);
+            euint64 actual = v.transferFromVerified(msg.sender, employees[i], verifiedSalary);
             FHE.allowSender(actual);
             FHE.allow(actual, employees[i]);
         }

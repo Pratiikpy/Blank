@@ -8,6 +8,7 @@ import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
 interface IFHERC20Vault {
     function transferFrom(address from, address to, InEuint64 memory encAmount) external returns (euint64);
+    function transferFromVerified(address from, address to, euint64 amount) external returns (euint64);
     function transfer(address to, InEuint64 memory encAmount) external returns (euint64);
 }
 
@@ -116,7 +117,15 @@ contract PaymentHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     ) external nonReentrant {
         require(to != address(0) && to != msg.sender, "PaymentHub: invalid recipient");
 
-        euint64 actual = IFHERC20Vault(vault).transferFrom(msg.sender, to, encAmount);
+        // Verify the encrypted input in THIS contract's context where msg.sender
+        // is the user's wallet address. This is critical because FHE.asEuint64()
+        // calls Impl.verifyInput(input, msg.sender), and the ZK proof signature
+        // is bound to the user's address. If we let the vault call asEuint64(),
+        // msg.sender would be this contract's address, causing InvalidSigner.
+        euint64 verifiedAmount = FHE.asEuint64(encAmount);
+        FHE.allowTransient(verifiedAmount, vault);
+
+        euint64 actual = IFHERC20Vault(vault).transferFromVerified(msg.sender, to, verifiedAmount);
         FHE.allowSender(actual);  // Sender can verify transfer succeeded
 
         emit PaymentSent(msg.sender, to, vault, note, block.timestamp);
@@ -177,7 +186,11 @@ contract PaymentHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         require(req.status == RequestStatus.Pending, "PaymentHub: not pending");
         require(msg.sender == req.from, "PaymentHub: not the payer");
 
-        euint64 actual = IFHERC20Vault(req.vault).transferFrom(msg.sender, req.to, encAmount);
+        // Verify encrypted input here (msg.sender = user) before cross-contract call
+        euint64 verifiedAmount = FHE.asEuint64(encAmount);
+        FHE.allowTransient(verifiedAmount, req.vault);
+
+        euint64 actual = IFHERC20Vault(req.vault).transferFromVerified(msg.sender, req.to, verifiedAmount);
         FHE.allowSender(actual);  // Payer can verify transfer succeeded
         req.status = RequestStatus.Fulfilled;
 
@@ -222,7 +235,10 @@ contract PaymentHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
         for (uint256 i = 0; i < count; i++) {
             require(recipients[i] != address(0) && recipients[i] != msg.sender, "PaymentHub: invalid recipient");
-            euint64 actual = vaultContract.transferFrom(msg.sender, recipients[i], amounts[i]);
+            // Verify encrypted input here (msg.sender = user) before cross-contract call
+            euint64 verifiedAmount = FHE.asEuint64(amounts[i]);
+            FHE.allowTransient(verifiedAmount, vault);
+            euint64 actual = vaultContract.transferFromVerified(msg.sender, recipients[i], verifiedAmount);
             FHE.allowSender(actual);
             FHE.allow(actual, recipients[i]);
             emit PaymentSent(msg.sender, recipients[i], vault, notes[i], block.timestamp);

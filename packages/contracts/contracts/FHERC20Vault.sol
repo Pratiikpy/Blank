@@ -249,6 +249,37 @@ contract FHERC20Vault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
         euint64 amount = FHE.asEuint64(encAmount);
 
+        return _executeTransferFrom(from, to, amount);
+    }
+
+    /// @notice Transfer tokens on behalf of `from` using a pre-verified euint64 handle.
+    ///         Used by hub contracts that call FHE.asEuint64() in their own context
+    ///         (where msg.sender = the user) to fix the InvalidSigner error that occurs
+    ///         when FHE.asEuint64() is called in a cross-contract context (where
+    ///         msg.sender = the calling contract, not the original tx signer).
+    /// @param from Token owner
+    /// @param to Recipient
+    /// @param amount Pre-verified euint64 handle (caller must have called FHE.asEuint64)
+    /// @return transferred The encrypted amount actually transferred
+    function transferFromVerified(
+        address from,
+        address to,
+        euint64 amount
+    ) external nonReentrant returns (euint64) {
+        require(to != address(0), "FHERC20Vault: transfer to zero address");
+
+        _ensureInitialized(from);
+        _ensureInitialized(to);
+
+        return _executeTransferFrom(from, to, amount);
+    }
+
+    /// @dev Internal transfer logic shared by transferFrom and transferFromVerified.
+    function _executeTransferFrom(
+        address from,
+        address to,
+        euint64 amount
+    ) internal returns (euint64) {
         // Check both balance AND allowance
         ebool hasBalance = FHE.gte(_balances[from], amount);
         ebool hasAllowance = FHE.gte(_allowances[from][msg.sender], amount);

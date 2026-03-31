@@ -8,6 +8,7 @@ import "./utils/ReentrancyGuard.sol";
 
 interface IFHERC20Vault {
     function transferFrom(address from, address to, InEuint64 memory encAmount) external returns (euint64);
+    function transferFromVerified(address from, address to, euint64 amount) external returns (euint64);
 }
 
 interface IEventHub {
@@ -171,11 +172,15 @@ contract GiftMoney is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
             require(recipient != msg.sender, "GiftMoney: sender cannot be recipient");
             require(!isRecipient[envelopeId][recipient], "GiftMoney: duplicate recipient");
 
+            // Verify encrypted input here (msg.sender = user) before cross-contract call
+            euint64 verifiedShare = FHE.asEuint64(shares[i]);
+            FHE.allowTransient(verifiedShare, vault);
+
             // Transfer encrypted share directly from sender to recipient
             // Funds land in recipient's encrypted vault balance immediately
             // Store the actual transfer result (not a re-encrypted input) so the
             // handle tracks the real on-chain value post-transfer
-            euint64 transferred = vaultContract.transferFrom(msg.sender, recipient, shares[i]);
+            euint64 transferred = vaultContract.transferFromVerified(msg.sender, recipient, verifiedShare);
             _shares[envelopeId][recipient] = transferred;
 
             // Grant permissions: contract can reference it, recipient can unseal it, creator can verify

@@ -10,6 +10,7 @@ import "./utils/ReentrancyGuard.sol";
 
 interface IFHERC20Vault {
     function transferFrom(address from, address to, InEuint64 memory encAmount) external returns (euint64);
+    function transferFromVerified(address from, address to, euint64 amount) external returns (euint64);
     function underlyingToken() external view returns (address);
 }
 

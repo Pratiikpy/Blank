@@ -8,6 +8,7 @@ import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
 interface IFHERC20Vault {
     function transferFrom(address from, address to, InEuint64 memory encAmount) external returns (euint64);
+    function transferFromVerified(address from, address to, euint64 amount) external returns (euint64);
 }
 
 interface IEventHub {
@@ -104,13 +105,19 @@ contract P2PExchange is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         require(block.timestamp <= o.expiry, "P2PExchange: expired");
         require(msg.sender != o.maker, "P2PExchange: self-fill");
 
+        // Verify encrypted inputs here (msg.sender = taker) before cross-contract calls
+        euint64 verifiedTakerPayment = FHE.asEuint64(encTakerPayment);
+        FHE.allowTransient(verifiedTakerPayment, o.tokenWant);
+        euint64 verifiedMakerPayment = FHE.asEuint64(encMakerPayment);
+        FHE.allowTransient(verifiedMakerPayment, o.tokenGive);
+
         // Taker sends tokenWant to maker
-        euint64 actualGive = IFHERC20Vault(o.tokenWant).transferFrom(msg.sender, o.maker, encTakerPayment);
+        euint64 actualGive = IFHERC20Vault(o.tokenWant).transferFromVerified(msg.sender, o.maker, verifiedTakerPayment);
         FHE.allowSender(actualGive);
         FHE.allow(actualGive, o.maker);
 
         // Maker sends tokenGive to taker (maker must have pre-approved this contract)
-        euint64 actualReceive = IFHERC20Vault(o.tokenGive).transferFrom(o.maker, msg.sender, encMakerPayment);
+        euint64 actualReceive = IFHERC20Vault(o.tokenGive).transferFromVerified(o.maker, msg.sender, verifiedMakerPayment);
         FHE.allowSender(actualReceive);
         FHE.allow(actualReceive, msg.sender);
 

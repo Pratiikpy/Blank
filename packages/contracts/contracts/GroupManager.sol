@@ -8,6 +8,7 @@ import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
 interface IFHERC20Vault {
     function transferFrom(address from, address to, InEuint64 memory encAmount) external returns (euint64);
+    function transferFromVerified(address from, address to, euint64 amount) external returns (euint64);
 }
 
 interface IEventHub {
@@ -259,11 +260,14 @@ contract GroupManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         require(isMember[groupId][msg.sender], "GroupManager: not a member");
         require(isMember[groupId][with_], "GroupManager: counterparty not a member");
 
-        // Transfer tokens from sender to counterparty
-        IFHERC20Vault(vault).transferFrom(msg.sender, with_, encAmount);
+        // Verify encrypted input here (msg.sender = user) before cross-contract call
+        euint64 amount = FHE.asEuint64(encAmount);
+        FHE.allowTransient(amount, vault);
+
+        // Transfer tokens from sender to counterparty using pre-verified handle
+        IFHERC20Vault(vault).transferFromVerified(msg.sender, with_, amount);
 
         // Update debts: sender's debt decreases, counterparty's debt increases
-        euint64 amount = FHE.asEuint64(encAmount);
         _debts[groupId][msg.sender] = FHE.sub(_debts[groupId][msg.sender], amount);
         _debts[groupId][with_] = FHE.add(_debts[groupId][with_], amount);
 

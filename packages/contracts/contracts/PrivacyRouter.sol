@@ -12,6 +12,7 @@ import "./utils/ReentrancyGuard.sol";
 
 interface IFHERC20Vault {
     function transferFrom(address from, address to, InEuint64 memory encAmount) external returns (euint64);
+    function transferFromVerified(address from, address to, euint64 amount) external returns (euint64);
     function transfer(address to, InEuint64 memory encAmount) external returns (euint64);
     function balanceOf(address account) external view returns (euint64);
     function underlyingToken() external view returns (address);
@@ -180,12 +181,16 @@ contract PrivacyRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         address tokenOut = IFHERC20Vault(vaultOut).underlyingToken();
         require(tokenIn != tokenOut, "PrivacyRouter: same underlying");
 
+        // Verify encrypted input here (msg.sender = user) before cross-contract call
+        euint64 verifiedAmount = FHE.asEuint64(encAmount);
+        FHE.allowTransient(verifiedAmount, vaultIn);
+
         // Transfer encrypted tokens from user to router's balance in vaultIn
         // This deducts from user's encrypted balance and adds to router's
-        euint64 transferred = IFHERC20Vault(vaultIn).transferFrom(
+        euint64 transferred = IFHERC20Vault(vaultIn).transferFromVerified(
             msg.sender,
             address(this),
-            encAmount
+            verifiedAmount
         );
 
         // Grant this contract permission to use the encrypted handle

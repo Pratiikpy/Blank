@@ -8,6 +8,7 @@ import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
 interface IFHERC20Vault {
     function transferFrom(address from, address to, InEuint64 memory encAmount) external returns (euint64);
+    function transferFromVerified(address from, address to, euint64 amount) external returns (euint64);
 }
 
 interface IEventHub {
@@ -128,10 +129,12 @@ contract CreatorHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         require(_profiles[creator].active, "CreatorHub: inactive");
         require(creator != msg.sender, "CreatorHub: cannot self-tip");
 
-        // Transfer tokens from supporter to creator
-        IFHERC20Vault(vault).transferFrom(msg.sender, creator, encAmount);
-
+        // Verify encrypted input here (msg.sender = user) before cross-contract call
         euint64 amount = FHE.asEuint64(encAmount);
+        FHE.allowTransient(amount, vault);
+
+        // Transfer tokens from supporter to creator using pre-verified handle
+        IFHERC20Vault(vault).transferFromVerified(msg.sender, creator, amount);
 
         // Update creator's encrypted total earnings
         _profiles[creator].totalEarnings = FHE.add(_profiles[creator].totalEarnings, amount);

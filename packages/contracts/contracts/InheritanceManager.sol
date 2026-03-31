@@ -8,6 +8,7 @@ import "./utils/ReentrancyGuard.sol";
 
 interface IFHERC20Vault {
     function transferFrom(address from, address to, InEuint64 memory encAmount) external returns (euint64);
+    function transferFromVerified(address from, address to, euint64 amount) external returns (euint64);
 }
 
 interface IEventHub {
@@ -156,10 +157,14 @@ contract InheritanceManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
 
         // Transfer all vault balances from owner to heir
         for (uint256 i = 0; i < plan.vaults.length; i++) {
+            // Verify encrypted input here (msg.sender = heir) before cross-contract call
+            euint64 verifiedAmount = FHE.asEuint64(encAmounts[i]);
+            FHE.allowTransient(verifiedAmount, plan.vaults[i]);
+
             IFHERC20Vault vault = IFHERC20Vault(plan.vaults[i]);
-            // vault.transferFrom checks both balance AND allowance via FHE.select
+            // vault.transferFromVerified checks both balance AND allowance via FHE.select
             // Returns the actual encrypted amount transferred (zero if insufficient)
-            euint64 transferred = vault.transferFrom(owner_, plan.heir, encAmounts[i]);
+            euint64 transferred = vault.transferFromVerified(owner_, plan.heir, verifiedAmount);
             // Grant the heir permission to read the transferred amount handle
             FHE.allowTransient(transferred, plan.heir);
         }
