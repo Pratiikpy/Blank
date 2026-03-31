@@ -9,7 +9,7 @@ import {
 } from "@cofhe/react";
 import { Encryptable } from "@cofhe/sdk";
 import toast from "react-hot-toast";
-import { CONTRACTS, type EncryptedInput } from "@/lib/constants";
+import { CONTRACTS } from "@/lib/constants";
 import { FHERC20VaultAbi, PaymentHubAbi } from "@/lib/abis";
 import { isVaultApproved, markVaultApproved, clearVaultApproval } from "@/lib/approval";
 import { insertActivity } from "@/lib/supabase";
@@ -343,7 +343,14 @@ export function useSendPayment() {
       const encrypted = await encryptInputsAsync([
         Encryptable.uint64(amountWei),
       ]);
-      const encAmount = encrypted[0] as unknown as EncryptedInput;
+      // Explicitly construct ABI tuple from SDK result (CipherPay pattern)
+      const raw = encrypted[0] as any;
+      const encAmount = {
+        ctHash: BigInt(raw.ctHash ?? raw.data?.ctHash ?? 0),
+        securityZone: Number(raw.securityZone ?? raw.data?.securityZone ?? 0),
+        utype: Number(raw.utype ?? raw.data?.utype ?? 5),
+        signature: (raw.signature ?? raw.data?.signature ?? "0x") as `0x${string}`,
+      };
 
       // Step 2: Approve + Send
       setState((s) => ({ ...s, step: "sending", encryptionProgress: 100 }));
