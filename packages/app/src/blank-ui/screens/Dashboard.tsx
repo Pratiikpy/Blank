@@ -759,22 +759,17 @@ function BalanceCard({ balance, privacyMode, onTogglePrivacy, large, activityCou
   // balance.isDecrypted tells us if the SDK successfully decrypted the value.
   // balance.totalDeposited is a plaintext aggregate from the vault contract.
   const formattedBalance = useMemo(() => {
+    // Use real decrypted value if available
     if (balance.isDecrypted && balance.formatted && balance.formatted !== "Encrypted") {
       return balance.formatted;
     }
-    // If we have totalDeposited (plaintext aggregate), use it as approximate
-    if (balance.totalDeposited > 0 && balance.hasBalance) {
-      return new Intl.NumberFormat("en-US", {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      }).format(balance.totalDeposited);
-    }
-    // If hasBalance is true but can't decrypt, show encrypted indicator
+    // If user has an encrypted balance handle but can't decrypt, show encrypted indicator
     if (balance.hasBalance) {
-      return null; // Will show "Encrypted" placeholder
+      return null; // Will show ████.██ placeholder
     }
+    // No balance handle at all — user hasn't shielded or received anything
     return "0.00";
-  }, [balance.isDecrypted, balance.formatted, balance.totalDeposited, balance.hasBalance]);
+  }, [balance.isDecrypted, balance.formatted, balance.hasBalance]);
 
   const displayAmount = privacyMode && !balance.isRevealed;
 

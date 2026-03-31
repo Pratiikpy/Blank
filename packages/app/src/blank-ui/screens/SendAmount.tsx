@@ -136,14 +136,8 @@ export default function SendAmount() {
             </p>
             <button
               onClick={() => {
-                // Use decrypted vault balance if available, otherwise show warning
                 if (balance.isDecrypted && balance.raw !== null) {
                   const max = (Number(balance.raw) / 1e6).toFixed(6);
-                  setLocalAmount(max);
-                  setAmount(max);
-                } else if (balance.totalDeposited > 0) {
-                  // Approximate from vault aggregate (only correct for single-user testnet)
-                  const max = balance.totalDeposited.toFixed(6);
                   setLocalAmount(max);
                   setAmount(max);
                 } else {
