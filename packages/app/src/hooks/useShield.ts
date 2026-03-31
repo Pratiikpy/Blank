@@ -176,7 +176,7 @@ export function useShield() {
         contract_address: CONTRACTS.FHERC20Vault_USDC,
         note: `Shielded ${amount} USDC`,
         token_address: CONTRACTS.TestUSDC,
-        // Safe: Base Sepolia block numbers fit in Number.MAX_SAFE_INTEGER for the foreseeable future
+        // Safe: Sepolia block numbers fit in Number.MAX_SAFE_INTEGER for the foreseeable future
         block_number: shieldReceipt ? Number(shieldReceipt.blockNumber) : 0,
       });
 

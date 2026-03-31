@@ -1,7 +1,9 @@
 import { HardhatUserConfig } from "hardhat/config";
 import "@nomicfoundation/hardhat-toolbox";
 import "@nomicfoundation/hardhat-ethers";
-import "cofhe-hardhat-plugin";
+// Note: @cofhe/hardhat-plugin loaded only for testing (has mock contract compilation issues on production)
+// For production deployment, we compile without it and deploy directly
+// import "cofhe-hardhat-plugin";
 import * as dotenv from "dotenv";
 import "./tasks";
 
@@ -14,6 +16,7 @@ const config: HardhatUserConfig = {
     version: "0.8.25",
     settings: {
       evmVersion: "cancun",
+      viaIR: true,
       optimizer: {
         enabled: true,
         runs: 200,

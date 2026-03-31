@@ -30,7 +30,7 @@ let _sdkModules: {
   Encryptable: any;
   createCofheConfig: any;
   createCofheClient: any;
-  baseSepolia: any;
+  sepoliaChain: any;
 } | null = null;
 let _sdkClient: any = null;
 
@@ -53,11 +53,11 @@ async function loadSdk(): Promise<boolean> {
         Encryptable: sdkCore.Encryptable,
         createCofheConfig: sdkWeb.createCofheConfig,
         createCofheClient: sdkWeb.createCofheClient,
-        baseSepolia: sdkChains.baseSepolia,
+        sepoliaChain: sdkChains.sepolia,
       };
 
       const config = _sdkModules.createCofheConfig({
-        supportedChains: [_sdkModules.baseSepolia],
+        supportedChains: [_sdkModules.sepoliaChain],
       });
       _sdkClient = _sdkModules.createCofheClient(config);
 
@@ -83,7 +83,7 @@ export function useCofheConnection() {
   const { isConnected, chain } = useAccount();
   const publicClient = usePublicClient();
   const { data: walletClient } = useWalletClient();
-  const walletReady = isConnected && chain?.id === 84532 && !!publicClient && !!walletClient;
+  const walletReady = isConnected && chain?.id === 11155111 && !!publicClient && !!walletClient;
 
   useEffect(() => {
     if (!walletReady || !publicClient || !walletClient) return;
@@ -133,10 +133,10 @@ export function useCofheEncrypt() {
         try {
           console.log("[cofhe-shim] Attempting SDK connect via window.ethereum...");
           const { createPublicClient, createWalletClient, custom } = await import("viem");
-          const { baseSepolia } = await import("viem/chains");
+          const { sepolia } = await import("viem/chains");
           if (typeof window !== "undefined" && (window as any).ethereum) {
-            const pc = createPublicClient({ chain: baseSepolia, transport: custom((window as any).ethereum) });
-            const wc = createWalletClient({ chain: baseSepolia, transport: custom((window as any).ethereum) });
+            const pc = createPublicClient({ chain: sepolia, transport: custom((window as any).ethereum) });
+            const wc = createWalletClient({ chain: sepolia, transport: custom((window as any).ethereum) });
             await _sdkClient.connect(pc, wc);
             console.log("[cofhe-shim] SDK connected successfully");
           } else {

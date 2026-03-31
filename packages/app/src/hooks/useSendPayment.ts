@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { useAccount, useWriteContract, usePublicClient } from "wagmi";
 import { parseUnits } from "viem";
-import { baseSepolia } from "viem/chains";
+import { sepolia } from "viem/chains";
 import {
   useCofheEncrypt,
   useCofheConnection,
@@ -224,7 +224,7 @@ export function useSendPayment() {
           address: CONTRACTS.PaymentHub,
           abi: PaymentHubAbi,
           functionName: "sendPayment",
-          chain: baseSepolia,
+          chain: sepolia,
           account: address,
         },
         args: [
@@ -276,7 +276,7 @@ export function useSendPayment() {
         contract_address: vaultAddress,
         note: state.note,
         token_address: CONTRACTS.TestUSDC,
-        // Safe: Base Sepolia block numbers fit in Number.MAX_SAFE_INTEGER for the foreseeable future
+        // Safe: Sepolia block numbers fit in Number.MAX_SAFE_INTEGER for the foreseeable future
         block_number: Number(receipt.blockNumber),
       });
 
@@ -414,7 +414,7 @@ export function useSendPayment() {
         contract_address: vaultAddress,
         note: state.note,
         token_address: CONTRACTS.TestUSDC,
-        // Safe: Base Sepolia block numbers fit in Number.MAX_SAFE_INTEGER for the foreseeable future
+        // Safe: Sepolia block numbers fit in Number.MAX_SAFE_INTEGER for the foreseeable future
         block_number: Number(legacyReceipt.blockNumber),
       });
 

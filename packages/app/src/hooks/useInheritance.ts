@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
 import { useAccount, useWriteContract, useReadContract, usePublicClient } from "wagmi";
-import { baseSepolia } from "viem/chains";
+import { sepolia } from "viem/chains";
 import { useCofheEncryptAndWriteContract } from "@cofhe/react";
 import { InheritanceManagerAbi } from "@/lib/abis";
 import { CONTRACTS } from "@/lib/constants";
@@ -205,7 +205,7 @@ export function useInheritance() {
             address: CONTRACTS.InheritanceManager,
             abi: InheritanceManagerAbi,
             functionName: "finalizeClaim",
-            chain: baseSepolia,
+            chain: sepolia,
             account: address,
             gas: BigInt(5_000_000), // FHE: manual gas limit (precompile can't be estimated)
           },

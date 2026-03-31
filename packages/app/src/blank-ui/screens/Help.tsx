@@ -61,8 +61,8 @@ const FAQ_ITEMS: FAQItem[] = [
       <ol className="space-y-3">
         {[
           { step: 1, text: "Connect your wallet (MetaMask, Coinbase Wallet, or any EVM wallet)" },
-          { step: 2, text: "Switch to the Base Sepolia testnet if not already connected" },
-          { step: 3, text: "Get test USDC from a Base Sepolia faucet" },
+          { step: 2, text: "Switch to the Ethereum Sepolia testnet if not already connected" },
+          { step: 3, text: "Get test USDC from an Ethereum Sepolia faucet" },
           { step: 4, text: "Shield your tokens to convert public USDC into encrypted USDC in your vault" },
           { step: 5, text: "Send privately -- recipients see the payment but not the amount" },
         ].map(({ step, text }) => (
@@ -236,7 +236,7 @@ export default function Help() {
             </span>{" "}
             and deployed on{" "}
             <span className="font-medium text-[var(--text-primary)]">
-              Base Sepolia
+              Ethereum Sepolia
             </span>
             . All transaction amounts are encrypted using Fully Homomorphic
             Encryption. This is a testnet application -- do not use real funds.

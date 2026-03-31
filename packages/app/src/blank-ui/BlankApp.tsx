@@ -131,7 +131,7 @@ export function BlankApp() {
   }
 
   // Network mismatch warning
-  if (isConnected && chain?.id !== 84532) {
+  if (isConnected && chain?.id !== 11155111) {
     return (
       <div className="blank-app min-h-dvh flex items-center justify-center px-6">
         <div className="glass-card-static rounded-[2rem] p-10 max-w-md text-center">
@@ -139,13 +139,13 @@ export function BlankApp() {
             <AlertTriangle size={32} className="text-amber-500" />
           </div>
           <h2 className="text-2xl font-heading font-semibold mb-3">Wrong Network</h2>
-          <p className="text-[var(--text-secondary)] mb-6">Please switch to Base Sepolia to use Blank Pay.</p>
+          <p className="text-[var(--text-secondary)] mb-6">Please switch to Ethereum Sepolia to use Blank Pay.</p>
           <button
-            onClick={() => switchChain?.({ chainId: 84532 })}
+            onClick={() => switchChain?.({ chainId: 11155111 })}
             className="h-14 w-full rounded-2xl bg-[#1D1D1F] text-white font-medium hover:bg-black transition-colors"
-            aria-label="Switch to Base Sepolia network"
+            aria-label="Switch to Ethereum Sepolia network"
           >
-            Switch to Base Sepolia
+            Switch to Ethereum Sepolia
           </button>
         </div>
       </div>

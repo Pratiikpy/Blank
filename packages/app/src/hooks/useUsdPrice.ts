@@ -8,11 +8,11 @@ import { CONTRACTS, SUPPORTED_CHAIN_ID } from "@/lib/constants";
  * It internally maps chainId -> CoinGecko platform ID and fetches
  * the token price via /simple/token_price/{platform}.
  *
- * For USDC on Base Sepolia, CoinGecko may not have testnet pricing.
+ * For USDC on Ethereum Sepolia, CoinGecko may not have testnet pricing.
  * Falls back to $1.00 since USDC is a stablecoin.
  *
  * @param tokenAddress - Override token address (defaults to TestUSDC)
- * @param chainId - Override chain ID (defaults to Base Sepolia 84532)
+ * @param chainId - Override chain ID (defaults to Ethereum Sepolia 11155111)
  */
 export function useUsdPrice(
   tokenAddress?: `0x${string}`,

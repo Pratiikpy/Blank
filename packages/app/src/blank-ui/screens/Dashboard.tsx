@@ -823,7 +823,7 @@ function BalanceCard({ balance, privacyMode, onTogglePrivacy, large, activityCou
           {/* Subtitle + eye toggle */}
           <div className="flex items-center gap-3 mb-8">
             <span className="text-sm text-[var(--text-secondary)]">
-              USDC &middot; Base Sepolia
+              USDC &middot; Ethereum Sepolia
             </span>
             <button
               onClick={() => {

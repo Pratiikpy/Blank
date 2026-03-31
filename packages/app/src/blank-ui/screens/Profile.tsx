@@ -151,7 +151,7 @@ export default function Profile() {
                   </span>
                 </div>
                 <span className="text-xs text-[var(--text-primary)]/50">
-                  Base Sepolia
+                  Ethereum Sepolia
                 </span>
               </div>
             </div>
@@ -242,7 +242,7 @@ export default function Profile() {
               </div>
               <div className="flex items-center justify-between p-4 rounded-2xl bg-white/50 border border-black/5">
                 <p className="text-sm text-[var(--text-primary)]/70">Network</p>
-                <p className="text-sm font-medium text-[var(--text-primary)]">Base Sepolia</p>
+                <p className="text-sm font-medium text-[var(--text-primary)]">Ethereum Sepolia</p>
               </div>
               <div className="flex items-center justify-between p-4 rounded-2xl bg-white/50 border border-black/5">
                 <p className="text-sm text-[var(--text-primary)]/70">Encryption</p>

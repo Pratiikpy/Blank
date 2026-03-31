@@ -134,7 +134,7 @@ export function useBusinessHub() {
           contract_address: CONTRACTS.BusinessHub,
           note: description,
           token_address: CONTRACTS.FHERC20Vault_USDC,
-          // Safe: Base Sepolia block numbers fit in Number.MAX_SAFE_INTEGER for the foreseeable future
+          // Safe: Sepolia block numbers fit in Number.MAX_SAFE_INTEGER for the foreseeable future
           block_number: Number(invoiceReceipt.blockNumber),
         });
 
@@ -227,7 +227,7 @@ export function useBusinessHub() {
             contract_address: CONTRACTS.BusinessHub,
             note: `Paid ${employees.length} employees`,
             token_address: CONTRACTS.FHERC20Vault_USDC,
-            // Safe: Base Sepolia block numbers fit in Number.MAX_SAFE_INTEGER for the foreseeable future
+            // Safe: Sepolia block numbers fit in Number.MAX_SAFE_INTEGER for the foreseeable future
             block_number: Number(payrollReceipt.blockNumber),
           });
         }
@@ -334,7 +334,7 @@ export function useBusinessHub() {
           contract_address: CONTRACTS.BusinessHub,
           note: description,
           token_address: CONTRACTS.FHERC20Vault_USDC,
-          // Safe: Base Sepolia block numbers fit in Number.MAX_SAFE_INTEGER for the foreseeable future
+          // Safe: Sepolia block numbers fit in Number.MAX_SAFE_INTEGER for the foreseeable future
           block_number: Number(escrowReceipt.blockNumber),
         });
 

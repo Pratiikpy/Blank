@@ -1,13 +1,13 @@
 // ─── Chain Configuration ────────────────────────────────────────────
 
-export const SUPPORTED_CHAIN_ID = 84532; // Base Sepolia
+export const SUPPORTED_CHAIN_ID = 11155111; // Ethereum Sepolia
 
 export const BASE_SEPOLIA = {
-  id: 84532,
-  name: "Base Sepolia",
-  network: "base-sepolia",
-  rpcUrl: "https://sepolia.base.org",
-  explorerUrl: "https://sepolia.basescan.org",
+  id: 11155111,
+  name: "Ethereum Sepolia",
+  network: "eth-sepolia",
+  rpcUrl: "https://1rpc.io/sepolia",
+  explorerUrl: "https://sepolia.etherscan.io",
   coFheUrl: "https://testnet-cofhe.fhenix.zone",
   verifierUrl: "https://testnet-cofhe-vrf.fhenix.zone",
   thresholdNetworkUrl: "https://testnet-cofhe-tn.fhenix.zone",
@@ -17,22 +17,22 @@ export const BASE_SEPOLIA = {
 // These will be updated after running `deploy-all` task
 
 export const CONTRACTS = {
-  TestUSDC: "0x6377eF23B3464019EcF35528be6Eb6d6D57d0b1a" as `0x${string}`,
-  TokenRegistry: "0x68890C23C94e25706F064f8C1d07e04462B9Ec2E" as `0x${string}`,
-  EventHub: "0xD764e11e4D1e9E308B5E002E7092C43D1E84a590" as `0x${string}`,
-  FHERC20Vault_USDC: "0x789f0bC466E172eD737493e9796a6d0a3aB0ff23" as `0x${string}`,
-  PaymentHub: "0xF420102Dea1acf437bfc49ded5F4E2f5ed32e831" as `0x${string}`,
-  GroupManager: "0x1749E0E08f86211D8239F40BdEcb9497704f9D3d" as `0x${string}`,
-  CreatorHub: "0x5dc36868c89F38F56856DDD55096E3F115cC12ea" as `0x${string}`,
-  BusinessHub: "0xEfD67E33f12a7b3A221d25f965f70d1BE6721EFD" as `0x${string}`,
-  P2PExchange: "0xDa606096d5C2bdE73ccB418771e12630030Ff116" as `0x${string}`,
-  InheritanceManager: "0x289714c46F3c47B2E610191d924dC9bDf22973d5" as `0x${string}`,
-  PaymentReceipts: "0x23f0530e107cCF940093c238bbc97EbdAD6fAD7c" as `0x${string}`,
-  EncryptedFlags: "0x75FF37Bda28EC6A0D39db7E8Ea5CC6527febDA75" as `0x${string}`,
-  GiftMoney: "0x8cf23ab40D38504706dc54664c72a378215c5b8c" as `0x${string}`,
-  PrivacyRouter: "0x30E7041580587F28E84D9166710275814d44Cc7B" as `0x${string}`,
-  StealthPayments: "0x98Dfb7cb7e1bb6795222F21Fe960C81079601C97" as `0x${string}`,
-  MockDEX: "0xb202fEED447452C0934236119012A6508DaB4821" as `0x${string}`,
+  TestUSDC: "0x9558E2D3157c986591F325a6e76cA2fdFDB0b7AD" as `0x${string}`,
+  TokenRegistry: "0x30329fAf6D44955D9Cd8074011D64174fF12F0D8" as `0x${string}`,
+  EventHub: "0xBA620E742F1AbBCcEf8a2b1A50108d7Dc3f0c128" as `0x${string}`,
+  FHERC20Vault_USDC: "0x22c543F1303Ba25A52694C89D8d09D26FBb7569E" as `0x${string}`,
+  PaymentHub: "0x899f22B60A856Ec6FCb7C888c43f1A9891E9d6C5" as `0x${string}`,
+  GroupManager: "0xA09180531Be353D136e35cD5c1667D6c014f5bb1" as `0x${string}`,
+  CreatorHub: "0xdB6F2625e866c0D4F885C6425Ba76Ae2b544B73A" as `0x${string}`,
+  BusinessHub: "0x79A544EfA82fc1567FfF008ACb8BD90FE6f853BF" as `0x${string}`,
+  P2PExchange: "0x6Acfb8bA3E73511dc4e7DE63d5514D3bf9b6696E" as `0x${string}`,
+  InheritanceManager: "0x961F292c48631726e86b8715C57b25Be57F0e560" as `0x${string}`,
+  PaymentReceipts: "0x976b79128D1d4269942EA4500e89A18D8918DDB5" as `0x${string}`,
+  EncryptedFlags: "0xB50843277e7530fba931E73592C11D0b33b049c2" as `0x${string}`,
+  GiftMoney: "0x8D57c702DA6E37329ffbe40dD631E69846d8cb16" as `0x${string}`,
+  PrivacyRouter: "0x53CBAF7407Ab26cd4C75a04587bb3F7172C2a084" as `0x${string}`,
+  StealthPayments: "0xCEa97fFb0CC967C862a9a67E22A5418990523A0E" as `0x${string}`,
+  MockDEX: "0xEa27A3c07b27E3d0355F015c62fc7804A2195128" as `0x${string}`,
 } as const;
 
 // ─── App Configuration ──────────────────────────────────────────────

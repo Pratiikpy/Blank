@@ -44,7 +44,7 @@ export default function SendSuccess() {
 
         {/* Subtitle */}
         <p className="text-base text-[var(--text-secondary)] text-center max-w-sm mb-6 leading-relaxed">
-          Your encrypted payment has been confirmed on Base Sepolia. The amount is
+          Your encrypted payment has been confirmed on Ethereum Sepolia. The amount is
           protected by Fully Homomorphic Encryption.
         </p>
 

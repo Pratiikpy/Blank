@@ -167,7 +167,7 @@ export default function SendConfirm() {
                 <p className="font-medium text-[var(--text-primary)]">
                   {isEncrypting
                     ? "Encrypting payment amount..."
-                    : "Broadcasting to Base Sepolia..."}
+                    : "Broadcasting to Ethereum Sepolia..."}
                 </p>
                 <p className="text-sm text-[var(--text-secondary)]">
                   {isEncrypting

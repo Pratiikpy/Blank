@@ -160,7 +160,7 @@ export function useExchange() {
           contract_address: CONTRACTS.P2PExchange,
           note: `Listed ${amountGive} USDC swap offer`,
           token_address: CONTRACTS.FHERC20Vault_USDC,
-          // Safe: Base Sepolia block numbers fit in Number.MAX_SAFE_INTEGER for the foreseeable future
+          // Safe: Sepolia block numbers fit in Number.MAX_SAFE_INTEGER for the foreseeable future
           block_number: Number(receipt.blockNumber),
         });
 
@@ -245,7 +245,7 @@ export function useExchange() {
           contract_address: CONTRACTS.P2PExchange,
           note: `Accepted swap offer #${offerId}`,
           token_address: CONTRACTS.FHERC20Vault_USDC,
-          // Safe: Base Sepolia block numbers fit in Number.MAX_SAFE_INTEGER for the foreseeable future
+          // Safe: Sepolia block numbers fit in Number.MAX_SAFE_INTEGER for the foreseeable future
           block_number: Number(receipt.blockNumber),
         });
 

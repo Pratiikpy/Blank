@@ -142,7 +142,7 @@ export default function Settings() {
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 rounded-full bg-emerald-500" />
                 <span className="text-sm font-medium text-[var(--text-primary)]">
-                  {chain?.name ?? "Base Sepolia"}
+                  {chain?.name ?? "Ethereum Sepolia"}
                 </span>
               </div>
             </div>
@@ -262,7 +262,7 @@ export default function Settings() {
               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-100 dark:border-emerald-500/20">
                 <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                 <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
-                  Base Sepolia Testnet
+                  Ethereum Sepolia Testnet
                 </span>
               </span>
             </div>
