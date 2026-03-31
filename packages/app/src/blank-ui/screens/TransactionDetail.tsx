@@ -377,7 +377,7 @@ export default function TransactionDetail() {
           {/* Explorer Link */}
           {hasValidTxHash && (
             <a
-              href={`https://sepolia.basescan.org/tx/${activity.tx_hash}`}
+              href={`https://sepolia.etherscan.io/tx/${activity.tx_hash}`}
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center justify-center gap-2 h-14 rounded-2xl bg-blue-50 text-blue-600 font-medium text-sm hover:bg-blue-100 transition-colors"

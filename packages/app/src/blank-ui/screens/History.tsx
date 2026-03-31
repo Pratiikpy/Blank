@@ -421,7 +421,7 @@ export default function History() {
                 </div>
                 {selectedTx.tx_hash && !selectedTx.tx_hash.includes("_") && (
                   <a
-                    href={`https://sepolia.basescan.org/tx/${selectedTx.tx_hash}`}
+                    href={`https://sepolia.etherscan.io/tx/${selectedTx.tx_hash}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center justify-center gap-2 h-12 rounded-2xl bg-blue-50 text-blue-600 font-medium text-sm hover:bg-blue-100 transition-colors"
