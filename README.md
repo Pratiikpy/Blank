@@ -150,7 +150,7 @@ Every encrypted input passes through:
 │                                                                           │
 │  23 screens · 15 hooks · 99 aria-labels · WCAG AA compliant              │
 ├──────────────────────────────────────────────────────────────────────────┤
-│  Smart Contracts (16 deployed on Base Sepolia)                            │
+│  Smart Contracts (16 deployed on Ethereum Sepolia)                            │
 │  Solidity 0.8.25 · UUPS upgradeable proxies · FHE.sol v0.0.13           │
 │  28 unique FHE operations · ReentrancyGuard on all state-changing fns    │
 ├──────────────────────────────────────────────────────────────────────────┤
@@ -169,26 +169,26 @@ Every encrypted input passes through:
 
 ## Deployed Contracts
 
-All contracts are UUPS-upgradeable proxies deployed on **Base Sepolia (Chain ID: 84532)**.
+All contracts are UUPS-upgradeable proxies deployed on **Ethereum Sepolia (Chain ID: 11155111)**.
 
 | Contract | Address | Purpose |
 |----------|---------|---------|
-| **TestUSDC** | `0x6377...0b1a` | Test ERC-20 token with faucet |
-| **FHERC20Vault** | `0x789f...ff23` | Encrypted token vault &mdash; shield, unshield, transfer |
-| **PaymentHub** | `0xF420...e831` | P2P payments, requests, batch send |
-| **GroupManager** | `0x1749...9D3d` | Group expenses, quadratic voting, debt settlement |
-| **CreatorHub** | `0x5dc3...12ea` | Creator profiles, encrypted tips, tier badges |
-| **BusinessHub** | `0xEfD6...1EFD` | Invoicing, payroll, escrow with arbiter |
-| **P2PExchange** | `0xDa60...f116` | Atomic swaps with encrypted settlement |
-| **StealthPayments** | `0x98Df...1C97` | Anonymous transfers via claim codes |
-| **GiftMoney** | `0x8cf2...5b8c` | Encrypted gift envelopes with expiry |
-| **PrivacyRouter** | `0x30E7...Cc7B` | Decrypt-swap-re-encrypt pipeline |
-| **InheritanceManager** | `0x2897...73d5` | Dead man's switch with vault transfer |
-| **PaymentReceipts** | `0x23f0...AD7c` | Cryptographic receipts with FHE-random IDs |
-| **EncryptedFlags** | `0x75FF...DA75` | Compliance engine with encrypted KYC flags |
-| **EventHub** | `0xD764...a590` | Unified event aggregation |
-| **TokenRegistry** | `0x6889...Ec2E` | ERC-20 to vault mapping |
-| **MockDEX** | `0xb202...4821` | Test exchange for privacy router |
+| **TestUSDC** | `0x1636...7D68` | Test ERC-20 token with faucet |
+| **FHERC20Vault** | `0x3a58...AB51` | Encrypted token vault &mdash; shield, unshield, transfer, transferFromVerified |
+| **PaymentHub** | `0xB628...b5eB` | P2P payments, requests, batch send |
+| **GroupManager** | `0x9443...Dd27` | Group expenses, quadratic voting, debt settlement |
+| **CreatorHub** | `0x62FF...B4A1` | Creator profiles, encrypted tips, tier badges |
+| **BusinessHub** | `0x3048...5717` | Invoicing, payroll, escrow with arbiter |
+| **P2PExchange** | `0x5339...A054` | Atomic swaps with encrypted settlement |
+| **StealthPayments** | `0x4064...591c` | Anonymous transfers via claim codes |
+| **GiftMoney** | `0x845A...d4F9` | Encrypted gift envelopes with expiry |
+| **PrivacyRouter** | `0xeE7D...8BC` | Decrypt-swap-re-encrypt pipeline |
+| **InheritanceManager** | `0x4902...9835` | Dead man's switch with vault transfer |
+| **PaymentReceipts** | `0xE208...8148` | Cryptographic receipts with FHE-random IDs |
+| **EncryptedFlags** | `0x0f62...42Aa` | Compliance engine with encrypted KYC flags |
+| **EventHub** | `0x06F8...20eB` | Unified event aggregation |
+| **TokenRegistry** | `0xE233...888A` | ERC-20 to vault mapping |
+| **MockDEX** | `0x9C29...8Be` | Test exchange for privacy router |
 
 ---
 
@@ -245,10 +245,10 @@ A revert is a 1-bit information leak. Enough reverts reconstruct the balance. `F
 
 | Layer | Technology |
 |-------|-----------|
-| **Chain** | Base Sepolia (EVM L2, Chain ID: 84532) |
-| **Contracts** | Solidity 0.8.25 + @fhenixprotocol/cofhe-contracts v0.0.13 |
+| **Chain** | Ethereum Sepolia (Chain ID: 11155111) |
+| **Contracts** | Solidity 0.8.25 + @fhenixprotocol/cofhe-contracts v0.1.0 + viaIR |
 | **FHE Encryption** | @cofhe/sdk v0.4.0 (dynamic WASM, Web Workers for ZK proofs) |
-| **Contract Framework** | Hardhat + cofhe-hardhat-plugin v0.3.1 |
+| **Contract Framework** | Hardhat + @cofhe/hardhat-plugin v0.4.0 |
 | **Frontend** | React 18, Vite 5, TypeScript 5.5 |
 | **Styling** | Tailwind CSS + glass morphism design system |
 | **Wallet** | wagmi 2.17 + viem 2.38 |
@@ -277,11 +277,11 @@ cp .env.example .env    # Add PRIVATE_KEY + RPC URLs
 npx hardhat compile
 npx hardhat test
 
-# Deploy to Base Sepolia
-npx hardhat deploy-all --network base-sepolia
-npx hardhat deploy-remaining --network base-sepolia
-npx hardhat deploy-fhe-extras --network base-sepolia
-npx hardhat deploy-new-features --network base-sepolia
+# Deploy to Ethereum Sepolia
+npx hardhat deploy-all --network eth-sepolia
+npx hardhat deploy-remaining --network eth-sepolia
+npx hardhat deploy-fhe-extras --network eth-sepolia
+npx hardhat deploy-new-features --network eth-sepolia
 ```
 
 ---
