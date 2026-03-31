@@ -196,12 +196,13 @@ export async function fetchActivityById(id: string): Promise<ActivityRow | null>
 
 export async function fetchActivities(address: string, limit = 50): Promise<ActivityRow[]> {
   if (!supabase) return [];
+  const addr = address.toLowerCase();
   try {
     return await withRetry(async () => {
       const { data, error } = await supabase!
         .from("activities")
         .select("*")
-        .or(`user_from.eq.${address},user_to.eq.${address}`)
+        .or(`user_from.eq.${addr},user_to.eq.${addr}`)
         .order("created_at", { ascending: false })
         .limit(limit);
       if (error) throw error;
@@ -236,7 +237,7 @@ export async function fetchIncomingRequests(address: string): Promise<PaymentReq
   const { data, error } = await supabase
     .from("payment_requests")
     .select("*")
-    .eq("from_address", address) // I am the payer
+    .eq("from_address", address.toLowerCase()) // I am the payer
     .eq("status", "pending")
     .order("created_at", { ascending: false });
   if (error) { console.warn("fetchIncomingRequests:", error.message); return []; }
@@ -249,7 +250,7 @@ export async function fetchOutgoingRequests(address: string): Promise<PaymentReq
   const { data, error } = await supabase
     .from("payment_requests")
     .select("*")
-    .eq("to_address", address) // I created the request
+    .eq("to_address", address.toLowerCase()) // I created the request
     .order("created_at", { ascending: false });
   if (error) { console.warn("fetchOutgoingRequests:", error.message); return []; }
   return data || [];
@@ -279,7 +280,7 @@ export async function fetchUserGroups(address: string): Promise<GroupMembershipR
   const { data, error } = await supabase
     .from("group_memberships")
     .select("*")
-    .eq("member_address", address)
+    .eq("member_address", address.toLowerCase())
     .order("created_at", { ascending: false });
   if (error) { console.warn("fetchUserGroups:", error.message); return []; }
   return data || [];
@@ -328,7 +329,7 @@ export async function fetchCreatorProfile(address: string): Promise<CreatorProfi
   const { data, error } = await supabase
     .from("creator_profiles")
     .select("*")
-    .eq("address", address)
+    .eq("address", address.toLowerCase())
     .single();
   if (error) { console.warn("fetchCreatorProfile:", error.message); return null; }
   return data;
@@ -345,7 +346,7 @@ export async function fetchCreatorSupporters(creatorAddress: string): Promise<Cr
   const { data, error } = await supabase
     .from("creator_supporters")
     .select("*")
-    .eq("creator_address", creatorAddress)
+    .eq("creator_address", creatorAddress.toLowerCase())
     .order("created_at", { ascending: false });
   if (error) { console.warn("fetchCreatorSupporters:", error.message); return []; }
   return data || [];
@@ -366,7 +367,7 @@ export async function fetchVendorInvoices(address: string): Promise<InvoiceRow[]
   const { data, error } = await supabase
     .from("invoices")
     .select("*")
-    .eq("vendor_address", address)
+    .eq("vendor_address", address.toLowerCase())
     .order("created_at", { ascending: false });
   if (error) { console.warn("fetchVendorInvoices:", error.message); return []; }
   return data || [];
@@ -377,7 +378,7 @@ export async function fetchClientInvoices(address: string): Promise<InvoiceRow[]
   const { data, error } = await supabase
     .from("invoices")
     .select("*")
-    .eq("client_address", address)
+    .eq("client_address", address.toLowerCase())
     .eq("status", "pending")
     .order("created_at", { ascending: false });
   if (error) { console.warn("fetchClientInvoices:", error.message); return []; }
@@ -427,7 +428,7 @@ export async function fetchUserEscrows(address: string): Promise<EscrowRow[]> {
   const { data, error } = await supabase
     .from("escrows")
     .select("*")
-    .or(`depositor_address.eq.${address},beneficiary_address.eq.${address}`)
+    .or(`depositor_address.eq.${address.toLowerCase()},beneficiary_address.eq.${address.toLowerCase()}`)
     .order("created_at", { ascending: false });
   if (error) { console.warn("fetchUserEscrows:", error.message); return []; }
   return data || [];
@@ -477,7 +478,7 @@ export async function fetchContacts(ownerAddress: string): Promise<ContactRow[]>
   const { data, error } = await supabase
     .from("contacts")
     .select("*")
-    .eq("owner_address", ownerAddress)
+    .eq("owner_address", ownerAddress.toLowerCase())
     .order("nickname", { ascending: true });
   if (error) { console.warn("fetchContacts:", error.message); return []; }
   return data || [];
@@ -494,7 +495,7 @@ export async function deleteContact(ownerAddress: string, contactAddress: string
   const { error } = await supabase
     .from("contacts")
     .delete()
-    .eq("owner_address", ownerAddress)
-    .eq("contact_address", contactAddress);
+    .eq("owner_address", ownerAddress.toLowerCase())
+    .eq("contact_address", contactAddress.toLowerCase());
   if (error) console.warn("deleteContact:", error.message);
 }
