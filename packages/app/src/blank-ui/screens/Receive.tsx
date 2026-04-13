@@ -13,7 +13,7 @@ export default function Receive() {
   );
 
   const paymentLink = address
-    ? `${window.location.origin}/send/amount?to=${address}`
+    ? `${window.location.origin}/app/send/amount?to=${address}`
     : "";
 
   const copyToClipboard = useCallback(

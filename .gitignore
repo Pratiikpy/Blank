@@ -25,26 +25,16 @@ packages/app/dist
 .DS_Store
 Thumbs.db
 
-# Reference repos (not part of the app)
-cofhesdk/
-cofhejs/
-cofhe-hardhat-starter/
-fhenix-docs/
-fhenix-developer-docs/
-awesome-fhenix/
-blank-ui-ref/
+# Organized folders (local-only, not part of repo)
+# references/     — cloned Fhenix SDKs, docs, and other people's projects we studied
+# design-assets/  — screenshots, mockups, design inspiration
+# docs/           — project documentation (specs, roadmaps, reports, verification)
+references/
+design-assets/
+docs/
 
 # Dev artifacts
-*.png
-*.docx
-~$*
-inspriaot*
 memory/
 tasks/
-ROADMAP.md
-VERIFICATION_REPORT.md
-MOBILE_UI_SPEC.md
-FRONTEND_BUILD_SPEC.md
-ARCHITECTURE_FIXES.md
-SUPABASE_SETUP.md
 test_reports/
+~$*

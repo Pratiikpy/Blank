@@ -60,28 +60,28 @@ export default function Profile() {
       iconBg: "bg-[#007AFF]/10 text-[#007AFF]",
       label: "Wallet & Keys",
       subtitle: "Manage your wallet and recovery",
-      route: "/privacy",
+      route: "/app/privacy",
     },
     {
       icon: <Users size={20} />,
       iconBg: "bg-cyan-50 text-cyan-600",
       label: "Contacts",
       subtitle: "Your address book",
-      route: "/contacts",
+      route: "/app/contacts",
     },
     {
       icon: <Shield size={20} />,
       iconBg: "bg-purple-50 text-purple-600",
       label: "Privacy Settings",
       subtitle: "Permits and access control",
-      route: "/privacy",
+      route: "/app/privacy",
     },
     {
       icon: <Settings size={20} />,
       iconBg: "bg-gray-100 text-gray-600",
       label: "Settings",
       subtitle: "Preferences and notifications",
-      route: "/settings",
+      route: "/app/settings",
     },
   ];
 

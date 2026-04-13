@@ -9,7 +9,8 @@ export default function SendSuccess() {
 
   const handleBackHome = () => {
     payment.reset();
-    navigate("/", { replace: true });
+    // Still connected after a send — go to Dashboard, not landing.
+    navigate("/app", { replace: true });
   };
 
   // Auto-redirect to home after 8 seconds

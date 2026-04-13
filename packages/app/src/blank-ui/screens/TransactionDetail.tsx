@@ -237,7 +237,7 @@ export default function TransactionDetail() {
               This transaction may have been removed or the link is invalid.
             </p>
             <button
-              onClick={() => navigate("/history")}
+              onClick={() => navigate("/app/history")}
               className="h-12 px-6 rounded-full bg-[#1D1D1F] text-white font-medium hover:bg-black transition-colors"
             >
               View All Transactions
@@ -389,7 +389,7 @@ export default function TransactionDetail() {
 
           {/* Back to History */}
           <button
-            onClick={() => navigate("/history")}
+            onClick={() => navigate("/app/history")}
             className="h-12 w-full rounded-2xl bg-gray-100 text-[var(--text-secondary)] font-medium text-sm hover:bg-gray-200 transition-colors"
           >
             Back to Activity

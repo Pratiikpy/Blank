@@ -47,7 +47,7 @@ export default function SendContacts() {
   const dismissScanInfo = useCallback(() => setShowScanInfo(false), []);
 
   const handleSelectContact = (address: string, nickname: string) => {
-    navigate("/send/amount", { state: { recipient: address, nickname } });
+    navigate("/app/send/amount", { state: { recipient: address, nickname } });
   };
 
   return (

@@ -57,11 +57,11 @@ function LoadingSpinner() {
 
 // ─── Bottom navigation (mobile only) ──────────────────────────────
 const navItems = [
-  { path: "/", label: "Home", icon: Home },
-  { path: "/send", label: "Send", icon: Send },
-  { path: "/history", label: "History", icon: Clock },
-  { path: "/explore", label: "Explore", icon: Compass },
-  { path: "/profile", label: "Profile", icon: User },
+  { path: "/app", label: "Home", icon: Home },
+  { path: "/app/send", label: "Send", icon: Send },
+  { path: "/app/history", label: "History", icon: Clock },
+  { path: "/app/explore", label: "Explore", icon: Compass },
+  { path: "/app/profile", label: "Profile", icon: User },
 ];
 
 function BottomNav() {
@@ -69,7 +69,7 @@ function BottomNav() {
   const navigate = useNavigate();
 
   const activePath = navItems.find((item) => {
-    if (item.path === "/") return location.pathname === "/";
+    if (item.path === "/app") return location.pathname === "/app";
     return location.pathname.startsWith(item.path);
   })?.path;
 
@@ -102,7 +102,7 @@ function NotFoundPage() {
     <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-6">
       <h1 className="text-6xl font-heading font-bold text-[var(--text-primary)] mb-4">404</h1>
       <p className="text-[var(--text-secondary)] mb-6">Page not found</p>
-      <button onClick={() => navigate("/")} className="h-12 px-6 rounded-full bg-[#1D1D1F] text-white font-medium">
+      <button onClick={() => navigate("/app")} className="h-12 px-6 rounded-full bg-[#1D1D1F] text-white font-medium">
         Go Home
       </button>
     </div>
@@ -110,7 +110,7 @@ function NotFoundPage() {
 }
 
 // ─── Routes that should hide the bottom nav ────────────────────────
-const hideNavRoutes = ["/send/amount", "/send/confirm", "/send/success", "/tx/"];
+const hideNavRoutes = ["/app/send/amount", "/app/send/confirm", "/app/send/success", "/app/tx/"];
 
 // ─── Main app shell ────────────────────────────────────────────────
 export function BlankApp() {
@@ -175,29 +175,29 @@ export function BlankApp() {
               </div>
             )}
             <Routes>
-              <Route path="/" element={<Dashboard />} />
-              <Route path="/send" element={<SendContacts />} />
-              <Route path="/send/amount" element={<SendAmount />} />
-              <Route path="/send/confirm" element={<SendConfirm />} />
-              <Route path="/send/success" element={<SendSuccess />} />
-              <Route path="/receive" element={<Receive />} />
-              <Route path="/history" element={<History />} />
-              <Route path="/explore" element={<Explore />} />
-              <Route path="/profile" element={<Profile />} />
-              <Route path="/groups" element={<Groups />} />
-              <Route path="/stealth" element={<Stealth />} />
-              <Route path="/gifts" element={<Gifts />} />
-              <Route path="/swap" element={<Swap />} />
-              <Route path="/analytics" element={<Analytics />} />
-              <Route path="/business" element={<BusinessTools />} />
-              <Route path="/creators" element={<CreatorSupport />} />
-              <Route path="/inheritance" element={<InheritancePlanning />} />
-              <Route path="/requests" element={<Requests />} />
-              <Route path="/contacts" element={<Contacts />} />
-              <Route path="/privacy" element={<Privacy />} />
-              <Route path="/settings" element={<Settings />} />
-              <Route path="/help" element={<Help />} />
-              <Route path="/tx/:id" element={<TransactionDetail />} />
+              <Route path="/app" element={<Dashboard />} />
+              <Route path="/app/send" element={<SendContacts />} />
+              <Route path="/app/send/amount" element={<SendAmount />} />
+              <Route path="/app/send/confirm" element={<SendConfirm />} />
+              <Route path="/app/send/success" element={<SendSuccess />} />
+              <Route path="/app/receive" element={<Receive />} />
+              <Route path="/app/history" element={<History />} />
+              <Route path="/app/explore" element={<Explore />} />
+              <Route path="/app/profile" element={<Profile />} />
+              <Route path="/app/groups" element={<Groups />} />
+              <Route path="/app/stealth" element={<Stealth />} />
+              <Route path="/app/gifts" element={<Gifts />} />
+              <Route path="/app/swap" element={<Swap />} />
+              <Route path="/app/analytics" element={<Analytics />} />
+              <Route path="/app/business" element={<BusinessTools />} />
+              <Route path="/app/creators" element={<CreatorSupport />} />
+              <Route path="/app/inheritance" element={<InheritancePlanning />} />
+              <Route path="/app/requests" element={<Requests />} />
+              <Route path="/app/contacts" element={<Contacts />} />
+              <Route path="/app/privacy" element={<Privacy />} />
+              <Route path="/app/settings" element={<Settings />} />
+              <Route path="/app/help" element={<Help />} />
+              <Route path="/app/tx/:id" element={<TransactionDetail />} />
               <Route path="*" element={<NotFoundPage />} />
             </Routes>
           </div>

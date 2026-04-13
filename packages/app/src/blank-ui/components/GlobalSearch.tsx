@@ -253,7 +253,7 @@ export function GlobalSearch({ compact = false }: GlobalSearchProps) {
                   {matchedContacts.map((contact) => (
                     <button
                       key={contact.address}
-                      onClick={() => handleNavigate("/contacts")}
+                      onClick={() => handleNavigate("/app/contacts")}
                       className="w-full flex items-center gap-3 px-4 py-3 hover:bg-black/5 transition-colors text-left"
                     >
                       <div className="w-9 h-9 rounded-full bg-gradient-to-br from-purple-400 to-blue-400 flex items-center justify-center flex-shrink-0">

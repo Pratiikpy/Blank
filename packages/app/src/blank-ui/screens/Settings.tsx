@@ -175,7 +175,7 @@ export default function Settings() {
           </div>
 
           <button
-            onClick={() => navigate("/privacy")}
+            onClick={() => navigate("/app/privacy")}
             className="w-full flex items-center justify-between p-4 rounded-xl bg-white/50 dark:bg-white/5 border border-black/5 dark:border-white/5 hover:bg-white/70 dark:hover:bg-white/10 transition-all text-left"
           >
             <div>

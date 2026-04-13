@@ -22,7 +22,7 @@ export default function SendConfirm() {
   // Navigate to success when step transitions
   useEffect(() => {
     if (step === "success") {
-      navigate("/send/success", { replace: true });
+      navigate("/app/send/success", { replace: true });
     }
   }, [step, navigate]);
 

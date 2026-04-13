@@ -157,13 +157,13 @@ export default function Dashboard() {
       label: "Send Money",
       icon: <Send size={20} strokeWidth={2.2} />,
       variant: "primary" as const,
-      route: "/send",
+      route: "/app/send",
     },
     {
       label: "Receive",
       icon: <ArrowDownLeft size={20} strokeWidth={2.2} />,
       variant: "secondary" as const,
-      route: "/receive",
+      route: "/app/receive",
     },
     {
       label: "Shield Tokens",
@@ -176,7 +176,7 @@ export default function Dashboard() {
       label: "More...",
       icon: <MoreHorizontal size={20} strokeWidth={2.2} />,
       variant: "ghost" as const,
-      route: "/explore",
+      route: "/app/explore",
     },
   ];
 
@@ -199,7 +199,7 @@ export default function Dashboard() {
               </p>
             </div>
             <button
-              onClick={() => navigate("/requests")}
+              onClick={() => navigate("/app/requests")}
               className="relative w-10 h-10 rounded-full bg-white/60 border border-black/5 flex items-center justify-center hover:bg-white/80 transition-all shrink-0 mt-1"
               aria-label="Notifications"
             >
@@ -412,7 +412,7 @@ export default function Dashboard() {
             isLoading={feedLoading}
             address={address}
             privacyMode={privacyMode}
-            onViewAll={() => navigate("/history")}
+            onViewAll={() => navigate("/app/history")}
           />
         </div>
       </div>
@@ -437,7 +437,7 @@ export default function Dashboard() {
             </p>
           </div>
           <button
-            onClick={() => navigate("/requests")}
+            onClick={() => navigate("/app/requests")}
             className="relative w-10 h-10 rounded-full bg-white/60 border border-black/5 flex items-center justify-center hover:bg-white/80 transition-all shrink-0 mt-1"
             aria-label="Notifications"
           >
@@ -656,7 +656,7 @@ export default function Dashboard() {
               isLoading={feedLoading}
               address={address}
               privacyMode={privacyMode}
-              onViewAll={() => navigate("/history")}
+              onViewAll={() => navigate("/app/history")}
             />
           </div>
 

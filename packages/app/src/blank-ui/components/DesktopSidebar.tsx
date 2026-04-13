@@ -1,7 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import {
-  Shield,
   Wallet,
   Send,
   Users,
@@ -18,6 +17,8 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { BlankLogo } from "@/blank-ui/landing/BlankLogo";
+import "@/blank-ui/landing/landing.css"; // pulls in .bl-wordmark + .bl-lockup styles
 
 // ═══════════════════════════════════════════════════════════════════
 //  NAV ITEMS — 10 items matching the reference design
@@ -30,17 +31,17 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { icon: Wallet, label: "Dashboard", path: "/" },
-  { icon: Send, label: "Send & Receive", path: "/send" },
-  { icon: Users, label: "Group Expenses", path: "/groups" },
-  { icon: Heart, label: "Creator Support", path: "/creators" },
-  { icon: Briefcase, label: "Business Tools", path: "/business" },
-  { icon: ArrowLeftRight, label: "P2P Exchange", path: "/swap" },
-  { icon: EyeOff, label: "Stealth Payments", path: "/stealth" },
-  { icon: Gift, label: "Gift Envelopes", path: "/gifts" },
-  { icon: Timer, label: "Inheritance", path: "/inheritance" },
-  { icon: Settings, label: "Settings", path: "/settings" },
-  { icon: HelpCircle, label: "Help & FAQ", path: "/help" },
+  { icon: Wallet, label: "Dashboard", path: "/app" },
+  { icon: Send, label: "Send & Receive", path: "/app/send" },
+  { icon: Users, label: "Group Expenses", path: "/app/groups" },
+  { icon: Heart, label: "Creator Support", path: "/app/creators" },
+  { icon: Briefcase, label: "Business Tools", path: "/app/business" },
+  { icon: ArrowLeftRight, label: "P2P Exchange", path: "/app/swap" },
+  { icon: EyeOff, label: "Stealth Payments", path: "/app/stealth" },
+  { icon: Gift, label: "Gift Envelopes", path: "/app/gifts" },
+  { icon: Timer, label: "Inheritance", path: "/app/inheritance" },
+  { icon: Settings, label: "Settings", path: "/app/settings" },
+  { icon: HelpCircle, label: "Help & FAQ", path: "/app/help" },
 ];
 
 // ═══════════════════════════════════════════════════════════════════
@@ -57,7 +58,7 @@ export function DesktopSidebar() {
   });
 
   const isActive = (path: string): boolean => {
-    if (path === "/") return location.pathname === "/";
+    if (path === "/app") return location.pathname === "/app";
     return location.pathname.startsWith(path);
   };
 
@@ -88,19 +89,10 @@ export function DesktopSidebar() {
       className="hidden md:flex flex-col fixed left-0 top-0 bottom-0 z-40 w-72 glass-sidebar"
     >
       {/* ── Logo ─────────────────────────────────────────── */}
-      <div className="flex items-center gap-3 px-6 py-6">
-        <div
-          className="w-10 h-10 rounded-2xl flex items-center justify-center flex-shrink-0"
-          style={{ background: "#1D1D1F" }}
-        >
-          <Shield size={18} className="text-white" strokeWidth={2.2} />
-        </div>
-        <span
-          className="text-h2 text-[var(--text-primary)] whitespace-nowrap"
-          style={{ fontFamily: "'Outfit', 'Inter', sans-serif" }}
-        >
-          Blank Pay
-        </span>
+      <div
+        className="flex items-center px-6 py-6 text-[var(--text-primary)]"
+      >
+        <BlankLogo variant="lockup" size={26} wordmarkSize="1.35rem" />
       </div>
 
       {/* ── Privacy Toggle ───────────────────────────────── */}
