@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import { useAccount, useWriteContract, usePublicClient } from "wagmi";
+import { useAccount, usePublicClient } from "wagmi";
+import { useUnifiedWrite } from "./useUnifiedWrite";
 import { parseUnits, keccak256, encodePacked } from "viem";
 import { useCofheEncrypt, useCofheConnection } from "@cofhe/react";
 import { useCofheDecryptForTx } from "@/lib/cofhe-shim";
@@ -82,7 +83,7 @@ export function useStealthPayments() {
   const { connected } = useCofheConnection();
   const publicClient = usePublicClient();
   const { encryptInputsAsync } = useCofheEncrypt();
-  const { writeContractAsync } = useWriteContract();
+  const { unifiedWrite } = useUnifiedWrite();
   const { decryptForTx } = useCofheDecryptForTx();
 
   const [state, setState] = useState<StealthPaymentsState>(initialState);
@@ -161,7 +162,7 @@ export function useStealthPayments() {
         const stealthAddress = CONTRACTS.StealthPayments as `0x${string}`;
 
         const approveToastId = toast.loading("Approving USDC for stealth deposit...");
-        const approveHash = await writeContractAsync({
+        const approveHash = await unifiedWrite({
           address: CONTRACTS.TestUSDC,
           abi: TestUSDCAbi,
           functionName: "approve",
@@ -185,7 +186,7 @@ export function useStealthPayments() {
         setState((s) => ({ ...s, step: "sending" }));
 
         const sendToastId = toast.loading("Sending stealth payment...");
-        const hash = await writeContractAsync({
+        const hash = await unifiedWrite({
           address: stealthAddress,
           abi: StealthPaymentsAbi,
           functionName: "sendStealth",
@@ -255,7 +256,7 @@ export function useStealthPayments() {
         submittingRef.current = false;
       }
     },
-    [address, connected, publicClient, encryptInputsAsync, writeContractAsync]
+    [address, connected, publicClient, encryptInputsAsync, unifiedWrite]
   );
 
   // ─── Async Decryption Polling ──────────────────────────────────────
@@ -351,7 +352,7 @@ export function useStealthPayments() {
           });
 
           try {
-            const hash = await writeContractAsync({
+            const hash = await unifiedWrite({
               address: stealthAddress,
               abi: StealthPaymentsAbi,
               functionName: "finalizeClaim",
@@ -407,7 +408,7 @@ export function useStealthPayments() {
         }
       }, DECRYPTION_POLL_INTERVAL_MS);
     },
-    [address, publicClient, writeContractAsync, stopPolling, decryptForTx]
+    [address, publicClient, unifiedWrite, stopPolling, decryptForTx]
   );
 
   // ─── Claim Stealth Payment (Phase 1) ──────────────────────────────
@@ -447,7 +448,7 @@ export function useStealthPayments() {
         const stealthAddress = CONTRACTS.StealthPayments as `0x${string}`;
 
         const claimToastId = toast.loading("Claiming stealth payment...");
-        const hash = await writeContractAsync({
+        const hash = await unifiedWrite({
           address: stealthAddress,
           abi: StealthPaymentsAbi,
           functionName: "claimStealth",
@@ -496,7 +497,7 @@ export function useStealthPayments() {
         submittingRef.current = false;
       }
     },
-    [address, connected, publicClient, writeContractAsync, startDecryptionPolling]
+    [address, connected, publicClient, unifiedWrite, startDecryptionPolling]
   );
 
   // ─── Finalize Claim (Phase 2: After Async Decrypt) ────────────────
@@ -549,7 +550,7 @@ export function useStealthPayments() {
             : BigInt(proof.decryptedValue ? 1 : 0);
 
         toast.loading("Finalizing claim...", { id: finalizeToastId });
-        const hash = await writeContractAsync({
+        const hash = await unifiedWrite({
           address: stealthAddress,
           abi: StealthPaymentsAbi,
           functionName: "finalizeClaim",
@@ -595,7 +596,7 @@ export function useStealthPayments() {
         submittingRef.current = false;
       }
     },
-    [address, publicClient, writeContractAsync, decryptForTx]
+    [address, publicClient, unifiedWrite, decryptForTx]
   );
 
   // ─── Get My Pending Claims ────────────────────────────────────────

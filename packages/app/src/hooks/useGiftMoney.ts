@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
-import { useAccount, useWriteContract, usePublicClient } from "wagmi";
+import { useAccount, usePublicClient } from "wagmi";
+import { useUnifiedWrite } from "./useUnifiedWrite";
 import { parseUnits } from "viem";
 import { useCofheEncrypt, useCofheConnection } from "@cofhe/react";
 import { Encryptable } from "@cofhe/sdk";
@@ -44,13 +45,13 @@ const initialState: GiftMoneyState = {
 };
 
 async function ensureVaultApproval(
-  writeContractAsync: ReturnType<typeof useWriteContract>["writeContractAsync"],
+  unifiedWrite: ReturnType<typeof useUnifiedWrite>["unifiedWrite"],
   vaultAddress: `0x${string}`,
   spenderAddress: `0x${string}`,
 ) {
   const toastId = toast.loading("First time! Approving encrypted transfers...");
   try {
-    await writeContractAsync({
+    await unifiedWrite({
       address: vaultAddress,
       abi: FHERC20VaultAbi,
       functionName: "approvePlaintext",
@@ -134,7 +135,7 @@ export function useGiftMoney() {
   const publicClient = usePublicClient();
   const { connected } = useCofheConnection();
   const { encryptInputsAsync } = useCofheEncrypt();
-  const { writeContractAsync } = useWriteContract();
+  const { unifiedWrite } = useUnifiedWrite();
 
   const [state, setState] = useState<GiftMoneyState>(initialState);
 
@@ -179,7 +180,7 @@ export function useGiftMoney() {
 
         // Ensure GiftMoney contract is approved to transferFrom on the vault
         if (!isVaultApproved(CONTRACTS.GiftMoney)) {
-          await ensureVaultApproval(writeContractAsync, vaultAddress, giftMoneyAddress);
+          await ensureVaultApproval(unifiedWrite, vaultAddress, giftMoneyAddress);
           markVaultApproved(CONTRACTS.GiftMoney);
         }
 
@@ -204,7 +205,7 @@ export function useGiftMoney() {
         // Submit the transaction
         setState((s) => ({ ...s, step: "sending" }));
 
-        const hash = await writeContractAsync({
+        const hash = await unifiedWrite({
           address: giftMoneyAddress,
           abi: GiftMoneyAbi,
           functionName: "createEnvelope",
@@ -296,7 +297,7 @@ export function useGiftMoney() {
         toast.error(msg);
       }
     },
-    [address, connected, state.isProcessing, encryptInputsAsync, writeContractAsync, publicClient]
+    [address, connected, state.isProcessing, encryptInputsAsync, unifiedWrite, publicClient]
   );
 
   // ─── Claim (Open) Gift ──────────────────────────────────────────────
@@ -316,7 +317,7 @@ export function useGiftMoney() {
 
         const giftMoneyAddress = CONTRACTS.GiftMoney as `0x${string}`;
 
-        const hash = await writeContractAsync({
+        const hash = await unifiedWrite({
           address: giftMoneyAddress,
           abi: GiftMoneyAbi,
           functionName: "claimGift",
@@ -361,7 +362,7 @@ export function useGiftMoney() {
         toast.error(msg);
       }
     },
-    [address, connected, state.isProcessing, writeContractAsync, publicClient]
+    [address, connected, state.isProcessing, unifiedWrite, publicClient]
   );
 
   // ─── Deactivate Envelope ─────────────────────────────────────────────
@@ -381,7 +382,7 @@ export function useGiftMoney() {
 
         const giftMoneyAddress = CONTRACTS.GiftMoney as `0x${string}`;
 
-        const hash = await writeContractAsync({
+        const hash = await unifiedWrite({
           address: giftMoneyAddress,
           abi: GiftMoneyAbi,
           functionName: "deactivateEnvelope",
@@ -415,7 +416,7 @@ export function useGiftMoney() {
         toast.error(msg);
       }
     },
-    [address, connected, state.isProcessing, writeContractAsync, publicClient]
+    [address, connected, state.isProcessing, unifiedWrite, publicClient]
   );
 
   // ─── Set Expiry ────────────────────────────────────────────────────
@@ -435,7 +436,7 @@ export function useGiftMoney() {
 
         const giftMoneyAddress = CONTRACTS.GiftMoney as `0x${string}`;
 
-        const hash = await writeContractAsync({
+        const hash = await unifiedWrite({
           address: giftMoneyAddress,
           abi: GiftMoneyAbi,
           functionName: "setExpiry",
@@ -468,7 +469,7 @@ export function useGiftMoney() {
         toast.error(msg);
       }
     },
-    [address, connected, state.isProcessing, writeContractAsync, publicClient]
+    [address, connected, state.isProcessing, unifiedWrite, publicClient]
   );
 
   // ─── Reset ──────────────────────────────────────────────────────────

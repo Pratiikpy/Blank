@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
-import { useAccount, useWriteContract, usePublicClient } from "wagmi";
+import { useAccount, usePublicClient } from "wagmi";
+import { useUnifiedWrite } from "./useUnifiedWrite";
 import { parseUnits } from "viem";
 import { useCofheEncrypt } from "@cofhe/react";
 import { useCofheDecryptForTx } from "@/lib/cofhe-shim";
@@ -24,7 +25,7 @@ type Step = "idle" | "approving" | "sending" | "success" | "error";
 export function useExchange() {
   const { address } = useAccount();
   const publicClient = usePublicClient();
-  const { writeContractAsync } = useWriteContract();
+  const { unifiedWrite } = useUnifiedWrite();
   const { encryptInputsAsync } = useCofheEncrypt();
   const { decryptForTx } = useCofheDecryptForTx();
   const [step, setStep] = useState<Step>("idle");
@@ -80,7 +81,7 @@ export function useExchange() {
       try {
         // Approve the P2PExchange contract to spend from vault
         if (!isVaultApproved(CONTRACTS.P2PExchange)) {
-          const approveHash = await writeContractAsync({
+          const approveHash = await unifiedWrite({
             address: CONTRACTS.FHERC20Vault_USDC,
             abi: FHERC20VaultAbi,
             functionName: "approvePlaintext",
@@ -125,7 +126,7 @@ export function useExchange() {
         const wantWei = parseUnits(amountWant, 6);
         const expiryTimestamp = BigInt(Math.floor(new Date(expiryDate).getTime() / 1000));
 
-        const hash = await writeContractAsync({
+        const hash = await unifiedWrite({
           address: CONTRACTS.P2PExchange,
           abi: P2PExchangeAbi,
           functionName: "createOffer",
@@ -188,7 +189,7 @@ export function useExchange() {
         toast.error("Failed to create offer");
       }
     },
-    [address, publicClient, step, writeContractAsync, loadOffers]
+    [address, publicClient, step, unifiedWrite, loadOffers]
   );
 
   // Fill (accept) an offer
@@ -209,7 +210,7 @@ export function useExchange() {
 
         // Approve vault for P2PExchange
         if (!isVaultApproved(CONTRACTS.P2PExchange)) {
-          const approveHash = await writeContractAsync({
+          const approveHash = await unifiedWrite({
             address: CONTRACTS.FHERC20Vault_USDC,
             abi: FHERC20VaultAbi,
             functionName: "approvePlaintext",
@@ -232,7 +233,7 @@ export function useExchange() {
           Encryptable.uint64(makerAmount),
         ]);
 
-        const hash = await writeContractAsync({
+        const hash = await unifiedWrite({
           address: CONTRACTS.P2PExchange,
           abi: P2PExchangeAbi,
           functionName: "fillOffer",
@@ -273,7 +274,7 @@ export function useExchange() {
         toast.error("Failed to accept offer");
       }
     },
-    [address, publicClient, writeContractAsync, offers, encryptInputsAsync, loadOffers, step]
+    [address, publicClient, unifiedWrite, offers, encryptInputsAsync, loadOffers, step]
   );
 
   // Cancel an offer
@@ -286,7 +287,7 @@ export function useExchange() {
 
       setIsCancelling(true);
       try {
-        const hash = await writeContractAsync({
+        const hash = await unifiedWrite({
           address: CONTRACTS.P2PExchange,
           abi: P2PExchangeAbi,
           functionName: "cancelOffer",
@@ -319,7 +320,7 @@ export function useExchange() {
         setIsCancelling(false);
       }
     },
-    [address, publicClient, isCancelling, writeContractAsync, loadOffers]
+    [address, publicClient, isCancelling, unifiedWrite, loadOffers]
   );
 
   // ─── Verify trade (v0.1.3) ────────────────────────────────────────
@@ -364,7 +365,7 @@ export function useExchange() {
             : proof.decryptedValue !== 0n;
 
         toast.loading("Publishing verdict on-chain...", { id: toastId });
-        const hash = await writeContractAsync({
+        const hash = await unifiedWrite({
           address: CONTRACTS.P2PExchange,
           abi: P2PExchangeAbi,
           functionName: "publishTradeValidation",
@@ -400,7 +401,7 @@ export function useExchange() {
         setVerifyingOfferId(null);
       }
     },
-    [address, publicClient, writeContractAsync, decryptForTx, verifyingOfferId]
+    [address, publicClient, unifiedWrite, decryptForTx, verifyingOfferId]
   );
 
   // Read the on-chain verdict for an offer. Returns (isValid, isReady).

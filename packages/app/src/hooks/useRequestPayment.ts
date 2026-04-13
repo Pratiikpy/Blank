@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
-import { useAccount, useWriteContract, usePublicClient } from "wagmi";
+import { useAccount, usePublicClient } from "wagmi";
+import { useUnifiedWrite } from "./useUnifiedWrite";
 import { parseUnits } from "viem";
 import { useCofheEncrypt, useCofheConnection } from "@cofhe/react";
 import { Encryptable } from "@cofhe/sdk";
@@ -13,13 +14,13 @@ import { invalidateBalanceQueries } from "@/lib/query-invalidation";
 import { isVaultApproved, markVaultApproved, clearVaultApproval } from "@/lib/approval";
 
 async function ensureVaultApproval(
-  writeContractAsync: ReturnType<typeof useWriteContract>["writeContractAsync"],
+  unifiedWrite: ReturnType<typeof useUnifiedWrite>["unifiedWrite"],
   vaultAddress: `0x${string}`,
   spenderAddress: `0x${string}`,
 ): Promise<`0x${string}`> {
   const toastId = toast.loading("First time! Approving encrypted transfers...");
   try {
-    const hash = await writeContractAsync({
+    const hash = await unifiedWrite({
       address: vaultAddress,
       abi: FHERC20VaultAbi,
       functionName: "approvePlaintext",
@@ -45,7 +46,7 @@ export function useRequestPayment() {
   const [requestId, setRequestId] = useState<number | null>(null);
 
   const { encryptInputsAsync } = useCofheEncrypt();
-  const { writeContractAsync } = useWriteContract();
+  const { unifiedWrite } = useUnifiedWrite();
 
   // Semantics: `from` = the PAYER (person being asked to pay).
   // `address` (current user) = the REQUESTER who wants money.
@@ -71,7 +72,7 @@ export function useRequestPayment() {
         const [encAmount] = await encryptInputsAsync([Encryptable.uint64(amountWei)]);
 
         setStep("sending");
-        const hash = await writeContractAsync({
+        const hash = await unifiedWrite({
           address: CONTRACTS.PaymentHub as `0x${string}`,
           abi: PaymentHubAbi,
           functionName: "createRequest",
@@ -125,7 +126,7 @@ export function useRequestPayment() {
         toast.error("Request failed");
       }
     },
-    [address, connected, step, encryptInputsAsync, writeContractAsync, publicClient]
+    [address, connected, step, encryptInputsAsync, unifiedWrite, publicClient]
   );
 
   const fulfillRequest = useCallback(
@@ -147,7 +148,7 @@ export function useRequestPayment() {
         // Ensure the PaymentHub contract is approved to transferFrom on the vault
         if (!isVaultApproved(CONTRACTS.PaymentHub)) {
           const approvalHash = await ensureVaultApproval(
-            writeContractAsync,
+            unifiedWrite,
             CONTRACTS.FHERC20Vault_USDC as `0x${string}`,
             CONTRACTS.PaymentHub as `0x${string}`,
           );
@@ -163,7 +164,7 @@ export function useRequestPayment() {
         const amountWei = parseUnits(amount, 6);
         const [encAmount] = await encryptInputsAsync([Encryptable.uint64(amountWei)]);
 
-        const hash = await writeContractAsync({
+        const hash = await unifiedWrite({
           address: CONTRACTS.PaymentHub as `0x${string}`,
           abi: PaymentHubAbi,
           functionName: "fulfillRequest",
@@ -209,7 +210,7 @@ export function useRequestPayment() {
         toast.error("Failed to fulfill request");
       }
     },
-    [address, connected, step, encryptInputsAsync, writeContractAsync, publicClient]
+    [address, connected, step, encryptInputsAsync, unifiedWrite, publicClient]
   );
 
   const cancelRequest = useCallback(
@@ -217,7 +218,7 @@ export function useRequestPayment() {
       if (!address || !publicClient) return;
       if (step === "encrypting" || step === "sending") return; // Already submitting
       try {
-        const hash = await writeContractAsync({
+        const hash = await unifiedWrite({
           address: CONTRACTS.PaymentHub as `0x${string}`,
           abi: PaymentHubAbi,
           functionName: "cancelRequest",
@@ -234,7 +235,7 @@ export function useRequestPayment() {
         toast.error("Failed to cancel");
       }
     },
-    [address, step, writeContractAsync, publicClient]
+    [address, step, unifiedWrite, publicClient]
   );
 
   const reset = useCallback(() => {

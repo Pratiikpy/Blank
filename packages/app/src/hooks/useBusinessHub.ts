@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import { useAccount, useWriteContract, usePublicClient } from "wagmi";
+import { useAccount, usePublicClient } from "wagmi";
+import { useUnifiedWrite } from "./useUnifiedWrite";
 import { parseUnits } from "viem";
 import { useCofheEncrypt, useCofheConnection } from "@cofhe/react";
 import { useCofheDecryptForTx } from "@/lib/cofhe-shim";
@@ -12,13 +13,13 @@ import { extractEventId } from "@/lib/event-parser";
 import { isVaultApproved, markVaultApproved, clearVaultApproval } from "@/lib/approval";
 
 async function ensureVaultApproval(
-  writeContractAsync: ReturnType<typeof useWriteContract>["writeContractAsync"],
+  unifiedWrite: ReturnType<typeof useUnifiedWrite>["unifiedWrite"],
   vaultAddress: `0x${string}`,
   spenderAddress: `0x${string}`,
 ) {
   const toastId = toast.loading("First time! Approving encrypted transfers...");
   try {
-    await writeContractAsync({
+    await unifiedWrite({
       address: vaultAddress,
       abi: FHERC20VaultAbi,
       functionName: "approvePlaintext",
@@ -40,7 +41,7 @@ export function useBusinessHub() {
   const publicClient = usePublicClient();
   const { encryptInputsAsync } = useCofheEncrypt();
   const { decryptForTx } = useCofheDecryptForTx();
-  const { writeContractAsync } = useWriteContract();
+  const { unifiedWrite } = useUnifiedWrite();
   const [step, setStep] = useState<Step>("idle");
 
   const resetTimerRef = useRef<ReturnType<typeof setTimeout>>();
@@ -75,7 +76,7 @@ export function useBusinessHub() {
         // Ensure the BusinessHub contract is approved to transferFrom on the vault
         if (!isVaultApproved(CONTRACTS.BusinessHub)) {
           await ensureVaultApproval(
-            writeContractAsync,
+            unifiedWrite,
             CONTRACTS.FHERC20Vault_USDC as `0x${string}`,
             CONTRACTS.BusinessHub as `0x${string}`,
           );
@@ -93,7 +94,7 @@ export function useBusinessHub() {
         const [encAmount] = await encryptInputsAsync([Encryptable.uint64(amountWei)]);
 
         setStep("sending");
-        const hash = await writeContractAsync({
+        const hash = await unifiedWrite({
           address: CONTRACTS.BusinessHub as `0x${string}`,
           abi: BusinessHubAbi,
           functionName: "createInvoice",
@@ -151,7 +152,7 @@ export function useBusinessHub() {
         toast.error(msg);
       }
     },
-    [address, connected, step, encryptInputsAsync, writeContractAsync, publicClient]
+    [address, connected, step, encryptInputsAsync, unifiedWrite, publicClient]
   );
 
   const runPayroll = useCallback(
@@ -178,7 +179,7 @@ export function useBusinessHub() {
         // Ensure the BusinessHub contract is approved to transferFrom on the vault
         if (!isVaultApproved(CONTRACTS.BusinessHub)) {
           await ensureVaultApproval(
-            writeContractAsync,
+            unifiedWrite,
             CONTRACTS.FHERC20Vault_USDC as `0x${string}`,
             CONTRACTS.BusinessHub as `0x${string}`,
           );
@@ -200,7 +201,7 @@ export function useBusinessHub() {
         );
 
         setStep("sending");
-        const hash = await writeContractAsync({
+        const hash = await unifiedWrite({
           address: CONTRACTS.BusinessHub as `0x${string}`,
           abi: BusinessHubAbi,
           functionName: "runPayroll",
@@ -245,7 +246,7 @@ export function useBusinessHub() {
         toast.error(msg);
       }
     },
-    [address, connected, step, encryptInputsAsync, writeContractAsync, publicClient]
+    [address, connected, step, encryptInputsAsync, unifiedWrite, publicClient]
   );
 
   const createEscrow = useCallback(
@@ -274,7 +275,7 @@ export function useBusinessHub() {
         const escrowAmount = BigInt(parseUnits(amount, 6));
 
         const approvalToastId = toast.loading("Approving escrow deposit...");
-        const approvalHash = await writeContractAsync({
+        const approvalHash = await unifiedWrite({
           address: CONTRACTS.TestUSDC as `0x${string}`,
           abi: TestUSDCAbi,
           functionName: "approve",
@@ -292,7 +293,7 @@ export function useBusinessHub() {
         // Step 2: Create the escrow (now that BusinessHub can transferFrom our tokens)
         setStep("sending");
         const escrowToastId = toast.loading("Creating escrow...");
-        const hash = await writeContractAsync({
+        const hash = await unifiedWrite({
           address: CONTRACTS.BusinessHub as `0x${string}`,
           abi: BusinessHubAbi,
           functionName: "createEscrow",
@@ -347,7 +348,7 @@ export function useBusinessHub() {
         toast.error(err instanceof Error ? err.message : "Escrow failed");
       }
     },
-    [address, connected, step, writeContractAsync, publicClient]
+    [address, connected, step, unifiedWrite, publicClient]
   );
 
   const finalizeInvoice = useCallback(
@@ -392,7 +393,7 @@ export function useBusinessHub() {
             ? result.decryptedValue
             : result.decryptedValue !== 0n;
 
-        const hash = await writeContractAsync({
+        const hash = await unifiedWrite({
           address: CONTRACTS.BusinessHub as `0x${string}`,
           abi: BusinessHubAbi,
           functionName: "payInvoiceFinalize",
@@ -427,7 +428,7 @@ export function useBusinessHub() {
         setStepWithReset("error", 5000);
       }
     },
-    [address, publicClient, writeContractAsync, step, decryptForTx]
+    [address, publicClient, unifiedWrite, step, decryptForTx]
   );
 
   const markDelivered = useCallback(
@@ -441,7 +442,7 @@ export function useBusinessHub() {
       clearTimeout(resetTimerRef.current);
       setStep("sending");
       try {
-        const hash = await writeContractAsync({
+        const hash = await unifiedWrite({
           address: CONTRACTS.BusinessHub as `0x${string}`,
           abi: BusinessHubAbi,
           functionName: "markDelivered",
@@ -472,7 +473,7 @@ export function useBusinessHub() {
         setStepWithReset("error", 5000);
       }
     },
-    [address, publicClient, writeContractAsync, step],
+    [address, publicClient, unifiedWrite, step],
   );
 
   const approveRelease = useCallback(
@@ -486,7 +487,7 @@ export function useBusinessHub() {
       clearTimeout(resetTimerRef.current);
       setStep("sending");
       try {
-        const hash = await writeContractAsync({
+        const hash = await unifiedWrite({
           address: CONTRACTS.BusinessHub as `0x${string}`,
           abi: BusinessHubAbi,
           functionName: "approveRelease",
@@ -519,7 +520,7 @@ export function useBusinessHub() {
         setStepWithReset("error", 5000);
       }
     },
-    [address, publicClient, writeContractAsync, step],
+    [address, publicClient, unifiedWrite, step],
   );
 
   const disputeEscrow = useCallback(
@@ -533,7 +534,7 @@ export function useBusinessHub() {
       clearTimeout(resetTimerRef.current);
       setStep("sending");
       try {
-        const hash = await writeContractAsync({
+        const hash = await unifiedWrite({
           address: CONTRACTS.BusinessHub as `0x${string}`,
           abi: BusinessHubAbi,
           functionName: "disputeEscrow",
@@ -566,7 +567,7 @@ export function useBusinessHub() {
         setStepWithReset("error", 5000);
       }
     },
-    [address, publicClient, writeContractAsync, step],
+    [address, publicClient, unifiedWrite, step],
   );
 
   const payInvoice = useCallback(
@@ -593,7 +594,7 @@ export function useBusinessHub() {
 
         if (!isVaultApproved(CONTRACTS.BusinessHub)) {
           await ensureVaultApproval(
-            writeContractAsync,
+            unifiedWrite,
             CONTRACTS.FHERC20Vault_USDC as `0x${string}`,
             CONTRACTS.BusinessHub as `0x${string}`,
           );
@@ -605,7 +606,7 @@ export function useBusinessHub() {
         const [encAmount] = await encryptInputsAsync([Encryptable.uint64(amountWei)]);
 
         setStep("sending");
-        const hash = await writeContractAsync({
+        const hash = await unifiedWrite({
           address: CONTRACTS.BusinessHub as `0x${string}`,
           abi: BusinessHubAbi,
           functionName: "payInvoice",
@@ -645,7 +646,7 @@ export function useBusinessHub() {
         toast.error(msg);
       }
     },
-    [address, connected, step, encryptInputsAsync, writeContractAsync, publicClient]
+    [address, connected, step, encryptInputsAsync, unifiedWrite, publicClient]
   );
 
   const cancelInvoice = useCallback(
@@ -659,7 +660,7 @@ export function useBusinessHub() {
       clearTimeout(resetTimerRef.current);
       setStep("sending");
       try {
-        const hash = await writeContractAsync({
+        const hash = await unifiedWrite({
           address: CONTRACTS.BusinessHub as `0x${string}`,
           abi: BusinessHubAbi,
           functionName: "cancelInvoice",
@@ -692,7 +693,7 @@ export function useBusinessHub() {
         setStepWithReset("error", 5000);
       }
     },
-    [address, publicClient, writeContractAsync, step]
+    [address, publicClient, unifiedWrite, step]
   );
 
   const arbiterDecide = useCallback(
@@ -706,7 +707,7 @@ export function useBusinessHub() {
       clearTimeout(resetTimerRef.current);
       setStep("sending");
       try {
-        const hash = await writeContractAsync({
+        const hash = await unifiedWrite({
           address: CONTRACTS.BusinessHub as `0x${string}`,
           abi: BusinessHubAbi,
           functionName: "arbiterDecide",
@@ -739,7 +740,7 @@ export function useBusinessHub() {
         setStepWithReset("error", 5000);
       }
     },
-    [address, publicClient, writeContractAsync, step]
+    [address, publicClient, unifiedWrite, step]
   );
 
   const claimExpiredEscrow = useCallback(
@@ -753,7 +754,7 @@ export function useBusinessHub() {
       clearTimeout(resetTimerRef.current);
       setStep("sending");
       try {
-        const hash = await writeContractAsync({
+        const hash = await unifiedWrite({
           address: CONTRACTS.BusinessHub as `0x${string}`,
           abi: BusinessHubAbi,
           functionName: "claimExpiredEscrow",
@@ -786,7 +787,7 @@ export function useBusinessHub() {
         setStepWithReset("error", 5000);
       }
     },
-    [address, publicClient, writeContractAsync, step]
+    [address, publicClient, unifiedWrite, step]
   );
 
   const reset = useCallback(() => setStep("idle"), []);

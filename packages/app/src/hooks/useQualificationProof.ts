@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
-import { useAccount, useWriteContract, usePublicClient } from "wagmi";
+import { useAccount, usePublicClient } from "wagmi";
+import { useUnifiedWrite } from "./useUnifiedWrite";
 import { decodeEventLog } from "viem";
 import toast from "react-hot-toast";
 import { CONTRACTS } from "@/lib/constants";
@@ -37,7 +38,7 @@ export interface ProofRecord {
 export function useQualificationProof() {
   const { address } = useAccount();
   const publicClient = usePublicClient();
-  const { writeContractAsync } = useWriteContract();
+  const { unifiedWrite } = useUnifiedWrite();
   const { decryptForTx } = useCofheDecryptForTx();
 
   const [step, setStep] = useState<ProofStep>("idle");
@@ -61,7 +62,7 @@ export function useQualificationProof() {
         // 6 decimals (TestUSDC) — convert to integer for uint64
         const thresholdWei = BigInt(Math.round(thresholdUSDC * 1_000_000));
 
-        const hash = await writeContractAsync({
+        const hash = await unifiedWrite({
           address: CONTRACTS.PaymentReceipts,
           abi: PaymentReceiptsAbi,
           functionName: "proveIncomeAbove",
@@ -112,7 +113,7 @@ export function useQualificationProof() {
         return null;
       }
     },
-    [address, publicClient, writeContractAsync],
+    [address, publicClient, unifiedWrite],
   );
 
   // Read the current state of a proof. Returns null if not found.
@@ -183,7 +184,7 @@ export function useQualificationProof() {
 
         setStep("publishing");
         toast.loading("Publishing verdict on-chain...", { id: toastId });
-        const hash = await writeContractAsync({
+        const hash = await unifiedWrite({
           address: CONTRACTS.PaymentReceipts,
           abi: PaymentReceiptsAbi,
           functionName: "publishProof",
@@ -206,7 +207,7 @@ export function useQualificationProof() {
         return false;
       }
     },
-    [address, publicClient, decryptForTx, writeContractAsync],
+    [address, publicClient, decryptForTx, unifiedWrite],
   );
 
   // List proof ids for a given user (defaults to current account)

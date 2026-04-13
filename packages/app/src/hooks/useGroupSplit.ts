@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef } from "react";
-import { useAccount, useWriteContract, usePublicClient } from "wagmi";
+import { useAccount, usePublicClient } from "wagmi";
+import { useUnifiedWrite } from "./useUnifiedWrite";
 import { parseUnits } from "viem";
 import { useCofheEncrypt, useCofheConnection } from "@cofhe/react";
 import { Encryptable } from "@cofhe/sdk";
@@ -13,13 +14,13 @@ import { invalidateBalanceQueries } from "@/lib/query-invalidation";
 import { isVaultApproved, markVaultApproved, clearVaultApproval } from "@/lib/approval";
 
 async function ensureVaultApproval(
-  writeContractAsync: ReturnType<typeof useWriteContract>["writeContractAsync"],
+  unifiedWrite: ReturnType<typeof useUnifiedWrite>["unifiedWrite"],
   vaultAddress: `0x${string}`,
   spenderAddress: `0x${string}`,
 ) {
   const toastId = toast.loading("First time! Approving encrypted transfers...");
   try {
-    await writeContractAsync({
+    await unifiedWrite({
       address: vaultAddress,
       abi: FHERC20VaultAbi,
       functionName: "approvePlaintext",
@@ -38,7 +39,7 @@ export function useGroupSplit() {
   const { connected } = useCofheConnection();
   const publicClient = usePublicClient();
   const { encryptInputsAsync } = useCofheEncrypt();
-  const { writeContractAsync } = useWriteContract();
+  const { unifiedWrite } = useUnifiedWrite();
 
   const [isProcessing, setIsProcessing] = useState(false);
   const submittingRef = useRef(false);
@@ -63,7 +64,7 @@ export function useGroupSplit() {
         submittingRef.current = true;
         setIsProcessing(true);
 
-        const hash = await writeContractAsync({
+        const hash = await unifiedWrite({
           address: CONTRACTS.GroupManager as `0x${string}`,
           abi: GroupManagerAbi,
           functionName: "createGroup",
@@ -99,7 +100,7 @@ export function useGroupSplit() {
         setIsProcessing(false);
       }
     },
-    [address, connected, writeContractAsync, publicClient]
+    [address, connected, unifiedWrite, publicClient]
   );
 
   // Add expense with pre-computed encrypted shares
@@ -126,7 +127,7 @@ export function useGroupSplit() {
         // Ensure the GroupManager contract is approved to transferFrom on the vault
         if (!isVaultApproved(CONTRACTS.GroupManager)) {
           await ensureVaultApproval(
-            writeContractAsync,
+            unifiedWrite,
             CONTRACTS.FHERC20Vault_USDC as `0x${string}`,
             CONTRACTS.GroupManager as `0x${string}`,
           );
@@ -156,7 +157,7 @@ export function useGroupSplit() {
         ]);
 
         // Call GroupManager.addExpense() on-chain
-        const hash = await writeContractAsync({
+        const hash = await unifiedWrite({
           address: CONTRACTS.GroupManager as `0x${string}`,
           abi: GroupManagerAbi,
           functionName: "addExpense",
@@ -222,7 +223,7 @@ export function useGroupSplit() {
         setIsProcessing(false);
       }
     },
-    [address, connected, encryptInputsAsync, writeContractAsync, publicClient]
+    [address, connected, encryptInputsAsync, unifiedWrite, publicClient]
   );
 
   // Settle a debt with another group member via encrypted vault transfer
@@ -248,7 +249,7 @@ export function useGroupSplit() {
         // Ensure the GroupManager contract is approved to transferFrom on the vault
         if (!isVaultApproved(CONTRACTS.GroupManager)) {
           await ensureVaultApproval(
-            writeContractAsync,
+            unifiedWrite,
             CONTRACTS.FHERC20Vault_USDC as `0x${string}`,
             CONTRACTS.GroupManager as `0x${string}`,
           );
@@ -260,7 +261,7 @@ export function useGroupSplit() {
           Encryptable.uint64(amountWei),
         ]);
 
-        const hash = await writeContractAsync({
+        const hash = await unifiedWrite({
           address: CONTRACTS.GroupManager as `0x${string}`,
           abi: GroupManagerAbi,
           functionName: "settleDebt",
@@ -309,7 +310,7 @@ export function useGroupSplit() {
         setIsProcessing(false);
       }
     },
-    [address, connected, encryptInputsAsync, writeContractAsync, publicClient]
+    [address, connected, encryptInputsAsync, unifiedWrite, publicClient]
   );
 
   const voteOnExpense = useCallback(
@@ -333,7 +334,7 @@ export function useGroupSplit() {
           Encryptable.uint64(votesWei),
         ]);
 
-        const hash = await writeContractAsync({
+        const hash = await unifiedWrite({
           address: CONTRACTS.GroupManager as `0x${string}`,
           abi: GroupManagerAbi,
           functionName: "voteOnExpense",
@@ -366,7 +367,7 @@ export function useGroupSplit() {
         setIsProcessing(false);
       }
     },
-    [address, publicClient, writeContractAsync, encryptInputsAsync]
+    [address, publicClient, unifiedWrite, encryptInputsAsync]
   );
 
   // Leave a group (removes self from membership)
@@ -381,7 +382,7 @@ export function useGroupSplit() {
       submittingRef.current = true;
       setIsProcessing(true);
       try {
-        const hash = await writeContractAsync({
+        const hash = await unifiedWrite({
           address: CONTRACTS.GroupManager as `0x${string}`,
           abi: GroupManagerAbi,
           functionName: "leaveGroup",
@@ -415,7 +416,7 @@ export function useGroupSplit() {
         setIsProcessing(false);
       }
     },
-    [address, publicClient, writeContractAsync]
+    [address, publicClient, unifiedWrite]
   );
 
   // Archive a group (admin only, deactivates group)
@@ -430,7 +431,7 @@ export function useGroupSplit() {
       submittingRef.current = true;
       setIsProcessing(true);
       try {
-        const hash = await writeContractAsync({
+        const hash = await unifiedWrite({
           address: CONTRACTS.GroupManager as `0x${string}`,
           abi: GroupManagerAbi,
           functionName: "archiveGroup",
@@ -464,7 +465,7 @@ export function useGroupSplit() {
         setIsProcessing(false);
       }
     },
-    [address, publicClient, writeContractAsync]
+    [address, publicClient, unifiedWrite]
   );
 
   return { isProcessing, computeEqualSplit, createGroup, addExpense, settleDebt, voteOnExpense, leaveGroup, archiveGroup };

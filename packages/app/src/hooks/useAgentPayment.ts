@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { useAccount, useWriteContract, usePublicClient } from "wagmi";
+import { useAccount, usePublicClient } from "wagmi";
 import { Encryptable } from "@cofhe/sdk";
 import toast from "react-hot-toast";
 import { CONTRACTS, SUPPORTED_CHAIN_ID, type EncryptedInput } from "@/lib/constants";
@@ -9,6 +9,7 @@ import { insertActivity } from "@/lib/supabase";
 import { isVaultApproved, markVaultApproved, clearVaultApproval } from "@/lib/approval";
 import { FHERC20VaultAbi } from "@/lib/abis";
 import { MAX_UINT64 } from "@/lib/constants";
+import { useUnifiedWrite } from "./useUnifiedWrite";
 
 // ────────────────────────────────────────────────────────────────────
 //  useAgentPayment — derive a payment amount via server-side Claude,
@@ -42,13 +43,13 @@ export interface AgentAttestation {
 }
 
 async function ensureVaultApproval(
-  writeContractAsync: ReturnType<typeof useWriteContract>["writeContractAsync"],
+  unifiedWrite: ReturnType<typeof useUnifiedWrite>["unifiedWrite"],
   vaultAddress: `0x${string}`,
   spenderAddress: `0x${string}`,
 ) {
   const toastId = toast.loading("First time! Approving encrypted transfers...");
   try {
-    await writeContractAsync({
+    await unifiedWrite({
       address: vaultAddress,
       abi: FHERC20VaultAbi,
       functionName: "approvePlaintext",
@@ -65,7 +66,7 @@ async function ensureVaultApproval(
 export function useAgentPayment() {
   const { address } = useAccount();
   const publicClient = usePublicClient();
-  const { writeContractAsync } = useWriteContract();
+  const { unifiedWrite } = useUnifiedWrite();
   const { encryptInputsAsync } = useCofheEncrypt();
 
   const [step, setStep] = useState<AgentStep>("idle");
@@ -140,7 +141,7 @@ export function useAgentPayment() {
         if (!isVaultApproved(CONTRACTS.PaymentHub)) {
           setStep("approving");
           await ensureVaultApproval(
-            writeContractAsync,
+            unifiedWrite,
             CONTRACTS.FHERC20Vault_USDC,
             CONTRACTS.PaymentHub,
           );
@@ -151,7 +152,7 @@ export function useAgentPayment() {
         const [encAmount] = await encryptInputsAsync([Encryptable.uint64(attestation.amount)]);
 
         setStep("sending");
-        const hash = await writeContractAsync({
+        const hash = await unifiedWrite({
           address: CONTRACTS.PaymentHub,
           abi: PaymentHubAbi,
           functionName: "sendPaymentAsAgent",
@@ -196,7 +197,7 @@ export function useAgentPayment() {
         return null;
       }
     },
-    [address, publicClient, writeContractAsync, encryptInputsAsync],
+    [address, publicClient, unifiedWrite, encryptInputsAsync],
   );
 
   const reset = useCallback(() => {

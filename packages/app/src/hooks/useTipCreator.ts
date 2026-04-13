@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef } from "react";
-import { useAccount, useWriteContract, usePublicClient } from "wagmi";
+import { useAccount, usePublicClient } from "wagmi";
 import { parseUnits } from "viem";
 import { useCofheEncrypt, useCofheConnection } from "@cofhe/react";
 import { Encryptable } from "@cofhe/sdk";
@@ -10,15 +10,16 @@ import { insertActivity, insertCreatorSupporter } from "@/lib/supabase";
 import { broadcastAction } from "@/lib/cross-tab";
 import { invalidateBalanceQueries } from "@/lib/query-invalidation";
 import { isVaultApproved, markVaultApproved, clearVaultApproval } from "@/lib/approval";
+import { useUnifiedWrite } from "./useUnifiedWrite";
 
 async function ensureVaultApproval(
-  writeContractAsync: ReturnType<typeof useWriteContract>["writeContractAsync"],
+  unifiedWrite: ReturnType<typeof useUnifiedWrite>["unifiedWrite"],
   vaultAddress: `0x${string}`,
   spenderAddress: `0x${string}`,
 ) {
   const toastId = toast.loading("First time! Approving encrypted transfers...");
   try {
-    await writeContractAsync({
+    await unifiedWrite({
       address: vaultAddress,
       abi: FHERC20VaultAbi,
       functionName: "approvePlaintext",
@@ -37,7 +38,7 @@ export function useTipCreator() {
   const { connected } = useCofheConnection();
   const publicClient = usePublicClient();
   const { encryptInputsAsync } = useCofheEncrypt();
-  const { writeContractAsync } = useWriteContract();
+  const { unifiedWrite } = useUnifiedWrite();
 
   const [isTipping, setIsTipping] = useState(false);
   const submittingRef = useRef(false);
@@ -66,7 +67,7 @@ export function useTipCreator() {
         // Ensure the CreatorHub contract is approved to transferFrom on the vault
         if (!isVaultApproved(CONTRACTS.CreatorHub)) {
           await ensureVaultApproval(
-            writeContractAsync,
+            unifiedWrite,
             CONTRACTS.FHERC20Vault_USDC as `0x${string}`,
             CONTRACTS.CreatorHub as `0x${string}`,
           );
@@ -78,8 +79,8 @@ export function useTipCreator() {
           Encryptable.uint64(amountWei),
         ]);
 
-        // Call CreatorHub.support() on-chain
-        const hash = await writeContractAsync({
+        // Call CreatorHub.support() — branches: AA UserOp via relayer or wagmi EOA path
+        const hash = await unifiedWrite({
           address: CONTRACTS.CreatorHub as `0x${string}`,
           abi: CreatorHubAbi,
           functionName: "support",
@@ -139,7 +140,7 @@ export function useTipCreator() {
         setIsTipping(false);
       }
     },
-    [address, connected, encryptInputsAsync, writeContractAsync, publicClient]
+    [address, connected, encryptInputsAsync, unifiedWrite, publicClient]
   );
 
   return { isTipping, tip };

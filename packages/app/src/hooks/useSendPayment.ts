@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
-import { useAccount, useWriteContract, usePublicClient } from "wagmi";
+import { useAccount, usePublicClient } from "wagmi";
+import { useUnifiedWrite } from "./useUnifiedWrite";
 import { parseUnits } from "viem";
 import { sepolia } from "viem/chains";
 import {
@@ -111,7 +112,7 @@ export function useSendPayment() {
 
   // ─── Legacy hooks (fallback path) ──────────────────────────────────
   const { encryptInputsAsync, isEncrypting } = useCofheEncrypt();
-  const { writeContractAsync } = useWriteContract();
+  const { unifiedWrite } = useUnifiedWrite();
 
   // ─── TASK 5: Atomic encrypt+write hook from @cofhe/react ──────────
   // useCofheEncryptAndWriteContract combines encryption and write into
@@ -199,7 +200,7 @@ export function useSendPayment() {
       // Approve PaymentHub as a spender on the vault (lazy, cached for 24h)
       if (!isVaultApproved(CONTRACTS.PaymentHub)) {
         setState((s) => ({ ...s, step: "encrypting" })); // Show approving state
-        const approveHash = await writeContractAsync({
+        const approveHash = await unifiedWrite({
           address: CONTRACTS.FHERC20Vault_USDC,
           abi: FHERC20VaultAbi,
           functionName: "approvePlaintext",
@@ -296,7 +297,7 @@ export function useSendPayment() {
         err instanceof Error ? err.message : "Transaction failed"
       );
     }
-  }, [address, state.step, state.amount, state.recipient, state.note, encryptAndWrite, writeContractAsync, publicClient]);
+  }, [address, state.step, state.amount, state.recipient, state.note, encryptAndWrite, unifiedWrite, publicClient]);
 
   // ─── Legacy path: separate encrypt then write ──────────────────────
   // Kept as fallback when USE_ATOMIC_ENCRYPT_WRITE is false.
@@ -356,7 +357,7 @@ export function useSendPayment() {
       setState((s) => ({ ...s, step: "sending", encryptionProgress: 100 }));
 
       if (!isVaultApproved(CONTRACTS.PaymentHub)) {
-        const approveHash = await writeContractAsync({
+        const approveHash = await unifiedWrite({
           address: CONTRACTS.FHERC20Vault_USDC,
           abi: FHERC20VaultAbi,
           functionName: "approvePlaintext",
@@ -367,7 +368,7 @@ export function useSendPayment() {
         markVaultApproved(CONTRACTS.PaymentHub);
       }
 
-      const hash = await writeContractAsync({
+      const hash = await unifiedWrite({
         address: CONTRACTS.PaymentHub,
         abi: PaymentHubAbi,
         functionName: "sendPayment",
@@ -439,7 +440,7 @@ export function useSendPayment() {
       }));
       toast.error("Transaction failed");
     }
-  }, [encryptedAmount, address, state.step, state.recipient, state.note, writeContractAsync, publicClient]);
+  }, [encryptedAmount, address, state.step, state.recipient, state.note, unifiedWrite, publicClient]);
 
   // ─── Route to correct implementation ───────────────────────────────
 

@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
-import { useAccount, useWriteContract, useReadContract, usePublicClient } from "wagmi";
+import { useAccount, useReadContract, usePublicClient } from "wagmi";
+import { useUnifiedWrite } from "./useUnifiedWrite";
 import { sepolia } from "viem/chains";
 import { useCofheEncryptAndWriteContract } from "@cofhe/react";
 import { InheritanceManagerAbi } from "@/lib/abis";
@@ -20,7 +21,7 @@ interface InheritancePlan {
 export function useInheritance() {
   const { address } = useAccount();
   const publicClient = usePublicClient();
-  const { writeContractAsync } = useWriteContract();
+  const { unifiedWrite } = useUnifiedWrite();
   const [isProcessing, setIsProcessing] = useState(false);
 
   // Atomic encrypt + write for finalizeClaim (encrypted InEuint64[] amounts)
@@ -56,7 +57,7 @@ export function useInheritance() {
       setIsProcessing(true);
       try {
         const inactivitySeconds = BigInt(inactivityDays * 86400);
-        const hash = await writeContractAsync({
+        const hash = await unifiedWrite({
           address: CONTRACTS.InheritanceManager,
           abi: InheritanceManagerAbi,
           functionName: "setHeir",
@@ -75,7 +76,7 @@ export function useInheritance() {
         setIsProcessing(false);
       }
     },
-    [address, publicClient, writeContractAsync, refetchPlan]
+    [address, publicClient, unifiedWrite, refetchPlan]
   );
 
   // Send heartbeat
@@ -83,7 +84,7 @@ export function useInheritance() {
     if (!address || !publicClient) return;
     setIsProcessing(true);
     try {
-      const hash = await writeContractAsync({
+      const hash = await unifiedWrite({
         address: CONTRACTS.InheritanceManager,
         abi: InheritanceManagerAbi,
         functionName: "heartbeat",
@@ -100,14 +101,14 @@ export function useInheritance() {
     } finally {
       setIsProcessing(false);
     }
-  }, [address, publicClient, writeContractAsync, refetchPlan]);
+  }, [address, publicClient, unifiedWrite, refetchPlan]);
 
   // Remove heir
   const removeHeir = useCallback(async () => {
     if (!address || !publicClient) return;
     setIsProcessing(true);
     try {
-      const hash = await writeContractAsync({
+      const hash = await unifiedWrite({
         address: CONTRACTS.InheritanceManager,
         abi: InheritanceManagerAbi,
         functionName: "removeHeir",
@@ -124,7 +125,7 @@ export function useInheritance() {
     } finally {
       setIsProcessing(false);
     }
-  }, [address, publicClient, writeContractAsync, refetchPlan]);
+  }, [address, publicClient, unifiedWrite, refetchPlan]);
 
   // Set vaults protected by the inheritance plan
   const setVaults = useCallback(
@@ -132,7 +133,7 @@ export function useInheritance() {
       if (!address || !publicClient) return;
       setIsProcessing(true);
       try {
-        const hash = await writeContractAsync({
+        const hash = await unifiedWrite({
           address: CONTRACTS.InheritanceManager,
           abi: InheritanceManagerAbi,
           functionName: "setVaults",
@@ -151,7 +152,7 @@ export function useInheritance() {
         setIsProcessing(false);
       }
     },
-    [address, publicClient, writeContractAsync, refetchPlan]
+    [address, publicClient, unifiedWrite, refetchPlan]
   );
 
   // Start claim (as heir)
@@ -160,7 +161,7 @@ export function useInheritance() {
       if (!address || !publicClient) return;
       setIsProcessing(true);
       try {
-        const hash = await writeContractAsync({
+        const hash = await unifiedWrite({
           address: CONTRACTS.InheritanceManager,
           abi: InheritanceManagerAbi,
           functionName: "startClaim",
@@ -179,7 +180,7 @@ export function useInheritance() {
         setIsProcessing(false);
       }
     },
-    [address, publicClient, writeContractAsync, refetchPlan]
+    [address, publicClient, unifiedWrite, refetchPlan]
   );
 
   // Finalize claim (as heir, after challenge period)

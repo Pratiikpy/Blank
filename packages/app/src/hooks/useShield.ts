@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
-import { useAccount, useReadContract, useWriteContract, usePublicClient } from "wagmi";
+import { useAccount, useReadContract, usePublicClient } from "wagmi";
+import { useUnifiedWrite } from "./useUnifiedWrite";
 import { parseUnits, formatUnits, encodeFunctionData } from "viem";
 import toast from "react-hot-toast";
 import { CONTRACTS } from "@/lib/constants";
@@ -30,7 +31,7 @@ export function useShield() {
   const [txHash, setTxHash] = useState<`0x${string}` | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const { writeContractAsync } = useWriteContract();
+  const { unifiedWrite } = useUnifiedWrite();
   const smartAccount = useSmartAccount();
   const passphrasePrompt = usePassphrasePrompt();
 
@@ -92,7 +93,7 @@ export function useShield() {
 
     setIsMinting(true);
     try {
-      const hash = await writeContractAsync({
+      const hash = await unifiedWrite({
         address: CONTRACTS.TestUSDC as `0x${string}`,
         abi: TestUSDCAbi,
         functionName: "faucet",
@@ -119,7 +120,7 @@ export function useShield() {
     } finally {
       setIsMinting(false);
     }
-  }, [address, writeContractAsync, waitAndRefetch, isMinting]);
+  }, [address, unifiedWrite, waitAndRefetch, isMinting]);
 
   // Shield: approve + deposit — returns hash on success, null on failure.
   //
@@ -221,7 +222,7 @@ export function useShield() {
       }
 
       // Step 1: Approve vault to spend USDC
-      const approveHash = await writeContractAsync({
+      const approveHash = await unifiedWrite({
         address: CONTRACTS.TestUSDC as `0x${string}`,
         abi: TestUSDCAbi,
         functionName: "approve",
@@ -235,7 +236,7 @@ export function useShield() {
 
       // Step 2: Shield (deposit into vault)
       setStep("shielding");
-      const shieldHash = await writeContractAsync({
+      const shieldHash = await unifiedWrite({
         address: CONTRACTS.FHERC20Vault_USDC as `0x${string}`,
         abi: FHERC20VaultAbi,
         functionName: "shield",
@@ -275,7 +276,7 @@ export function useShield() {
       toast.error(err instanceof Error ? err.message : "Shield failed");
       return null;
     }
-  }, [address, writeContractAsync, waitAndRefetch, publicBalance, smartAccount, passphrasePrompt]);
+  }, [address, unifiedWrite, waitAndRefetch, publicBalance, smartAccount, passphrasePrompt]);
 
   // ─── Unshield (request → off-chain decrypt → claim) ────────────────
   // v0.1.3 flow: requestUnshield calls FHE.allowPublic on-chain. We then
@@ -318,7 +319,7 @@ export function useShield() {
 
         setUnshieldStep("claiming");
         try {
-          const claimHash = await writeContractAsync({
+          const claimHash = await unifiedWrite({
             address: CONTRACTS.FHERC20Vault_USDC as `0x${string}`,
             abi: FHERC20VaultAbi,
             functionName: "claimUnshield",
@@ -364,7 +365,7 @@ export function useShield() {
     setUnshieldError(lastErr ?? "Decryption timed out — pending unshield will retry on next page load");
     toast.error(lastErr ?? "Decryption timed out — claim still pending");
     return false;
-  }, [address, publicClient, decryptForTx, writeContractAsync, waitAndRefetch, refetchPending]);
+  }, [address, publicClient, decryptForTx, unifiedWrite, waitAndRefetch, refetchPending]);
 
   // Public: initiate an unshield. Encrypts amount, calls requestUnshield,
   // then immediately attempts the claim (after the on-chain allowPublic).
@@ -390,7 +391,7 @@ export function useShield() {
       };
 
       setUnshieldStep("requesting");
-      const reqHash = await writeContractAsync({
+      const reqHash = await unifiedWrite({
         address: CONTRACTS.FHERC20Vault_USDC as `0x${string}`,
         abi: FHERC20VaultAbi,
         functionName: "requestUnshield",
@@ -429,7 +430,7 @@ export function useShield() {
       toast.error(err instanceof Error ? err.message : "Unshield failed");
       return false;
     }
-  }, [address, writeContractAsync, waitAndRefetch, refetchPending, _attemptClaim]);
+  }, [address, unifiedWrite, waitAndRefetch, refetchPending, _attemptClaim]);
 
   // Auto-resume any pending unshield from a previous session.
   // Runs once on mount when address + ctHash are available.
