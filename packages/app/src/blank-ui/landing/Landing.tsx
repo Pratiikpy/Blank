@@ -4,6 +4,7 @@ import { DecodeWord } from "./DecodeWord";
 import { XRaySlider } from "./XRaySlider";
 import { LandingNav } from "./LandingNav";
 import { LandingFooter } from "./LandingFooter";
+import { LiveDemo } from "./LiveDemo";
 import "./landing.css";
 
 // ══════════════════════════════════════════════════════════════════
@@ -228,6 +229,7 @@ export default function Landing() {
       <LandingNav />
       <main>
         <Hero />
+        <LiveDemo />
         <Problem />
         <HowItWorks />
         <ExploreLinks />
