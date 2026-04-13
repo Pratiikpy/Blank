@@ -6,6 +6,7 @@ export const TestUSDCAbi = [
   { type: "function", name: "faucet", inputs: [], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "balanceOf", inputs: [{ name: "account", type: "address" }], outputs: [{ name: "", type: "uint256" }], stateMutability: "view" },
   { type: "function", name: "approve", inputs: [{ name: "spender", type: "address" }, { name: "amount", type: "uint256" }], outputs: [{ name: "", type: "bool" }], stateMutability: "nonpayable" },
+  { type: "function", name: "transfer", inputs: [{ name: "to", type: "address" }, { name: "amount", type: "uint256" }], outputs: [{ name: "", type: "bool" }], stateMutability: "nonpayable" },
   { type: "function", name: "decimals", inputs: [], outputs: [{ name: "", type: "uint8" }], stateMutability: "pure" },
   { type: "function", name: "symbol", inputs: [], outputs: [{ name: "", type: "string" }], stateMutability: "view" },
 ] as const;
@@ -332,6 +333,7 @@ export const PaymentReceiptsAbi = [
   { type: "function", name: "minReceiptAmount", inputs: [{ name: "hash1", type: "bytes32" }, { name: "hash2", type: "bytes32" }], outputs: [{ name: "", type: "uint256", internalType: "euint64" }], stateMutability: "nonpayable" },
   // Qualification proofs (v0.1.3) — encrypted "income/balance ≥ X" with public verification
   { type: "function", name: "proveIncomeAbove", inputs: [{ name: "thresholdPlaintext", type: "uint64" }], outputs: [{ name: "proofId", type: "uint256" }], stateMutability: "nonpayable" },
+  { type: "function", name: "proveBalanceAbove", inputs: [{ name: "vault", type: "address" }, { name: "thresholdPlaintext", type: "uint64" }], outputs: [{ name: "proofId", type: "uint256" }], stateMutability: "nonpayable" },
   { type: "function", name: "publishProof", inputs: [{ name: "proofId", type: "uint256" }, { name: "plaintext", type: "bool" }, { name: "signature", type: "bytes" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "getProof", inputs: [{ name: "proofId", type: "uint256" }], outputs: [{ name: "prover", type: "address" }, { name: "threshold", type: "uint64" }, { name: "blockNumber", type: "uint256" }, { name: "timestamp", type: "uint256" }, { name: "kind", type: "string" }, { name: "isTrue", type: "bool" }, { name: "isReady", type: "bool" }], stateMutability: "view" },
   { type: "function", name: "getProofHandle", inputs: [{ name: "proofId", type: "uint256" }], outputs: [{ name: "", type: "uint256", internalType: "ebool" }], stateMutability: "view" },

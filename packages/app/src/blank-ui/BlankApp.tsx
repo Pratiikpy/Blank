@@ -1,4 +1,4 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useState } from "react";
 import { Routes, Route, useLocation, useNavigate } from "react-router-dom";
 import { useAccount } from "wagmi";
 import { useSwitchChain } from "wagmi";
@@ -9,10 +9,24 @@ import {
   Compass,
   User,
   AlertTriangle,
+  MoreHorizontal,
+  X,
+  Briefcase,
+  Heart,
+  ArrowLeftRight,
+  EyeOff,
+  Gift,
+  Timer,
+  ShieldCheck,
+  Sparkles,
+  Fingerprint,
+  Settings as SettingsIcon,
+  HelpCircle,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { SUPPORTED_CHAIN_ID, ACTIVE_CHAIN } from "@/lib/constants";
+import { ChainSelector } from "./components/ChainSelector";
 import "./theme.css";
 
 // Lazy load all screens
@@ -60,42 +74,134 @@ function LoadingSpinner() {
 }
 
 // ─── Bottom navigation (mobile only) ──────────────────────────────
+//
+// Five tabs visible on mobile. The fifth ("More") opens a sheet with
+// every desktop sidebar item that isn't in the bottom 5 — so mobile
+// users have access to everything (Proofs, AI Agents, Smart Wallet,
+// Business, Creators, Stealth, Gifts, Inheritance, Swap, Settings, Help).
 const navItems = [
   { path: "/app", label: "Home", icon: Home },
   { path: "/app/send", label: "Send", icon: Send },
   { path: "/app/history", label: "History", icon: Clock },
   { path: "/app/explore", label: "Explore", icon: Compass },
-  { path: "/app/profile", label: "Profile", icon: User },
+];
+
+const moreItems = [
+  { path: "/app/profile",     label: "Profile",          icon: User },
+  { path: "/app/wallet",      label: "Smart Wallet",     icon: Fingerprint },
+  { path: "/app/proofs",      label: "Encrypted Proofs", icon: ShieldCheck },
+  { path: "/app/agents",      label: "AI Agents",        icon: Sparkles },
+  { path: "/app/business",    label: "Business Tools",   icon: Briefcase },
+  { path: "/app/creators",    label: "Creator Support",  icon: Heart },
+  { path: "/app/swap",        label: "P2P Exchange",     icon: ArrowLeftRight },
+  { path: "/app/stealth",     label: "Stealth Payments", icon: EyeOff },
+  { path: "/app/gifts",       label: "Gift Envelopes",   icon: Gift },
+  { path: "/app/inheritance", label: "Inheritance",      icon: Timer },
+  { path: "/app/settings",    label: "Settings",         icon: SettingsIcon },
+  { path: "/app/help",        label: "Help & FAQ",       icon: HelpCircle },
 ];
 
 function BottomNav() {
   const location = useLocation();
   const navigate = useNavigate();
+  const [moreOpen, setMoreOpen] = useState(false);
 
   const activePath = navItems.find((item) => {
     if (item.path === "/app") return location.pathname === "/app";
     return location.pathname.startsWith(item.path);
   })?.path;
 
+  const onMoreRoute = moreItems.some((m) => location.pathname.startsWith(m.path));
+
   return (
-    <nav className="bottom-nav" aria-label="Main navigation">
-      {navItems.map((item) => {
-        const Icon = item.icon;
-        const isActive = activePath === item.path;
-        return (
-          <button
-            key={item.path}
-            onClick={() => navigate(item.path)}
-            className={cn("bottom-nav-item", isActive && "active")}
-            aria-label={item.label}
-            aria-current={isActive ? "page" : undefined}
+    <>
+      <nav className="bottom-nav" aria-label="Main navigation">
+        {navItems.map((item) => {
+          const Icon = item.icon;
+          const isActive = activePath === item.path;
+          return (
+            <button
+              key={item.path}
+              onClick={() => navigate(item.path)}
+              className={cn("bottom-nav-item", isActive && "active")}
+              aria-label={item.label}
+              aria-current={isActive ? "page" : undefined}
+            >
+              <Icon size={22} strokeWidth={isActive ? 2.2 : 1.8} />
+              <span>{item.label}</span>
+            </button>
+          );
+        })}
+        <button
+          onClick={() => setMoreOpen(true)}
+          className={cn("bottom-nav-item", onMoreRoute && "active")}
+          aria-label="More"
+          aria-haspopup="dialog"
+          aria-expanded={moreOpen}
+        >
+          <MoreHorizontal size={22} strokeWidth={onMoreRoute ? 2.2 : 1.8} />
+          <span>More</span>
+        </button>
+      </nav>
+
+      {moreOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-[90] flex items-end animate-in fade-in duration-150"
+          onClick={() => setMoreOpen(false)}
+          style={{ background: "rgba(0,0,0,0.4)", backdropFilter: "blur(4px)" }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full bg-white dark:bg-[#0F0F10] rounded-t-[2.5rem] border-t border-black/10 dark:border-white/10 p-6 pb-[max(1.5rem,env(safe-area-inset-bottom,0px))] max-h-[85dvh] overflow-y-auto animate-in slide-in-from-bottom duration-200"
           >
-            <Icon size={22} strokeWidth={isActive ? 2.2 : 1.8} />
-            <span>{item.label}</span>
-          </button>
-        );
-      })}
-    </nav>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-heading font-semibold text-[var(--text-primary)]">More</h2>
+              <button
+                onClick={() => setMoreOpen(false)}
+                className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
+                aria-label="Close"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Chain selector — also fixes the desktop-only chain switcher gap */}
+            <div className="mb-5 -mx-2">
+              <ChainSelector />
+            </div>
+
+            <div className="grid grid-cols-3 gap-2">
+              {moreItems.map((item) => {
+                const Icon = item.icon;
+                const isActive = location.pathname.startsWith(item.path);
+                return (
+                  <button
+                    key={item.path}
+                    onClick={() => {
+                      setMoreOpen(false);
+                      navigate(item.path);
+                    }}
+                    className={cn(
+                      "flex flex-col items-center gap-2 p-3 rounded-2xl transition-colors",
+                      isActive
+                        ? "bg-black/[0.07] dark:bg-white/[0.08] text-[var(--text-primary)]"
+                        : "hover:bg-black/[0.04] dark:hover:bg-white/[0.04] text-[var(--text-secondary)]",
+                    )}
+                  >
+                    <Icon size={22} strokeWidth={isActive ? 2.2 : 1.8} />
+                    <span className="text-[11px] font-medium leading-tight text-center">
+                      {item.label}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 

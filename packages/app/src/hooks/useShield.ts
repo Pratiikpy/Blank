@@ -25,7 +25,7 @@ export type ShieldStep = "idle" | "approving" | "shielding" | "success" | "error
 export type UnshieldStep = "idle" | "encrypting" | "requesting" | "decrypting" | "claiming" | "success" | "error";
 
 export function useShield() {
-  const { address } = useAccount();
+  const { address: eoaAddress } = useAccount();
   const publicClient = usePublicClient();
   const [step, setStep] = useState<ShieldStep>("idle");
   const [txHash, setTxHash] = useState<`0x${string}` | null>(null);
@@ -34,6 +34,14 @@ export function useShield() {
   const { unifiedWrite } = useUnifiedWrite();
   const smartAccount = useSmartAccount();
   const passphrasePrompt = usePassphrasePrompt();
+
+  // Effective address: smart account when active, EOA otherwise. Without
+  // this, smart-wallet users see $0 USDC (we'd be reading the EOA's balance
+  // not the smart account's). Same fix as useEncryptedBalance.
+  const address =
+    smartAccount.status === "ready" && smartAccount.account
+      ? (smartAccount.account.address as `0x${string}`)
+      : eoaAddress;
 
   // Read public USDC balance — refetchInterval polls every 5s for fresh data
   const { data: publicBalance, refetch: refetchBalance } = useReadContract({
@@ -442,7 +450,10 @@ export function useShield() {
       const data = JSON.parse(stored);
       console.log("[useShield] Auto-resuming pending unshield from previous session");
       _attemptClaim(pendingCtHash as bigint, data.amount ?? "");
-    } catch {}
+    } catch (err) {
+      // Stored payload corrupt — log so it's visible why auto-resume didn't fire.
+      console.warn("[useShield] Failed to auto-resume pending unshield:", err);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [address, hasPendingUnshield]);
 

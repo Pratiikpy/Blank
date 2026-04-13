@@ -44,35 +44,24 @@ export function useQualificationProof() {
   const [step, setStep] = useState<ProofStep>("idle");
   const [error, setError] = useState<string | null>(null);
 
-  // Create a new "income ≥ threshold" proof on-chain. Returns proof id on success.
-  const createIncomeProof = useCallback(
-    async (thresholdUSDC: number): Promise<bigint | null> => {
+  // Internal helper used by both income + balance proof flows. Calls the
+  // given write fn, waits for the receipt, extracts the proofId.
+  const _submitProof = useCallback(
+    async (
+      callDescription: string,
+      writeFn: () => Promise<`0x${string}`>,
+    ): Promise<bigint | null> => {
       if (!address || !publicClient) {
         toast.error("Connect your wallet first");
         return null;
       }
-      if (thresholdUSDC < 0) {
-        toast.error("Threshold must be ≥ 0");
-        return null;
-      }
-
       setStep("creating");
       setError(null);
       try {
-        // 6 decimals (TestUSDC) — convert to integer for uint64
-        const thresholdWei = BigInt(Math.round(thresholdUSDC * 1_000_000));
-
-        const hash = await unifiedWrite({
-          address: CONTRACTS.PaymentReceipts,
-          abi: PaymentReceiptsAbi,
-          functionName: "proveIncomeAbove",
-          args: [thresholdWei],
-          gas: BigInt(5_000_000), // CoFHE: precompile breaks gas estimation
-        });
+        const hash = await writeFn();
         const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
         if (receipt.status === "reverted") throw new Error("Proof creation reverted");
 
-        // Extract proof id from ProofCreated event log
         let proofId: bigint | null = null;
         for (const log of receipt.logs) {
           try {
@@ -85,9 +74,7 @@ export function useQualificationProof() {
               proofId = (decoded.args as any).proofId as bigint;
               break;
             }
-          } catch {
-            // log not from PaymentReceipts — skip
-          }
+          } catch { /* not a PaymentReceipts log */ }
         }
         if (proofId === null) throw new Error("Proof id missing from receipt logs");
 
@@ -97,7 +84,7 @@ export function useQualificationProof() {
           user_to: address.toLowerCase(),
           activity_type: "proof_created",
           contract_address: CONTRACTS.PaymentReceipts,
-          note: `Proof #${proofId.toString()}: income ≥ $${thresholdUSDC.toLocaleString()}`,
+          note: `Proof #${proofId.toString()}: ${callDescription}`,
           token_address: CONTRACTS.TestUSDC,
           block_number: Number(receipt.blockNumber),
         });
@@ -113,7 +100,51 @@ export function useQualificationProof() {
         return null;
       }
     },
-    [address, publicClient, unifiedWrite],
+    [address, publicClient],
+  );
+
+  // Create a new "income ≥ threshold" proof on-chain. Returns proof id on success.
+  const createIncomeProof = useCallback(
+    async (thresholdUSDC: number): Promise<bigint | null> => {
+      if (thresholdUSDC < 0) {
+        toast.error("Threshold must be ≥ 0");
+        return null;
+      }
+      const thresholdWei = BigInt(Math.round(thresholdUSDC * 1_000_000));
+      return _submitProof(
+        `income ≥ $${thresholdUSDC.toLocaleString()}`,
+        () => unifiedWrite({
+          address: CONTRACTS.PaymentReceipts,
+          abi: PaymentReceiptsAbi,
+          functionName: "proveIncomeAbove",
+          args: [thresholdWei],
+          gas: BigInt(5_000_000),
+        }),
+      );
+    },
+    [unifiedWrite, _submitProof],
+  );
+
+  // Create a new "balance in vault ≥ threshold" proof. Vault defaults to USDC vault.
+  const createBalanceProof = useCallback(
+    async (thresholdUSDC: number, vault: `0x${string}` = CONTRACTS.FHERC20Vault_USDC): Promise<bigint | null> => {
+      if (thresholdUSDC < 0) {
+        toast.error("Threshold must be ≥ 0");
+        return null;
+      }
+      const thresholdWei = BigInt(Math.round(thresholdUSDC * 1_000_000));
+      return _submitProof(
+        `balance ≥ $${thresholdUSDC.toLocaleString()}`,
+        () => unifiedWrite({
+          address: CONTRACTS.PaymentReceipts,
+          abi: PaymentReceiptsAbi,
+          functionName: "proveBalanceAbove",
+          args: [vault, thresholdWei],
+          gas: BigInt(5_000_000),
+        }),
+      );
+    },
+    [unifiedWrite, _submitProof],
   );
 
   // Read the current state of a proof. Returns null if not found.
@@ -240,6 +271,7 @@ export function useQualificationProof() {
     step,
     error,
     createIncomeProof,
+    createBalanceProof,
     fetchProof,
     publishProof,
     fetchProofsByUser,

@@ -24,6 +24,10 @@ interface IEventHub {
     ) external;
 }
 
+interface IPaymentReceipts {
+    function bumpGlobalVolume(euint64 amount) external;
+}
+
 /// @title PaymentHub — Core encrypted payment operations
 /// @notice Handles P2P payments with notes, payment requests, and batch sends.
 ///         All amounts are FHE-encrypted. Social context (who, when, note) is public.
@@ -67,6 +71,12 @@ contract PaymentHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     // attestation tuple (user, nonce, expiry, chainId) which the contract
     // verifies via ECDSA. Each nonce can only be consumed once per chain.
     mapping(bytes32 => bool) private _usedAgentNonces;
+
+    // ─── Optional aggregator wiring (v0.1.4, append-only storage) ───────
+    // When set, sendPayment / batchSend / sendPaymentAsAgent fire
+    // paymentReceipts.bumpGlobalVolume(actual) so the landing-page counter
+    // reflects real activity. Zero-address = feature off (back-compat).
+    address public paymentReceipts;
 
     // ─── Events ─────────────────────────────────────────────────────────
 
@@ -147,6 +157,8 @@ contract PaymentHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
         euint64 actual = IFHERC20Vault(vault).transferFromVerified(msg.sender, to, verifiedAmount);
         FHE.allowSender(actual);  // Sender can verify transfer succeeded
+        FHE.allowThis(actual);    // Required so we can pass to PaymentReceipts
+        _bumpAggregate(actual);
 
         emit PaymentSent(msg.sender, to, vault, note, block.timestamp);
         try eventHub.emitActivity(msg.sender, to, "payment", note, 0) {} catch {}
@@ -261,6 +273,8 @@ contract PaymentHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
             euint64 actual = vaultContract.transferFromVerified(msg.sender, recipients[i], verifiedAmount);
             FHE.allowSender(actual);
             FHE.allow(actual, recipients[i]);
+            FHE.allowThis(actual);
+            _bumpAggregate(actual);
             emit PaymentSent(msg.sender, recipients[i], vault, notes[i], block.timestamp);
         }
 
@@ -356,6 +370,8 @@ contract PaymentHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         FHE.allowTransient(verifiedAmount, vault);
         euint64 actual = IFHERC20Vault(vault).transferFromVerified(msg.sender, to, verifiedAmount);
         FHE.allowSender(actual);
+        FHE.allowThis(actual);
+        _bumpAggregate(actual);
 
         emit PaymentSent(msg.sender, to, vault, note, block.timestamp);
         emit AgentPaymentSubmission(msg.sender, agent, nonce, expiry, block.timestamp);
@@ -371,6 +387,23 @@ contract PaymentHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
     function setEventHub(address _eventHub) external onlyOwner {
         eventHub = IEventHub(_eventHub);
+    }
+
+    /// @notice Set the PaymentReceipts contract address. When non-zero,
+    ///         sendPayment / batchSend / sendPaymentAsAgent forward the
+    ///         transferred amount to paymentReceipts.bumpGlobalVolume so
+    ///         the landing-page counter increments.
+    function setPaymentReceipts(address _paymentReceipts) external onlyOwner {
+        paymentReceipts = _paymentReceipts;
+    }
+
+    /// @dev Internal: forward an already-verified euint64 to PaymentReceipts.
+    ///      Wrapped in try/catch — never blocks the payment if the receipts
+    ///      contract reverts (e.g. if PaymentHub isn't authorized yet).
+    function _bumpAggregate(euint64 amount) internal {
+        if (paymentReceipts == address(0)) return;
+        FHE.allowTransient(amount, paymentReceipts);
+        try IPaymentReceipts(paymentReceipts).bumpGlobalVolume(amount) {} catch {}
     }
 
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}

@@ -6,3 +6,5 @@ import "./deploy-upgrade-v2";
 import "./deploy-upgrade-v013";
 import "./deploy-aa";
 import "./setup-aa";
+import "./setup-mockdex";
+import "./setup-receipts";

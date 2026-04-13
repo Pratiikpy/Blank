@@ -8,6 +8,7 @@ import {
 import { CONTRACTS, REVEAL_TIMEOUT_MS } from "@/lib/constants";
 import { FHERC20VaultAbi } from "@/lib/abis";
 import { invalidateBalanceQueries } from "@/lib/query-invalidation";
+import { useSmartAccount } from "./useSmartAccount";
 
 // ─── Feature flag: set to true to use real cofhe decrypt ─────────────
 // When enabled, the hook uses useCofheReadContractAndDecrypt to read the
@@ -43,10 +44,20 @@ interface EncryptedBalanceState {
  * - Decryption fails
  */
 export function useEncryptedBalance(vaultAddress?: string, decimals = 6) {
-  const { address } = useAccount();
+  const { address: eoaAddress } = useAccount();
   const publicClient = usePublicClient();
   const { connected: cofheConnected } = useCofheConnection();
   const activePermit = useCofheActivePermit();
+  const smartAccount = useSmartAccount();
+
+  // When a smart wallet is active, balances live under the SMART ACCOUNT
+  // address — not the connected EOA. Without this, smart-wallet users see
+  // $0 even after a successful shield, because we'd be reading vault
+  // .balanceOf(EOA) when the funds went to .balanceOf(smartAccount).
+  const address =
+    smartAccount.status === "ready" && smartAccount.account
+      ? (smartAccount.account.address as `0x${string}`)
+      : eoaAddress;
   const [state, setState] = useState<EncryptedBalanceState>({
     raw: null,
     formatted: null,

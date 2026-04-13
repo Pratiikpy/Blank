@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { useAccount, usePublicClient, useWriteContract } from "wagmi";
+import { parseUnits, formatUnits } from "viem";
 import {
   Fingerprint,
   ShieldCheck,
@@ -8,10 +10,13 @@ import {
   Trash2,
   Wallet,
   ExternalLink,
+  Send,
+  Banknote,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { useSmartAccount } from "@/hooks/useSmartAccount";
-import { ACTIVE_CHAIN } from "@/lib/constants";
+import { ACTIVE_CHAIN, CONTRACTS } from "@/lib/constants";
+import { TestUSDCAbi } from "@/lib/abis";
 
 // ──────────────────────────────────────────────────────────────────
 //  SmartWallet (`/app/wallet`) — passkey signup + account info.
@@ -26,10 +31,106 @@ import { ACTIVE_CHAIN } from "@/lib/constants";
 
 export default function SmartWallet() {
   const { status, account, error, createAccount, removeAccount, refresh } = useSmartAccount();
+  const { address: eoaAddress } = useAccount();
+  const publicClient = usePublicClient();
+  const { writeContractAsync } = useWriteContract();
 
   const [passphrase, setPassphrase] = useState("");
   const [confirmPassphrase, setConfirmPassphrase] = useState("");
   const [creating, setCreating] = useState(false);
+
+  // Fund-in flow state — read USDC balance of smart account + EOA, let user
+  // transfer USDC from EOA to smart account with one click.
+  const [smartUsdc, setSmartUsdc] = useState<bigint | null>(null);
+  const [eoaUsdc, setEoaUsdc] = useState<bigint | null>(null);
+  const [fundAmount, setFundAmount] = useState("100");
+  const [funding, setFunding] = useState(false);
+
+  const refreshBalances = useCallback(async () => {
+    if (!publicClient || !account || !eoaAddress) return;
+    try {
+      const [s, e] = await Promise.all([
+        publicClient.readContract({
+          address: CONTRACTS.TestUSDC,
+          abi: TestUSDCAbi,
+          functionName: "balanceOf",
+          args: [account.address],
+        }) as Promise<bigint>,
+        publicClient.readContract({
+          address: CONTRACTS.TestUSDC,
+          abi: TestUSDCAbi,
+          functionName: "balanceOf",
+          args: [eoaAddress],
+        }) as Promise<bigint>,
+      ]);
+      setSmartUsdc(s);
+      setEoaUsdc(e);
+    } catch (err) {
+      console.warn("[SmartWallet] balance refresh failed:", err);
+    }
+  }, [publicClient, account, eoaAddress]);
+
+  useEffect(() => {
+    refreshBalances();
+    const id = setInterval(refreshBalances, 10_000);
+    return () => clearInterval(id);
+  }, [refreshBalances]);
+
+  const handleFund = useCallback(async () => {
+    if (!account || !eoaAddress) return;
+    const value = parseFloat(fundAmount);
+    if (!Number.isFinite(value) || value <= 0) {
+      toast.error("Enter a positive amount");
+      return;
+    }
+    const wei = parseUnits(String(value), 6);
+    if (eoaUsdc !== null && wei > eoaUsdc) {
+      toast.error(`Insufficient USDC in your EOA — have ${formatUnits(eoaUsdc, 6)}, need ${value}`);
+      return;
+    }
+    setFunding(true);
+    try {
+      const hash = await writeContractAsync({
+        address: CONTRACTS.TestUSDC,
+        abi: TestUSDCAbi,
+        functionName: "transfer",
+        args: [account.address, wei],
+      });
+      toast.loading("Funding smart wallet…", { id: "fund-tx" });
+      if (publicClient) {
+        await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
+      }
+      toast.success(`Sent ${value} USDC to your smart wallet!`, { id: "fund-tx" });
+      await refreshBalances();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Fund transfer failed";
+      toast.error(msg, { id: "fund-tx" });
+    } finally {
+      setFunding(false);
+    }
+  }, [account, eoaAddress, fundAmount, eoaUsdc, writeContractAsync, publicClient, refreshBalances]);
+
+  const handleFaucet = useCallback(async () => {
+    if (!eoaAddress) return;
+    setFunding(true);
+    try {
+      const hash = await writeContractAsync({
+        address: CONTRACTS.TestUSDC,
+        abi: TestUSDCAbi,
+        functionName: "faucet",
+      });
+      toast.loading("Minting 10,000 USDC to your EOA…", { id: "faucet-tx" });
+      if (publicClient) {
+        await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
+      }
+      toast.success("10,000 USDC minted to your EOA — now click Fund", { id: "faucet-tx" });
+      await refreshBalances();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Faucet failed", { id: "faucet-tx" });
+    } finally {
+      setFunding(false);
+    }
+  }, [eoaAddress, writeContractAsync, publicClient, refreshBalances]);
 
   const handleCreate = async () => {
     if (passphrase.length < 8) {
@@ -213,6 +314,93 @@ export default function SmartWallet() {
                   </a>
                 )}
               </div>
+            </div>
+
+            {/* Fund-in card */}
+            <div className="glass-card-static rounded-[2rem] p-8">
+              <div className="flex items-start gap-3 mb-5">
+                <div className="w-10 h-10 rounded-xl bg-amber-50 dark:bg-amber-500/10 flex items-center justify-center text-amber-600 dark:text-amber-400">
+                  <Banknote size={18} />
+                </div>
+                <div>
+                  <h3 className="text-base font-heading font-medium text-[var(--text-primary)]">
+                    Fund your smart wallet
+                  </h3>
+                  <p className="text-xs text-[var(--text-tertiary)] mt-0.5">
+                    Send USDC from your EOA → smart account. Required before shielding.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 mb-5">
+                <div className="rounded-2xl bg-white/40 dark:bg-black/20 border border-black/5 dark:border-white/5 p-4">
+                  <div className="text-[11px] uppercase tracking-wider text-[var(--text-tertiary)] mb-1">
+                    EOA balance (source)
+                  </div>
+                  <div className="font-mono text-lg font-semibold text-[var(--text-primary)]">
+                    {eoaUsdc !== null ? Number(formatUnits(eoaUsdc, 6)).toLocaleString() : "—"} USDC
+                  </div>
+                </div>
+                <div className="rounded-2xl bg-emerald-50/50 dark:bg-emerald-500/5 border border-emerald-200/40 dark:border-emerald-500/20 p-4">
+                  <div className="text-[11px] uppercase tracking-wider text-emerald-700 dark:text-emerald-300 mb-1">
+                    Smart wallet balance
+                  </div>
+                  <div className="font-mono text-lg font-semibold text-emerald-700 dark:text-emerald-300">
+                    {smartUsdc !== null ? Number(formatUnits(smartUsdc, 6)).toLocaleString() : "—"} USDC
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-3">
+                <div className="flex-1 relative">
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]">$</span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={fundAmount}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (/^\d*\.?\d{0,6}$/.test(v) || v === "") setFundAmount(v);
+                    }}
+                    disabled={funding}
+                    placeholder="100"
+                    className="h-12 w-full pl-8 pr-4 rounded-2xl bg-white/60 dark:bg-white/[0.03] border border-black/5 focus:border-black/20 focus:ring-4 focus:ring-black/5 outline-none text-base font-mono tabular-nums disabled:opacity-50"
+                  />
+                </div>
+                <button
+                  onClick={handleFund}
+                  disabled={funding || !eoaUsdc || eoaUsdc === 0n}
+                  className="h-12 px-5 rounded-2xl bg-[#1D1D1F] dark:bg-white text-white dark:text-[#0A0A0A] font-medium hover:bg-black dark:hover:bg-gray-100 transition-colors disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  {funding ? (
+                    <>
+                      <Loader2 size={14} className="animate-spin" /> Sending…
+                    </>
+                  ) : (
+                    <>
+                      <Send size={14} /> Fund wallet
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {(!eoaUsdc || eoaUsdc === 0n) && (
+                <div className="mt-3 flex items-center justify-between gap-2 text-xs">
+                  <span className="text-[var(--text-tertiary)]">Need test USDC first?</span>
+                  <button
+                    onClick={handleFaucet}
+                    disabled={funding}
+                    className="font-medium px-3 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 dark:bg-amber-500/10 dark:hover:bg-amber-500/15 text-amber-700 dark:text-amber-300 transition-colors disabled:opacity-50"
+                  >
+                    Mint 10,000 USDC to my EOA
+                  </button>
+                </div>
+              )}
+
+              <p className="text-[11px] text-[var(--text-tertiary)] mt-4 leading-relaxed">
+                The smart wallet's USDC balance is what dashboards / shield / send all read against
+                when your passkey is active. Without funding, those flows show $0.
+              </p>
             </div>
 
             {/* Pubkey + delete card */}

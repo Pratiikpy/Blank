@@ -5,6 +5,13 @@ import "@fhenixprotocol/cofhe-contracts/FHE.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
+/// @dev Minimal interface for reading encrypted vault balances. Lets
+///      proveBalanceAbove read FHERC20Vault.balanceOf without importing
+///      the full vault contract.
+interface IFHERC20VaultBalance {
+    function balanceOf(address account) external view returns (euint64);
+}
+
 /// @title PaymentReceipts — Cryptographic encrypted receipts for every payment
 /// @notice After each payment, a receipt is generated with:
 ///         - Encrypted random payment ID (FHE.randomEuint64)
@@ -333,6 +340,42 @@ contract PaymentReceipts is UUPSUpgradeable, OwnableUpgradeable {
         emit ProofCreated(proofId, msg.sender, thresholdPlaintext, "income", block.timestamp);
     }
 
+    /// @notice Prove your encrypted balance in `vault` is >= threshold,
+    ///         WITHOUT revealing the actual balance. Same publication +
+    ///         verification flow as proveIncomeAbove. Requires the vault
+    ///         to expose balanceOf(address) returning euint64.
+    /// @param vault FHERC20Vault address whose balance to compare against
+    /// @param thresholdPlaintext Public threshold (e.g. 50000 USDC = 50_000_000_000 with 6 decimals)
+    function proveBalanceAbove(address vault, uint64 thresholdPlaintext) external returns (uint256 proofId) {
+        require(vault != address(0), "PaymentReceipts: vault zero");
+
+        // Read the caller's encrypted balance from the vault. The vault must
+        // have allowed THIS contract to read the handle — that's automatic
+        // for FHERC20Vault since balanceOf returns the raw euint64 handle.
+        euint64 balance = IFHERC20VaultBalance(vault).balanceOf(msg.sender);
+        FHE.allowThis(balance);
+
+        euint64 threshold = FHE.asEuint64(thresholdPlaintext);
+        ebool result = FHE.gte(balance, threshold);
+        FHE.allowThis(result);
+        FHE.allowSender(result);
+        FHE.allowPublic(result);
+
+        proofId = proofCount++;
+        _proofs[proofId] = QualificationProof({
+            prover: msg.sender,
+            threshold: thresholdPlaintext,
+            blockNumber: block.number,
+            timestamp: block.timestamp,
+            result: result,
+            kind: "balance",
+            exists: true
+        });
+        _userProofs[msg.sender].push(proofId);
+
+        emit ProofCreated(proofId, msg.sender, thresholdPlaintext, "balance", block.timestamp);
+    }
+
     /// @notice Publish the off-chain decryption of a proof's ebool so it can
     ///         be read on-chain via getProof(). Anyone can call this — the
     ///         signature must be a valid Threshold Network signature over
@@ -370,6 +413,26 @@ contract PaymentReceipts is UUPSUpgradeable, OwnableUpgradeable {
     /// @notice List a user's proof ids (in creation order).
     function getProofsByUser(address user) external view returns (uint256[] memory) {
         return _userProofs[user];
+    }
+
+    // ─── Cross-contract aggregate bump (called by PaymentHub etc.) ──────
+    //
+    // Takes a pre-verified euint64 handle (verified in the caller's context
+    // to avoid the InvalidSigner bind issue). Adds it to the global volume
+    // and increments the global tx count. Both stay FHE.allowGlobal so the
+    // landing counter can publicly decrypt the totals.
+    //
+    // Authorized callers only — PaymentHub, BusinessHub, etc. must be
+    // explicitly setAuthorizedCaller'd by the owner.
+
+    function bumpGlobalVolume(euint64 amount) external onlyAuthorized {
+        _ensureGlobalStatsInit();
+        _globalVolume = FHE.add(_globalVolume, amount);
+        FHE.allowThis(_globalVolume);
+        FHE.allowGlobal(_globalVolume);
+        _globalTxCount = FHE.add(_globalTxCount, FHE.asEuint64(1));
+        FHE.allowThis(_globalTxCount);
+        FHE.allowGlobal(_globalTxCount);
     }
 
     // ─── Public encrypted aggregates ────────────────────────────────────

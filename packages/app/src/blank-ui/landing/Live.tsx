@@ -4,6 +4,7 @@ import { ArrowRight, ExternalLink } from "lucide-react";
 import { LandingNav } from "./LandingNav";
 import { LandingFooter } from "./LandingFooter";
 import { useLiveActivities, type LiveActivity } from "@/hooks/useLiveActivities";
+import { ACTIVE_CHAIN } from "@/lib/constants";
 import "./landing.css";
 
 // ══════════════════════════════════════════════════════════════════
@@ -70,7 +71,7 @@ function Row({ a, now }: { a: LiveActivity; now: number }) {
       </div>
       {a.tx_hash && (
         <a
-          href={`https://sepolia.etherscan.io/tx/${a.tx_hash}`}
+          href={`${ACTIVE_CHAIN.explorerUrl}/tx/${a.tx_hash}`}
           target="_blank"
           rel="noopener noreferrer"
           className="ll-live-link"

@@ -1,7 +1,8 @@
 import { Link } from "react-router-dom";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, Sparkles, ExternalLink } from "lucide-react";
 import { LandingNav } from "./LandingNav";
 import { LandingFooter } from "./LandingFooter";
+import { AGENT_ATTESTATION_ADDRESS, ACTIVE_CHAIN } from "@/lib/constants";
 import "./landing.css";
 import "./how-it-works.css";
 
@@ -81,6 +82,41 @@ export default function HowItWorks() {
                 <div className="hiw-with" role="cell">{r.with}</div>
               </div>
             ))}
+          </div>
+        </section>
+
+        {/* Agent transparency — published wallet address */}
+        <section className="ll-section hiw-agents">
+          <div className="hiw-agents-card">
+            <div className="hiw-agents-header">
+              <Sparkles size={20} className="hiw-agents-icon" />
+              <h2 className="hiw-agents-title">Our AI agents are public</h2>
+            </div>
+            <p className="hiw-agents-body">
+              Every payment derived by an AI agent on Blank is signed by a
+              wallet whose address you can verify on-chain. Anyone can recover
+              the address from the <code>AgentPaymentSubmission</code> event
+              via <code>ecrecover</code>. To make audit trivial, we publish it
+              here too.
+            </p>
+            <div className="hiw-agents-row">
+              <span className="hiw-agents-label">Agent address</span>
+              {AGENT_ATTESTATION_ADDRESS ? (
+                <a
+                  href={`${ACTIVE_CHAIN.explorerUrl}/address/${AGENT_ATTESTATION_ADDRESS}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hiw-agents-value"
+                >
+                  <code>{AGENT_ATTESTATION_ADDRESS}</code>
+                  <ExternalLink size={13} />
+                </a>
+              ) : (
+                <span className="hiw-agents-pending">
+                  Not yet published — recoverable via ecrecover from each event
+                </span>
+              )}
+            </div>
           </div>
         </section>
 

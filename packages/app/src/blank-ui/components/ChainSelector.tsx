@@ -5,12 +5,14 @@ import {
   CHAINS,
   SUPPORTED_CHAIN_ID,
   setActiveChainId,
+  ETH_SEPOLIA_ID,
+  BASE_SEPOLIA_ID,
   type SupportedChainId,
 } from "@/lib/constants";
 
 // Ordered list for the dropdown — Eth Sepolia is the primary chain with the
 // full v0.1.3 feature set; Base Sepolia runs a shield/unshield smoke test only.
-const CHAIN_ORDER: SupportedChainId[] = [11155111, 84532];
+const CHAIN_ORDER: SupportedChainId[] = [ETH_SEPOLIA_ID, BASE_SEPOLIA_ID];
 
 export function ChainSelector() {
   const [open, setOpen] = useState(false);

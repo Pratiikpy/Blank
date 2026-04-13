@@ -153,6 +153,23 @@ export const CONTRACTS_BY_CHAIN: Record<SupportedChainId, ContractMap> = {
 
 export const CONTRACTS: ContractMap = CONTRACTS_BY_CHAIN[SUPPORTED_CHAIN_ID];
 
+// ─── AI Agent attestation address ───────────────────────────────────
+//
+// Public address of the wallet that signs every AgentPaymentSubmission
+// event. Any observer can recover this address from the on-chain ECDSA
+// signature in the event — publishing it here lets users + judges audit
+// which agent the platform uses without having to recover the address
+// themselves.
+//
+// To set: fill in the address derived from your AGENT_PRIVATE_KEY env var.
+// Same key, same address on every chain (we use the same agent wallet
+// across Eth Sepolia + Base Sepolia for now). Until set, the landing
+// shows "not yet published" and the AgentPayments screen still works
+// (the address is recoverable from each tx's signature).
+export const AGENT_ATTESTATION_ADDRESS = (
+  import.meta.env.VITE_AGENT_ATTESTATION_ADDRESS ?? ""
+) as string;
+
 // ─── App Configuration ──────────────────────────────────────────────
 
 export const TOKEN_DECIMALS = 6; // TestUSDC.decimals() — used by all hooks

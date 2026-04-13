@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useAccount } from "wagmi";
 import { supabase, fetchActivities, type ActivityRow } from "@/lib/supabase";
 import { onCrossTabAction } from "@/lib/cross-tab";
+import { useSmartAccount } from "./useSmartAccount";
 
 /** Add a value to a Set, evicting the oldest half when maxSize is reached. */
 function addToCappedSet(set: Set<string>, value: string, maxSize = 500) {
@@ -20,7 +21,15 @@ function addToCappedSet(set: Set<string>, value: string, maxSize = 500) {
  * 3. Manual additions via addLocalActivity() for immediate UI feedback
  */
 export function useActivityFeed() {
-  const { address } = useAccount();
+  const { address: eoaAddress } = useAccount();
+  const smartAccount = useSmartAccount();
+  // Smart-wallet-aware: when active, follow the smart account's activities,
+  // not the EOA's. Otherwise smart-wallet users would see an empty feed
+  // even after they've sent payments via their AA.
+  const address =
+    smartAccount.status === "ready" && smartAccount.account
+      ? (smartAccount.account.address as `0x${string}`)
+      : eoaAddress;
   const [activities, setActivities] = useState<ActivityRow[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isOffline, setIsOffline] = useState(false);

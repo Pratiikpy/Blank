@@ -26,10 +26,11 @@ const PRESET_THRESHOLDS = [1_000, 10_000, 50_000, 100_000];
 
 export default function Proofs() {
   const { address } = useAccount();
-  const { createIncomeProof, fetchProof, fetchProofsByUser, step, error, reset } =
+  const { createIncomeProof, createBalanceProof, fetchProof, fetchProofsByUser, step, error, reset } =
     useQualificationProof();
 
   const [thresholdInput, setThresholdInput] = useState<string>("");
+  const [proofKind, setProofKind] = useState<"income" | "balance">("income");
   const [proofIds, setProofIds] = useState<bigint[]>([]);
   const [proofs, setProofs] = useState<Record<string, ProofRecord>>({});
   const [loadingList, setLoadingList] = useState(false);
@@ -60,13 +61,16 @@ export default function Proofs() {
       toast.error("Enter a positive threshold");
       return;
     }
-    const id = await createIncomeProof(value);
+    const id =
+      proofKind === "income"
+        ? await createIncomeProof(value)
+        : await createBalanceProof(value);
     if (id !== null) {
       setThresholdInput("");
       reset();
       await refresh();
     }
-  }, [thresholdInput, createIncomeProof, reset, refresh]);
+  }, [thresholdInput, proofKind, createIncomeProof, createBalanceProof, reset, refresh]);
 
   const buildShareLink = (proofId: bigint) =>
     `${window.location.origin}/verify/${proofId.toString()}`;
@@ -115,12 +119,40 @@ export default function Proofs() {
             </div>
             <div>
               <h2 className="text-xl font-heading font-medium text-[var(--text-primary)]">
-                Create a new income proof
+                Create a new {proofKind} proof
               </h2>
               <p className="text-sm text-[var(--text-primary)]/50 mt-1">
-                Threshold is public; your actual income stays encrypted forever.
+                Threshold is public; your actual {proofKind} stays encrypted forever.
               </p>
             </div>
+          </div>
+
+          {/* Kind toggle */}
+          <div className="flex items-center gap-2 mb-4 p-1 bg-black/[0.04] dark:bg-white/[0.04] rounded-2xl w-fit">
+            <button
+              type="button"
+              onClick={() => setProofKind("income")}
+              className={cn(
+                "px-4 py-1.5 rounded-xl text-sm font-medium transition-colors",
+                proofKind === "income"
+                  ? "bg-white dark:bg-white/[0.1] text-[var(--text-primary)] shadow-sm"
+                  : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]",
+              )}
+            >
+              Income
+            </button>
+            <button
+              type="button"
+              onClick={() => setProofKind("balance")}
+              className={cn(
+                "px-4 py-1.5 rounded-xl text-sm font-medium transition-colors",
+                proofKind === "balance"
+                  ? "bg-white dark:bg-white/[0.1] text-[var(--text-primary)] shadow-sm"
+                  : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]",
+              )}
+            >
+              Balance
+            </button>
           </div>
 
           <div className="flex flex-col sm:flex-row gap-3">
