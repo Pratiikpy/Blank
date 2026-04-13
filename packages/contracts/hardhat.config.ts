@@ -11,15 +11,26 @@ const accounts = process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [];
 
 const config: HardhatUserConfig = {
   solidity: {
-    version: "0.8.25",
-    settings: {
-      evmVersion: "cancun",
-      viaIR: true,
-      optimizer: {
-        enabled: true,
-        runs: 200,
+    // Multi-compiler: 0.8.25 for our Blank contracts (cofhe-contracts pin),
+    // 0.8.28 for @account-abstraction/contracts which pin ^0.8.28.
+    compilers: [
+      {
+        version: "0.8.25",
+        settings: {
+          evmVersion: "cancun",
+          viaIR: true,
+          optimizer: { enabled: true, runs: 200 },
+        },
       },
-    },
+      {
+        version: "0.8.28",
+        settings: {
+          evmVersion: "cancun",
+          viaIR: true,
+          optimizer: { enabled: true, runs: 200 },
+        },
+      },
+    ],
   },
   defaultNetwork: "hardhat",
   networks: {
