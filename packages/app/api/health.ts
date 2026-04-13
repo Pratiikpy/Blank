@@ -27,16 +27,22 @@ interface FeatureStatus {
 export default function handler(_req: any, res: any) {
   const features: FeatureStatus[] = [
     {
+      envVar: "NVIDIA_API_KEY",
+      set: !!process.env.NVIDIA_API_KEY,
+      required: false,
+      feature: "AI agent derivation — Kimi K2 instruct (PRIMARY)",
+    },
+    {
       envVar: "ANTHROPIC_API_KEY",
       set: !!process.env.ANTHROPIC_API_KEY,
       required: false,
-      feature: "AI agent derivation (/api/agent/derive, /app/agents)",
+      feature: "AI agent derivation — Claude opus-4-6 (FALLBACK)",
     },
     {
       envVar: "AGENT_PRIVATE_KEY",
       set: !!process.env.AGENT_PRIVATE_KEY,
       required: false,
-      feature: "Agent ECDSA attestation signing",
+      feature: "Agent ECDSA attestation signing (required for /api/agent/derive)",
     },
     {
       envVar: "RELAYER_PRIVATE_KEY",
@@ -81,10 +87,27 @@ export default function handler(_req: any, res: any) {
     summary = "No server-side env vars set. AA + AI agents unavailable. Frontend EOA path still works.";
   }
 
+  // Derived feature flags — what the frontend should actually expect to work.
+  const agentsReachable =
+    !!process.env.AGENT_PRIVATE_KEY &&
+    (!!process.env.NVIDIA_API_KEY || !!process.env.ANTHROPIC_API_KEY);
+  const relayReachable =
+    !!process.env.RELAYER_PRIVATE_KEY &&
+    !!process.env.SEPOLIA_RPC_URL &&
+    !!process.env.BASE_SEPOLIA_RPC_URL;
+
   res.status(httpStatus).json({
     status: httpStatus === 200 ? "ok" : httpStatus === 207 ? "partial" : "degraded",
     summary,
     features,
+    derived: {
+      agentsReachable,
+      relayReachable,
+      agentPrimary: process.env.NVIDIA_API_KEY ? "kimi-k2-instruct" : "claude-opus-4-6",
+      agentFallback: process.env.NVIDIA_API_KEY && process.env.ANTHROPIC_API_KEY
+        ? "claude-opus-4-6"
+        : "none",
+    },
     missingRequired: missingRequired.map((f) => f.envVar),
     missingOptional: missingOptional.map((f) => f.envVar),
     timestamp: new Date().toISOString(),

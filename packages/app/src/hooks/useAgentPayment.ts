@@ -40,6 +40,10 @@ export interface AgentAttestation {
   signature: `0x${string}`;
   raw: string;
   template: AgentTemplate;
+  /** Provider that produced the number (kimi | anthropic). Undefined on legacy responses. */
+  provider?: string;
+  /** Model id (e.g. "moonshotai/kimi-k2-instruct"). Undefined on legacy responses. */
+  model?: string;
 }
 
 async function ensureVaultApproval(
@@ -109,6 +113,8 @@ export function useAgentPayment() {
           signature: data.signature as `0x${string}`,
           raw: String(data.raw ?? ""),
           template,
+          provider: data.provider,
+          model: data.model,
         };
         setLastAttestation(attestation);
         toast.success("Agent derived amount — review and submit", { id: toastId });

@@ -219,6 +219,19 @@ export default function AgentPayments() {
                   </code>
                 </div>
               </div>
+              {lastAttestation.model && (
+                <div className="mt-3 flex items-center gap-2 text-[11px] text-[var(--text-tertiary)]">
+                  <span className="font-semibold uppercase tracking-wider">Model</span>
+                  <code className="font-mono bg-black/[0.04] dark:bg-white/[0.05] px-2 py-0.5 rounded">
+                    {lastAttestation.model}
+                  </code>
+                  {lastAttestation.provider && (
+                    <span className="px-2 py-0.5 rounded bg-purple-50 dark:bg-purple-500/10 text-purple-700 dark:text-purple-300">
+                      {lastAttestation.provider}
+                    </span>
+                  )}
+                </div>
+              )}
               <details className="mt-3">
                 <summary className="text-xs font-medium text-[var(--text-tertiary)] cursor-pointer">
                   Raw model output
