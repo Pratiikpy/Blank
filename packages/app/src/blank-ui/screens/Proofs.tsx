@@ -9,6 +9,7 @@ import {
   Copy,
   ExternalLink,
   AlertCircle,
+  Twitter,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import toast from "react-hot-toast";
@@ -73,6 +74,22 @@ export default function Proofs() {
   const copyShareLink = (proofId: bigint) => {
     navigator.clipboard.writeText(buildShareLink(proofId));
     toast.success("Verification link copied");
+  };
+
+  // Build a Twitter/X intent URL for sharing a proof. The intent endpoint
+  // pre-populates the compose box; users still confirm before posting.
+  const buildTweetIntent = (proofId: bigint, threshold: bigint, isReady: boolean, isTrue: boolean) => {
+    const thresholdUSD = Number(threshold) / 1_000_000;
+    const link = buildShareLink(proofId);
+    let text: string;
+    if (!isReady) {
+      text = `I just created an encrypted proof on @blank that my income is at least $${thresholdUSD.toLocaleString()} — without revealing the actual number.\n\nVerify it on-chain (anyone can): ${link}`;
+    } else if (isTrue) {
+      text = `Verified on-chain: my income is ≥ $${thresholdUSD.toLocaleString()}.\n\nThe blockchain saw the comparison run inside FHE. Nobody — not even @blank — knows the actual amount.\n\nVerify yourself: ${link}`;
+    } else {
+      text = `Verified on-chain via @blank: this proof of "income ≥ $${thresholdUSD.toLocaleString()}" is FALSE.\n\nNo amount was leaked — just the boolean answer. That's the whole point of FHE.\n\nVerify: ${link}`;
+    }
+    return `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`;
   };
 
   return (
@@ -248,6 +265,16 @@ export default function Proofs() {
                       </div>
                     </div>
                     <div className="flex flex-col gap-1.5 shrink-0">
+                      <a
+                        href={buildTweetIntent(id, p.threshold, p.isReady, p.isTrue)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs font-medium px-3 py-2 rounded-lg bg-[#0f1419] hover:bg-black text-white transition-colors flex items-center gap-1.5"
+                        aria-label="Share on X / Twitter"
+                      >
+                        <Twitter size={12} />
+                        Share on X
+                      </a>
                       <button
                         onClick={() => copyShareLink(id)}
                         className="text-xs font-medium px-3 py-2 rounded-lg bg-black/[0.04] hover:bg-black/[0.07] dark:bg-white/[0.05] dark:hover:bg-white/[0.08] text-[var(--text-secondary)] transition-colors flex items-center gap-1.5"

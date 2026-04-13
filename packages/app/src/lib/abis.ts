@@ -320,6 +320,9 @@ export const PaymentReceiptsAbi = [
   { type: "function", name: "getProofHandle", inputs: [{ name: "proofId", type: "uint256" }], outputs: [{ name: "", type: "uint256", internalType: "ebool" }], stateMutability: "view" },
   { type: "function", name: "getProofsByUser", inputs: [{ name: "user", type: "address" }], outputs: [{ name: "", type: "uint256[]" }], stateMutability: "view" },
   { type: "function", name: "proofCount", inputs: [], outputs: [{ name: "", type: "uint256" }], stateMutability: "view" },
+  // Public encrypted aggregates (FHE.allowGlobal — anyone can decrypt)
+  { type: "function", name: "getGlobalVolumeHandle", inputs: [], outputs: [{ name: "", type: "uint256", internalType: "euint64" }], stateMutability: "view" },
+  { type: "function", name: "getGlobalTxCountHandle", inputs: [], outputs: [{ name: "", type: "uint256", internalType: "euint64" }], stateMutability: "view" },
   // Events
   { type: "event", name: "ReceiptIssued", inputs: [{ name: "receiptHash", type: "bytes32", indexed: true }, { name: "payer", type: "address", indexed: true }, { name: "payee", type: "address", indexed: true }, { name: "timestamp", type: "uint256", indexed: false }] },
   { type: "event", name: "ProofCreated", inputs: [{ name: "proofId", type: "uint256", indexed: true }, { name: "prover", type: "address", indexed: true }, { name: "threshold", type: "uint64", indexed: false }, { name: "kind", type: "string", indexed: false }, { name: "timestamp", type: "uint256", indexed: false }] },

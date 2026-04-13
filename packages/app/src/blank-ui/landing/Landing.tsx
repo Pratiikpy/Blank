@@ -5,6 +5,7 @@ import { XRaySlider } from "./XRaySlider";
 import { LandingNav } from "./LandingNav";
 import { LandingFooter } from "./LandingFooter";
 import { LiveDemo } from "./LiveDemo";
+import { GlobalCounter } from "./GlobalCounter";
 import "./landing.css";
 
 // ══════════════════════════════════════════════════════════════════
@@ -229,6 +230,7 @@ export default function Landing() {
       <LandingNav />
       <main>
         <Hero />
+        <GlobalCounter />
         <LiveDemo />
         <Problem />
         <HowItWorks />

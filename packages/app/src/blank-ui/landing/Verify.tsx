@@ -9,6 +9,7 @@ import {
   AlertCircle,
   ShieldCheck,
   ArrowRight,
+  Twitter,
 } from "lucide-react";
 import { LandingNav } from "./LandingNav";
 import { LandingFooter } from "./LandingFooter";
@@ -206,6 +207,22 @@ export default function Verify() {
                     </button>
                   )}
                 </div>
+              )}
+
+              {proof.isReady && (
+                <a
+                  href={`https://twitter.com/intent/tweet?text=${encodeURIComponent(
+                    proof.isTrue
+                      ? `Verified on-chain via @blank: this proof of "income ≥ $${(Number(proof.threshold) / 1_000_000).toLocaleString()}" is TRUE — without revealing the actual amount. ${window.location.href}`
+                      : `Verified on-chain via @blank: this proof is FALSE — and no amount was leaked. Just the boolean answer. ${window.location.href}`,
+                  )}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="ll-btn ll-btn--hero"
+                  style={{ background: "#0f1419", color: "white" }}
+                >
+                  <Twitter size={14} /> Share on X
+                </a>
               )}
 
               <div className="verify-actions">

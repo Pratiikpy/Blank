@@ -46,8 +46,13 @@ contract PaymentReceipts is UUPSUpgradeable, OwnableUpgradeable {
     mapping(address => euint64) private _transactionCount; // Encrypted tx count
     mapping(address => bool) private _statsInitialized;   // Whether user stats have been initialized
 
-    // Encrypted global stats
-    euint64 private _globalVolume;                        // Encrypted total volume
+    // Encrypted global stats — anyone can decrypt via FHE.allowGlobal.
+    // Used for the landing-page "$X moved encrypted through Blank" counter.
+    // Aggregates are safe to expose because no individual transaction can
+    // be inferred from them (anonymity set = all platform users).
+    euint64 private _globalVolume;
+    euint64 private _globalTxCount;
+    bool private _globalStatsInitialized;
 
     // ─── Qualification Proofs (v0.1.3, append-only storage) ──────────────
     // Encrypted "≥ threshold" claims about a user's total received income or
@@ -92,6 +97,11 @@ contract PaymentReceipts is UUPSUpgradeable, OwnableUpgradeable {
         __Ownable_init(msg.sender);
         _globalVolume = FHE.asEuint64(0);
         FHE.allowThis(_globalVolume);
+        FHE.allowGlobal(_globalVolume);
+        _globalTxCount = FHE.asEuint64(0);
+        FHE.allowThis(_globalTxCount);
+        FHE.allowGlobal(_globalTxCount);
+        _globalStatsInitialized = true;
     }
 
     /// @notice Set or remove an authorized caller for issuing receipts
@@ -168,9 +178,15 @@ contract PaymentReceipts is UUPSUpgradeable, OwnableUpgradeable {
         FHE.allowThis(_transactionCount[payee]);
         FHE.allow(_transactionCount[payee], payee);
 
-        // Update global volume
+        // Update global aggregates — public via FHE.allowGlobal so the
+        // landing page (and anyone else) can decrypt and display them.
+        _ensureGlobalStatsInit();
         _globalVolume = FHE.add(_globalVolume, amount);
         FHE.allowThis(_globalVolume);
+        FHE.allowGlobal(_globalVolume);
+        _globalTxCount = FHE.add(_globalTxCount, FHE.asEuint64(1));
+        FHE.allowThis(_globalTxCount);
+        FHE.allowGlobal(_globalTxCount);
 
         // Track receipts per user
         _userReceipts[payer].push(receiptHash);
@@ -354,6 +370,36 @@ contract PaymentReceipts is UUPSUpgradeable, OwnableUpgradeable {
     /// @notice List a user's proof ids (in creation order).
     function getProofsByUser(address user) external view returns (uint256[] memory) {
         return _userProofs[user];
+    }
+
+    // ─── Public encrypted aggregates ────────────────────────────────────
+
+    /// @notice Encrypted handle for total volume across all receipts. Anyone
+    ///         can decrypt via cofhe-sdk's decryptForView (no permit needed
+    ///         because the contract calls FHE.allowGlobal). Used by the
+    ///         landing-page counter.
+    function getGlobalVolumeHandle() external view returns (euint64) {
+        return _globalVolume;
+    }
+
+    /// @notice Encrypted handle for total transaction count. Same global
+    ///         decrypt semantics as getGlobalVolumeHandle.
+    function getGlobalTxCountHandle() external view returns (euint64) {
+        return _globalTxCount;
+    }
+
+    function _ensureGlobalStatsInit() internal {
+        if (!_globalStatsInitialized) {
+            _globalStatsInitialized = true;
+            // _globalVolume already initialized to euint64(0) in initialize();
+            // _globalTxCount needs explicit init since it was added later.
+            _globalTxCount = FHE.asEuint64(0);
+            FHE.allowThis(_globalTxCount);
+            FHE.allowGlobal(_globalTxCount);
+            // Also re-mark _globalVolume as global (idempotent — was previously
+            // only allowThis'd in the v1 initializer).
+            FHE.allowGlobal(_globalVolume);
+        }
     }
 
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}

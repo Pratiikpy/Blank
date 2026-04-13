@@ -524,6 +524,29 @@ describe("PaymentReceipts qualification proofs", () => {
     expect(result.isTrue).to.equal(true);
   });
 
+  it("exposes global volume + tx count handles for public decryption", async () => {
+    const ctx = await loadFixture(deployBlankFixture);
+
+    // Both getters must return non-zero handles even on a fresh contract —
+    // _globalVolume is initialized in initialize(), _globalTxCount is
+    // lazily initialized by _ensureGlobalStatsInit on first issueReceipt
+    // (zero handle is fine here pre-issuance — landing-page UI handles 0).
+    const volHandle = await ctx.paymentReceipts.getGlobalVolumeHandle();
+    expect(volHandle).to.not.equal(0n);
+
+    // Even an unrelated signer who has nothing to do with PaymentReceipts
+    // can decrypt the global volume handle, because the contract calls
+    // FHE.allowGlobal in initialize. Charlie just needs any self-permit
+    // (decryptForView requires one for the SDK plumbing).
+    await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.charlie);
+    await ctx.client.permits.createSelf({
+      issuer: ctx.charlie.address,
+      name: "Public global decrypt",
+    });
+    const volPublic = await ctx.client.decryptForView(volHandle, FheTypes.Uint64).execute();
+    expect(volPublic).to.equal(0n); // fresh deploy — nothing transacted yet
+  });
+
   it("proveIncomeAbove(huge) round-trips to a verified-false public proof", async () => {
     const ctx = await loadFixture(deployBlankFixture);
 

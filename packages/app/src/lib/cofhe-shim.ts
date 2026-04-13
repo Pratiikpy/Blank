@@ -225,6 +225,61 @@ export function useCofheDecryptForTx() {
   return { decryptForTx };
 }
 
+// ─── useCofheDecryptForView (public-decryptable handles) ───────────
+// For ctHashes where the contract called FHE.allowGlobal — anyone can
+// decrypt the value. The SDK still needs a self-permit (it's the one
+// piece of plumbing decryptForView requires regardless of ACL state),
+// so we lazily create one for the connected wallet.
+
+export function useCofheDecryptForView() {
+  const { data: walletClient } = useWalletClient();
+  const publicClient = usePublicClient();
+  const { address } = useAccount();
+
+  const decryptForView = useCallback(async (
+    ctHash: bigint,
+    fheType: "uint64" | "ebool" = "uint64",
+  ): Promise<bigint | boolean | null> => {
+    const sdkReady = await loadSdk();
+    if (!sdkReady || !_sdkClient) return null;
+
+    if (!_sdkClient.connected && publicClient && walletClient) {
+      try {
+        await _sdkClient.connect(publicClient as any, walletClient as any);
+      } catch (err) {
+        console.warn("[cofhe-shim] decryptForView: connect failed:", err);
+        return null;
+      }
+    }
+
+    // Ensure a self-permit exists (decryptForView requires one even for
+    // globally-allowed handles — it's an SDK plumbing constraint, not an
+    // on-chain ACL constraint).
+    if (address) {
+      try {
+        const active = _sdkClient.permits?.getActivePermit?.();
+        if (!active) {
+          await _sdkClient.permits?.getOrCreateSelfPermit?.();
+        }
+      } catch {
+        // permit creation fails silently — decryptForView will surface the real error
+      }
+    }
+
+    try {
+      const fheTypeMap: Record<string, number> = { ebool: 0, uint64: 5 };
+      const fheTypeId = fheTypeMap[fheType] ?? 5;
+      const result = await _sdkClient.decryptForView(ctHash, fheTypeId).execute();
+      return result;
+    } catch (err) {
+      console.warn("[cofhe-shim] decryptForView failed:", err);
+      return null;
+    }
+  }, [publicClient, walletClient, address]);
+
+  return { decryptForView };
+}
+
 // ─── useCofheEncryptAndWriteContract ────────────────────────────────
 
 export function useCofheEncryptAndWriteContract() {
