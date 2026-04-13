@@ -69,6 +69,7 @@ async function deployBlankFixture() {
   const paymentHub = await deployProxy("PaymentHub", [await eventHub.getAddress()]);
   const businessHub = await deployProxy("BusinessHub", [await eventHub.getAddress()]);
   const groupManager = await deployProxy("GroupManager", [await eventHub.getAddress()]);
+  const paymentReceipts = await deployProxy("PaymentReceipts", []);
 
   // Whitelist hubs in EventHub so activity events don't swallow
   await eventHub.batchWhitelist([
@@ -85,7 +86,7 @@ async function deployBlankFixture() {
 
   return {
     owner, alice, bob, charlie, client,
-    testUSDC, eventHub, vault, paymentHub, businessHub, groupManager,
+    testUSDC, eventHub, vault, paymentHub, businessHub, groupManager, paymentReceipts,
   };
 }
 
@@ -395,6 +396,61 @@ describe("GroupManager", () => {
           "Dinner",
         ),
     ).to.be.revertedWith("GroupManager: not a member");
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════
+//  PaymentReceipts — qualification proofs (salary / balance ≥ X)
+// ══════════════════════════════════════════════════════════════════
+
+describe("PaymentReceipts qualification proofs", () => {
+  it("proveIncomeAbove(0) round-trips to a verified-true public proof", async () => {
+    const ctx = await loadFixture(deployBlankFixture);
+
+    // Alice has zero income recorded, so 'income >= 0' is trivially true.
+    const tx = await ctx.paymentReceipts.connect(ctx.alice).proveIncomeAbove(0);
+    const receipt = await tx.wait();
+    const event = receipt!.logs.find((l: any) => l.fragment?.name === "ProofCreated");
+    expect(event).to.not.be.undefined;
+    const proofId = event!.args[0];
+
+    // Anyone fetches the TN proof and publishes it.
+    const handle = await ctx.paymentReceipts.getProofHandle(proofId);
+    await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.bob);
+    const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutPermit().execute();
+    await ctx.paymentReceipts
+      .connect(ctx.bob)
+      .publishProof(proofId, Boolean(proof.decryptedValue), proof.signature);
+
+    const result = await ctx.paymentReceipts.getProof(proofId);
+    expect(result.prover).to.equal(ctx.alice.address);
+    expect(result.threshold).to.equal(0n);
+    expect(result.kind).to.equal("income");
+    expect(result.isReady).to.equal(true);
+    expect(result.isTrue).to.equal(true);
+  });
+
+  it("proveIncomeAbove(huge) round-trips to a verified-false public proof", async () => {
+    const ctx = await loadFixture(deployBlankFixture);
+
+    // Threshold larger than alice's (zero) income — proof must be false.
+    const HUGE = 1_000_000n; // any positive number > 0
+    const tx = await ctx.paymentReceipts.connect(ctx.alice).proveIncomeAbove(HUGE);
+    const receipt = await tx.wait();
+    const event = receipt!.logs.find((l: any) => l.fragment?.name === "ProofCreated");
+    const proofId = event!.args[0];
+
+    const handle = await ctx.paymentReceipts.getProofHandle(proofId);
+    await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.bob);
+    const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutPermit().execute();
+    await ctx.paymentReceipts
+      .connect(ctx.bob)
+      .publishProof(proofId, Boolean(proof.decryptedValue), proof.signature);
+
+    const result = await ctx.paymentReceipts.getProof(proofId);
+    expect(result.isReady).to.equal(true);
+    expect(result.isTrue).to.equal(false);
+    expect(result.threshold).to.equal(HUGE);
   });
 });
 

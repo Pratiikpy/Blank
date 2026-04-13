@@ -8,6 +8,7 @@ const Features   = lazy(() => import("@/blank-ui/landing/Features"));
 const Live       = lazy(() => import("@/blank-ui/landing/Live"));
 const Manifesto  = lazy(() => import("@/blank-ui/landing/Manifesto"));
 const HowItWorks = lazy(() => import("@/blank-ui/landing/HowItWorks"));
+const Verify     = lazy(() => import("@/blank-ui/landing/Verify"));
 
 // The app itself — separate bundle, wallet-gated internally
 const BlankApp  = lazy(() =>
@@ -34,11 +35,12 @@ export function App() {
     <Suspense fallback={<LoadingScreen />}>
       <Routes>
         {/* Public landing-level pages */}
-        <Route path="/"              element={<Landing />} />
-        <Route path="/features"      element={<Features />} />
-        <Route path="/how-it-works"  element={<HowItWorks />} />
-        <Route path="/live"          element={<Live />} />
-        <Route path="/manifesto"     element={<Manifesto />} />
+        <Route path="/"               element={<Landing />} />
+        <Route path="/features"       element={<Features />} />
+        <Route path="/how-it-works"   element={<HowItWorks />} />
+        <Route path="/live"           element={<Live />} />
+        <Route path="/manifesto"      element={<Manifesto />} />
+        <Route path="/verify/:proofId" element={<Verify />} />
         {/*
           The product lives under /app/*. BlankApp has its own internal <Routes>
           with absolute paths prefixed /app (e.g., /app/send, /app/groups, etc.).

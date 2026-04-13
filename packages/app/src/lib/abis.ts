@@ -308,6 +308,14 @@ export const PaymentReceiptsAbi = [
   { type: "function", name: "compareReceiptAmounts", inputs: [{ name: "hash1", type: "bytes32" }, { name: "hash2", type: "bytes32" }], outputs: [{ name: "", type: "uint256", internalType: "ebool" }], stateMutability: "nonpayable" },
   { type: "function", name: "maxReceiptAmount", inputs: [{ name: "hash1", type: "bytes32" }, { name: "hash2", type: "bytes32" }], outputs: [{ name: "", type: "uint256", internalType: "euint64" }], stateMutability: "nonpayable" },
   { type: "function", name: "minReceiptAmount", inputs: [{ name: "hash1", type: "bytes32" }, { name: "hash2", type: "bytes32" }], outputs: [{ name: "", type: "uint256", internalType: "euint64" }], stateMutability: "nonpayable" },
+  // Qualification proofs (v0.1.3) — encrypted "income/balance ≥ X" with public verification
+  { type: "function", name: "proveIncomeAbove", inputs: [{ name: "thresholdPlaintext", type: "uint64" }], outputs: [{ name: "proofId", type: "uint256" }], stateMutability: "nonpayable" },
+  { type: "function", name: "publishProof", inputs: [{ name: "proofId", type: "uint256" }, { name: "plaintext", type: "bool" }, { name: "signature", type: "bytes" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "getProof", inputs: [{ name: "proofId", type: "uint256" }], outputs: [{ name: "prover", type: "address" }, { name: "threshold", type: "uint64" }, { name: "blockNumber", type: "uint256" }, { name: "timestamp", type: "uint256" }, { name: "kind", type: "string" }, { name: "isTrue", type: "bool" }, { name: "isReady", type: "bool" }], stateMutability: "view" },
+  { type: "function", name: "getProofHandle", inputs: [{ name: "proofId", type: "uint256" }], outputs: [{ name: "", type: "uint256", internalType: "ebool" }], stateMutability: "view" },
+  { type: "function", name: "getProofsByUser", inputs: [{ name: "user", type: "address" }], outputs: [{ name: "", type: "uint256[]" }], stateMutability: "view" },
+  { type: "function", name: "proofCount", inputs: [], outputs: [{ name: "", type: "uint256" }], stateMutability: "view" },
   // Events
   { type: "event", name: "ReceiptIssued", inputs: [{ name: "receiptHash", type: "bytes32", indexed: true }, { name: "payer", type: "address", indexed: true }, { name: "payee", type: "address", indexed: true }, { name: "timestamp", type: "uint256", indexed: false }] },
+  { type: "event", name: "ProofCreated", inputs: [{ name: "proofId", type: "uint256", indexed: true }, { name: "prover", type: "address", indexed: true }, { name: "threshold", type: "uint64", indexed: false }, { name: "kind", type: "string", indexed: false }, { name: "timestamp", type: "uint256", indexed: false }] },
 ] as const;

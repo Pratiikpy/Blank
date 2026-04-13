@@ -49,10 +49,39 @@ contract PaymentReceipts is UUPSUpgradeable, OwnableUpgradeable {
     // Encrypted global stats
     euint64 private _globalVolume;                        // Encrypted total volume
 
+    // ─── Qualification Proofs (v0.1.3, append-only storage) ──────────────
+    // Encrypted "≥ threshold" claims about a user's total received income or
+    // balance. The proof's ebool is stored on-chain and FHE.allowPublic'd so
+    // anyone can later finalize it via publishProof(). Verifier flow: read
+    // getProofHandle(id) → off-chain decryptForTx → publishProof → read
+    // getProof(id) for the public verdict. Threshold is plaintext (public
+    // by design) — the actual income/balance never is.
+    struct QualificationProof {
+        address prover;
+        uint64 threshold;
+        uint256 blockNumber;
+        uint256 timestamp;
+        ebool result;
+        string kind;       // "income" | "balance"
+        bool exists;
+    }
+
+    uint256 public proofCount;
+    mapping(uint256 => QualificationProof) private _proofs;
+    mapping(address => uint256[]) private _userProofs;
+
     event ReceiptIssued(
         bytes32 indexed receiptHash,
         address indexed payer,
         address indexed payee,
+        uint256 timestamp
+    );
+
+    event ProofCreated(
+        uint256 indexed proofId,
+        address indexed prover,
+        uint64 threshold,
+        string kind,
         uint256 timestamp
     );
 
@@ -253,6 +282,78 @@ contract PaymentReceipts is UUPSUpgradeable, OwnableUpgradeable {
             FHE.allowThis(_transactionCount[user]);
             FHE.allow(_transactionCount[user], user);
         }
+    }
+
+    // ─── Qualification proofs (v0.1.3) ──────────────────────────────────
+
+    /// @notice Prove your encrypted total received income is >= threshold,
+    ///         WITHOUT revealing the actual income. Returns a proof id that
+    ///         can be shared as a verification link. Anyone can finalize the
+    ///         proof on-chain via publishProof() — only the prover ever
+    ///         learns the underlying income amount.
+    /// @param thresholdPlaintext Public threshold to prove against (e.g. $50,000)
+    function proveIncomeAbove(uint64 thresholdPlaintext) external returns (uint256 proofId) {
+        _initUserStats(msg.sender);
+
+        euint64 income = _totalReceived[msg.sender];
+        euint64 threshold = FHE.asEuint64(thresholdPlaintext);
+        ebool result = FHE.gte(income, threshold);
+        FHE.allowThis(result);
+        FHE.allowSender(result);
+        FHE.allowPublic(result);
+
+        proofId = proofCount++;
+        _proofs[proofId] = QualificationProof({
+            prover: msg.sender,
+            threshold: thresholdPlaintext,
+            blockNumber: block.number,
+            timestamp: block.timestamp,
+            result: result,
+            kind: "income",
+            exists: true
+        });
+        _userProofs[msg.sender].push(proofId);
+
+        emit ProofCreated(proofId, msg.sender, thresholdPlaintext, "income", block.timestamp);
+    }
+
+    /// @notice Publish the off-chain decryption of a proof's ebool so it can
+    ///         be read on-chain via getProof(). Anyone can call this — the
+    ///         signature must be a valid Threshold Network signature over
+    ///         (proof.result, plaintext).
+    function publishProof(uint256 proofId, bool plaintext, bytes calldata signature) external {
+        QualificationProof storage p = _proofs[proofId];
+        require(p.exists, "PaymentReceipts: proof not found");
+        FHE.publishDecryptResult(p.result, plaintext, signature);
+    }
+
+    /// @notice Read a proof's metadata + verification result. `isReady` is
+    ///         false until publishProof() has been called for this proof id.
+    function getProof(uint256 proofId) external view returns (
+        address prover,
+        uint64 threshold,
+        uint256 blockNumber,
+        uint256 timestamp,
+        string memory kind,
+        bool isTrue,
+        bool isReady
+    ) {
+        QualificationProof storage p = _proofs[proofId];
+        require(p.exists, "PaymentReceipts: proof not found");
+        (bool result, bool ready) = FHE.getDecryptResultSafe(p.result);
+        return (p.prover, p.threshold, p.blockNumber, p.timestamp, p.kind, result, ready);
+    }
+
+    /// @notice Read the encrypted ebool handle for off-chain decryption via
+    ///         the cofhe-sdk client. Caller passes this to decryptForTx then
+    ///         submits the result to publishProof.
+    function getProofHandle(uint256 proofId) external view returns (ebool) {
+        return _proofs[proofId].result;
+    }
+
+    /// @notice List a user's proof ids (in creation order).
+    function getProofsByUser(address user) external view returns (uint256[] memory) {
+        return _userProofs[user];
     }
 
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}

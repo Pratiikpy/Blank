@@ -10,6 +10,7 @@ import {
   EyeOff,
   Gift,
   Timer,
+  ShieldCheck,
   Settings,
   HelpCircle,
   Sun,
@@ -41,6 +42,7 @@ const NAV_ITEMS: NavItem[] = [
   { icon: EyeOff, label: "Stealth Payments", path: "/app/stealth" },
   { icon: Gift, label: "Gift Envelopes", path: "/app/gifts" },
   { icon: Timer, label: "Inheritance", path: "/app/inheritance" },
+  { icon: ShieldCheck, label: "Encrypted Proofs", path: "/app/proofs" },
   { icon: Settings, label: "Settings", path: "/app/settings" },
   { icon: HelpCircle, label: "Help & FAQ", path: "/app/help" },
 ];

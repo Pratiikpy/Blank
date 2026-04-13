@@ -37,6 +37,7 @@ const InheritancePlanning = lazy(() => import("./screens/InheritancePlanning"));
 const Requests = lazy(() => import("./screens/Requests"));
 const Contacts = lazy(() => import("./screens/Contacts"));
 const Privacy = lazy(() => import("./screens/Privacy"));
+const Proofs = lazy(() => import("./screens/Proofs"));
 const Settings = lazy(() => import("./screens/Settings"));
 const Help = lazy(() => import("./screens/Help"));
 const TransactionDetail = lazy(() => import("./screens/TransactionDetail"));
@@ -198,6 +199,7 @@ export function BlankApp() {
               <Route path="/app/requests" element={<Requests />} />
               <Route path="/app/contacts" element={<Contacts />} />
               <Route path="/app/privacy" element={<Privacy />} />
+              <Route path="/app/proofs" element={<Proofs />} />
               <Route path="/app/settings" element={<Settings />} />
               <Route path="/app/help" element={<Help />} />
               <Route path="/app/tx/:id" element={<TransactionDetail />} />
