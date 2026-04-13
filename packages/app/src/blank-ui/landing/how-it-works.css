@@ -1,0 +1,116 @@
+/* ══════════════════════════════════════════════════════════════════
+   HowItWorks — the FHE comparison table.
+   Scoped styles only; inherits typography + colors from landing.css.
+   ════════════════════════════════════════════════════════════════════ */
+
+.hiw-section {
+  padding-top: 2rem;
+}
+
+.hiw-table {
+  max-width: 1100px;
+  margin: 0 auto;
+  border-radius: 1rem;
+  overflow: hidden;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: #ffffff;
+}
+
+.hiw-row {
+  display: grid;
+  grid-template-columns: 1fr 2fr 2fr;
+  gap: 1.5rem;
+  padding: 1.25rem 1.5rem;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  align-items: start;
+}
+
+.hiw-row:first-child {
+  border-top: none;
+}
+
+.hiw-header {
+  background: #0A0A0A;
+  color: #ffffff;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+  padding: 1rem 1.5rem;
+}
+
+.hiw-feature {
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: #0A0A0A;
+  font-family: "Outfit", "Inter", sans-serif;
+  letter-spacing: -0.01em;
+}
+
+.hiw-without {
+  color: #8A8A8A;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  position: relative;
+  padding-left: 1.25rem;
+}
+
+.hiw-without::before {
+  content: "✕";
+  position: absolute;
+  left: 0;
+  top: 0.05rem;
+  color: #B94040;
+  font-weight: 700;
+}
+
+.hiw-with {
+  color: #0A0A0A;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  position: relative;
+  padding-left: 1.25rem;
+}
+
+.hiw-with::before {
+  content: "✓";
+  position: absolute;
+  left: 0;
+  top: 0.05rem;
+  color: #10B981;
+  font-weight: 700;
+}
+
+.hiw-callout {
+  text-align: center;
+}
+
+.hiw-callout-lead {
+  max-width: 720px;
+  margin: 0 auto 2.5rem;
+  font-size: 1.15rem;
+  line-height: 1.6;
+  color: #2C2C2C;
+}
+
+@media (max-width: 768px) {
+  .hiw-row {
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
+    padding: 1rem 1.1rem;
+  }
+
+  .hiw-header {
+    display: none;
+  }
+
+  .hiw-feature {
+    font-size: 1.05rem;
+    margin-bottom: 0.35rem;
+  }
+
+  .hiw-without,
+  .hiw-with {
+    padding-left: 1.1rem;
+  }
+}

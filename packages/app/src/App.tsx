@@ -3,10 +3,11 @@ import { Routes, Route } from "react-router-dom";
 import { useRealtimeNotifications } from "@/hooks/useRealtimeNotifications";
 
 // Landing-level pages — each is its own bundle chunk (lazy-loaded)
-const Landing   = lazy(() => import("@/blank-ui/landing/Landing"));
-const Features  = lazy(() => import("@/blank-ui/landing/Features"));
-const Live      = lazy(() => import("@/blank-ui/landing/Live"));
-const Manifesto = lazy(() => import("@/blank-ui/landing/Manifesto"));
+const Landing    = lazy(() => import("@/blank-ui/landing/Landing"));
+const Features   = lazy(() => import("@/blank-ui/landing/Features"));
+const Live       = lazy(() => import("@/blank-ui/landing/Live"));
+const Manifesto  = lazy(() => import("@/blank-ui/landing/Manifesto"));
+const HowItWorks = lazy(() => import("@/blank-ui/landing/HowItWorks"));
 
 // The app itself — separate bundle, wallet-gated internally
 const BlankApp  = lazy(() =>
@@ -33,10 +34,11 @@ export function App() {
     <Suspense fallback={<LoadingScreen />}>
       <Routes>
         {/* Public landing-level pages */}
-        <Route path="/"          element={<Landing />} />
-        <Route path="/features"  element={<Features />} />
-        <Route path="/live"      element={<Live />} />
-        <Route path="/manifesto" element={<Manifesto />} />
+        <Route path="/"              element={<Landing />} />
+        <Route path="/features"      element={<Features />} />
+        <Route path="/how-it-works"  element={<HowItWorks />} />
+        <Route path="/live"          element={<Live />} />
+        <Route path="/manifesto"     element={<Manifesto />} />
         {/*
           The product lives under /app/*. BlankApp has its own internal <Routes>
           with absolute paths prefixed /app (e.g., /app/send, /app/groups, etc.).

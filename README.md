@@ -12,7 +12,7 @@
 
 # Blank
 
-### Private payments for the real world.
+### Your salary is your business. Not the blockchain's.
 
 Blank is an encrypted payment platform where transaction amounts are invisible on-chain.<br />
 Built on Fully Homomorphic Encryption. The blockchain processes data it cannot read.

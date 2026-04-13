@@ -146,7 +146,7 @@ export const CONTRACTS: ContractMap = CONTRACTS_BY_CHAIN[SUPPORTED_CHAIN_ID];
 
 export const TOKEN_DECIMALS = 6; // TestUSDC.decimals() — used by all hooks
 export const APP_NAME = "Blank";
-export const APP_DESCRIPTION = "Social payments. Private amounts.";
+export const APP_DESCRIPTION = "Your salary is your business. Not the blockchain's.";
 
 export const ENCRYPTED_PLACEHOLDER = "\u2588\u2588\u2588\u2588.\u2588\u2588"; // ████.██
 export const REVEAL_TIMEOUT_MS = 10_000; // Auto-hide revealed amounts after 10s

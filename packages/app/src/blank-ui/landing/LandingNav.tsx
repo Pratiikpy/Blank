@@ -24,6 +24,9 @@ export function LandingNav() {
         <NavLink to="/features" className={({ isActive }) => isActive ? "active" : ""}>
           Features
         </NavLink>
+        <NavLink to="/how-it-works" className={({ isActive }) => isActive ? "active" : ""}>
+          How it works
+        </NavLink>
         <NavLink to="/live" className={({ isActive }) => isActive ? "active" : ""}>
           Live
         </NavLink>

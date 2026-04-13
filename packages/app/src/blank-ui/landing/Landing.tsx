@@ -20,7 +20,7 @@ const BILL_REVEAL =
 function Hero() {
   return (
     <section className="ll-hero">
-      <p className="ll-eyebrow">Private payments for the real world</p>
+      <p className="ll-eyebrow">Your salary is your business. Not the blockchain's.</p>
       <DecodeWord />
       <p className="ll-subline">
         Every transaction amount is invisible on-chain. Social context stays
