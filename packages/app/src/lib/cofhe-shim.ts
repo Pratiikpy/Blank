@@ -17,6 +17,7 @@
 
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useAccount, usePublicClient, useWalletClient } from "wagmi";
+import { SUPPORTED_CHAIN_ID, BASE_SEPOLIA_ID } from "./constants";
 
 // ─── Dynamic SDK Loading ───────────────────────────────────────────
 // SDK is loaded lazily to avoid top-level WASM/SharedArrayBuffer crashes
@@ -30,7 +31,7 @@ let _sdkModules: {
   Encryptable: any;
   createCofheConfig: any;
   createCofheClient: any;
-  sepoliaChain: any;
+  activeChain: any;
 } | null = null;
 let _sdkClient: any = null;
 
@@ -48,16 +49,22 @@ async function loadSdk(): Promise<boolean> {
         import("@cofhe/sdk/chains"),
       ]);
 
+      // Pick the cofhe SDK chain that matches the session's active chain.
+      // The SDK exports `sepolia` and `baseSepolia` (and more) — each carries
+      // the correct CoFHE verifier/TN endpoints for that network.
+      const activeChain =
+        SUPPORTED_CHAIN_ID === BASE_SEPOLIA_ID ? sdkChains.baseSepolia : sdkChains.sepolia;
+
       _sdkModules = {
         FheTypes: sdkCore.FheTypes,
         Encryptable: sdkCore.Encryptable,
         createCofheConfig: sdkWeb.createCofheConfig,
         createCofheClient: sdkWeb.createCofheClient,
-        sepoliaChain: sdkChains.sepolia,
+        activeChain,
       };
 
       const config = _sdkModules.createCofheConfig({
-        supportedChains: [_sdkModules.sepoliaChain],
+        supportedChains: [_sdkModules.activeChain],
       });
       _sdkClient = _sdkModules.createCofheClient(config);
 
@@ -83,7 +90,7 @@ export function useCofheConnection() {
   const { isConnected, chain } = useAccount();
   const publicClient = usePublicClient();
   const { data: walletClient } = useWalletClient();
-  const walletReady = isConnected && chain?.id === 11155111 && !!publicClient && !!walletClient;
+  const walletReady = isConnected && chain?.id === SUPPORTED_CHAIN_ID && !!publicClient && !!walletClient;
 
   useEffect(() => {
     if (!walletReady || !publicClient || !walletClient) return;

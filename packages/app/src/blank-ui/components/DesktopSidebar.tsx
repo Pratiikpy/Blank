@@ -18,6 +18,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { BlankLogo } from "@/blank-ui/landing/BlankLogo";
+import { ChainSelector } from "./ChainSelector";
 import "@/blank-ui/landing/landing.css"; // pulls in .bl-wordmark + .bl-lockup styles
 
 // ═══════════════════════════════════════════════════════════════════
@@ -162,6 +163,9 @@ export function DesktopSidebar() {
 
       {/* ── Footer ───────────────────────────────────────── */}
       <div className="px-4 pb-6 space-y-3">
+        {/* Chain selector */}
+        <ChainSelector />
+
         {/* Theme toggle */}
         <button
           onClick={toggleDarkMode}

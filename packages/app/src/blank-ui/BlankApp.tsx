@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
+import { SUPPORTED_CHAIN_ID, ACTIVE_CHAIN } from "@/lib/constants";
 import "./theme.css";
 
 // Lazy load all screens
@@ -130,8 +131,10 @@ export function BlankApp() {
     );
   }
 
-  // Network mismatch warning
-  if (isConnected && chain?.id !== 11155111) {
+  // Network mismatch warning — active chain is chosen via the chain selector
+  // and persisted to localStorage. This guard enforces the wallet is on the
+  // same chain so reads/writes route to the correct addresses.
+  if (isConnected && chain?.id !== SUPPORTED_CHAIN_ID) {
     return (
       <div className="blank-app min-h-dvh flex items-center justify-center px-6">
         <div className="glass-card-static rounded-[2rem] p-10 max-w-md text-center">
@@ -139,13 +142,13 @@ export function BlankApp() {
             <AlertTriangle size={32} className="text-amber-500" />
           </div>
           <h2 className="text-2xl font-heading font-semibold mb-3">Wrong Network</h2>
-          <p className="text-[var(--text-secondary)] mb-6">Please switch to Ethereum Sepolia to use Blank Pay.</p>
+          <p className="text-[var(--text-secondary)] mb-6">Please switch to {ACTIVE_CHAIN.name} to use Blank Pay.</p>
           <button
-            onClick={() => switchChain?.({ chainId: 11155111 })}
+            onClick={() => switchChain?.({ chainId: SUPPORTED_CHAIN_ID })}
             className="h-14 w-full rounded-2xl bg-[#1D1D1F] text-white font-medium hover:bg-black transition-colors"
-            aria-label="Switch to Ethereum Sepolia network"
+            aria-label={`Switch to ${ACTIVE_CHAIN.name} network`}
           >
-            Switch to Ethereum Sepolia
+            Switch to {ACTIVE_CHAIN.name}
           </button>
         </div>
       </div>
