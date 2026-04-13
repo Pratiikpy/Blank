@@ -1,6 +1,7 @@
 import { expect } from "chai";
 import hre from "hardhat";
 import { loadFixture } from "@nomicfoundation/hardhat-network-helpers";
+import { anyValue } from "@nomicfoundation/hardhat-chai-matchers/withArgs";
 import { mock_expectPlaintext } from "@cofhe/hardhat-plugin";
 import { Encryptable, FheTypes } from "@cofhe/sdk";
 import { parseUnits } from "ethers";
@@ -396,6 +397,99 @@ describe("GroupManager", () => {
           "Dinner",
         ),
     ).to.be.revertedWith("GroupManager: not a member");
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════
+//  PaymentHub — agent-attested payments (ECDSA provenance)
+// ══════════════════════════════════════════════════════════════════
+
+describe("PaymentHub agent attestations", () => {
+  it("accepts a payment with a valid agent signature and emits AgentPaymentSubmission", async () => {
+    const ctx = await loadFixture(deployBlankFixture);
+    await shield(ctx, ctx.alice, usdc(100));
+    await approveHub(ctx, ctx.alice, await ctx.paymentHub.getAddress());
+
+    // The agent wallet — separate from any user. In production this is
+    // the server-side wallet that runs Claude derivations.
+    const agent = hre.ethers.Wallet.createRandom();
+
+    const nonce = hre.ethers.hexlify(hre.ethers.randomBytes(32));
+    const expiry = Math.floor(Date.now() / 1000) + 600;
+
+    // Reproduce the on-chain digest off-chain and sign with the agent key.
+    // Contract uses abi.encode (32-byte padded) — match it via AbiCoder.
+    const digest = await ctx.paymentHub.agentDigest(ctx.alice.address, nonce, expiry);
+    const chainId = (await hre.ethers.provider.getNetwork()).chainId;
+    const innerHash = hre.ethers.keccak256(
+      hre.ethers.AbiCoder.defaultAbiCoder().encode(
+        ["address", "bytes32", "uint256", "uint256", "address"],
+        [ctx.alice.address, nonce, expiry, chainId, await ctx.paymentHub.getAddress()],
+      ),
+    );
+    const sig = await agent.signMessage(hre.ethers.getBytes(innerHash));
+
+    const enc = await encUint64(ctx, ctx.alice, usdc(15));
+    await expect(
+      ctx.paymentHub.connect(ctx.alice).sendPaymentAsAgent(
+        ctx.bob.address,
+        await ctx.vault.getAddress(),
+        enc,
+        "AI-derived payroll line",
+        agent.address,
+        nonce,
+        expiry,
+        sig,
+      ),
+    )
+      .to.emit(ctx.paymentHub, "AgentPaymentSubmission")
+      .withArgs(ctx.alice.address, agent.address, nonce, expiry, anyValue);
+
+    const aliceBal = await ctx.vault.balanceOf(ctx.alice.address);
+    const bobBal = await ctx.vault.balanceOf(ctx.bob.address);
+    await mock_expectPlaintext(ctx.alice.provider, aliceBal, usdc(85));
+    await mock_expectPlaintext(ctx.bob.provider, bobBal, usdc(15));
+
+    expect(await ctx.paymentHub.isAgentNonceUsed(nonce)).to.equal(true);
+    // digest stays useful for off-chain verification — it's just the wrapped hash
+    expect(digest.length).to.equal(66);
+  });
+
+  it("rejects a forged agent signature (wrong signer)", async () => {
+    const ctx = await loadFixture(deployBlankFixture);
+    await shield(ctx, ctx.alice, usdc(100));
+    await approveHub(ctx, ctx.alice, await ctx.paymentHub.getAddress());
+
+    // Real agent + an attacker who tries to claim attribution for the real agent
+    const realAgent = hre.ethers.Wallet.createRandom();
+    const attacker = hre.ethers.Wallet.createRandom();
+
+    const nonce = hre.ethers.hexlify(hre.ethers.randomBytes(32));
+    const expiry = Math.floor(Date.now() / 1000) + 600;
+
+    // Attacker signs the digest, but claims agent = realAgent.address — should revert
+    const chainId = (await hre.ethers.provider.getNetwork()).chainId;
+    const innerHash = hre.ethers.keccak256(
+      hre.ethers.AbiCoder.defaultAbiCoder().encode(
+        ["address", "bytes32", "uint256", "uint256", "address"],
+        [ctx.alice.address, nonce, expiry, chainId, await ctx.paymentHub.getAddress()],
+      ),
+    );
+    const sig = await attacker.signMessage(hre.ethers.getBytes(innerHash));
+
+    const enc = await encUint64(ctx, ctx.alice, usdc(5));
+    await expect(
+      ctx.paymentHub.connect(ctx.alice).sendPaymentAsAgent(
+        ctx.bob.address,
+        await ctx.vault.getAddress(),
+        enc,
+        "",
+        realAgent.address, // claiming this — but signature was by attacker
+        nonce,
+        expiry,
+        sig,
+      ),
+    ).to.be.revertedWith("PaymentHub: invalid agent signature");
   });
 });
 

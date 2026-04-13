@@ -77,6 +77,7 @@ task("deploy-upgrade-v013", "Upgrade FHE contracts in-place to cofhe v0.1.3 (UUP
       { name: "PrivacyRouter",    key: "PrivacyRouter",     required: false },
       { name: "StealthPayments",  key: "StealthPayments",   required: false },
       { name: "PaymentReceipts",  key: "PaymentReceipts",   required: false },
+      { name: "PaymentHub",       key: "PaymentHub",        required: false },
     ];
     const upgrades = onlyFilter ? all.filter(u => onlyFilter.has(u.name)) : all;
 

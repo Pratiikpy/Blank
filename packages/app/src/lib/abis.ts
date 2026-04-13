@@ -57,6 +57,11 @@ export const PaymentHubAbi = [
   { type: "event", name: "RequestFulfilled", inputs: [{ name: "requestId", type: "uint256", indexed: true }, { name: "timestamp", type: "uint256", indexed: false }] },
   { type: "event", name: "RequestCancelled", inputs: [{ name: "requestId", type: "uint256", indexed: true }, { name: "timestamp", type: "uint256", indexed: false }] },
   { type: "event", name: "BatchPaymentSent", inputs: [{ name: "from", type: "address", indexed: true }, { name: "vault", type: "address", indexed: false }, { name: "recipientCount", type: "uint256", indexed: false }, { name: "timestamp", type: "uint256", indexed: false }] },
+  // Agent attestations (v0.1.3) — ECDSA-verified provenance for AI-derived payments
+  { type: "function", name: "agentDigest", inputs: [{ name: "user", type: "address" }, { name: "nonce", type: "bytes32" }, { name: "expiry", type: "uint256" }], outputs: [{ name: "", type: "bytes32" }], stateMutability: "view" },
+  { type: "function", name: "sendPaymentAsAgent", inputs: [{ name: "to", type: "address" }, { name: "vault", type: "address" }, { name: "encAmount", type: "tuple", internalType: "struct InEuint64", components: InEuint64Components }, { name: "note", type: "string" }, { name: "agent", type: "address" }, { name: "nonce", type: "bytes32" }, { name: "expiry", type: "uint256" }, { name: "agentSignature", type: "bytes" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "isAgentNonceUsed", inputs: [{ name: "nonce", type: "bytes32" }], outputs: [{ name: "", type: "bool" }], stateMutability: "view" },
+  { type: "event", name: "AgentPaymentSubmission", inputs: [{ name: "user", type: "address", indexed: true }, { name: "agent", type: "address", indexed: true }, { name: "nonce", type: "bytes32", indexed: true }, { name: "expiry", type: "uint256", indexed: false }, { name: "timestamp", type: "uint256", indexed: false }] },
 ] as const;
 
 export const EventHubAbi = [
