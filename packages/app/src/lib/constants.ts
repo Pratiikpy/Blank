@@ -117,12 +117,10 @@ export const CONTRACTS_BY_CHAIN: Record<SupportedChainId, ContractMap> = {
     MockDEX: "0x9C295E5A130a5776b287dcC77b41d4b55165C8Be",
   },
   [BASE_SEPOLIA_ID]: {
-    // Base Sepolia: full v0.1.0 stack deployed; only FHERC20Vault_USDC has
-    // been upgraded to v0.1.3 so far. Shield/unshield is the supported
-    // smoke-test flow on this chain. Other features that depend on the
-    // v0.1.3 decrypt APIs (BusinessHub finalize, Exchange verify, Stealth
-    // finalize) will fail at runtime on Base Sepolia until those contracts
-    // are upgraded too.
+    // Base Sepolia: full v0.1.3 stack. FHERC20Vault + BusinessHub +
+    // P2PExchange + PrivacyRouter + StealthPayments all run the v0.1.3
+    // `allowPublic` + `publishDecryptResult` decrypt flow. Feature-parity
+    // with Eth Sepolia.
     TestUSDC: "0x6377eF23B3464019EcF35528be6Eb6d6D57d0b1a",
     TokenRegistry: "0x68890C23C94e25706F064f8C1d07e04462B9Ec2E",
     EventHub: "0xD764e11e4D1e9E308B5E002E7092C43D1E84a590",
@@ -135,12 +133,10 @@ export const CONTRACTS_BY_CHAIN: Record<SupportedChainId, ContractMap> = {
     InheritanceManager: "0x289714c46F3c47B2E610191d924dC9bDf22973d5",
     PaymentReceipts: "0x23f0530e107cCF940093c238bbc97EbdAD6fAD7c",
     EncryptedFlags: "0x75FF37Bda28EC6A0D39db7E8Ea5CC6527febDA75",
-    // Not yet deployed on Base Sepolia — fall back to a zero address so
-    // consumers that read these (if any) don't get a type error.
-    GiftMoney: "0x0000000000000000000000000000000000000000",
-    PrivacyRouter: "0x0000000000000000000000000000000000000000",
-    StealthPayments: "0x0000000000000000000000000000000000000000",
-    MockDEX: "0x0000000000000000000000000000000000000000",
+    GiftMoney: "0x37374487A6575780A6DE3C83440441C7aB03cDDf",
+    PrivacyRouter: "0x910ea282e9e3434A4fF7388A614382C235c237Af",
+    StealthPayments: "0x76aDF6D800D34B9Ee42AeAEC87dC7C8824132F1C",
+    MockDEX: "0x067cAF8F9196d03523c4cDF4D603916Bc94b532E",
   },
 };
 
