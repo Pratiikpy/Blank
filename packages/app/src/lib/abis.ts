@@ -68,6 +68,23 @@ export const EventHubAbi = [
   { type: "event", name: "Activity", inputs: [{ name: "user1", type: "address", indexed: true }, { name: "user2", type: "address", indexed: true }, { name: "activityType", type: "string", indexed: false }, { name: "sourceContract", type: "address", indexed: false }, { name: "note", type: "string", indexed: false }, { name: "refId", type: "uint256", indexed: false }, { name: "timestamp", type: "uint256", indexed: false }] },
 ] as const;
 
+// ─── BlankAccountFactory — ERC-4337 smart account CREATE2 factory ──────────────
+export const BlankAccountFactoryAbi = [
+  { type: "function", name: "accountImplementation", inputs: [], outputs: [{ name: "", type: "address" }], stateMutability: "view" },
+  { type: "function", name: "createAccount", inputs: [{ name: "ownerX", type: "uint256" }, { name: "ownerY", type: "uint256" }, { name: "recoveryModule", type: "address" }, { name: "salt", type: "uint256" }], outputs: [{ name: "", type: "address" }], stateMutability: "nonpayable" },
+  { type: "function", name: "getAddress", inputs: [{ name: "ownerX", type: "uint256" }, { name: "ownerY", type: "uint256" }, { name: "recoveryModule", type: "address" }, { name: "salt", type: "uint256" }], outputs: [{ name: "", type: "address" }], stateMutability: "view" },
+  { type: "event", name: "AccountCreated", inputs: [{ name: "account", type: "address", indexed: true }, { name: "ownerX", type: "uint256", indexed: false }, { name: "ownerY", type: "uint256", indexed: false }] },
+] as const;
+
+// ─── BlankAccount — minimal ABI for client-side execute encoding ──────────────
+export const BlankAccountAbi = [
+  { type: "function", name: "ownerX", inputs: [], outputs: [{ name: "", type: "uint256" }], stateMutability: "view" },
+  { type: "function", name: "ownerY", inputs: [], outputs: [{ name: "", type: "uint256" }], stateMutability: "view" },
+  { type: "function", name: "execute", inputs: [{ name: "target", type: "address" }, { name: "value", type: "uint256" }, { name: "data", type: "bytes" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "executeBatch", inputs: [{ name: "targets", type: "address[]" }, { name: "values", type: "uint256[]" }, { name: "datas", type: "bytes[]" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "isValidSignature", inputs: [{ name: "hash", type: "bytes32" }, { name: "signature", type: "bytes" }], outputs: [{ name: "", type: "bytes4" }], stateMutability: "view" },
+] as const;
+
 export const TokenRegistryAbi = [
   { type: "function", name: "getActiveTokens", inputs: [], outputs: [{ name: "", type: "tuple[]", components: [{ name: "vault", type: "address" }, { name: "underlying", type: "address" }, { name: "name", type: "string" }, { name: "symbol", type: "string" }, { name: "decimals", type: "uint8" }, { name: "active", type: "bool" }] }], stateMutability: "view" },
 ] as const;

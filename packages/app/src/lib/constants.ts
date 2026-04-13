@@ -95,6 +95,11 @@ export type ContractMap = {
   PrivacyRouter: `0x${string}`;
   StealthPayments: `0x${string}`;
   MockDEX: `0x${string}`;
+  // ERC-4337 — same EntryPoint address on every chain, but factory and
+  // paymaster are deployed per-chain so they get unique addresses.
+  EntryPoint: `0x${string}`;
+  BlankAccountFactory: `0x${string}`;
+  BlankPaymaster: `0x${string}`;
 };
 
 export const CONTRACTS_BY_CHAIN: Record<SupportedChainId, ContractMap> = {
@@ -115,6 +120,9 @@ export const CONTRACTS_BY_CHAIN: Record<SupportedChainId, ContractMap> = {
     PrivacyRouter: "0xeE7D8987bC625A949a1355E3d5415d0419afd8BC",
     StealthPayments: "0x4064e0EAD50a05F2A5a574ce4c3dd1b54BBA591c",
     MockDEX: "0x9C295E5A130a5776b287dcC77b41d4b55165C8Be",
+    EntryPoint: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
+    BlankAccountFactory: "0x9be54Ef62271C028350e70C5A4305314Ba7CAFcD",
+    BlankPaymaster: "0x68890C23C94e25706F064f8C1d07e04462B9Ec2E",
   },
   [BASE_SEPOLIA_ID]: {
     // Base Sepolia: full v0.1.3 stack. FHERC20Vault + BusinessHub +
@@ -137,6 +145,9 @@ export const CONTRACTS_BY_CHAIN: Record<SupportedChainId, ContractMap> = {
     PrivacyRouter: "0x910ea282e9e3434A4fF7388A614382C235c237Af",
     StealthPayments: "0x76aDF6D800D34B9Ee42AeAEC87dC7C8824132F1C",
     MockDEX: "0x067cAF8F9196d03523c4cDF4D603916Bc94b532E",
+    EntryPoint: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
+    BlankAccountFactory: "0xd19Bfd90907c943Eee129a2066BCbC350F4a16fb",
+    BlankPaymaster: "0xB1CbBD59E63d7aB0BbF0406CCF1016c1Dd8e63de",
   },
 };
 

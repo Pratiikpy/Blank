@@ -6,6 +6,7 @@ import { useEffect } from "react";
 import { wagmiConfig } from "@/lib/wagmi-config";
 import { cleanupOldStorage } from "@/lib/storage";
 import { setQueryClient, invalidateAllQueries } from "@/lib/query-invalidation";
+import { PassphrasePromptProvider } from "@/components/PassphrasePrompt";
 
 
 const queryClient = new QueryClient({
@@ -35,8 +36,10 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
   return (
     <WagmiProvider config={wagmiConfig}>
       <QueryClientProvider client={queryClient}>
-        <WalletDesyncGuard />
-        {children}
+        <PassphrasePromptProvider>
+          <WalletDesyncGuard />
+          {children}
+        </PassphrasePromptProvider>
         <Toaster
           position="top-right"
           toastOptions={{

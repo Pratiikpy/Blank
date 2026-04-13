@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 import { useAccount, useReadContract, useWriteContract, usePublicClient } from "wagmi";
-import { parseUnits, formatUnits } from "viem";
+import { parseUnits, formatUnits, encodeFunctionData } from "viem";
 import toast from "react-hot-toast";
 import { CONTRACTS } from "@/lib/constants";
 import { TestUSDCAbi, FHERC20VaultAbi } from "@/lib/abis";
@@ -8,6 +8,8 @@ import { insertActivity } from "@/lib/supabase";
 import { broadcastAction } from "@/lib/cross-tab";
 import { invalidateBalanceQueries } from "@/lib/query-invalidation";
 import { useCofheDecryptForTx } from "@/lib/cofhe-shim";
+import { useSmartAccount } from "./useSmartAccount";
+import { usePassphrasePrompt } from "@/components/PassphrasePrompt";
 
 // ─── Rate limiting constants ────────────────────────────────────────
 const FAUCET_COOLDOWN_MS = 60_000; // 1 minute between faucet calls
@@ -29,6 +31,8 @@ export function useShield() {
   const [error, setError] = useState<string | null>(null);
 
   const { writeContractAsync } = useWriteContract();
+  const smartAccount = useSmartAccount();
+  const passphrasePrompt = usePassphrasePrompt();
 
   // Read public USDC balance — refetchInterval polls every 5s for fresh data
   const { data: publicBalance, refetch: refetchBalance } = useReadContract({
@@ -117,20 +121,96 @@ export function useShield() {
     }
   }, [address, writeContractAsync, waitAndRefetch, isMinting]);
 
-  // Shield: approve + deposit — returns hash on success, null on failure
+  // Shield: approve + deposit — returns hash on success, null on failure.
+  //
+  // Two execution paths share this entry point:
+  //  - SMART ACCOUNT (passkey active): bundles approve+shield into one
+  //    UserOp via BlankAccount.executeBatch. One passphrase prompt, one
+  //    on-chain submission. The smart account itself must hold the
+  //    underlying USDC — caller transfers from the EOA first if needed.
+  //  - EOA (no passkey or passkey not active): existing wagmi path. Two
+  //    sequential txs: approve, then shield. User signs each MetaMask popup.
   const shield = useCallback(async (amount: string): Promise<`0x${string}` | null> => {
     if (!address || !CONTRACTS.TestUSDC || !CONTRACTS.FHERC20Vault_USDC) return null;
+    if (!amount || amount.trim() === "") {
+      toast.error("Enter an amount");
+      return null;
+    }
+    const amountWei = parseUnits(amount, 6);
 
-    try {
-      if (!amount || amount.trim() === "") {
-        toast.error("Enter an amount");
+    // ─── Smart-account path ──────────────────────────────────────────
+    if (smartAccount.status === "ready" && smartAccount.account) {
+      try {
+        setStep("approving");
+        setError(null);
+
+        const passphrase = await passphrasePrompt.request({
+          title: "Sign shield transaction",
+          subtitle: `Bundle approve + shield ${amount} USDC into one UserOp.`,
+        });
+        if (!passphrase) {
+          setStep("idle");
+          return null;
+        }
+
+        setStep("shielding");
+        // Encode the two inner calls — approve, then shield
+        const approveData = encodeFunctionData({
+          abi: TestUSDCAbi,
+          functionName: "approve",
+          args: [CONTRACTS.FHERC20Vault_USDC as `0x${string}`, amountWei],
+        });
+        const shieldData = encodeFunctionData({
+          abi: FHERC20VaultAbi,
+          functionName: "shield",
+          args: [amountWei],
+        });
+
+        const result = await smartAccount.sendBatchUserOp(
+          [CONTRACTS.TestUSDC as `0x${string}`, CONTRACTS.FHERC20Vault_USDC as `0x${string}`],
+          [0n, 0n],
+          [approveData, shieldData],
+          passphrase,
+        );
+        if (!result) {
+          setStep("error");
+          return null;
+        }
+
+        setTxHash(result.txHash);
+        const shieldReceipt = await waitAndRefetch(result.txHash);
+        setStep("success");
+
+        broadcastAction("balance_changed");
+        broadcastAction("activity_added");
+        invalidateBalanceQueries();
+
+        await insertActivity({
+          tx_hash: result.txHash,
+          user_from: smartAccount.account.address.toLowerCase(),
+          user_to: smartAccount.account.address.toLowerCase(),
+          activity_type: "shield",
+          contract_address: CONTRACTS.FHERC20Vault_USDC,
+          note: `Shielded ${amount} USDC (via smart wallet)`,
+          token_address: CONTRACTS.TestUSDC,
+          block_number: shieldReceipt ? Number(shieldReceipt.blockNumber) : 0,
+        });
+
+        toast.success(`Shielded ${amount} USDC via smart wallet!`);
+        return result.txHash;
+      } catch (err) {
+        setStep("error");
+        const msg = err instanceof Error ? err.message : "Shield failed";
+        setError(msg);
+        toast.error(msg);
         return null;
       }
+    }
 
+    // ─── EOA path (unchanged) ────────────────────────────────────────
+    try {
       setStep("approving");
       setError(null);
-
-      const amountWei = parseUnits(amount, 6);
 
       // Type assertion: wagmi's useReadContract returns unknown for untyped ABIs;
       // balanceOf always returns a uint256 which viem decodes as bigint
@@ -195,7 +275,7 @@ export function useShield() {
       toast.error(err instanceof Error ? err.message : "Shield failed");
       return null;
     }
-  }, [address, writeContractAsync, waitAndRefetch, publicBalance]);
+  }, [address, writeContractAsync, waitAndRefetch, publicBalance, smartAccount, passphrasePrompt]);
 
   // ─── Unshield (request → off-chain decrypt → claim) ────────────────
   // v0.1.3 flow: requestUnshield calls FHE.allowPublic on-chain. We then

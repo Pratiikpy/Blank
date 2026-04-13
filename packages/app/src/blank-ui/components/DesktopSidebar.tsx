@@ -12,6 +12,7 @@ import {
   Timer,
   ShieldCheck,
   Sparkles,
+  Fingerprint,
   Settings,
   HelpCircle,
   Sun,
@@ -45,6 +46,7 @@ const NAV_ITEMS: NavItem[] = [
   { icon: Timer, label: "Inheritance", path: "/app/inheritance" },
   { icon: ShieldCheck, label: "Encrypted Proofs", path: "/app/proofs" },
   { icon: Sparkles, label: "AI Agents", path: "/app/agents" },
+  { icon: Fingerprint, label: "Smart Wallet", path: "/app/wallet" },
   { icon: Settings, label: "Settings", path: "/app/settings" },
   { icon: HelpCircle, label: "Help & FAQ", path: "/app/help" },
 ];
