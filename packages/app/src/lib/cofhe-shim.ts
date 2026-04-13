@@ -162,6 +162,62 @@ export function useCofheEncrypt() {
   };
 }
 
+// ─── useCofheDecryptForTx (v0.1.3 new decrypt flow) ────────────────
+// Fetches the off-chain decryption result + Threshold Network signature
+// for a publicly-decryptable ctHash. The signature is what the contract
+// passes to FHE.publishDecryptResult on-chain.
+//
+// Caller must have already triggered FHE.allowPublic(ctHash) on-chain
+// before calling this. Returns null on failure (caller decides retry).
+
+export function useCofheDecryptForTx() {
+  const { data: walletClient } = useWalletClient();
+  const publicClient = usePublicClient();
+
+  const decryptForTx = useCallback(async (
+    ctHash: bigint,
+    fheType: "uint64" | "ebool" = "uint64"
+  ): Promise<{ decryptedValue: bigint | boolean; signature: `0x${string}` } | null> => {
+    const sdkReady = await loadSdk();
+    if (!sdkReady || !_sdkClient) {
+      console.warn("[cofhe-shim] decryptForTx: SDK not ready");
+      return null;
+    }
+
+    if (!_sdkClient.connected && publicClient && walletClient) {
+      try {
+        await _sdkClient.connect(publicClient as any, walletClient as any);
+      } catch (connectErr) {
+        console.warn("[cofhe-shim] decryptForTx: connect failed:", connectErr);
+      }
+    }
+
+    try {
+      const fheTypeMap: Record<string, number> = {
+        ebool: 0,
+        uint64: 5,
+      };
+      const fheTypeId = fheTypeMap[fheType] ?? 5;
+
+      console.log("[cofhe-shim] decryptForTx: requesting decryption for ctHash", ctHash.toString());
+      const result = await _sdkClient
+        .decryptForTx(ctHash, fheTypeId)
+        .withoutPermit()
+        .execute();
+      console.log("[cofhe-shim] decryptForTx: SUCCESS ✓");
+      return {
+        decryptedValue: result.decryptedValue,
+        signature: result.signature as `0x${string}`,
+      };
+    } catch (err) {
+      console.error("[cofhe-shim] decryptForTx: FAILED:", err);
+      return null;
+    }
+  }, [publicClient, walletClient]);
+
+  return { decryptForTx };
+}
+
 // ─── useCofheEncryptAndWriteContract ────────────────────────────────
 
 export function useCofheEncryptAndWriteContract() {

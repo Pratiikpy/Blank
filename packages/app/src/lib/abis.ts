@@ -26,7 +26,8 @@ const InEuint64Components = [
 export const FHERC20VaultAbi = [
   { type: "function", name: "shield", inputs: [{ name: "amount", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "requestUnshield", inputs: [{ name: "encAmount", type: "tuple", internalType: "struct InEuint64", components: InEuint64Components }], outputs: [{ name: "", type: "uint256" }], stateMutability: "nonpayable" },
-  { type: "function", name: "claimUnshield", inputs: [], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "claimUnshield", inputs: [{ name: "plaintext", type: "uint64" }, { name: "signature", type: "bytes" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "pendingUnshield", inputs: [{ name: "account", type: "address" }], outputs: [{ name: "", type: "uint256", internalType: "euint64" }], stateMutability: "view" },
   { type: "function", name: "transfer", inputs: [{ name: "to", type: "address" }, { name: "encAmount", type: "tuple", internalType: "struct InEuint64", components: InEuint64Components }], outputs: [{ name: "", type: "uint256" }], stateMutability: "nonpayable" },
   { type: "function", name: "transferFrom", inputs: [{ name: "from", type: "address" }, { name: "to", type: "address" }, { name: "encAmount", type: "tuple", internalType: "struct InEuint64", components: InEuint64Components }], outputs: [{ name: "", type: "uint256" }], stateMutability: "nonpayable" },
   { type: "function", name: "approve", inputs: [{ name: "spender", type: "address" }, { name: "encAmount", type: "tuple", internalType: "struct InEuint64", components: InEuint64Components }], outputs: [], stateMutability: "nonpayable" },
@@ -118,7 +119,8 @@ export const BusinessHubAbi = [
   { type: "function", name: "getVendorInvoices", inputs: [{ name: "vendor", type: "address" }], outputs: [{ name: "", type: "uint256[]" }], stateMutability: "view" },
   { type: "function", name: "getClientInvoices", inputs: [{ name: "client", type: "address" }], outputs: [{ name: "", type: "uint256[]" }], stateMutability: "view" },
   { type: "function", name: "getUserEscrows", inputs: [{ name: "user", type: "address" }], outputs: [{ name: "", type: "uint256[]" }], stateMutability: "view" },
-  { type: "function", name: "payInvoiceFinalize", inputs: [{ name: "invoiceId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "payInvoiceFinalize", inputs: [{ name: "invoiceId", type: "uint256" }, { name: "matchPlaintext", type: "bool" }, { name: "signature", type: "bytes" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "getInvoiceValidationHandle", inputs: [{ name: "invoiceId", type: "uint256" }], outputs: [{ name: "", type: "uint256", internalType: "ebool" }], stateMutability: "view" },
   { type: "function", name: "getInvoice", inputs: [{ name: "id", type: "uint256" }], outputs: [{ name: "vendor", type: "address" }, { name: "client", type: "address" }, { name: "vault", type: "address" }, { name: "amount", type: "uint256", internalType: "euint64" }, { name: "description", type: "string" }, { name: "dueDate", type: "uint256" }, { name: "status", type: "uint8" }], stateMutability: "view" },
   { type: "function", name: "getEscrow", inputs: [{ name: "id", type: "uint256" }], outputs: [{ name: "depositor", type: "address" }, { name: "beneficiary", type: "address" }, { name: "arbiter", type: "address" }, { name: "vault", type: "address" }, { name: "amount", type: "uint256", internalType: "euint64" }, { name: "description", type: "string" }, { name: "deadline", type: "uint256" }, { name: "status", type: "uint8" }], stateMutability: "view" },
   { type: "function", name: "arbiterDecide", inputs: [{ name: "escrowId", type: "uint256" }, { name: "releaseToBeneficiary", type: "bool" }], outputs: [], stateMutability: "nonpayable" },
@@ -144,6 +146,8 @@ export const P2PExchangeAbi = [
   { type: "function", name: "cancelOffer", inputs: [{ name: "offerId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "getActiveOffers", inputs: [{ name: "offset", type: "uint256" }, { name: "limit", type: "uint256" }], outputs: [{ name: "", type: "tuple[]", components: [{ name: "maker", type: "address" }, { name: "tokenGive", type: "address" }, { name: "tokenWant", type: "address" }, { name: "amountGive", type: "uint256" }, { name: "amountWant", type: "uint256" }, { name: "expiry", type: "uint256" }, { name: "active", type: "bool" }, { name: "filled", type: "bool" }] }], stateMutability: "view" },
   { type: "function", name: "getTradeValidation", inputs: [{ name: "offerId", type: "uint256" }], outputs: [{ name: "isValid", type: "bool" }, { name: "isReady", type: "bool" }], stateMutability: "view" },
+  { type: "function", name: "publishTradeValidation", inputs: [{ name: "offerId", type: "uint256" }, { name: "validPlaintext", type: "bool" }, { name: "signature", type: "bytes" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "getValidationHandle", inputs: [{ name: "offerId", type: "uint256" }], outputs: [{ name: "", type: "uint256", internalType: "ebool" }], stateMutability: "view" },
   { type: "function", name: "getUserOffers", inputs: [{ name: "user", type: "address" }], outputs: [{ name: "", type: "uint256[]" }], stateMutability: "view" },
   { type: "event", name: "OfferCreated", inputs: [{ name: "id", type: "uint256", indexed: true }, { name: "maker", type: "address", indexed: true }, { name: "tokenGive", type: "address", indexed: false }, { name: "tokenWant", type: "address", indexed: false }, { name: "amountGive", type: "uint256", indexed: false }, { name: "amountWant", type: "uint256", indexed: false }, { name: "expiry", type: "uint256", indexed: false }, { name: "timestamp", type: "uint256", indexed: false }] },
   { type: "event", name: "OfferFilled", inputs: [{ name: "id", type: "uint256", indexed: true }, { name: "taker", type: "address", indexed: true }, { name: "timestamp", type: "uint256", indexed: false }] },
@@ -210,9 +214,10 @@ const InEuint8Components = [
 export const PrivacyRouterAbi = [
   // Swap lifecycle
   { type: "function", name: "initiateSwap", inputs: [{ name: "vaultIn", type: "address" }, { name: "vaultOut", type: "address" }, { name: "encAmount", type: "tuple", internalType: "struct InEuint64", components: InEuint64Components }, { name: "minAmountOut", type: "uint256" }], outputs: [{ name: "", type: "uint256" }], stateMutability: "nonpayable" },
-  { type: "function", name: "executeSwap", inputs: [{ name: "swapId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "executeSwap", inputs: [{ name: "swapId", type: "uint256" }, { name: "plaintext", type: "uint64" }, { name: "signature", type: "bytes" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "cancelSwap", inputs: [{ name: "swapId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
-  { type: "function", name: "claimExpiredSwap", inputs: [{ name: "swapId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "claimCancelledSwap", inputs: [{ name: "swapId", type: "uint256" }, { name: "plaintext", type: "uint64" }, { name: "signature", type: "bytes" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "claimExpiredSwap", inputs: [{ name: "swapId", type: "uint256" }, { name: "plaintext", type: "uint64" }, { name: "signature", type: "bytes" }], outputs: [], stateMutability: "nonpayable" },
   // View functions
   { type: "function", name: "getSwap", inputs: [{ name: "swapId", type: "uint256" }], outputs: [{ name: "user", type: "address" }, { name: "vaultIn", type: "address" }, { name: "vaultOut", type: "address" }, { name: "tokenIn", type: "address" }, { name: "tokenOut", type: "address" }, { name: "plaintextAmountIn", type: "uint256" }, { name: "minAmountOut", type: "uint256" }, { name: "timestamp", type: "uint256" }, { name: "status", type: "uint8" }], stateMutability: "view" },
   { type: "function", name: "getUserSwaps", inputs: [{ name: "user", type: "address" }], outputs: [{ name: "", type: "uint256[]" }], stateMutability: "view" },
@@ -238,7 +243,8 @@ export const StealthPaymentsAbi = [
   { type: "function", name: "sendStealth", inputs: [{ name: "plaintextAmount", type: "uint256" }, { name: "encRecipient", type: "tuple", internalType: "struct InEaddress", components: InEaddressComponents }, { name: "claimCodeHash", type: "bytes32" }, { name: "vault", type: "address" }, { name: "note", type: "string" }], outputs: [{ name: "", type: "uint256" }], stateMutability: "nonpayable" },
   // Claim lifecycle
   { type: "function", name: "claimStealth", inputs: [{ name: "transferId", type: "uint256" }, { name: "claimCode", type: "bytes32" }], outputs: [], stateMutability: "nonpayable" },
-  { type: "function", name: "finalizeClaim", inputs: [{ name: "transferId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "finalizeClaim", inputs: [{ name: "transferId", type: "uint256" }, { name: "decryptedAmount", type: "uint64" }, { name: "signature", type: "bytes" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "getPendingClaimHandle", inputs: [{ name: "transferId", type: "uint256" }], outputs: [{ name: "", type: "uint256", internalType: "euint64" }], stateMutability: "view" },
   { type: "function", name: "refund", inputs: [{ name: "transferId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
   // View functions
   { type: "function", name: "getTransferInfo", inputs: [{ name: "transferId", type: "uint256" }], outputs: [{ name: "sender", type: "address" }, { name: "vault", type: "address" }, { name: "underlyingToken", type: "address" }, { name: "plaintextAmount", type: "uint256" }, { name: "claimCodeHash", type: "bytes32" }, { name: "note", type: "string" }, { name: "timestamp", type: "uint256" }, { name: "claimed", type: "bool" }, { name: "finalized", type: "bool" }], stateMutability: "view" },

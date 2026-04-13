@@ -385,7 +385,7 @@ export async function fetchClientInvoices(address: string): Promise<InvoiceRow[]
   return data || [];
 }
 
-export async function updateInvoiceStatus(txHash: string, status: "paid" | "cancelled" | "payment_pending") {
+export async function updateInvoiceStatus(txHash: string, status: "paid" | "cancelled" | "payment_pending" | "refunded") {
   if (!supabase) return;
   const { error } = await supabase.from("invoices").update({ status }).eq("tx_hash", txHash);
   if (error) console.warn("updateInvoiceStatus:", error.message);
@@ -458,6 +458,22 @@ export async function fetchActiveOffers(): Promise<ExchangeOfferRow[]> {
     .eq("status", "active")
     .order("created_at", { ascending: false });
   if (error) { console.warn("fetchActiveOffers:", error.message); return []; }
+  return data || [];
+}
+
+// Filled offers where the user was either the maker or the taker.
+// Used by the post-fill "Verify trade" UI in the P2PExchange screen.
+export async function fetchFilledOffersForUser(userAddress: string): Promise<ExchangeOfferRow[]> {
+  if (!supabase) return [];
+  const lower = userAddress.toLowerCase();
+  const { data, error } = await supabase
+    .from("exchange_offers")
+    .select("*")
+    .eq("status", "filled")
+    .or(`maker_address.eq.${lower},taker_address.eq.${lower}`)
+    .order("created_at", { ascending: false })
+    .limit(20);
+  if (error) { console.warn("fetchFilledOffersForUser:", error.message); return []; }
   return data || [];
 }
 

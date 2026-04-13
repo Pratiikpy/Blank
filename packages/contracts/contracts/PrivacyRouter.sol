@@ -198,7 +198,11 @@ contract PrivacyRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         // User can verify their swap intent (read the encrypted amount they submitted)
         FHE.allowSender(transferred);
 
-        FHE.decrypt(transferred);
+        // v0.1.3 migration: marks the encrypted amount as publicly decryptable.
+        // Callers of executeSwap / claimCancelledSwap / claimExpiredSwap supply
+        // the off-chain decryption result + Threshold Network signature; the
+        // first one to call wins, subsequent calls can pass empty signature.
+        FHE.allowPublic(transferred);
 
         // Store pending swap
         uint256 swapId = nextSwapId++;
@@ -244,14 +248,28 @@ contract PrivacyRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     ///      the user can then shield into vaultOut themselves. This avoids the
     ///      InEuint64 limitation on vault.transfer() and vault.shield().
     ///
-    /// @param swapId The swap to execute
-    function executeSwap(uint256 swapId) external nonReentrant {
+    /// @param swapId    The swap to execute
+    /// @param plaintext The off-chain decrypted amount in (from decryptForTx).
+    ///                  Pass 0 if a previous call already published the result.
+    /// @param signature Threshold Network signature over the plaintext.
+    ///                  Pass empty bytes if a previous call already published.
+    function executeSwap(
+        uint256 swapId,
+        uint64 plaintext,
+        bytes calldata signature
+    ) external nonReentrant {
         PendingSwap storage swap = _swaps[swapId];
         require(swap.status == SwapStatus.Decrypting, "PrivacyRouter: not decrypting");
         require(block.timestamp <= swap.timestamp + SWAP_EXPIRY, "PrivacyRouter: expired, use claimExpiredSwap");
 
-        // Read the decrypted plaintext amount from the Threshold Network
-        (uint256 plainAmount, bool ready) = FHE.getDecryptResultSafe(swap.encryptedAmountIn);
+        // Publish the decryption result if caller provided one. Idempotent —
+        // subsequent calls with empty signature read the already-published value.
+        if (signature.length > 0) {
+            FHE.publishDecryptResult(swap.encryptedAmountIn, plaintext, signature);
+        }
+
+        // Read the decrypted plaintext amount (now stored on-chain after publish)
+        (uint64 plainAmount, bool ready) = FHE.getDecryptResultSafe(swap.encryptedAmountIn);
         require(ready, "PrivacyRouter: decryption not ready");
         require(plainAmount > 0, "PrivacyRouter: zero amount (insufficient balance at initiation)");
 
@@ -312,8 +330,8 @@ contract PrivacyRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
             "PrivacyRouter: cannot cancel"
         );
 
-        // Attempt immediate refund if decryption is ready
-        (uint256 plainAmount, bool ready) = FHE.getDecryptResultSafe(swap.encryptedAmountIn);
+        // Attempt immediate refund if decryption is already published
+        (uint64 plainAmount, bool ready) = FHE.getDecryptResultSafe(swap.encryptedAmountIn);
         if (ready && plainAmount > 0) {
             uint256 routerBalance = IERC20(swap.tokenIn).balanceOf(address(this));
             if (routerBalance >= plainAmount) {
@@ -350,15 +368,26 @@ contract PrivacyRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     ///         This prevents the scenario where tokens are permanently stuck because
     ///         decryption hadn't resolved when the user cancelled.
     ///
-    /// @param swapId The cancelled swap to claim refund for
-    function claimCancelledSwap(uint256 swapId) external nonReentrant {
+    /// @param swapId    The cancelled swap to claim refund for
+    /// @param plaintext The off-chain decrypted amount (pass 0 if already published)
+    /// @param signature Threshold Network signature (pass empty bytes if already published)
+    function claimCancelledSwap(
+        uint256 swapId,
+        uint64 plaintext,
+        bytes calldata signature
+    ) external nonReentrant {
         PendingSwap storage swap = _swaps[swapId];
         require(swap.status == SwapStatus.Cancelled, "PrivacyRouter: not cancelled");
         require(swap.user == msg.sender, "PrivacyRouter: not your swap");
         require(swap.plaintextAmountIn == 0, "PrivacyRouter: already refunded");
 
+        // Publish if caller supplied a signature (idempotent — first publisher wins)
+        if (signature.length > 0) {
+            FHE.publishDecryptResult(swap.encryptedAmountIn, plaintext, signature);
+        }
+
         // Read the now-resolved decryption result
-        (uint256 plainAmount, bool ready) = FHE.getDecryptResultSafe(swap.encryptedAmountIn);
+        (uint64 plainAmount, bool ready) = FHE.getDecryptResultSafe(swap.encryptedAmountIn);
         require(ready, "PrivacyRouter: decryption not ready yet");
         require(plainAmount > 0, "PrivacyRouter: zero amount");
 
@@ -381,8 +410,14 @@ contract PrivacyRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     ///         If the swap has not been executed within 10 minutes, the user can
     ///         reclaim their tokens.
     ///
-    /// @param swapId The expired swap to claim
-    function claimExpiredSwap(uint256 swapId) external nonReentrant {
+    /// @param swapId    The expired swap to claim
+    /// @param plaintext The off-chain decrypted amount (pass 0 to skip publish)
+    /// @param signature Threshold Network signature (pass empty bytes to skip publish)
+    function claimExpiredSwap(
+        uint256 swapId,
+        uint64 plaintext,
+        bytes calldata signature
+    ) external nonReentrant {
         PendingSwap storage swap = _swaps[swapId];
         require(
             swap.status == SwapStatus.Decrypting || swap.status == SwapStatus.Ready,
@@ -395,8 +430,13 @@ contract PrivacyRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
         swap.status = SwapStatus.Expired;
 
+        // Publish if caller supplied a signature
+        if (signature.length > 0) {
+            FHE.publishDecryptResult(swap.encryptedAmountIn, plaintext, signature);
+        }
+
         // Attempt plaintext refund from router reserves
-        (uint256 plainAmount, bool ready) = FHE.getDecryptResultSafe(swap.encryptedAmountIn);
+        (uint64 plainAmount, bool ready) = FHE.getDecryptResultSafe(swap.encryptedAmountIn);
         if (ready && plainAmount > 0) {
             uint256 routerBalance = IERC20(swap.tokenIn).balanceOf(address(this));
             if (routerBalance >= plainAmount) {
@@ -521,8 +561,9 @@ contract PrivacyRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         );
         require(swap.plaintextAmountIn == 0, "PrivacyRouter: already refunded");
 
-        // Try to get decrypted amount
-        (uint256 plainAmount, bool ready) = FHE.getDecryptResultSafe(swap.encryptedAmountIn);
+        // Try to get decrypted amount (must already be published — manualRefund
+        // is owner-only, so we expect a prior call to have done the publish)
+        (uint64 plainAmount, bool ready) = FHE.getDecryptResultSafe(swap.encryptedAmountIn);
         require(ready, "PrivacyRouter: decryption not ready");
         require(plainAmount > 0, "PrivacyRouter: zero amount");
 

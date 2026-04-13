@@ -255,7 +255,9 @@ contract StealthPayments is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
             pending: true
         });
 
-        FHE.decrypt(conditionalAmount);
+        // v0.1.3 migration: caller decrypts off-chain via the cofhe-sdk client and
+        // submits the result + signature to finalizeClaim() below.
+        FHE.allowPublic(conditionalAmount);
 
         emit StealthClaimStarted(transferId, msg.sender, block.timestamp);
     }
@@ -266,8 +268,14 @@ contract StealthPayments is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
     ///         If the claimer was the correct recipient, they receive the full amount
     ///         in underlying ERC20 tokens. If wrong, they receive 0.
     ///
-    /// @param transferId The stealth transfer to finalize
-    function finalizeClaim(uint256 transferId) external nonReentrant {
+    /// @param transferId       The stealth transfer to finalize
+    /// @param decryptedAmount  The off-chain decrypted conditional amount
+    /// @param signature        Threshold Network signature over the plaintext
+    function finalizeClaim(
+        uint256 transferId,
+        uint64 decryptedAmount,
+        bytes calldata signature
+    ) external nonReentrant {
         require(transferId < nextTransferId, "StealthPayments: invalid transfer ID");
 
         StealthTransfer storage st = _transfers[transferId];
@@ -278,9 +286,14 @@ contract StealthPayments is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
         require(pending.pending, "StealthPayments: no pending claim");
         require(msg.sender == pending.claimer, "StealthPayments: not the claimer");
 
-        // Get the decrypted conditional amount
-        (uint256 decryptedAmount, bool ready) = FHE.getDecryptResultSafe(pending.conditionalAmount);
+        // Publish the off-chain decryption — verifies the signature and stores
+        // the plaintext on-chain for the read below.
+        FHE.publishDecryptResult(pending.conditionalAmount, decryptedAmount, signature);
+
+        // Read the now-published conditional amount
+        (uint64 verifiedAmount, bool ready) = FHE.getDecryptResultSafe(pending.conditionalAmount);
         require(ready, "StealthPayments: decryption not ready yet");
+        decryptedAmount = verifiedAmount;
 
         // Mark as finalized
         st.finalized = true;
@@ -401,6 +414,14 @@ contract StealthPayments is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
     ) {
         PendingClaim storage pc = _pendingClaims[transferId];
         return (pc.claimer, pc.pending, _transfers[transferId].finalized);
+    }
+
+    /// @notice Read the encrypted conditional-amount handle for a pending claim.
+    ///         Frontend uses this to fetch the ctHash, then decrypts off-chain
+    ///         via the cofhe-sdk client to obtain (decryptedAmount, signature) for the
+    ///         finalizeClaim() call.
+    function getPendingClaimHandle(uint256 transferId) external view returns (euint64) {
+        return _pendingClaims[transferId].conditionalAmount;
     }
 
     // ─── Admin ──────────────────────────────────────────────────────────

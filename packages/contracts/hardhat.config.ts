@@ -1,9 +1,7 @@
 import { HardhatUserConfig } from "hardhat/config";
 import "@nomicfoundation/hardhat-toolbox";
 import "@nomicfoundation/hardhat-ethers";
-// Note: @cofhe/hardhat-plugin loaded only for testing (has mock contract compilation issues on production)
-// For production deployment, we compile without it and deploy directly
-// import "cofhe-hardhat-plugin";
+import "@cofhe/hardhat-plugin";
 import * as dotenv from "dotenv";
 import "./tasks";
 
@@ -57,6 +55,12 @@ const config: HardhatUserConfig = {
   gasReporter: {
     enabled: process.env.REPORT_GAS === "true",
   },
+  // CoFHE plugin config — logMocks shows mock task IDs in tests,
+  // gasWarning flags FHE ops that are unusually expensive.
+  cofhe: {
+    logMocks: true,
+    gasWarning: true,
+  } as any, // type extension lives in @cofhe/hardhat-plugin's module augmentation
 };
 
 export default config;

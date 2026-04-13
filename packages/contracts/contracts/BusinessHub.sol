@@ -177,7 +177,9 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         // Store the match validation for async verification
         _invoicePaymentValidation[invoiceId] = exactMatch;
 
-        FHE.decrypt(exactMatch);
+        // v0.1.3 migration: caller decrypts off-chain via the cofhe-sdk client and
+        // submits the result + signature to payInvoiceFinalize() below.
+        FHE.allowPublic(exactMatch);
 
         // Mark as PaymentPending — not fully Paid until match is verified
         inv.status = InvoiceStatus.PaymentPending;
@@ -188,20 +190,30 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
     /**
      * @notice Finalize an invoice payment after the match validation decryption completes.
-     *         If the payment matched the invoice amount exactly, the invoice is marked Paid.
-     *         If not, the invoice is marked as Overpaid/Underpaid for dispute resolution.
+     *         Caller supplies the off-chain decrypted boolean + signature; the contract
+     *         verifies the proof, then marks the invoice Paid or Disputed accordingly.
      *
-     * @param invoiceId The invoice to finalize
+     * @param invoiceId  The invoice to finalize
+     * @param matchPlaintext True iff the payment matched the invoice amount exactly
+     * @param signature  Threshold Network signature over the decrypted ebool
      */
-    function payInvoiceFinalize(uint256 invoiceId) external nonReentrant {
+    function payInvoiceFinalize(
+        uint256 invoiceId,
+        bool matchPlaintext,
+        bytes calldata signature
+    ) external nonReentrant {
         Invoice storage inv = _invoices[invoiceId];
         require(inv.status == InvoiceStatus.PaymentPending, "BusinessHub: not payment pending");
 
         ebool validation = _invoicePaymentValidation[invoiceId];
-        (uint256 matchResult, bool ready) = FHE.getDecryptResultSafe(ebool.unwrap(validation));
+        // Verify the off-chain decryption by publishing it on-chain. Reverts
+        // if the signature does not authenticate the plaintext.
+        FHE.publishDecryptResult(validation, matchPlaintext, signature);
+
+        (bool matchResult, bool ready) = FHE.getDecryptResultSafe(validation);
         require(ready, "BusinessHub: validation decryption not ready");
 
-        if (matchResult != 0) {
+        if (matchResult) {
             // Exact match — invoice is properly paid
             inv.status = InvoiceStatus.Paid;
             emit InvoicePaid(invoiceId, block.timestamp);
@@ -398,6 +410,14 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     }
 
     function getUserEscrows(address user) external view returns (uint256[] memory) { return _userEscrows[user]; }
+
+    /// @notice Read the encrypted match-validation handle for an invoice.
+    ///         Frontend uses this to fetch the ctHash, then decrypts off-chain
+    ///         via the cofhe-sdk client to obtain (matchPlaintext, signature) for
+    ///         payInvoiceFinalize().
+    function getInvoiceValidationHandle(uint256 invoiceId) external view returns (ebool) {
+        return _invoicePaymentValidation[invoiceId];
+    }
 
     // ─── Admin ──────────────────────────────────────────────────────────
 

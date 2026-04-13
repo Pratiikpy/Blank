@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { useAccount, useWriteContract, usePublicClient } from "wagmi";
 import { parseUnits, keccak256, encodePacked } from "viem";
 import { useCofheEncrypt, useCofheConnection } from "@cofhe/react";
+import { useCofheDecryptForTx } from "@/lib/cofhe-shim";
 import { Encryptable } from "@cofhe/sdk";
 import toast from "react-hot-toast";
 import { CONTRACTS, type EncryptedInput } from "@/lib/constants";
@@ -82,6 +83,7 @@ export function useStealthPayments() {
   const publicClient = usePublicClient();
   const { encryptInputsAsync } = useCofheEncrypt();
   const { writeContractAsync } = useWriteContract();
+  const { decryptForTx } = useCofheDecryptForTx();
 
   const [state, setState] = useState<StealthPaymentsState>(initialState);
 
@@ -305,22 +307,39 @@ export function useStealthPayments() {
           decryptionProgress: `Waiting for FHE decryption (${elapsedSec}s)...`,
         }));
 
-        // ── Simulate finalizeClaim to check if decryption is ready ──
+        // ── v0.1.3: probe Threshold Network for the decryption proof ──
         if (!publicClient || !address) return;
 
         const stealthAddress = CONTRACTS.StealthPayments as `0x${string}`;
 
         try {
-          await publicClient.simulateContract({
+          // Read the conditional-amount handle then ask the Threshold Network
+          // for (plaintext, signature). decryptForTx returns null until ready.
+          const handle = (await publicClient.readContract({
             address: stealthAddress,
             abi: StealthPaymentsAbi,
-            functionName: "finalizeClaim",
+            functionName: "getPendingClaimHandle",
             args: [BigInt(transferId)],
-            account: address,
-          });
+          })) as bigint;
+          if (!handle || handle === 0n) {
+            // No pending decryption — claim was already finalized (or never started)
+            stopPolling();
+            return;
+          }
 
-          // Simulation succeeded — decryption is ready! Stop polling and finalize.
+          const proof = await decryptForTx(handle, "uint64");
+          if (!proof) {
+            // Not ready yet — stay in the polling loop
+            return;
+          }
+
+          // Decryption ready — stop polling and submit the finalize tx with proof.
           stopPolling();
+
+          const decryptedAmount =
+            typeof proof.decryptedValue === "bigint"
+              ? proof.decryptedValue
+              : BigInt(proof.decryptedValue ? 1 : 0);
 
           setState((s) => ({
             ...s,
@@ -336,7 +355,7 @@ export function useStealthPayments() {
               address: stealthAddress,
               abi: StealthPaymentsAbi,
               functionName: "finalizeClaim",
-              args: [BigInt(transferId)],
+              args: [BigInt(transferId), decryptedAmount, proof.signature],
               gas: BigInt(5_000_000), // FHE: manual gas limit (precompile can't be estimated)
             });
 
@@ -384,11 +403,11 @@ export function useStealthPayments() {
             });
           }
         } catch {
-          // Simulation reverted — decryption not ready yet, keep polling
+          // Probe failed — decryption not ready yet, keep polling
         }
       }, DECRYPTION_POLL_INTERVAL_MS);
     },
-    [address, publicClient, writeContractAsync, stopPolling]
+    [address, publicClient, writeContractAsync, stopPolling, decryptForTx]
   );
 
   // ─── Claim Stealth Payment (Phase 1) ──────────────────────────────
@@ -507,12 +526,34 @@ export function useStealthPayments() {
 
         const stealthAddress = CONTRACTS.StealthPayments as `0x${string}`;
 
-        const finalizeToastId = toast.loading("Finalizing claim...");
+        const finalizeToastId = toast.loading("Fetching decryption proof...");
+
+        // v0.1.3: fetch the conditional-amount handle, then the off-chain proof
+        const handle = (await publicClient.readContract({
+          address: stealthAddress,
+          abi: StealthPaymentsAbi,
+          functionName: "getPendingClaimHandle",
+          args: [BigInt(transferId)],
+        })) as bigint;
+        if (!handle || handle === 0n) {
+          throw new Error("No pending claim — already finalized or never started");
+        }
+
+        const proof = await decryptForTx(handle, "uint64");
+        if (!proof) {
+          throw new Error("Decryption not ready yet. Wait a few seconds and try again.");
+        }
+        const decryptedAmount =
+          typeof proof.decryptedValue === "bigint"
+            ? proof.decryptedValue
+            : BigInt(proof.decryptedValue ? 1 : 0);
+
+        toast.loading("Finalizing claim...", { id: finalizeToastId });
         const hash = await writeContractAsync({
           address: stealthAddress,
           abi: StealthPaymentsAbi,
           functionName: "finalizeClaim",
-          args: [BigInt(transferId)],
+          args: [BigInt(transferId), decryptedAmount, proof.signature],
           gas: BigInt(5_000_000), // FHE: manual gas limit (precompile can't be estimated)
         });
 
@@ -554,7 +595,7 @@ export function useStealthPayments() {
         submittingRef.current = false;
       }
     },
-    [address, publicClient, writeContractAsync]
+    [address, publicClient, writeContractAsync, decryptForTx]
   );
 
   // ─── Get My Pending Claims ────────────────────────────────────────

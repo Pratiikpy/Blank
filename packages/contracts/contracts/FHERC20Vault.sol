@@ -162,7 +162,10 @@ contract FHERC20Vault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         FHE.allowThis(_pendingUnshields[msg.sender]);
         FHE.allow(_pendingUnshields[msg.sender], msg.sender);
 
-        FHE.decrypt(_pendingUnshields[msg.sender]);
+        // v0.1.3 migration: FHE.decrypt removed. Mark publicly decryptable.
+        // Caller decrypts off-chain via the cofhe-sdk client client.decryptForTx,
+        // then calls claimUnshield(plaintext, signature) below.
+        FHE.allowPublic(_pendingUnshields[msg.sender]);
 
         emit UnshieldRequested(msg.sender, address(underlyingToken), block.timestamp);
         try eventHub.emitActivity(msg.sender, address(0), "unshield", "", 0) {} catch {}
@@ -170,11 +173,19 @@ contract FHERC20Vault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         return _pendingUnshields[msg.sender];
     }
 
-    /// @notice Claim a completed unshield. Call after decryption resolves.
-    function claimUnshield() external nonReentrant {
+    /// @notice Claim a completed unshield. Caller supplies the off-chain
+    ///         decrypted amount along with the Threshold Network signature
+    ///         that proves the plaintext is authentic.
+    /// @param plaintext The decrypted unshield amount returned by decryptForTx.
+    /// @param signature The Threshold Network ECDSA signature over the result.
+    function claimUnshield(uint64 plaintext, bytes calldata signature) external nonReentrant {
         euint64 pending = _pendingUnshields[msg.sender];
 
-        (uint256 plainAmount, bool ready) = FHE.getDecryptResultSafe(pending);
+        // Verify the off-chain decryption by publishing it on-chain. After
+        // this call, getDecryptResultSafe(pending) returns (plaintext, true).
+        FHE.publishDecryptResult(pending, plaintext, signature);
+
+        (uint64 plainAmount, bool ready) = FHE.getDecryptResultSafe(pending);
         require(ready, "FHERC20Vault: decryption not ready yet");
         require(plainAmount > 0, "FHERC20Vault: nothing to claim");
 
@@ -186,6 +197,14 @@ contract FHERC20Vault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         underlyingToken.safeTransfer(msg.sender, plainAmount);
 
         emit UnshieldClaimed(msg.sender, address(underlyingToken), plainAmount, block.timestamp);
+    }
+
+    /// @notice Read the pending unshield ciphertext handle for a user.
+    ///         The frontend uses this to fetch the ctHash, then calls
+    ///         decryptForTx off-chain to obtain (plaintext, signature)
+    ///         for the claimUnshield(plaintext, signature) call above.
+    function pendingUnshield(address account) external view returns (euint64) {
+        return _pendingUnshields[account];
     }
 
     // ─── Encrypted Transfer ─────────────────────────────────────────────
@@ -350,7 +369,7 @@ contract FHERC20Vault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     /// @notice Get the encrypted balance handle for an account.
     ///         Caller must have a valid permit to unseal the value.
     /// @param account Address to query
-    /// @return Encrypted balance handle (unseal with cofhejs.unseal())
+    /// @return Encrypted balance handle (decrypt off-chain via the cofhe-sdk client)
     function balanceOf(address account) external view returns (euint64) {
         return _balances[account];
     }

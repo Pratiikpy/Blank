@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useAccount, useReadContract, useWriteContract, usePublicClient } from "wagmi";
 import { parseUnits, formatUnits } from "viem";
 import toast from "react-hot-toast";
@@ -7,12 +7,19 @@ import { TestUSDCAbi, FHERC20VaultAbi } from "@/lib/abis";
 import { insertActivity } from "@/lib/supabase";
 import { broadcastAction } from "@/lib/cross-tab";
 import { invalidateBalanceQueries } from "@/lib/query-invalidation";
+import { useCofheDecryptForTx } from "@/lib/cofhe-shim";
 
 // ─── Rate limiting constants ────────────────────────────────────────
 const FAUCET_COOLDOWN_MS = 60_000; // 1 minute between faucet calls
 const FAUCET_KEY = "blank_last_faucet";
 
+// Pending unshield persistence (tab-close resilience).
+// Key: blank_pending_unshield:<lower-case-address>
+// Value: {requestedAt: ms, txHash: 0x...}
+const PENDING_UNSHIELD_PREFIX = "blank_pending_unshield:";
+
 export type ShieldStep = "idle" | "approving" | "shielding" | "success" | "error";
+export type UnshieldStep = "idle" | "encrypting" | "requesting" | "decrypting" | "claiming" | "success" | "error";
 
 export function useShield() {
   const { address } = useAccount();
@@ -190,10 +197,188 @@ export function useShield() {
     }
   }, [address, writeContractAsync, waitAndRefetch, publicBalance]);
 
+  // ─── Unshield (request → off-chain decrypt → claim) ────────────────
+  // v0.1.3 flow: requestUnshield calls FHE.allowPublic on-chain. We then
+  // call client.decryptForTx off-chain to get (plaintext, signature) and
+  // submit them via claimUnshield. Persisted to localStorage so closing
+  // the tab mid-flow doesn't strand the pending claim.
+  const [unshieldStep, setUnshieldStep] = useState<UnshieldStep>("idle");
+  const [unshieldError, setUnshieldError] = useState<string | null>(null);
+  const { decryptForTx } = useCofheDecryptForTx();
+
+  // Read this user's pending unshield ctHash (zero if none pending)
+  const { data: pendingCtHash, refetch: refetchPending } = useReadContract({
+    address: CONTRACTS.FHERC20Vault_USDC as `0x${string}`,
+    abi: FHERC20VaultAbi,
+    functionName: "pendingUnshield",
+    args: address ? [address] : undefined,
+    query: {
+      enabled: !!address && !!CONTRACTS.FHERC20Vault_USDC,
+      refetchInterval: 8000,
+    },
+  });
+
+  const hasPendingUnshield = !!pendingCtHash && (pendingCtHash as bigint) !== 0n;
+
+  // Internal: claim a pending unshield once the Threshold Network has the result.
+  // Polls decryptForTx every 5s up to ~60s, then submits the proof to claimUnshield.
+  const _attemptClaim = useCallback(async (ctHash: bigint, amountHint: string): Promise<boolean> => {
+    if (!address || !publicClient) return false;
+    setUnshieldStep("decrypting");
+    const startedAt = Date.now();
+    const TIMEOUT_MS = 60_000;
+    let lastErr: string | null = null;
+
+    while (Date.now() - startedAt < TIMEOUT_MS) {
+      const result = await decryptForTx(ctHash, "uint64");
+      if (result) {
+        const plaintext = typeof result.decryptedValue === "bigint"
+          ? result.decryptedValue
+          : BigInt(result.decryptedValue ? 1 : 0);
+
+        setUnshieldStep("claiming");
+        try {
+          const claimHash = await writeContractAsync({
+            address: CONTRACTS.FHERC20Vault_USDC as `0x${string}`,
+            abi: FHERC20VaultAbi,
+            functionName: "claimUnshield",
+            args: [plaintext, result.signature],
+            gas: BigInt(5_000_000),
+          });
+          await waitAndRefetch(claimHash);
+          await refetchPending();
+
+          // Clear the persisted pending state — claim succeeded
+          try {
+            localStorage.removeItem(`${PENDING_UNSHIELD_PREFIX}${address.toLowerCase()}`);
+          } catch {}
+
+          broadcastAction("balance_changed");
+          broadcastAction("activity_added");
+          invalidateBalanceQueries();
+
+          await insertActivity({
+            tx_hash: claimHash,
+            user_from: address.toLowerCase(),
+            user_to: address.toLowerCase(),
+            activity_type: "unshield_claim",
+            contract_address: CONTRACTS.FHERC20Vault_USDC,
+            note: amountHint ? `Unshielded ${amountHint} USDC` : "Unshielded USDC",
+            token_address: CONTRACTS.TestUSDC,
+            block_number: 0,
+          });
+
+          setUnshieldStep("success");
+          toast.success(amountHint ? `Unshielded ${amountHint} USDC!` : "Unshield complete!");
+          return true;
+        } catch (claimErr) {
+          lastErr = claimErr instanceof Error ? claimErr.message : "Claim transaction failed";
+          break; // Don't retry the on-chain call — only retry the decrypt
+        }
+      }
+      // Decrypt not ready yet — wait and retry
+      await new Promise((r) => setTimeout(r, 5000));
+    }
+
+    setUnshieldStep("error");
+    setUnshieldError(lastErr ?? "Decryption timed out — pending unshield will retry on next page load");
+    toast.error(lastErr ?? "Decryption timed out — claim still pending");
+    return false;
+  }, [address, publicClient, decryptForTx, writeContractAsync, waitAndRefetch, refetchPending]);
+
+  // Public: initiate an unshield. Encrypts amount, calls requestUnshield,
+  // then immediately attempts the claim (after the on-chain allowPublic).
+  const unshield = useCallback(async (amount: string, encryptInputsAsync: (items: unknown[]) => Promise<unknown[]>, Encryptable: any): Promise<boolean> => {
+    if (!address || !CONTRACTS.FHERC20Vault_USDC) return false;
+    if (!amount || amount.trim() === "") {
+      toast.error("Enter an amount to unshield");
+      return false;
+    }
+
+    setUnshieldStep("encrypting");
+    setUnshieldError(null);
+
+    try {
+      const amountWei = parseUnits(amount, 6);
+      const encrypted = await encryptInputsAsync([Encryptable.uint64(amountWei)]);
+      const raw = encrypted[0] as any;
+      const encAmount = {
+        ctHash: BigInt(raw.ctHash ?? raw.data?.ctHash ?? 0),
+        securityZone: Number(raw.securityZone ?? raw.data?.securityZone ?? 0),
+        utype: Number(raw.utype ?? raw.data?.utype ?? 5),
+        signature: (raw.signature ?? raw.data?.signature ?? "0x") as `0x${string}`,
+      };
+
+      setUnshieldStep("requesting");
+      const reqHash = await writeContractAsync({
+        address: CONTRACTS.FHERC20Vault_USDC as `0x${string}`,
+        abi: FHERC20VaultAbi,
+        functionName: "requestUnshield",
+        args: [encAmount],
+        gas: BigInt(5_000_000),
+      });
+
+      // Persist pending state — if tab closes, we resume on next mount
+      try {
+        localStorage.setItem(
+          `${PENDING_UNSHIELD_PREFIX}${address.toLowerCase()}`,
+          JSON.stringify({ requestedAt: Date.now(), txHash: reqHash, amount }),
+        );
+      } catch {}
+
+      const receipt = await waitAndRefetch(reqHash);
+      if (!receipt) {
+        setUnshieldStep("error");
+        setUnshieldError("Request transaction confirmation failed");
+        return false;
+      }
+
+      // Refetch the ctHash now that the request is on-chain
+      const refreshed = await refetchPending();
+      const newCtHash = refreshed.data as bigint | undefined;
+      if (!newCtHash || newCtHash === 0n) {
+        setUnshieldStep("error");
+        setUnshieldError("Pending unshield handle missing after request");
+        return false;
+      }
+
+      return await _attemptClaim(newCtHash, amount);
+    } catch (err) {
+      setUnshieldStep("error");
+      setUnshieldError(err instanceof Error ? err.message : "Unshield failed");
+      toast.error(err instanceof Error ? err.message : "Unshield failed");
+      return false;
+    }
+  }, [address, writeContractAsync, waitAndRefetch, refetchPending, _attemptClaim]);
+
+  // Auto-resume any pending unshield from a previous session.
+  // Runs once on mount when address + ctHash are available.
+  useEffect(() => {
+    if (!address || !hasPendingUnshield || unshieldStep !== "idle") return;
+    const stored = localStorage.getItem(`${PENDING_UNSHIELD_PREFIX}${address.toLowerCase()}`);
+    if (!stored) return; // pending on-chain but no local hint — leave it for explicit retry
+    try {
+      const data = JSON.parse(stored);
+      console.log("[useShield] Auto-resuming pending unshield from previous session");
+      _attemptClaim(pendingCtHash as bigint, data.amount ?? "");
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [address, hasPendingUnshield]);
+
+  // Manual claim retry — surfaced to UI for the failure case
+  const retryUnshieldClaim = useCallback(async () => {
+    if (!address || !hasPendingUnshield) return false;
+    const stored = localStorage.getItem(`${PENDING_UNSHIELD_PREFIX}${address.toLowerCase()}`);
+    const amountHint = stored ? (JSON.parse(stored).amount ?? "") : "";
+    return await _attemptClaim(pendingCtHash as bigint, amountHint);
+  }, [address, hasPendingUnshield, pendingCtHash, _attemptClaim]);
+
   const reset = useCallback(() => {
     setStep("idle");
     setTxHash(null);
     setError(null);
+    setUnshieldStep("idle");
+    setUnshieldError(null);
   }, []);
 
   return {
@@ -206,6 +391,12 @@ export function useShield() {
     vaultBalance: vaultBalance ? Number(formatUnits(vaultBalance as bigint, 6)) : 0,
     shield,
     mintTestTokens,
+    // Unshield surface (new in v0.1.3 migration)
+    unshield,
+    unshieldStep,
+    unshieldError,
+    hasPendingUnshield,
+    retryUnshieldClaim,
     reset,
     refetchBalance,
   };

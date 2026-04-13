@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect } from "react";
 import { useAccount, useWriteContract, usePublicClient } from "wagmi";
 import { parseUnits } from "viem";
 import { useCofheEncrypt } from "@cofhe/react";
+import { useCofheDecryptForTx } from "@/lib/cofhe-shim";
 import { Encryptable } from "@cofhe/sdk";
 import { P2PExchangeAbi, FHERC20VaultAbi } from "@/lib/abis";
 import { CONTRACTS, MAX_UINT64, type EncryptedInput } from "@/lib/constants";
@@ -9,6 +10,7 @@ import {
   supabase,
   insertExchangeOffer,
   fetchActiveOffers,
+  fetchFilledOffersForUser,
   updateOfferStatus,
   insertActivity,
   type ExchangeOfferRow,
@@ -24,9 +26,12 @@ export function useExchange() {
   const publicClient = usePublicClient();
   const { writeContractAsync } = useWriteContract();
   const { encryptInputsAsync } = useCofheEncrypt();
+  const { decryptForTx } = useCofheDecryptForTx();
   const [step, setStep] = useState<Step>("idle");
+  const [verifyingOfferId, setVerifyingOfferId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [offers, setOffers] = useState<ExchangeOfferRow[]>([]);
+  const [filledOffers, setFilledOffers] = useState<ExchangeOfferRow[]>([]);
   const [isLoadingOffers, setIsLoadingOffers] = useState(false);
 
   // Load offers from Supabase
@@ -34,8 +39,14 @@ export function useExchange() {
     setIsLoadingOffers(true);
     const data = await fetchActiveOffers();
     setOffers(data);
+    if (address) {
+      const filled = await fetchFilledOffersForUser(address);
+      setFilledOffers(filled);
+    } else {
+      setFilledOffers([]);
+    }
     setIsLoadingOffers(false);
-  }, []);
+  }, [address]);
 
   useEffect(() => {
     loadOffers();
@@ -311,6 +322,106 @@ export function useExchange() {
     [address, publicClient, isCancelling, writeContractAsync, loadOffers]
   );
 
+  // ─── Verify trade (v0.1.3) ────────────────────────────────────────
+  // After a fill, both sides can publish the trade-validity proof on-chain
+  // so anyone can read the public verdict. Read the validation handle, ask
+  // the Threshold Network for (plaintext, signature), then publish.
+  const verifyTrade = useCallback(
+    async (offerId: number): Promise<boolean | null> => {
+      if (!address || !publicClient) {
+        toast.error("Connection lost");
+        return null;
+      }
+      if (verifyingOfferId !== null) return null;
+
+      setVerifyingOfferId(offerId);
+      const toastId = toast.loading("Fetching trade-validity proof...");
+      try {
+        const handle = (await publicClient.readContract({
+          address: CONTRACTS.P2PExchange,
+          abi: P2PExchangeAbi,
+          functionName: "getValidationHandle",
+          args: [BigInt(offerId)],
+        })) as bigint;
+        if (!handle || handle === 0n) {
+          throw new Error("No validation handle — offer not filled yet");
+        }
+
+        // Poll Threshold Network briefly (decrypt typically resolves in ~10s)
+        const TIMEOUT_MS = 60_000;
+        const startedAt = Date.now();
+        let proof: { decryptedValue: bigint | boolean; signature: `0x${string}` } | null = null;
+        while (Date.now() - startedAt < TIMEOUT_MS) {
+          proof = await decryptForTx(handle, "ebool");
+          if (proof) break;
+          await new Promise((r) => setTimeout(r, 5000));
+        }
+        if (!proof) throw new Error("Decryption timed out — try Verify again shortly");
+
+        const validPlaintext =
+          typeof proof.decryptedValue === "boolean"
+            ? proof.decryptedValue
+            : proof.decryptedValue !== 0n;
+
+        toast.loading("Publishing verdict on-chain...", { id: toastId });
+        const hash = await writeContractAsync({
+          address: CONTRACTS.P2PExchange,
+          abi: P2PExchangeAbi,
+          functionName: "publishTradeValidation",
+          args: [BigInt(offerId), validPlaintext, proof.signature],
+          gas: BigInt(5_000_000), // CoFHE: manual gas limit (precompile breaks estimation)
+        });
+        const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
+        if (receipt.status === "reverted") throw new Error("Publish reverted on-chain");
+
+        toast.success(
+          validPlaintext ? "Trade verified — amounts matched" : "Trade flagged — amounts mismatched",
+          { id: toastId },
+        );
+
+        await insertActivity({
+          tx_hash: hash,
+          user_from: address.toLowerCase(),
+          user_to: address.toLowerCase(),
+          activity_type: validPlaintext ? "exchange_verified" : "exchange_invalid",
+          contract_address: CONTRACTS.P2PExchange,
+          note: validPlaintext
+            ? `Verified trade #${offerId}`
+            : `Flagged trade #${offerId} — amount mismatch`,
+          token_address: CONTRACTS.FHERC20Vault_USDC,
+          block_number: Number(receipt.blockNumber),
+        });
+
+        return validPlaintext;
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Verify failed", { id: toastId });
+        return null;
+      } finally {
+        setVerifyingOfferId(null);
+      }
+    },
+    [address, publicClient, writeContractAsync, decryptForTx, verifyingOfferId]
+  );
+
+  // Read the on-chain verdict for an offer. Returns (isValid, isReady).
+  const getTradeValidation = useCallback(
+    async (offerId: number): Promise<{ isValid: boolean; isReady: boolean } | null> => {
+      if (!publicClient) return null;
+      try {
+        const [isValid, isReady] = (await publicClient.readContract({
+          address: CONTRACTS.P2PExchange,
+          abi: P2PExchangeAbi,
+          functionName: "getTradeValidation",
+          args: [BigInt(offerId)],
+        })) as [boolean, boolean];
+        return { isValid, isReady };
+      } catch {
+        return null;
+      }
+    },
+    [publicClient]
+  );
+
   const reset = useCallback(() => {
     setStep("idle");
     setError(null);
@@ -320,10 +431,14 @@ export function useExchange() {
     step,
     error,
     offers,
+    filledOffers,
     isLoadingOffers,
     createOffer,
     fillOffer,
     cancelOffer,
+    verifyTrade,
+    getTradeValidation,
+    verifyingOfferId,
     loadOffers,
     reset,
   };

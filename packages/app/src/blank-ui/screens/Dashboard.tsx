@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useAccount, useWriteContract, usePublicClient } from "wagmi";
-import { parseUnits } from "viem";
+import { useAccount } from "wagmi";
 import {
   Send,
   ArrowDownLeft,
@@ -26,8 +25,6 @@ import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { useActivityFeed } from "@/hooks/useActivityFeed";
 import { useEncryptedBalance } from "@/hooks/useEncryptedBalance";
 import { useShield } from "@/hooks/useShield";
-import { CONTRACTS, type EncryptedInput } from "@/lib/constants";
-import { FHERC20VaultAbi } from "@/lib/abis";
 
 function getGreeting(): string {
   const hour = new Date().getHours();
@@ -76,17 +73,27 @@ export default function Dashboard() {
   const { address } = useAccount();
   const { activities, isLoading: feedLoading } = useActivityFeed();
   const balance = useEncryptedBalance();
-  const { mintTestTokens, shield, publicBalance, isMinting, step: shieldStep, error: shieldError, reset: resetShield } = useShield();
+  const {
+    mintTestTokens,
+    shield,
+    publicBalance,
+    isMinting,
+    step: shieldStep,
+    error: shieldError,
+    reset: resetShield,
+    unshield,
+    unshieldStep,
+    unshieldError,
+    hasPendingUnshield,
+    retryUnshieldClaim,
+  } = useShield();
   const isMobile = useMediaQuery("(max-width: 768px)");
   const { connected: cofheConnected } = useCofheConnection();
   const [privacyMode, setPrivacyMode] = useState(true);
   const [shieldAmount, setShieldAmount] = useState("");
   const [unshieldAmount, setUnshieldAmount] = useState("");
-  const [unshieldStep, setUnshieldStep] = useState<"idle" | "encrypting" | "requesting" | "success" | "error">("idle");
   const [faucetCooldown, setFaucetCooldown] = useState(0);
   const { encryptInputsAsync } = useCofheEncrypt();
-  const { writeContractAsync } = useWriteContract();
-  const publicClient = usePublicClient();
 
   // Faucet cooldown timer — check localStorage on mount and tick down every second
   useEffect(() => {
@@ -106,32 +113,21 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, [isMinting]);
 
+  const unshieldBusy =
+    unshieldStep === "encrypting" ||
+    unshieldStep === "requesting" ||
+    unshieldStep === "decrypting" ||
+    unshieldStep === "claiming";
+
   const handleUnshield = async () => {
     if (!unshieldAmount || parseFloat(unshieldAmount) <= 0) { toast.error("Enter an amount to unshield"); return; }
     if (!address) return;
-    try {
-      setUnshieldStep("encrypting");
-      const amountWei = parseUnits(unshieldAmount, 6);
-      const [encAmount] = await encryptInputsAsync([Encryptable.uint64(amountWei)]);
-      setUnshieldStep("requesting");
-      const hash = await writeContractAsync({
-        address: CONTRACTS.FHERC20Vault_USDC as `0x${string}`,
-        abi: FHERC20VaultAbi,
-        functionName: "requestUnshield",
-        // Type assertion: cofhe SDK encrypt returns opaque encrypted input objects
-        args: [encAmount as unknown as EncryptedInput],
-        gas: BigInt(5_000_000), // FHE: manual gas limit (precompile can't be estimated)
-      });
-      if (publicClient) {
-        await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
-      }
-      setUnshieldStep("success");
-      setUnshieldAmount("");
-      toast.success("Unshield requested! Claim your tokens once decryption completes.");
-    } catch (err) {
-      setUnshieldStep("error");
-      toast.error(err instanceof Error ? err.message : "Unshield request failed");
-    }
+    const ok = await unshield(unshieldAmount, encryptInputsAsync, Encryptable);
+    if (ok) setUnshieldAmount("");
+  };
+
+  const handleRetryUnshieldClaim = async () => {
+    await retryUnshieldClaim();
   };
 
   const handleMint = async () => {
@@ -329,7 +325,7 @@ export default function Dashboard() {
               </div>
             </div>
             <p className="text-xs text-[var(--text-tertiary)]">
-              Two-step process: request unshield (async FHE decryption) then claim tokens once ready.
+              One-tap: encrypts amount, requests on-chain, waits for the Threshold Network (~10s), and auto-claims your tokens.
             </p>
             <div className="flex gap-3">
               <div className="flex-1 relative">
@@ -341,32 +337,58 @@ export default function Dashboard() {
                   onChange={(e) => { const v = e.target.value; if (/^\d*\.?\d{0,6}$/.test(v) || v === "") setUnshieldAmount(v); }}
                   placeholder="0.00"
                   aria-label="Unshield amount"
-                  className="h-14 w-full pl-8 pr-4 rounded-2xl bg-white/60 border border-black/5 focus:border-black/20 focus:ring-4 focus:ring-black/5 outline-none text-lg font-mono tabular-nums"
+                  disabled={unshieldBusy}
+                  className="h-14 w-full pl-8 pr-4 rounded-2xl bg-white/60 border border-black/5 focus:border-black/20 focus:ring-4 focus:ring-black/5 outline-none text-lg font-mono tabular-nums disabled:opacity-50"
                 />
               </div>
               <button
                 onClick={handleUnshield}
-                disabled={!unshieldAmount || parseFloat(unshieldAmount) <= 0 || unshieldStep === "encrypting" || unshieldStep === "requesting"}
+                disabled={!unshieldAmount || parseFloat(unshieldAmount) <= 0 || unshieldBusy}
                 className="h-14 px-6 rounded-2xl bg-amber-600 text-white font-medium hover:bg-amber-700 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                aria-label="Request unshield"
+                aria-label="Unshield"
               >
                 {unshieldStep === "encrypting" ? (
                   <span className="flex items-center gap-2"><Loader2 size={16} className="animate-spin" />Encrypting...</span>
                 ) : unshieldStep === "requesting" ? (
                   <span className="flex items-center gap-2"><Loader2 size={16} className="animate-spin" />Requesting...</span>
-                ) : "Request Unshield"}
+                ) : unshieldStep === "decrypting" ? (
+                  <span className="flex items-center gap-2"><Loader2 size={16} className="animate-spin" />Decrypting...</span>
+                ) : unshieldStep === "claiming" ? (
+                  <span className="flex items-center gap-2"><Loader2 size={16} className="animate-spin" />Claiming...</span>
+                ) : "Unshield"}
               </button>
             </div>
+            {unshieldStep === "decrypting" && (
+              <div className="flex items-center gap-2 text-xs text-[var(--text-tertiary)]">
+                <Loader2 size={14} className="animate-spin" />
+                <span>Threshold Network is decrypting your amount (~10s)…</span>
+              </div>
+            )}
             {unshieldStep === "success" && (
               <div className="flex items-center gap-2 text-sm text-emerald-600">
                 <CheckCircle size={16} />
-                <span>Unshield requested! Use &ldquo;Claim&rdquo; once decryption completes.</span>
+                <span>Unshielded — public USDC balance updated.</span>
               </div>
             )}
             {unshieldStep === "error" && (
               <div className="flex items-center gap-2 text-sm text-red-600">
                 <AlertCircle size={16} />
-                <span>Unshield request failed. Try again.</span>
+                <span>{unshieldError ?? "Unshield failed. Try again."}</span>
+              </div>
+            )}
+            {hasPendingUnshield && unshieldStep !== "decrypting" && unshieldStep !== "claiming" && (
+              <div className="flex items-center justify-between gap-2 rounded-2xl bg-amber-50 border border-amber-200 px-4 py-3 text-sm">
+                <div className="flex items-center gap-2 text-amber-900">
+                  <Clock size={16} />
+                  <span>Pending unshield from a previous session</span>
+                </div>
+                <button
+                  onClick={handleRetryUnshieldClaim}
+                  className="text-xs font-medium text-amber-900 underline hover:text-amber-950"
+                  aria-label="Retry pending unshield claim"
+                >
+                  Retry claim
+                </button>
               </div>
             )}
           </div>
@@ -607,7 +629,7 @@ export default function Dashboard() {
               </div>
             </div>
             <p className="text-xs text-[var(--text-tertiary)]">
-              Two-step process: request unshield (async FHE decryption) then claim tokens once ready.
+              One-tap: encrypts amount, requests on-chain, waits for the Threshold Network (~10s), and auto-claims your tokens.
             </p>
             <div className="flex gap-3">
               <div className="flex-1 relative">
@@ -619,32 +641,58 @@ export default function Dashboard() {
                   onChange={(e) => { const v = e.target.value; if (/^\d*\.?\d{0,6}$/.test(v) || v === "") setUnshieldAmount(v); }}
                   placeholder="0.00"
                   aria-label="Unshield amount"
-                  className="h-14 w-full pl-8 pr-4 rounded-2xl bg-white/60 border border-black/5 focus:border-black/20 focus:ring-4 focus:ring-black/5 outline-none text-lg font-mono tabular-nums"
+                  disabled={unshieldBusy}
+                  className="h-14 w-full pl-8 pr-4 rounded-2xl bg-white/60 border border-black/5 focus:border-black/20 focus:ring-4 focus:ring-black/5 outline-none text-lg font-mono tabular-nums disabled:opacity-50"
                 />
               </div>
               <button
                 onClick={handleUnshield}
-                disabled={!unshieldAmount || parseFloat(unshieldAmount) <= 0 || unshieldStep === "encrypting" || unshieldStep === "requesting"}
+                disabled={!unshieldAmount || parseFloat(unshieldAmount) <= 0 || unshieldBusy}
                 className="h-14 px-6 rounded-2xl bg-amber-600 text-white font-medium hover:bg-amber-700 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                aria-label="Request unshield"
+                aria-label="Unshield"
               >
                 {unshieldStep === "encrypting" ? (
                   <span className="flex items-center gap-2"><Loader2 size={16} className="animate-spin" />Encrypting...</span>
                 ) : unshieldStep === "requesting" ? (
                   <span className="flex items-center gap-2"><Loader2 size={16} className="animate-spin" />Requesting...</span>
-                ) : "Request Unshield"}
+                ) : unshieldStep === "decrypting" ? (
+                  <span className="flex items-center gap-2"><Loader2 size={16} className="animate-spin" />Decrypting...</span>
+                ) : unshieldStep === "claiming" ? (
+                  <span className="flex items-center gap-2"><Loader2 size={16} className="animate-spin" />Claiming...</span>
+                ) : "Unshield"}
               </button>
             </div>
+            {unshieldStep === "decrypting" && (
+              <div className="flex items-center gap-2 text-xs text-[var(--text-tertiary)]">
+                <Loader2 size={14} className="animate-spin" />
+                <span>Threshold Network is decrypting your amount (~10s)…</span>
+              </div>
+            )}
             {unshieldStep === "success" && (
               <div className="flex items-center gap-2 text-sm text-emerald-600">
                 <CheckCircle size={16} />
-                <span>Unshield requested! Use &ldquo;Claim&rdquo; once decryption completes.</span>
+                <span>Unshielded — public USDC balance updated.</span>
               </div>
             )}
             {unshieldStep === "error" && (
               <div className="flex items-center gap-2 text-sm text-red-600">
                 <AlertCircle size={16} />
-                <span>Unshield request failed. Try again.</span>
+                <span>{unshieldError ?? "Unshield failed. Try again."}</span>
+              </div>
+            )}
+            {hasPendingUnshield && unshieldStep !== "decrypting" && unshieldStep !== "claiming" && (
+              <div className="flex items-center justify-between gap-2 rounded-2xl bg-amber-50 border border-amber-200 px-4 py-3 text-sm">
+                <div className="flex items-center gap-2 text-amber-900">
+                  <Clock size={16} />
+                  <span>Pending unshield from a previous session</span>
+                </div>
+                <button
+                  onClick={handleRetryUnshieldClaim}
+                  className="text-xs font-medium text-amber-900 underline hover:text-amber-950"
+                  aria-label="Retry pending unshield claim"
+                >
+                  Retry claim
+                </button>
               </div>
             )}
           </div>

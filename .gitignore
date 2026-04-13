@@ -35,6 +35,6 @@ docs/
 
 # Dev artifacts
 memory/
-tasks/
+/tasks/
 test_reports/
 ~$*

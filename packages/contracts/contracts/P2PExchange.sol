@@ -144,7 +144,9 @@ contract P2PExchange is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         // Store the validation handle for the offer so it can be queried
         _offerValidation[offerId] = tradeValid;
 
-        FHE.decrypt(tradeValid);
+        // v0.1.3 migration: caller decrypts off-chain via the cofhe-sdk client and
+        // submits the result + signature to publishTradeValidation() below.
+        FHE.allowPublic(tradeValid);
 
         o.filled = true;
         o.active = false;
@@ -153,15 +155,41 @@ contract P2PExchange is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         try eventHub.emitActivity(msg.sender, o.maker, "exchange_filled", "", offerId) {} catch {}
     }
 
+    /// @notice Publish the off-chain decryption of a filled offer's validation
+    ///         flag. Anyone can call this once they've fetched the plaintext
+    ///         and signature from the Threshold Network — usually either
+    ///         party verifying the trade. After publish, getTradeValidation()
+    ///         returns (isValid, true).
+    /// @param offerId       The filled offer
+    /// @param validPlaintext The decrypted ebool (true if amounts matched)
+    /// @param signature     Threshold Network signature over the plaintext
+    function publishTradeValidation(
+        uint256 offerId,
+        bool validPlaintext,
+        bytes calldata signature
+    ) external {
+        ebool validation = _offerValidation[offerId];
+        FHE.publishDecryptResult(validation, validPlaintext, signature);
+    }
+
     /// @notice Check whether a filled offer's trade was valid (amounts matched the offer).
-    ///         Returns (isValid, isReady). If isReady is false, decryption hasn't completed yet.
+    ///         Returns (isValid, isReady). If isReady is false, no one has called
+    ///         publishTradeValidation yet — both parties can verify off-chain
+    ///         via the cofhe-sdk client and either one can publish to make it on-chain readable.
     /// @param offerId The offer to check
-    /// @return isValid Whether the trade amounts matched the offer (taker paid enough, maker sent correct amount)
-    /// @return isReady Whether the decryption result is available
+    /// @return isValid Whether the trade amounts matched the offer
+    /// @return isReady Whether the decryption result has been published
     function getTradeValidation(uint256 offerId) external view returns (bool isValid, bool isReady) {
         ebool validation = _offerValidation[offerId];
-        (uint256 result, bool ready) = FHE.getDecryptResultSafe(ebool.unwrap(validation));
-        return (result != 0, ready);
+        (bool result, bool ready) = FHE.getDecryptResultSafe(validation);
+        return (result, ready);
+    }
+
+    /// @notice Read the encrypted validation handle for an offer.
+    ///         Frontend uses this to fetch the ctHash, then decrypts off-chain
+    ///         to obtain (validPlaintext, signature) for publishTradeValidation.
+    function getValidationHandle(uint256 offerId) external view returns (ebool) {
+        return _offerValidation[offerId];
     }
 
     /// @notice Cancel an active offer. Only the maker can cancel.

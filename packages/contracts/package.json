@@ -11,8 +11,9 @@
     "deploy:arb-sepolia": "hardhat deploy-all --network arb-sepolia"
   },
   "devDependencies": {
-    "@fhenixprotocol/cofhe-contracts": "^0.1.0",
-    "@fhenixprotocol/cofhe-mock-contracts": "^0.3.1",
+    "@cofhe/hardhat-plugin": "0.4.0",
+    "@cofhe/mock-contracts": "0.4.0",
+    "@fhenixprotocol/cofhe-contracts": "0.1.3",
     "@nomicfoundation/hardhat-chai-matchers": "^2.0.0",
     "@nomicfoundation/hardhat-ethers": "^3.0.0",
     "@nomicfoundation/hardhat-toolbox": "^5.0.0",
@@ -25,8 +26,6 @@
     "@types/mocha": ">=9.1.0",
     "@types/node": ">=18.0.0",
     "chai": "^4.2.0",
-    "cofhe-hardhat-plugin": "^0.3.1",
-    "cofhejs": "^0.3.1",
     "dotenv": "^16.4.7",
     "ethers": "^6.4.0",
     "hardhat": "^2.22.19",
@@ -36,8 +35,5 @@
     "ts-node": ">=8.0.0",
     "typechain": "^8.3.0",
     "typescript": ">=5.0.0"
-  },
-  "dependencies": {
-    "@cofhe/hardhat-plugin": "0.4.0"
   }
 }

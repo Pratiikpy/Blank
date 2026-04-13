@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { useAccount, useWriteContract, usePublicClient } from "wagmi";
 import { parseUnits } from "viem";
 import { useCofheEncrypt, useCofheConnection } from "@cofhe/react";
+import { useCofheDecryptForTx } from "@/lib/cofhe-shim";
 import { Encryptable } from "@cofhe/sdk";
 import toast from "react-hot-toast";
 import { CONTRACTS, MAX_UINT64, type EncryptedInput } from "@/lib/constants";
@@ -38,6 +39,7 @@ export function useBusinessHub() {
   const { connected } = useCofheConnection();
   const publicClient = usePublicClient();
   const { encryptInputsAsync } = useCofheEncrypt();
+  const { decryptForTx } = useCofheDecryptForTx();
   const { writeContractAsync } = useWriteContract();
   const [step, setStep] = useState<Step>("idle");
 
@@ -359,11 +361,42 @@ export function useBusinessHub() {
       clearTimeout(resetTimerRef.current);
       setStep("sending");
       try {
+        // v0.1.3 finalize flow:
+        // 1. Read the validation handle (ebool) from the contract
+        // 2. Fetch off-chain decryption + Threshold Network signature
+        // 3. Submit (matchPlaintext, signature) to payInvoiceFinalize
+        const validationHandle = (await publicClient.readContract({
+          address: CONTRACTS.BusinessHub as `0x${string}`,
+          abi: BusinessHubAbi,
+          functionName: "getInvoiceValidationHandle",
+          args: [BigInt(invoiceId)],
+        })) as bigint;
+        if (!validationHandle || validationHandle === 0n) {
+          throw new Error("Invoice not paid yet — nothing to finalize");
+        }
+
+        // Poll Threshold Network for the decrypted result (~10s typical)
+        const TIMEOUT_MS = 60_000;
+        const startedAt = Date.now();
+        let result: { decryptedValue: bigint | boolean; signature: `0x${string}` } | null = null;
+        while (Date.now() - startedAt < TIMEOUT_MS) {
+          result = await decryptForTx(validationHandle, "ebool");
+          if (result) break;
+          await new Promise((r) => setTimeout(r, 5000));
+        }
+        if (!result) {
+          throw new Error("Decryption timed out — try Finalize again in a moment");
+        }
+        const matchPlaintext =
+          typeof result.decryptedValue === "boolean"
+            ? result.decryptedValue
+            : result.decryptedValue !== 0n;
+
         const hash = await writeContractAsync({
           address: CONTRACTS.BusinessHub as `0x${string}`,
           abi: BusinessHubAbi,
           functionName: "payInvoiceFinalize",
-          args: [BigInt(invoiceId)],
+          args: [BigInt(invoiceId), matchPlaintext, result.signature],
           gas: BigInt(5_000_000), // CoFHE: manual gas limit (precompile breaks estimation)
         });
 
@@ -378,21 +411,23 @@ export function useBusinessHub() {
           user_to: address.toLowerCase(),
           activity_type: "invoice_finalized",
           contract_address: CONTRACTS.BusinessHub,
-          note: `Finalized invoice #${invoiceId}`,
+          note: matchPlaintext
+            ? `Finalized invoice #${invoiceId}`
+            : `Finalized invoice #${invoiceId} (refunded — amount mismatch)`,
           token_address: CONTRACTS.FHERC20Vault_USDC,
           block_number: Number(finalizeReceipt.blockNumber),
         });
 
-        await updateInvoiceStatus(hash, "paid");
+        await updateInvoiceStatus(hash, matchPlaintext ? "paid" : "refunded");
 
-        toast.success("Invoice finalized!");
+        toast.success(matchPlaintext ? "Invoice finalized!" : "Invoice refunded — amount mismatch");
         setStepWithReset("success", 3000);
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Failed to finalize");
         setStepWithReset("error", 5000);
       }
     },
-    [address, publicClient, writeContractAsync, step]
+    [address, publicClient, writeContractAsync, step, decryptForTx]
   );
 
   const markDelivered = useCallback(
