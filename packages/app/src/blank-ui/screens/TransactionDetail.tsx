@@ -17,6 +17,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { useChain } from "@/providers/ChainProvider";
 import { fetchActivityById, type ActivityRow } from "@/lib/supabase";
 
 const activityLabels: Record<string, string> = {
@@ -150,6 +151,7 @@ function CopyableAddress({ address, label }: { address: string; label: string })
 export default function TransactionDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { activeChain } = useChain();
   const [activity, setActivity] = useState<ActivityRow | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
@@ -165,15 +167,21 @@ export default function TransactionDetail() {
 
     async function load() {
       setIsLoading(true);
-      const data = await fetchActivityById(id!);
-      if (cancelled) return;
+      try {
+        const data = await fetchActivityById(id!);
+        if (cancelled) return;
 
-      if (data) {
-        setActivity(data);
-      } else {
+        if (data) {
+          setActivity(data);
+        } else {
+          setNotFound(true);
+        }
+      } catch {
+        if (cancelled) return;
         setNotFound(true);
+      } finally {
+        if (!cancelled) setIsLoading(false);
       }
-      setIsLoading(false);
     }
 
     load();
@@ -377,7 +385,7 @@ export default function TransactionDetail() {
           {/* Explorer Link */}
           {hasValidTxHash && (
             <a
-              href={`https://sepolia.etherscan.io/tx/${activity.tx_hash}`}
+              href={`${activeChain.explorerUrl}/tx/${activity.tx_hash}`}
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center justify-center gap-2 h-14 rounded-2xl bg-blue-50 text-blue-600 font-medium text-sm hover:bg-blue-100 transition-colors"

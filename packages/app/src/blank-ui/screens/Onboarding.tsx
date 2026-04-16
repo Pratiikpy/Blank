@@ -1,8 +1,10 @@
 import { useState, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useConnect } from "wagmi";
-import { Lock, Shield, Key, Sparkles, ArrowRight, Loader2 } from "lucide-react";
+import { useAccount, useConnect } from "wagmi";
+import { Lock, Shield, Key, Sparkles, ArrowRight, Loader2, Fingerprint } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { STORAGE_KEYS, getStoredString, setStoredString } from "@/lib/storage";
+import { PasskeyCreationModal } from "@/components/PasskeyCreationModal";
 
 // ─── Step data with gradient icon backgrounds ─────────────────────────
 
@@ -36,17 +38,36 @@ const steps = [
 // ─── Component ────────────────────────────────────────────────────────
 
 export default function Onboarding() {
+  const { address } = useAccount();
   const [step, setStep] = useState(() => {
-    const seen = typeof window !== "undefined" && localStorage.getItem("blank_onboarding_seen");
+    // Per-address onboarding flag — users on a shared browser don't skip
+    // each other's onboarding. Pre-connect (address = undefined), fall
+    // back to step 0.
+    if (!address) return 0;
+    const seen = getStoredString(STORAGE_KEYS.onboardingComplete(address));
     return seen ? steps.length - 1 : 0;
   });
 
+  // When the wallet connects after onboarding is complete, re-sync to last
+  // step so a returning user isn't forced through the intro again.
   useEffect(() => {
-    if (step === steps.length - 1) {
-      localStorage.setItem("blank_onboarding_seen", "true");
+    if (!address) return;
+    const seen = getStoredString(STORAGE_KEYS.onboardingComplete(address));
+    if (seen && step !== steps.length - 1) setStep(steps.length - 1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [address]);
+
+  useEffect(() => {
+    if (step === steps.length - 1 && address) {
+      setStoredString(STORAGE_KEYS.onboardingComplete(address), "true");
     }
-  }, [step]);
+  }, [step, address]);
   const { connectors, connect, isPending, error: connectError } = useConnect();
+  // R5-A: passkey-first path — opens a modal that creates a BlankAccount
+  // smart wallet from a passphrase-encrypted P-256 key. After success,
+  // BlankApp's R5-C gate lets the user through to the Dashboard without
+  // any wagmi EOA connection.
+  const [passkeyModalOpen, setPasskeyModalOpen] = useState(false);
 
   const goNext = useCallback(() => {
     if (step < steps.length - 1) setStep(s => s + 1);
@@ -163,12 +184,29 @@ export default function Onboarding() {
           {/* Wallet selector on last step */}
           {isLast && (
             <div className="space-y-3">
+              {/* R5-A: passkey-first path. Shown prominently so users can
+                  onboard without installing anything. */}
+              <button
+                onClick={() => setPasskeyModalOpen(true)}
+                data-testid="onboarding-passkey-cta"
+                className="w-full h-14 px-6 rounded-2xl bg-[#1D1D1F] text-white font-medium hover:bg-black transition-all active:scale-[0.98] flex items-center justify-center gap-3"
+              >
+                <Fingerprint size={20} strokeWidth={2} />
+                <span>Continue with Passkey</span>
+              </button>
+
+              <div className="flex items-center gap-3 py-1">
+                <div className="h-px flex-1 bg-gray-200" />
+                <span className="text-[11px] uppercase tracking-wider text-gray-400">or</span>
+                <div className="h-px flex-1 bg-gray-200" />
+              </div>
+
               {connectors.map((connector) => (
                 <button
                   key={connector.uid}
                   onClick={() => connect({ connector })}
                   disabled={isPending}
-                  className="w-full h-14 px-6 rounded-2xl bg-[#1D1D1F] text-white font-medium hover:bg-black transition-all active:scale-[0.98] flex items-center justify-center gap-3 disabled:opacity-50"
+                  className="w-full h-14 px-6 rounded-2xl bg-white text-gray-900 border border-gray-200 font-medium hover:bg-gray-50 transition-all active:scale-[0.98] flex items-center justify-center gap-3 disabled:opacity-50"
                 >
                   {isPending ? (
                     <Loader2 size={20} className="animate-spin" />
@@ -189,6 +227,18 @@ export default function Onboarding() {
           )}
         </div>
       </motion.div>
+
+      {/* R5-A: passkey creation modal. On success, the smart account is
+          persisted in IndexedDB; BlankApp's R5-C gate unlocks the app. */}
+      <PasskeyCreationModal
+        open={passkeyModalOpen}
+        onClose={() => setPasskeyModalOpen(false)}
+        onSuccess={() => {
+          // Modal stays open briefly to show the success state; its own
+          // X button closes it, at which point hasPasskey()=true drives
+          // BlankApp to render the main shell.
+        }}
+      />
     </div>
   );
 }

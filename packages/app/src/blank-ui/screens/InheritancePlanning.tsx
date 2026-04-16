@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useReadContract } from "wagmi";
 import {
   Clock,
@@ -12,20 +12,27 @@ import {
   Loader2,
   Trash2,
   Vault,
+  Inbox,
 } from "lucide-react";
+import { formatDistanceToNowStrict } from "date-fns";
 import { cn } from "@/lib/cn";
 import toast from "react-hot-toast";
 import { useInheritance } from "@/hooks/useInheritance";
+import { useEffectiveAddress } from "@/hooks/useEffectiveAddress";
 import { InheritanceManagerAbi } from "@/lib/abis";
-import { CONTRACTS } from "@/lib/constants";
+import { useChain } from "@/providers/ChainProvider";
+import { fetchHeirAssignments, type ActivityRow } from "@/lib/supabase";
+import type { ContractMap } from "@/lib/constants";
+import { truncateAddress } from "@/lib/address";
 
 // ---------------------------------------------------------------
 //  AVAILABLE VAULTS (the user can protect these in their plan)
 // ---------------------------------------------------------------
 
-const AVAILABLE_VAULTS: { address: string; label: string }[] = [
-  { address: CONTRACTS.FHERC20Vault_USDC, label: "USDC Vault" },
-];
+/** Build the list of protectable vaults for the current chain. */
+function buildAvailableVaults(contracts: ContractMap): { address: string; label: string }[] {
+  return [{ address: contracts.FHERC20Vault_USDC, label: "USDC Vault" }];
+}
 
 // ---------------------------------------------------------------
 //  VAULT SELECTOR MODAL
@@ -33,11 +40,13 @@ const AVAILABLE_VAULTS: { address: string; label: string }[] = [
 
 function VaultSelectorModal({
   currentVaults,
+  availableVaults,
   isProcessing,
   onSave,
   onClose,
 }: {
   currentVaults: string[];
+  availableVaults: { address: string; label: string }[];
   isProcessing: boolean;
   onSave: (vaults: string[]) => Promise<void>;
   onClose: () => void;
@@ -84,7 +93,7 @@ function VaultSelectorModal({
         </p>
 
         <div className="space-y-2 mb-4">
-          {AVAILABLE_VAULTS.map((vault) => {
+          {availableVaults.map((vault) => {
             const isSelected = selected.has(vault.address.toLowerCase());
             return (
               <button
@@ -124,7 +133,7 @@ function VaultSelectorModal({
 
           {/* Custom vault addresses that were added */}
           {[...selected].filter(
-            (s) => !AVAILABLE_VAULTS.some((av) => av.address.toLowerCase() === s)
+            (s) => !availableVaults.some((av) => av.address.toLowerCase() === s)
           ).map((addr) => (
             <div
               key={addr}
@@ -135,7 +144,7 @@ function VaultSelectorModal({
                   <Vault size={16} className="text-indigo-600" />
                 </div>
                 <p className="text-xs font-mono text-[var(--text-primary)]">
-                  {addr.slice(0, 10)}...{addr.slice(-6)}
+                  {truncateAddress(addr)}
                 </p>
               </div>
               <button
@@ -189,11 +198,131 @@ function VaultSelectorModal({
 }
 
 // ---------------------------------------------------------------
+//  HEIR ASSIGNMENT CARD — shown in "Plans naming you" section
+// ---------------------------------------------------------------
+
+/**
+ * Live status card for a single plan where the current user is the named
+ * heir. Reads the principal's plan straight from `InheritanceManager.getPlan`
+ * so the UI reflects the current inactivity deadline + claim progress.
+ *
+ * The "View status" action pre-fills the claim form + scrolls to it so the
+ * heir can immediately start / finalize a claim if the window is open.
+ */
+function HeirAssignmentCard({
+  principal,
+  designatedAt,
+  onSelect,
+}: {
+  principal: string;
+  designatedAt: string;
+  onSelect: (principal: string) => void;
+}) {
+  const { contracts } = useChain();
+
+  const { data: principalPlanData } = useReadContract({
+    address: contracts.InheritanceManager,
+    abi: InheritanceManagerAbi,
+    functionName: "getPlan",
+    args: [principal as `0x${string}`],
+    query: { enabled: /^0x[a-fA-F0-9]{40}$/.test(principal), refetchInterval: 60_000 },
+  });
+
+  const principalPlan = principalPlanData as
+    | readonly [string, bigint, bigint, bigint, boolean, readonly string[]]
+    | undefined;
+
+  // Derived state — mirrors the shape used by the main screen for the user's
+  // own plan so we can show the same status badges.
+  const isActive = principalPlan?.[4] ?? false;
+  const stillHeir =
+    isActive &&
+    !!principalPlan &&
+    principalPlan[0].toLowerCase() !== "0x0000000000000000000000000000000000000000";
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const inactivityPeriod = Number(principalPlan?.[1] ?? 0n);
+  const lastHeartbeat = Number(principalPlan?.[2] ?? 0n);
+  const claimStartedAt = Number(principalPlan?.[3] ?? 0n);
+  const daysRemaining =
+    principalPlan && lastHeartbeat > 0
+      ? Math.max(0, Math.floor((lastHeartbeat + inactivityPeriod - nowSeconds) / 86400))
+      : 0;
+  const claimWindowOpen = isActive && daysRemaining === 0 && lastHeartbeat > 0;
+  const claimInProgress = claimStartedAt > 0;
+
+  const designatedRelative = (() => {
+    try {
+      return formatDistanceToNowStrict(new Date(designatedAt), { addSuffix: true });
+    } catch {
+      return "recently";
+    }
+  })();
+
+  // Status label — reflects what this heir can actually DO with the plan.
+  let status: { label: string; className: string };
+  if (!principalPlan) {
+    status = { label: "Loading", className: "bg-gray-50 border-gray-100 text-gray-500" };
+  } else if (!stillHeir) {
+    // Either plan was removed, or heir address was changed to someone else.
+    status = { label: "No longer named", className: "bg-gray-50 border-gray-100 text-gray-500" };
+  } else if (claimInProgress) {
+    status = { label: "Claim in progress", className: "bg-amber-50 border-amber-100 text-amber-600" };
+  } else if (claimWindowOpen) {
+    status = { label: "Claimable", className: "bg-emerald-50 border-emerald-100 text-emerald-600" };
+  } else {
+    status = { label: "Active", className: "bg-blue-50 border-blue-100 text-blue-600" };
+  }
+
+  const truncateAddr = (addr: string) =>
+    addr.length > 10 ? `${addr.slice(0, 6)}...${addr.slice(-4)}` : addr;
+
+  return (
+    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-5 rounded-2xl glass-card-static bg-white/50 dark:bg-white/5 border border-black/5 dark:border-white/10">
+      <div className="flex items-center gap-4 min-w-0">
+        <div className="w-12 h-12 rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
+          {principal.slice(2, 4).toUpperCase()}
+        </div>
+        <div className="min-w-0">
+          <p className="font-mono text-sm font-medium text-[var(--text-primary)] truncate">
+            {truncateAddr(principal)}
+          </p>
+          <p className="text-xs text-[var(--text-primary)]/50 mt-0.5">
+            Designated {designatedRelative}
+            {stillHeir && daysRemaining > 0 ? ` · ${daysRemaining} day${daysRemaining !== 1 ? "s" : ""} until claimable` : ""}
+          </p>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-3 flex-shrink-0">
+        <span
+          className={cn(
+            "px-3 py-1 rounded-full border text-xs font-medium whitespace-nowrap",
+            status.className,
+          )}
+        >
+          {status.label}
+        </span>
+        <button
+          onClick={() => onSelect(principal)}
+          disabled={!stillHeir}
+          className="h-10 px-4 rounded-xl bg-[var(--text-primary)] text-white text-sm font-medium disabled:opacity-40 hover:bg-[#000000] transition-colors"
+        >
+          View status
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------
 //  MAIN SCREEN
 // ---------------------------------------------------------------
 
 export default function InheritancePlanning() {
   const { plan, setHeir, setVaults, heartbeat, removeHeir, startClaim, finalizeClaim, isProcessing } = useInheritance();
+  const { contracts } = useChain();
+  const { effectiveAddress } = useEffectiveAddress();
+  const availableVaults = buildAvailableVaults(contracts);
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [showVaultModal, setShowVaultModal] = useState(false);
@@ -204,11 +333,57 @@ export default function InheritancePlanning() {
 
   // Heir claim form
   const [claimOwner, setClaimOwner] = useState("");
+  const claimSectionRef = useRef<HTMLDivElement | null>(null);
+
+  // Plans where THIS user is the named heir. Loaded from the activity feed
+  // (written by useInheritance.setHeir). A principal may appear more than
+  // once if they changed heir address and later re-designated us, so we
+  // dedupe on principal address and keep the most recent row.
+  const [heirAssignments, setHeirAssignments] = useState<ActivityRow[]>([]);
+  const [loadingHeirAssignments, setLoadingHeirAssignments] = useState(false);
+  useEffect(() => {
+    if (!effectiveAddress) {
+      setHeirAssignments([]);
+      return;
+    }
+    let cancelled = false;
+    setLoadingHeirAssignments(true);
+    fetchHeirAssignments(effectiveAddress)
+      .then((rows) => {
+        if (cancelled) return;
+        // Dedupe by principal (user_from) — keep the most recent row since
+        // the query ordered by created_at desc.
+        const seen = new Set<string>();
+        const unique: ActivityRow[] = [];
+        for (const row of rows) {
+          const key = row.user_from.toLowerCase();
+          if (seen.has(key)) continue;
+          seen.add(key);
+          unique.push(row);
+        }
+        setHeirAssignments(unique);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingHeirAssignments(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [effectiveAddress]);
+
+  const selectPrincipalForClaim = (principal: string) => {
+    setClaimOwner(principal);
+    // Give React a tick to re-render the claim card before scrolling so the
+    // `useReadContract` for ownerPlanData kicks in and the button enables.
+    requestAnimationFrame(() => {
+      claimSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  };
 
   // Read the owner's plan when claiming (to get their vault count for finalizeClaim)
   const isValidClaimOwner = /^0x[a-fA-F0-9]{40}$/.test(claimOwner);
   const { data: ownerPlanData } = useReadContract({
-    address: CONTRACTS.InheritanceManager,
+    address: contracts.InheritanceManager,
     abi: InheritanceManagerAbi,
     functionName: "getPlan",
     args: isValidClaimOwner ? [claimOwner as `0x${string}`] : undefined,
@@ -257,13 +432,52 @@ export default function InheritancePlanning() {
     <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="max-w-5xl mx-auto">
         <div className="mb-8">
-          <h1 className="text-4xl sm:text-5xl font-heading font-semibold text-[var(--text-primary)] tracking-tight mb-2">
+          <h1 className="text-3xl sm:text-5xl font-heading font-semibold text-[var(--text-primary)] tracking-tight mb-2">
             Beneficiary Planning
           </h1>
-          <p className="text-base text-[var(--text-primary)]/50 leading-relaxed">
+          <p className="text-sm sm:text-base text-[var(--text-primary)]/50 leading-relaxed">
             Automatically transfer your funds to a trusted person if needed
           </p>
         </div>
+
+        {/* Plans naming you — section hidden when the user is not the heir
+            on any tracked plan. Lets heirs discover assignments without the
+            principal having to share their address out of band. */}
+        {heirAssignments.length > 0 && (
+          <div className="glass-card-static rounded-3xl p-6 sm:p-8 mb-6">
+            <div className="flex items-center gap-3 mb-2">
+              <div className="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center">
+                <Inbox size={20} className="text-indigo-600" />
+              </div>
+              <div>
+                <h3 className="text-xl font-heading font-medium text-[var(--text-primary)]">
+                  Plans naming you
+                </h3>
+                <p className="text-sm text-[var(--text-primary)]/50">
+                  {heirAssignments.length} plan{heirAssignments.length !== 1 ? "s" : ""} where you're the designated heir
+                </p>
+              </div>
+            </div>
+
+            {loadingHeirAssignments && heirAssignments.length === 0 ? (
+              <div className="flex items-center justify-center py-6 text-[var(--text-primary)]/50">
+                <Loader2 size={16} className="animate-spin mr-2" />
+                <span className="text-sm">Loading assignments...</span>
+              </div>
+            ) : (
+              <div className="space-y-2 mt-4">
+                {heirAssignments.map((row) => (
+                  <HeirAssignmentCard
+                    key={row.id}
+                    principal={row.user_from}
+                    designatedAt={row.created_at}
+                    onSelect={selectPrincipalForClaim}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* No Plan State */}
         {!hasHeir && (
@@ -291,21 +505,21 @@ export default function InheritancePlanning() {
         {hasHeir && (
           <>
             {/* Status Card */}
-            <div className="rounded-[2rem] glass-card p-8 mb-6">
-              <div className="flex items-start justify-between mb-6">
-                <div className="flex items-center gap-4">
-                  <div className="w-16 h-16 rounded-2xl bg-emerald-50 flex items-center justify-center">
-                    <Shield size={32} className="text-emerald-600" />
+            <div className="rounded-[2rem] glass-card p-4 sm:p-8 mb-6">
+              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-6">
+                <div className="flex items-center gap-4 min-w-0">
+                  <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-emerald-50 flex items-center justify-center shrink-0">
+                    <Shield size={28} className="text-emerald-600 sm:w-8 sm:h-8" />
                   </div>
-                  <div>
-                    <h3 className="text-2xl font-heading font-medium text-[var(--text-primary)] mb-1">Plan Active</h3>
+                  <div className="min-w-0">
+                    <h3 className="text-xl sm:text-2xl font-heading font-medium text-[var(--text-primary)] mb-1">Plan Active</h3>
                     <p className="text-sm text-[var(--text-primary)]/50">
                       Last check-in: {daysSinceCheckin} day{daysSinceCheckin !== 1 ? "s" : ""} ago
                     </p>
                   </div>
                 </div>
                 <div className={cn(
-                  "flex items-center gap-2 px-4 py-2 rounded-full border",
+                  "inline-flex items-center gap-2 px-4 py-2 rounded-full border self-start shrink-0",
                   daysRemaining > 7
                     ? "bg-emerald-50 border-emerald-100 text-emerald-600"
                     : "bg-amber-50 border-amber-100 text-amber-600",
@@ -353,7 +567,7 @@ export default function InheritancePlanning() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
               {/* Switch Settings */}
-              <div className="rounded-[2rem] glass-card p-8">
+              <div className="rounded-[2rem] glass-card p-4 sm:p-8">
                 <h3 className="text-xl font-heading font-medium text-[var(--text-primary)] mb-6">Transfer Settings</h3>
 
                 <div className="space-y-4">
@@ -395,7 +609,7 @@ export default function InheritancePlanning() {
               </div>
 
               {/* How It Works */}
-              <div className="rounded-[2rem] glass-card p-8">
+              <div className="rounded-[2rem] glass-card p-4 sm:p-8">
                 <h3 className="text-xl font-heading font-medium text-[var(--text-primary)] mb-6">How It Works</h3>
 
                 <div className="space-y-4">
@@ -457,7 +671,7 @@ export default function InheritancePlanning() {
               {plan?.vaults && plan.vaults.length > 0 ? (
                 <div className="space-y-2">
                   {plan.vaults.map((v) => {
-                    const known = AVAILABLE_VAULTS.find(
+                    const known = availableVaults.find(
                       (av) => av.address.toLowerCase() === v.toLowerCase()
                     );
                     return (
@@ -537,7 +751,7 @@ export default function InheritancePlanning() {
           </>
         )}
         {/* Heir Claim Section */}
-        <div className="rounded-[2rem] glass-card p-6 mt-6">
+        <div ref={claimSectionRef} className="rounded-[2rem] glass-card p-6 mt-6">
           <h3 className="text-lg font-heading font-semibold text-[var(--text-primary)] mb-2">Claim as Heir</h3>
           <p className="text-sm text-[var(--text-primary)]/50 mb-4">
             If you are designated as someone's heir and the inactivity period has passed, you can initiate a claim.
@@ -623,6 +837,7 @@ export default function InheritancePlanning() {
       {showVaultModal && (
         <VaultSelectorModal
           currentVaults={plan?.vaults ?? []}
+          availableVaults={availableVaults}
           isProcessing={isProcessing}
           onSave={async (vaults) => {
             await setVaults(vaults);

@@ -1,13 +1,12 @@
 import { useState, useCallback, useEffect } from "react";
-import { useAccount } from "wagmi";
+import { useEffectiveAddress } from "./useEffectiveAddress";
 import {
   fetchContacts,
   upsertContact,
   deleteContact,
 } from "@/lib/supabase";
+import { STORAGE_KEYS, getStoredJson, setStoredJson } from "@/lib/storage";
 import toast from "react-hot-toast";
-
-const LOCAL_KEY = "blank_contacts";
 
 interface Contact {
   address: string;
@@ -20,29 +19,21 @@ interface Contact {
  * When Supabase is connected, they sync both ways.
  */
 export function useContacts() {
-  const { address } = useAccount();
+  const { effectiveAddress: address } = useEffectiveAddress();
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
   // Load from localStorage immediately
   const loadLocal = useCallback((): Contact[] => {
-    try {
-      const stored = localStorage.getItem(`${LOCAL_KEY}_${address?.toLowerCase()}`);
-      return stored ? JSON.parse(stored) : [];
-    } catch {
-      return [];
-    }
+    if (!address) return [];
+    return getStoredJson<Contact[]>(STORAGE_KEYS.contacts(address), []);
   }, [address]);
 
   // Save to localStorage
   const saveLocal = useCallback(
     (items: Contact[]) => {
       if (!address) return;
-      try {
-        localStorage.setItem(`${LOCAL_KEY}_${address.toLowerCase()}`, JSON.stringify(items));
-      } catch {
-        // Storage quota exceeded — non-critical, data still in memory
-      }
+      setStoredJson(STORAGE_KEYS.contacts(address), items);
     },
     [address]
   );
@@ -96,7 +87,9 @@ export function useContacts() {
 
   useEffect(() => {
     load();
-  }, [load]);
+    // Explicit `address` dependency — relying on `load` alone is brittle
+    // because useCallback identity-change depends on address transitively.
+  }, [load, address]);
 
   // Add or update a contact
   const addContact = useCallback(

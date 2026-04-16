@@ -10,10 +10,11 @@ import {
   AlertTriangle,
   ChevronDown,
   Clock,
+  ShieldCheck,
 } from "lucide-react";
 import { useExchange } from "@/hooks/useExchange";
 import { useShield } from "@/hooks/useShield";
-import { useAccount } from "wagmi";
+import { useEffectiveAddress } from "@/hooks/useEffectiveAddress";
 import toast from "react-hot-toast";
 
 // ---------------------------------------------------------------
@@ -21,8 +22,20 @@ import toast from "react-hot-toast";
 // ---------------------------------------------------------------
 
 export default function Swap() {
-  const { address } = useAccount();
-  const { offers, createOffer, fillOffer, cancelOffer, isLoadingOffers, step, error, reset } = useExchange();
+  const { effectiveAddress: address } = useEffectiveAddress();
+  const {
+    offers,
+    filledOffers,
+    createOffer,
+    fillOffer,
+    cancelOffer,
+    verifyTrade,
+    verifyingOfferId,
+    isLoadingOffers,
+    step,
+    error,
+    reset,
+  } = useExchange();
   const { publicBalance } = useShield();
 
   const [giveAmount, setGiveAmount] = useState("");
@@ -380,6 +393,67 @@ export default function Swap() {
                   </button>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+
+        {/* Recently Filled — verify on-chain */}
+        {filledOffers.length > 0 && (
+          <div className="rounded-[2rem] glass-card p-8 mb-6">
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h3 className="text-xl font-heading font-medium text-[var(--text-primary)]">
+                  Recently Filled
+                </h3>
+                <p className="text-sm text-[var(--text-primary)]/50 mt-1">
+                  Publish the encrypted trade-validity proof so the verdict is on-chain readable
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              {filledOffers.map((offer) => {
+                const isVerifying = verifyingOfferId === offer.offer_id;
+                const isMaker = offer.maker_address === address?.toLowerCase();
+                return (
+                  <div
+                    key={offer.id}
+                    className="flex items-center justify-between p-6 rounded-2xl bg-white/50 border border-black/5 hover:bg-white/70 transition-all"
+                  >
+                    <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 rounded-xl bg-emerald-50 flex items-center justify-center">
+                        <CheckCircle2 size={24} className="text-emerald-600" />
+                      </div>
+                      <div>
+                        <p className="font-medium text-[var(--text-primary)]">
+                          {isMaker ? "Sold" : "Bought"} {offer.amount_give} USDC for {offer.amount_want} USDC
+                        </p>
+                        <p className="text-sm text-[var(--text-primary)]/50">
+                          Filled {formatTime(offer.created_at)} &middot; Offer #{offer.offer_id}
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => verifyTrade(offer.offer_id)}
+                      disabled={verifyingOfferId !== null}
+                      className="h-10 px-5 rounded-xl bg-[#1D1D1F] text-white text-sm font-medium hover:bg-[#000000] transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                      aria-label="Verify trade on-chain"
+                    >
+                      {isVerifying ? (
+                        <>
+                          <Loader2 size={14} className="animate-spin" />
+                          Verifying...
+                        </>
+                      ) : (
+                        <>
+                          <ShieldCheck size={14} />
+                          Verify trade
+                        </>
+                      )}
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}

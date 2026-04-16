@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAccount, useDisconnect } from "wagmi";
+import { useEffectiveAddress } from "@/hooks/useEffectiveAddress";
 import {
   Copy,
   Check,
@@ -17,6 +18,7 @@ import {
 import { cn } from "@/lib/cn";
 import toast from "react-hot-toast";
 import { useEncryptedBalance } from "@/hooks/useEncryptedBalance";
+import { clearAllAddressScopes } from "@/lib/storage";
 
 import { truncateAddress } from "@/lib/address";
 
@@ -31,7 +33,12 @@ interface MenuItem {
 
 export default function Profile() {
   const navigate = useNavigate();
-  const { address } = useAccount();
+  // Passkey-aware: useAccount().address is undefined for passkey-only users,
+  // which made this whole screen render `null`. effectiveAddress falls back
+  // to the smart account address.
+  const { effectiveAddress: address } = useEffectiveAddress();
+  // Keep useAccount() imported for any EOA-only features (e.g. useDisconnect).
+  useAccount();
   const { disconnect } = useDisconnect();
   const { formatted: realBalance, isDecrypted, hasBalance } = useEncryptedBalance();
   const [copied, setCopied] = useState(false);
@@ -50,9 +57,12 @@ export default function Profile() {
   }, [address]);
 
   const handleSignOut = useCallback(() => {
+    // #313: purge per-address caches BEFORE disconnect — after disconnect
+    // `address` becomes undefined and we lose the key to scope the purge.
+    if (address) clearAllAddressScopes(address);
     disconnect();
     navigate("/", { replace: true });
-  }, [disconnect, navigate]);
+  }, [address, disconnect, navigate]);
 
   const menuItems: MenuItem[] = [
     {

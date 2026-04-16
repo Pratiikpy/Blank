@@ -1,0 +1,272 @@
+/* ══════════════════════════════════════════════════════════════════
+   LiveDemo — embedded shield/reveal demo styles
+   Scoped under .ld-* — inherits typography from landing.css
+   ════════════════════════════════════════════════════════════════════ */
+
+.ld-section {
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 4rem 1.25rem 5rem;
+}
+
+.ld-eyebrow {
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+  color: var(--ll-accent, #10B981);
+  font-weight: 600;
+  margin-bottom: 0.75rem;
+}
+
+.ld-title {
+  font-family: "Outfit", "Inter", sans-serif;
+  font-weight: 700;
+  font-size: clamp(1.85rem, 4vw, 2.5rem);
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  color: var(--ll-ink);
+  margin: 0 0 0.85rem;
+}
+
+.ld-lead {
+  font-size: 1rem;
+  line-height: 1.6;
+  color: #4A4A4A;
+  max-width: 640px;
+  margin: 0 0 2.5rem;
+}
+
+.ld-lead em {
+  font-style: italic;
+  color: var(--ll-ink);
+  font-weight: 500;
+}
+
+.ld-flow {
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 1.25rem;
+  overflow: hidden;
+}
+
+.ld-step {
+  display: grid;
+  grid-template-columns: 36px 36px 1fr;
+  gap: 1rem;
+  padding: 1.5rem 1.75rem;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  align-items: start;
+  transition: background 200ms ease;
+}
+
+.ld-step:first-child {
+  border-top: none;
+}
+
+.ld-step.is-active {
+  background: rgba(16, 185, 129, 0.025);
+}
+
+.ld-step.is-locked {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.ld-step.is-done .ld-step-num {
+  background: #10B981;
+  color: white;
+  border-color: #10B981;
+}
+
+.ld-step-num {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(0, 0, 0, 0.15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #4A4A4A;
+  margin-top: 0.1rem;
+  transition: all 250ms ease;
+}
+
+.ld-step.is-active .ld-step-num {
+  border-color: var(--ll-ink);
+  color: var(--ll-ink);
+}
+
+.ld-step-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 0.6rem;
+  background: rgba(0, 0, 0, 0.04);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ll-ink);
+}
+
+.ld-step-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.ld-step-title {
+  font-family: "Outfit", "Inter", sans-serif;
+  font-weight: 600;
+  font-size: 1.05rem;
+  letter-spacing: -0.01em;
+  margin: 0;
+  color: var(--ll-ink);
+}
+
+.ld-step-action {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.ld-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.625rem 1.1rem;
+  border-radius: 0.6rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  border: none;
+  cursor: pointer;
+  transition: all 150ms ease;
+  font-family: inherit;
+}
+
+.ld-btn--primary {
+  background: var(--ll-ink, #0A0A0A);
+  color: #ffffff;
+}
+
+.ld-btn--primary:hover:not(:disabled) {
+  background: #000000;
+  transform: translateY(-1px);
+}
+
+.ld-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.ld-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.875rem;
+  color: #047857;
+  font-weight: 500;
+}
+
+.ld-hint {
+  color: #8A8A8A;
+  font-weight: 400;
+}
+
+.ld-tx-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-left: 0.4rem;
+  color: #4A4A4A;
+  text-decoration: none;
+  font-size: 0.8rem;
+}
+
+.ld-tx-link:hover {
+  color: var(--ll-ink);
+  text-decoration: underline;
+}
+
+.ld-reveal {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  width: 100%;
+  margin-top: 0.25rem;
+}
+
+.ld-reveal-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.ld-reveal-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #8A8A8A;
+  font-weight: 600;
+  min-width: 200px;
+}
+
+.ld-reveal-cipher {
+  font-family: "JetBrains Mono", monospace;
+  background: rgba(0, 0, 0, 0.05);
+  padding: 0.4rem 0.7rem;
+  border-radius: 0.4rem;
+  color: #6B6B6B;
+  font-size: 0.85rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.ld-reveal-tag {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  background: rgba(0, 0, 0, 0.08);
+  padding: 0.1rem 0.4rem;
+  border-radius: 0.25rem;
+}
+
+.ld-reveal-plain {
+  font-family: "JetBrains Mono", monospace;
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  padding: 0.4rem 0.7rem;
+  border-radius: 0.4rem;
+  color: #047857;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.ld-reveal-caption {
+  font-size: 0.85rem;
+  color: #4A4A4A;
+  line-height: 1.5;
+  margin: 0.4rem 0 0;
+  max-width: 540px;
+}
+
+@media (max-width: 640px) {
+  .ld-section {
+    padding: 2.5rem 1rem 3.5rem;
+  }
+  .ld-step {
+    grid-template-columns: 28px 1fr;
+    padding: 1.2rem 1.1rem;
+  }
+  .ld-step-icon {
+    display: none;
+  }
+  .ld-reveal-label {
+    min-width: 0;
+    flex-basis: 100%;
+  }
+}

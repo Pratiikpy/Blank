@@ -15,9 +15,12 @@ import {
 import { cn } from "@/lib/cn";
 import toast from "react-hot-toast";
 import { useTipCreator } from "@/hooks/useTipCreator";
-import { useAccount, useWriteContract, usePublicClient } from "wagmi";
+import { useUnifiedWrite } from "@/hooks/useUnifiedWrite";
+import { usePublicClient } from "wagmi";
+import { useEffectiveAddress } from "@/hooks/useEffectiveAddress";
 import { CreatorHubAbi } from "@/lib/abis";
-import { CONTRACTS } from "@/lib/constants";
+import { useChain } from "@/providers/ChainProvider";
+import { useRealtime } from "@/providers/RealtimeProvider";
 import {
   fetchCreatorProfiles,
   fetchCreatorSupporters,
@@ -70,10 +73,14 @@ const TIER_LABELS: Record<number, string> = { 0: "None", 1: "Supporter", 2: "Fan
 // ---------------------------------------------------------------
 
 export default function CreatorSupport() {
-  const { address } = useAccount();
+  const { effectiveAddress: address } = useEffectiveAddress();
+  const { contracts } = useChain();
   const { isTipping, tip } = useTipCreator();
   const publicClient = usePublicClient();
-  const { writeContractAsync } = useWriteContract();
+  // Passkey-aware writer — handleCreateProfile uses this so passkey-only
+  // users can register profiles via UserOps, not just EOA wallets.
+  const { unifiedWriteAndWait } = useUnifiedWrite();
+  const { subscribe } = useRealtime();
 
   const [selectedTier, setSelectedTier] = useState<number | null>(null);
   const [selectedCreator, setSelectedCreator] = useState<CreatorProfileRow | null>(null);
@@ -120,16 +127,22 @@ export default function CreatorSupport() {
     if (!publicClient) { toast.error("Wallet not connected"); return; }
     setIsCreatingProfile(true);
     try {
-      // Call contract to set profile (tier amounts as uint64 in micro-units)
-      const hash = await writeContractAsync({
-        address: CONTRACTS.CreatorHub,
+      // Call contract to set profile (tier amounts as uint64 in micro-units).
+      // Routes through unifiedWriteAndWait so passkey-only users go via the
+      // AA relayer path (otherwise writeContractAsync silently no-ops with no
+      // EOA wallet client).
+      const profileResult = await unifiedWriteAndWait({
+        address: contracts.CreatorHub,
         abi: CreatorHubAbi,
         functionName: "setProfile",
         args: [creatorName.trim(), creatorBio.trim(), BigInt(5_000000), BigInt(15_000000), BigInt(50_000000)],
         gas: BigInt(5_000_000), // CoFHE: manual gas limit (precompile breaks estimation)
       });
-      const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
-      if (receipt.status === "reverted") throw new Error("Transaction reverted");
+      const hash = profileResult.hash;
+      const profileStatus =
+        profileResult.receipt?.status ??
+        (await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 })).status;
+      if (profileStatus === "reverted") throw new Error("Transaction reverted");
 
       // Preserve existing supporter_count on edit
       const existing = creators.find((c) => c.address.toLowerCase() === address.toLowerCase());
@@ -196,6 +209,22 @@ export default function CreatorSupport() {
     fetchCreatorSupporters(address.toLowerCase()).then(setMySupporters);
   }, [address, isCreator]);
 
+  // #233: Realtime auto-refresh — when a supporter tips this creator, the
+  // creator_supporters row INSERT is pushed via Supabase realtime so the
+  // "My Supporters" list updates without a manual reload.
+  useEffect(() => {
+    if (!address || !isCreator) return;
+    const addrLower = address.toLowerCase();
+    const unsubscribe = subscribe(
+      "creator_supporters",
+      { event: "INSERT", filter: { column: "creator_address", value: addrLower } },
+      () => {
+        fetchCreatorSupporters(addrLower).then(setMySupporters);
+      },
+    );
+    return unsubscribe;
+  }, [address, isCreator, subscribe]);
+
   const handleSupport = async () => {
     if (!address) { toast.error("Connect wallet first"); return; }
     if (!selectedCreator || !selectedTier) return;
@@ -204,13 +233,14 @@ export default function CreatorSupport() {
     const creatorAddr = selectedCreator.address;
     try {
       await tip(creatorAddr, tier.amount, tipMessage || `${tier.name} tier support`);
-      fetchCreatorSupporters(address.toLowerCase()).then(setSupporters);
+      const refreshed = await fetchCreatorSupporters(address.toLowerCase());
+      setSupporters(refreshed);
 
       // Issue 38: Read contribution and derive tier badge after successful tip
       if (publicClient) {
         try {
           const contribution = await publicClient.readContract({
-            address: CONTRACTS.CreatorHub,
+            address: contracts.CreatorHub,
             abi: CreatorHubAbi,
             functionName: "getMyContribution",
             args: [creatorAddr as `0x${string}`],

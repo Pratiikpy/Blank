@@ -16,7 +16,8 @@ import { useAccount, useReadContract } from "wagmi";
 import { cn } from "@/lib/cn";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
-import { CONTRACTS, ENCRYPTED_PLACEHOLDER } from "@/lib/constants";
+import { ENCRYPTED_PLACEHOLDER } from "@/lib/constants";
+import { useChain } from "@/providers/ChainProvider";
 import { PaymentReceiptsAbi } from "@/lib/abis";
 
 // ─── Props ──────────────────────────────────────────────────────────
@@ -187,6 +188,7 @@ function MyReceiptsList({
 
 export function ReceiptVerifyModal({ isOpen, onClose }: ReceiptVerifyModalProps) {
   const { address } = useAccount();
+  const { contracts } = useChain();
   const [receiptHash, setReceiptHash] = useState("");
   const [submittedHash, setSubmittedHash] = useState<`0x${string}` | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
@@ -202,7 +204,7 @@ export function ReceiptVerifyModal({ isOpen, onClose }: ReceiptVerifyModalProps)
     error: contractError,
     refetch,
   } = useReadContract({
-    address: CONTRACTS.PaymentReceipts,
+    address: contracts.PaymentReceipts,
     abi: verifyReceiptAbi,
     functionName: "verifyReceipt",
     args: submittedHash ? [submittedHash] : undefined,
@@ -216,7 +218,7 @@ export function ReceiptVerifyModal({ isOpen, onClose }: ReceiptVerifyModalProps)
     data: userReceipts,
     isLoading: isLoadingReceipts,
   } = useReadContract({
-    address: CONTRACTS.PaymentReceipts,
+    address: contracts.PaymentReceipts,
     abi: PaymentReceiptsAbi,
     functionName: "getUserReceipts",
     args: address ? [address] : undefined,

@@ -5,6 +5,13 @@ import "@fhenixprotocol/cofhe-contracts/FHE.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
+/// @dev Minimal interface for reading encrypted vault balances. Lets
+///      proveBalanceAbove read FHERC20Vault.balanceOf without importing
+///      the full vault contract.
+interface IFHERC20VaultBalance {
+    function balanceOf(address account) external view returns (euint64);
+}
+
 /// @title PaymentReceipts — Cryptographic encrypted receipts for every payment
 /// @notice After each payment, a receipt is generated with:
 ///         - Encrypted random payment ID (FHE.randomEuint64)
@@ -46,13 +53,47 @@ contract PaymentReceipts is UUPSUpgradeable, OwnableUpgradeable {
     mapping(address => euint64) private _transactionCount; // Encrypted tx count
     mapping(address => bool) private _statsInitialized;   // Whether user stats have been initialized
 
-    // Encrypted global stats
-    euint64 private _globalVolume;                        // Encrypted total volume
+    // Encrypted global stats — anyone can decrypt via FHE.allowGlobal.
+    // Used for the landing-page "$X moved encrypted through Blank" counter.
+    // Aggregates are safe to expose because no individual transaction can
+    // be inferred from them (anonymity set = all platform users).
+    euint64 private _globalVolume;
+    euint64 private _globalTxCount;
+    bool private _globalStatsInitialized;
+
+    // ─── Qualification Proofs (v0.1.3, append-only storage) ──────────────
+    // Encrypted "≥ threshold" claims about a user's total received income or
+    // balance. The proof's ebool is stored on-chain and FHE.allowPublic'd so
+    // anyone can later finalize it via publishProof(). Verifier flow: read
+    // getProofHandle(id) → off-chain decryptForTx → publishProof → read
+    // getProof(id) for the public verdict. Threshold is plaintext (public
+    // by design) — the actual income/balance never is.
+    struct QualificationProof {
+        address prover;
+        uint64 threshold;
+        uint256 blockNumber;
+        uint256 timestamp;
+        ebool result;
+        string kind;       // "income" | "balance"
+        bool exists;
+    }
+
+    uint256 public proofCount;
+    mapping(uint256 => QualificationProof) private _proofs;
+    mapping(address => uint256[]) private _userProofs;
 
     event ReceiptIssued(
         bytes32 indexed receiptHash,
         address indexed payer,
         address indexed payee,
+        uint256 timestamp
+    );
+
+    event ProofCreated(
+        uint256 indexed proofId,
+        address indexed prover,
+        uint64 threshold,
+        string kind,
         uint256 timestamp
     );
 
@@ -63,6 +104,11 @@ contract PaymentReceipts is UUPSUpgradeable, OwnableUpgradeable {
         __Ownable_init(msg.sender);
         _globalVolume = FHE.asEuint64(0);
         FHE.allowThis(_globalVolume);
+        FHE.allowGlobal(_globalVolume);
+        _globalTxCount = FHE.asEuint64(0);
+        FHE.allowThis(_globalTxCount);
+        FHE.allowGlobal(_globalTxCount);
+        _globalStatsInitialized = true;
     }
 
     /// @notice Set or remove an authorized caller for issuing receipts
@@ -139,9 +185,15 @@ contract PaymentReceipts is UUPSUpgradeable, OwnableUpgradeable {
         FHE.allowThis(_transactionCount[payee]);
         FHE.allow(_transactionCount[payee], payee);
 
-        // Update global volume
+        // Update global aggregates — public via FHE.allowGlobal so the
+        // landing page (and anyone else) can decrypt and display them.
+        _ensureGlobalStatsInit();
         _globalVolume = FHE.add(_globalVolume, amount);
         FHE.allowThis(_globalVolume);
+        FHE.allowGlobal(_globalVolume);
+        _globalTxCount = FHE.add(_globalTxCount, FHE.asEuint64(1));
+        FHE.allowThis(_globalTxCount);
+        FHE.allowGlobal(_globalTxCount);
 
         // Track receipts per user
         _userReceipts[payer].push(receiptHash);
@@ -252,6 +304,164 @@ contract PaymentReceipts is UUPSUpgradeable, OwnableUpgradeable {
             _transactionCount[user] = FHE.asEuint64(0);
             FHE.allowThis(_transactionCount[user]);
             FHE.allow(_transactionCount[user], user);
+        }
+    }
+
+    // ─── Qualification proofs (v0.1.3) ──────────────────────────────────
+
+    /// @notice Prove your encrypted total received income is >= threshold,
+    ///         WITHOUT revealing the actual income. Returns a proof id that
+    ///         can be shared as a verification link. Anyone can finalize the
+    ///         proof on-chain via publishProof() — only the prover ever
+    ///         learns the underlying income amount.
+    /// @param thresholdPlaintext Public threshold to prove against (e.g. $50,000)
+    function proveIncomeAbove(uint64 thresholdPlaintext) external returns (uint256 proofId) {
+        _initUserStats(msg.sender);
+
+        euint64 income = _totalReceived[msg.sender];
+        euint64 threshold = FHE.asEuint64(thresholdPlaintext);
+        ebool result = FHE.gte(income, threshold);
+        FHE.allowThis(result);
+        FHE.allowSender(result);
+        FHE.allowPublic(result);
+
+        proofId = proofCount++;
+        _proofs[proofId] = QualificationProof({
+            prover: msg.sender,
+            threshold: thresholdPlaintext,
+            blockNumber: block.number,
+            timestamp: block.timestamp,
+            result: result,
+            kind: "income",
+            exists: true
+        });
+        _userProofs[msg.sender].push(proofId);
+
+        emit ProofCreated(proofId, msg.sender, thresholdPlaintext, "income", block.timestamp);
+    }
+
+    /// @notice Prove your encrypted balance in `vault` is >= threshold,
+    ///         WITHOUT revealing the actual balance. Same publication +
+    ///         verification flow as proveIncomeAbove. Requires the vault
+    ///         to expose balanceOf(address) returning euint64.
+    /// @param vault FHERC20Vault address whose balance to compare against
+    /// @param thresholdPlaintext Public threshold (e.g. 50000 USDC = 50_000_000_000 with 6 decimals)
+    function proveBalanceAbove(address vault, uint64 thresholdPlaintext) external returns (uint256 proofId) {
+        require(vault != address(0), "PaymentReceipts: vault zero");
+
+        // Read the caller's encrypted balance from the vault. The vault must
+        // have allowed THIS contract to read the handle — that's automatic
+        // for FHERC20Vault since balanceOf returns the raw euint64 handle.
+        euint64 balance = IFHERC20VaultBalance(vault).balanceOf(msg.sender);
+        FHE.allowThis(balance);
+
+        euint64 threshold = FHE.asEuint64(thresholdPlaintext);
+        ebool result = FHE.gte(balance, threshold);
+        FHE.allowThis(result);
+        FHE.allowSender(result);
+        FHE.allowPublic(result);
+
+        proofId = proofCount++;
+        _proofs[proofId] = QualificationProof({
+            prover: msg.sender,
+            threshold: thresholdPlaintext,
+            blockNumber: block.number,
+            timestamp: block.timestamp,
+            result: result,
+            kind: "balance",
+            exists: true
+        });
+        _userProofs[msg.sender].push(proofId);
+
+        emit ProofCreated(proofId, msg.sender, thresholdPlaintext, "balance", block.timestamp);
+    }
+
+    /// @notice Publish the off-chain decryption of a proof's ebool so it can
+    ///         be read on-chain via getProof(). Anyone can call this — the
+    ///         signature must be a valid Threshold Network signature over
+    ///         (proof.result, plaintext).
+    function publishProof(uint256 proofId, bool plaintext, bytes calldata signature) external {
+        QualificationProof storage p = _proofs[proofId];
+        require(p.exists, "PaymentReceipts: proof not found");
+        FHE.publishDecryptResult(p.result, plaintext, signature);
+    }
+
+    /// @notice Read a proof's metadata + verification result. `isReady` is
+    ///         false until publishProof() has been called for this proof id.
+    function getProof(uint256 proofId) external view returns (
+        address prover,
+        uint64 threshold,
+        uint256 blockNumber,
+        uint256 timestamp,
+        string memory kind,
+        bool isTrue,
+        bool isReady
+    ) {
+        QualificationProof storage p = _proofs[proofId];
+        require(p.exists, "PaymentReceipts: proof not found");
+        (bool result, bool ready) = FHE.getDecryptResultSafe(p.result);
+        return (p.prover, p.threshold, p.blockNumber, p.timestamp, p.kind, result, ready);
+    }
+
+    /// @notice Read the encrypted ebool handle for off-chain decryption via
+    ///         the cofhe-sdk client. Caller passes this to decryptForTx then
+    ///         submits the result to publishProof.
+    function getProofHandle(uint256 proofId) external view returns (ebool) {
+        return _proofs[proofId].result;
+    }
+
+    /// @notice List a user's proof ids (in creation order).
+    function getProofsByUser(address user) external view returns (uint256[] memory) {
+        return _userProofs[user];
+    }
+
+    // ─── Cross-contract aggregate bump (called by PaymentHub etc.) ──────
+    //
+    // Takes a pre-verified euint64 handle (verified in the caller's context
+    // to avoid the InvalidSigner bind issue). Adds it to the global volume
+    // and increments the global tx count. Both stay FHE.allowGlobal so the
+    // landing counter can publicly decrypt the totals.
+    //
+    // Authorized callers only — PaymentHub, BusinessHub, etc. must be
+    // explicitly setAuthorizedCaller'd by the owner.
+
+    function bumpGlobalVolume(euint64 amount) external onlyAuthorized {
+        _ensureGlobalStatsInit();
+        _globalVolume = FHE.add(_globalVolume, amount);
+        FHE.allowThis(_globalVolume);
+        FHE.allowGlobal(_globalVolume);
+        _globalTxCount = FHE.add(_globalTxCount, FHE.asEuint64(1));
+        FHE.allowThis(_globalTxCount);
+        FHE.allowGlobal(_globalTxCount);
+    }
+
+    // ─── Public encrypted aggregates ────────────────────────────────────
+
+    /// @notice Encrypted handle for total volume across all receipts. Anyone
+    ///         can decrypt via cofhe-sdk's decryptForView (no permit needed
+    ///         because the contract calls FHE.allowGlobal). Used by the
+    ///         landing-page counter.
+    function getGlobalVolumeHandle() external view returns (euint64) {
+        return _globalVolume;
+    }
+
+    /// @notice Encrypted handle for total transaction count. Same global
+    ///         decrypt semantics as getGlobalVolumeHandle.
+    function getGlobalTxCountHandle() external view returns (euint64) {
+        return _globalTxCount;
+    }
+
+    function _ensureGlobalStatsInit() internal {
+        if (!_globalStatsInitialized) {
+            _globalStatsInitialized = true;
+            // _globalVolume already initialized to euint64(0) in initialize();
+            // _globalTxCount needs explicit init since it was added later.
+            _globalTxCount = FHE.asEuint64(0);
+            FHE.allowThis(_globalTxCount);
+            FHE.allowGlobal(_globalTxCount);
+            // Also re-mark _globalVolume as global (idempotent — was previously
+            // only allowThis'd in the v1 initializer).
+            FHE.allowGlobal(_globalVolume);
         }
     }
 

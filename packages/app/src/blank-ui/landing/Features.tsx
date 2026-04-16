@@ -188,22 +188,10 @@ const FEATURES: Feature[] = [
       want: "████ ETH",
     },
   },
-  {
-    tag: "12 — DeFi",
-    name: "Privacy Router",
-    pitch: "Decrypt, swap through any public DEX, re-encrypt — all in a single transaction. Use Uniswap without your wallet being the one who swapped.",
-    scenario: "Rebalance a portfolio across public liquidity venues while your positions stay encrypted in the vault.",
-    route: "/app/swap",
-    preview: {
-      kind: "receipt",
-      rows: [
-        { label: "Path",     value: "eUSDC → DAI → eETH" },
-        { label: "Slippage", value: "0.3%" },
-        { label: "In",       value: "████.██",  enc: true },
-        { label: "Out",      value: "████.██",  enc: true },
-      ],
-    },
-  },
+  // #86: PrivacyRouter contract is deployed but the screen-level UI isn't
+  // wired yet. Card removed from the marketing list until the screen ships
+  // so visitors don't hit a dead CTA. Re-add once /app/swap supports the
+  // decrypt → DEX-route → re-encrypt flow.
 ];
 
 // ─── Preview renderers ────────────────────────────────────────────

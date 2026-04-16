@@ -1,0 +1,173 @@
+/* ════════════════════════════════════════════════════════════════════
+   GlobalCounter — landing-page live encrypted-aggregate counter.
+   Sits between Hero and Problem. Two stats side-by-side on desktop,
+   stacked on mobile. Glass-morphism to match landing design tokens.
+   ════════════════════════════════════════════════════════════════════ */
+
+.gc-section {
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 3.5rem 1.25rem 1.5rem;
+  text-align: center;
+}
+
+.gc-eyebrow {
+  text-transform: uppercase;
+  font-size: 0.7rem;
+  letter-spacing: 0.14em;
+  color: var(--ll-accent, #10B981);
+  font-weight: 600;
+  margin-bottom: 0.75rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.gc-eyebrow::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #10B981;
+  box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.5);
+  animation: gc-pulse 2s infinite;
+}
+
+@keyframes gc-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.55); }
+  70%  { box-shadow: 0 0 0 9px rgba(16, 185, 129, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+}
+
+/* #243: per-chain tab strip — lets viewers flip between chains to see
+   each chain's encrypted aggregate without changing wallet network. */
+.gc-chain-tabs {
+  display: inline-flex;
+  gap: 0.25rem;
+  background: rgba(0, 0, 0, 0.04);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 999px;
+  padding: 0.25rem;
+  margin: 0 auto 1rem;
+}
+
+.gc-chain-tab {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  padding: 0.4rem 0.95rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: #6B6B6B;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.gc-chain-tab:hover:not(.is-active) {
+  color: var(--ll-ink, #0A0A0A);
+}
+
+.gc-chain-tab.is-active {
+  background: var(--ll-ink, #0A0A0A);
+  color: #fff;
+  font-weight: 600;
+}
+
+.gc-numbers {
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  gap: 2.5rem;
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 1.5rem;
+  padding: 2rem 2.5rem;
+  margin: 0 auto 1.25rem;
+  max-width: 700px;
+}
+
+.gc-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+  flex: 1;
+}
+
+.gc-stat-label {
+  text-transform: uppercase;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  color: #6B6B6B;
+  font-weight: 500;
+}
+
+.gc-stat-value {
+  font-family: "Outfit", "Inter", sans-serif;
+  font-weight: 700;
+  font-size: clamp(1.75rem, 4vw, 2.5rem);
+  letter-spacing: -0.025em;
+  line-height: 1;
+  color: var(--ll-ink, #0A0A0A);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.05em;
+}
+
+.gc-currency {
+  font-size: 0.65em;
+  margin-right: 0.05em;
+  color: #6B6B6B;
+}
+
+.gc-dash {
+  color: #C4C4C4;
+}
+
+.gc-divider {
+  width: 1px;
+  background: rgba(0, 0, 0, 0.08);
+  align-self: stretch;
+  margin: 0.25rem 0;
+}
+
+.gc-caption {
+  font-size: 0.85rem;
+  line-height: 1.55;
+  color: #6B6B6B;
+  max-width: 580px;
+  margin: 0 auto;
+}
+
+.gc-caption code {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.85em;
+  background: rgba(0, 0, 0, 0.05);
+  padding: 0.05rem 0.35rem;
+  border-radius: 0.3rem;
+  color: var(--ll-ink);
+}
+
+.gc-hint {
+  color: #8A8A8A;
+}
+
+@media (max-width: 640px) {
+  .gc-numbers {
+    flex-direction: column;
+    gap: 1.25rem;
+    padding: 1.5rem;
+  }
+  .gc-divider {
+    width: 100%;
+    height: 1px;
+  }
+  .gc-stat-value {
+    font-size: 2rem;
+  }
+}

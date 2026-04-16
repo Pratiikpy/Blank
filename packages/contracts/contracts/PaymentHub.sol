@@ -5,6 +5,8 @@ import "@fhenixprotocol/cofhe-contracts/FHE.sol";
 import "./utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 
 interface IFHERC20Vault {
     function transferFrom(address from, address to, InEuint64 memory encAmount) external returns (euint64);
@@ -20,6 +22,10 @@ interface IEventHub {
         string calldata note,
         uint256 refId
     ) external;
+}
+
+interface IPaymentReceipts {
+    function bumpGlobalVolume(euint64 amount) external;
 }
 
 /// @title PaymentHub — Core encrypted payment operations
@@ -60,6 +66,18 @@ contract PaymentHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
     uint256 public constant MAX_BATCH_SIZE = 30;
 
+    // ─── Agent attestations (v0.1.3, append-only storage) ───────────────
+    // Replay guard for nonces signed by AI agents. The agent signs an
+    // attestation tuple (user, nonce, expiry, chainId) which the contract
+    // verifies via ECDSA. Each nonce can only be consumed once per chain.
+    mapping(bytes32 => bool) private _usedAgentNonces;
+
+    // ─── Optional aggregator wiring (v0.1.4, append-only storage) ───────
+    // When set, sendPayment / batchSend / sendPaymentAsAgent fire
+    // paymentReceipts.bumpGlobalVolume(actual) so the landing-page counter
+    // reflects real activity. Zero-address = feature off (back-compat).
+    address public paymentReceipts;
+
     // ─── Events ─────────────────────────────────────────────────────────
 
     event PaymentSent(
@@ -86,6 +104,18 @@ contract PaymentHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         address indexed from,
         address vault,
         uint256 recipientCount,
+        uint256 timestamp
+    );
+
+    /// @notice Emitted when a payment was processed via an AI agent. The
+    ///         agent address is cryptographically attested via ECDSA — any
+    ///         observer can verify the agent signed (user, nonce, expiry,
+    ///         chainId), proving the user genuinely engaged that agent.
+    event AgentPaymentSubmission(
+        address indexed user,
+        address indexed agent,
+        bytes32 indexed nonce,
+        uint256 expiry,
         uint256 timestamp
     );
 
@@ -127,6 +157,8 @@ contract PaymentHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
         euint64 actual = IFHERC20Vault(vault).transferFromVerified(msg.sender, to, verifiedAmount);
         FHE.allowSender(actual);  // Sender can verify transfer succeeded
+        FHE.allowThis(actual);    // Required so we can pass to PaymentReceipts
+        _bumpAggregate(actual);
 
         emit PaymentSent(msg.sender, to, vault, note, block.timestamp);
         try eventHub.emitActivity(msg.sender, to, "payment", note, 0) {} catch {}
@@ -241,6 +273,8 @@ contract PaymentHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
             euint64 actual = vaultContract.transferFromVerified(msg.sender, recipients[i], verifiedAmount);
             FHE.allowSender(actual);
             FHE.allow(actual, recipients[i]);
+            FHE.allowThis(actual);
+            _bumpAggregate(actual);
             emit PaymentSent(msg.sender, recipients[i], vault, notes[i], block.timestamp);
         }
 
@@ -284,10 +318,92 @@ contract PaymentHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         return count;
     }
 
+    // ─── Agent payments (v0.1.3) ───────────────────────────────────────
+
+    /// @notice The EIP-191 personal_sign digest the agent must sign.
+    ///         Hashing this off-chain and signing with the agent wallet's
+    ///         private key produces the `agentSignature` argument below.
+    function agentDigest(address user, bytes32 nonce, uint256 expiry) public view returns (bytes32) {
+        bytes32 inner = keccak256(abi.encode(user, nonce, expiry, block.chainid, address(this)));
+        return MessageHashUtils.toEthSignedMessageHash(inner);
+    }
+
+    /// @notice Send an encrypted payment with cryptographic agent provenance.
+    ///         Identical to sendPayment, plus an ECDSA-verified attestation
+    ///         that the named agent signed off on this submission. The agent
+    ///         signs (user, nonce, expiry, chainId, contract) — that signature
+    ///         must recover to `agent`. Each nonce is single-use per chain.
+    /// @param to Recipient
+    /// @param vault FHERC20Vault address
+    /// @param encAmount Encrypted payment amount
+    /// @param note Public note
+    /// @param agent The wallet address of the AI agent that derived this submission
+    /// @param nonce Random 32-byte value the agent included when signing
+    /// @param expiry Unix timestamp after which the attestation is invalid
+    /// @param agentSignature 65-byte ECDSA signature from `agent`
+    function sendPaymentAsAgent(
+        address to,
+        address vault,
+        InEuint64 memory encAmount,
+        string calldata note,
+        address agent,
+        bytes32 nonce,
+        uint256 expiry,
+        bytes calldata agentSignature
+    ) external nonReentrant {
+        require(to != address(0) && to != msg.sender, "PaymentHub: invalid recipient");
+        require(agent != address(0), "PaymentHub: agent zero");
+        require(block.timestamp <= expiry, "PaymentHub: agent attestation expired");
+        require(!_usedAgentNonces[nonce], "PaymentHub: agent nonce already used");
+
+        // Verify ECDSA attestation BEFORE consuming the nonce — keeps reverts
+        // cheap for replay attempts and lets the recovered != expected case
+        // surface a clear error.
+        bytes32 digest = agentDigest(msg.sender, nonce, expiry);
+        address recovered = ECDSA.recover(digest, agentSignature);
+        require(recovered == agent, "PaymentHub: invalid agent signature");
+
+        _usedAgentNonces[nonce] = true;
+
+        // Identical settlement path to sendPayment — verify in caller context
+        euint64 verifiedAmount = FHE.asEuint64(encAmount);
+        FHE.allowTransient(verifiedAmount, vault);
+        euint64 actual = IFHERC20Vault(vault).transferFromVerified(msg.sender, to, verifiedAmount);
+        FHE.allowSender(actual);
+        FHE.allowThis(actual);
+        _bumpAggregate(actual);
+
+        emit PaymentSent(msg.sender, to, vault, note, block.timestamp);
+        emit AgentPaymentSubmission(msg.sender, agent, nonce, expiry, block.timestamp);
+        try eventHub.emitActivity(msg.sender, to, "agent_payment", note, 0) {} catch {}
+    }
+
+    /// @notice Whether a given nonce has already been consumed by sendPaymentAsAgent.
+    function isAgentNonceUsed(bytes32 nonce) external view returns (bool) {
+        return _usedAgentNonces[nonce];
+    }
+
     // ─── Admin ──────────────────────────────────────────────────────────
 
     function setEventHub(address _eventHub) external onlyOwner {
         eventHub = IEventHub(_eventHub);
+    }
+
+    /// @notice Set the PaymentReceipts contract address. When non-zero,
+    ///         sendPayment / batchSend / sendPaymentAsAgent forward the
+    ///         transferred amount to paymentReceipts.bumpGlobalVolume so
+    ///         the landing-page counter increments.
+    function setPaymentReceipts(address _paymentReceipts) external onlyOwner {
+        paymentReceipts = _paymentReceipts;
+    }
+
+    /// @dev Internal: forward an already-verified euint64 to PaymentReceipts.
+    ///      Wrapped in try/catch — never blocks the payment if the receipts
+    ///      contract reverts (e.g. if PaymentHub isn't authorized yet).
+    function _bumpAggregate(euint64 amount) internal {
+        if (paymentReceipts == address(0)) return;
+        FHE.allowTransient(amount, paymentReceipts);
+        try IPaymentReceipts(paymentReceipts).bumpGlobalVolume(amount) {} catch {}
     }
 
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}

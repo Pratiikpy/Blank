@@ -68,13 +68,31 @@ export function XRaySlider({
         move(t.clientX, t.clientY);
       }}
     >
-      <img src={baseSrc} alt={baseAlt} className="ll-slider-base" loading="lazy" />
+      <img
+        src={baseSrc}
+        alt={baseAlt}
+        className="ll-slider-base"
+        loading="lazy"
+        onError={(e) => {
+          // Fall back to a 1x1 transparent PNG so the layout doesn't collapse
+          // if the image 404s or is blocked. Browser's broken-image icon
+          // would otherwise leak through the X-ray hover effect.
+          e.currentTarget.onerror = null;
+          e.currentTarget.src =
+            "data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==";
+        }}
+      />
       <img
         ref={revealRef}
         src={revealSrc}
         alt={revealAlt}
         className={`ll-slider-reveal${visible ? " visible" : ""}`}
         loading="lazy"
+        onError={(e) => {
+          e.currentTarget.onerror = null;
+          e.currentTarget.src =
+            "data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==";
+        }}
       />
       <div ref={handleRef} className="ll-slider-handle">
         <div

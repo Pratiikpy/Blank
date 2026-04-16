@@ -14,6 +14,7 @@ import {
 import { cn } from "@/lib/cn";
 import { usePrivacy } from "@/hooks/usePrivacy";
 import toast from "react-hot-toast";
+import { truncateAddress } from "@/lib/address";
 
 export default function Privacy() {
   const navigate = useNavigate();
@@ -269,7 +270,7 @@ export default function Privacy() {
                     </div>
                     <div className="min-w-0">
                       <p className="text-sm font-mono truncate">
-                        {p.address.slice(0, 10)}...{p.address.slice(-6)}
+                        {truncateAddress(p.address)}
                       </p>
                       <div className="flex items-center gap-2 mt-0.5">
                         <span className="text-xs text-[var(--text-tertiary)]">

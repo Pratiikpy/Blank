@@ -1,9 +1,7 @@
 import { HardhatUserConfig } from "hardhat/config";
 import "@nomicfoundation/hardhat-toolbox";
 import "@nomicfoundation/hardhat-ethers";
-// Note: @cofhe/hardhat-plugin loaded only for testing (has mock contract compilation issues on production)
-// For production deployment, we compile without it and deploy directly
-// import "cofhe-hardhat-plugin";
+import "@cofhe/hardhat-plugin";
 import * as dotenv from "dotenv";
 import "./tasks";
 
@@ -13,15 +11,26 @@ const accounts = process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [];
 
 const config: HardhatUserConfig = {
   solidity: {
-    version: "0.8.25",
-    settings: {
-      evmVersion: "cancun",
-      viaIR: true,
-      optimizer: {
-        enabled: true,
-        runs: 200,
+    // Multi-compiler: 0.8.25 for our Blank contracts (cofhe-contracts pin),
+    // 0.8.28 for @account-abstraction/contracts which pin ^0.8.28.
+    compilers: [
+      {
+        version: "0.8.25",
+        settings: {
+          evmVersion: "cancun",
+          viaIR: true,
+          optimizer: { enabled: true, runs: 200 },
+        },
       },
-    },
+      {
+        version: "0.8.28",
+        settings: {
+          evmVersion: "cancun",
+          viaIR: true,
+          optimizer: { enabled: true, runs: 200 },
+        },
+      },
+    ],
   },
   defaultNetwork: "hardhat",
   networks: {
@@ -57,6 +66,12 @@ const config: HardhatUserConfig = {
   gasReporter: {
     enabled: process.env.REPORT_GAS === "true",
   },
+  // CoFHE plugin config — logMocks shows mock task IDs in tests,
+  // gasWarning flags FHE ops that are unusually expensive.
+  cofhe: {
+    logMocks: true,
+    gasWarning: true,
+  } as any, // type extension lives in @cofhe/hardhat-plugin's module augmentation
 };
 
 export default config;

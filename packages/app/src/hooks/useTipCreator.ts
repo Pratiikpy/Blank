@@ -1,24 +1,28 @@
 import { useState, useCallback, useRef } from "react";
-import { useAccount, useWriteContract, usePublicClient } from "wagmi";
+import { usePublicClient } from "wagmi";
+import { useEffectiveAddress } from "./useEffectiveAddress";
 import { parseUnits } from "viem";
 import { useCofheEncrypt, useCofheConnection } from "@cofhe/react";
 import { Encryptable } from "@cofhe/sdk";
 import toast from "react-hot-toast";
-import { CONTRACTS, MAX_UINT64, type EncryptedInput } from "@/lib/constants";
+import { MAX_UINT64, type EncryptedInput } from "@/lib/constants";
+import { useChain } from "@/providers/ChainProvider";
 import { CreatorHubAbi, FHERC20VaultAbi } from "@/lib/abis";
 import { insertActivity, insertCreatorSupporter } from "@/lib/supabase";
+import { ACTIVITY_TYPES } from "@/lib/activity-types";
 import { broadcastAction } from "@/lib/cross-tab";
 import { invalidateBalanceQueries } from "@/lib/query-invalidation";
 import { isVaultApproved, markVaultApproved, clearVaultApproval } from "@/lib/approval";
+import { useUnifiedWrite } from "./useUnifiedWrite";
 
 async function ensureVaultApproval(
-  writeContractAsync: ReturnType<typeof useWriteContract>["writeContractAsync"],
+  unifiedWrite: ReturnType<typeof useUnifiedWrite>["unifiedWrite"],
   vaultAddress: `0x${string}`,
   spenderAddress: `0x${string}`,
 ) {
   const toastId = toast.loading("First time! Approving encrypted transfers...");
   try {
-    await writeContractAsync({
+    await unifiedWrite({
       address: vaultAddress,
       abi: FHERC20VaultAbi,
       functionName: "approvePlaintext",
@@ -33,11 +37,12 @@ async function ensureVaultApproval(
 }
 
 export function useTipCreator() {
-  const { address } = useAccount();
+  const { effectiveAddress: address } = useEffectiveAddress();
   const { connected } = useCofheConnection();
-  const publicClient = usePublicClient();
+  const { contracts, activeChainId } = useChain();
+  const publicClient = usePublicClient({ chainId: activeChainId });
   const { encryptInputsAsync } = useCofheEncrypt();
-  const { writeContractAsync } = useWriteContract();
+  const { unifiedWrite, unifiedWriteAndWait } = useUnifiedWrite();
 
   const [isTipping, setIsTipping] = useState(false);
   const submittingRef = useRef(false);
@@ -64,39 +69,58 @@ export function useTipCreator() {
         const amountWei = parseUnits(amount, 6);
 
         // Ensure the CreatorHub contract is approved to transferFrom on the vault
-        if (!isVaultApproved(CONTRACTS.CreatorHub)) {
+        if (!isVaultApproved(contracts.CreatorHub)) {
           await ensureVaultApproval(
-            writeContractAsync,
-            CONTRACTS.FHERC20Vault_USDC as `0x${string}`,
-            CONTRACTS.CreatorHub as `0x${string}`,
+            unifiedWrite,
+            contracts.FHERC20Vault_USDC as `0x${string}`,
+            contracts.CreatorHub as `0x${string}`,
           );
-          markVaultApproved(CONTRACTS.CreatorHub);
+          markVaultApproved(contracts.CreatorHub);
         }
 
         // Encrypt the tip amount
-        const [encAmount] = await encryptInputsAsync([
+        const [rawEncAmount] = await encryptInputsAsync([
           Encryptable.uint64(amountWei),
         ]);
+        // Normalize SDK output — the SDK wraps ctHash/securityZone/utype/
+        // signature either at the top level or inside `.data`. The contract's
+        // InEuint64 ABI tuple expects them at the top level. useSendPayment
+        // normalizes the same way; without this the signature in the
+        // encrypted input doesn't line up with the ctHash when verified on-
+        // chain → "InvalidSigner" revert from MockTaskManager.verifyInput.
+        const raw = rawEncAmount as {
+          ctHash?: bigint | string | number; securityZone?: number; utype?: number; signature?: `0x${string}`;
+          data?: { ctHash?: bigint | string | number; securityZone?: number; utype?: number; signature?: `0x${string}` };
+        };
+        const encAmount = {
+          ctHash: BigInt(raw.ctHash ?? raw.data?.ctHash ?? 0),
+          securityZone: Number(raw.securityZone ?? raw.data?.securityZone ?? 0),
+          utype: Number(raw.utype ?? raw.data?.utype ?? 5),
+          signature: (raw.signature ?? raw.data?.signature ?? "0x") as `0x${string}`,
+        };
 
-        // Call CreatorHub.support() on-chain
-        const hash = await writeContractAsync({
-          address: CONTRACTS.CreatorHub as `0x${string}`,
+        // Call CreatorHub.support() — unifiedWriteAndWait so AA path skips
+        // the chain-side polling (free RPC tier rate-limits it).
+        const tipResult = await unifiedWriteAndWait({
+          address: contracts.CreatorHub as `0x${string}`,
           abi: CreatorHubAbi,
           functionName: "support",
           args: [
             creator as `0x${string}`,
-            CONTRACTS.FHERC20Vault_USDC as `0x${string}`,
-            // Type assertion: cofhe SDK encrypt returns opaque encrypted input objects
-            // whose shape doesn't match wagmi's strict ABI-inferred arg types
+            contracts.FHERC20Vault_USDC as `0x${string}`,
             encAmount as unknown as EncryptedInput,
             message,
           ],
           gas: BigInt(5_000_000), // FHE: manual gas limit (precompile can't be estimated)
         });
-
-        // Wait for on-chain confirmation before writing to Supabase
-        const tipReceipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
-        if (tipReceipt.status === "reverted") {
+        const hash = tipResult.hash;
+        const tipBlockNumber =
+          tipResult.receipt?.blockNumber ??
+          (await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 })).blockNumber;
+        const tipStatus =
+          tipResult.receipt?.status ??
+          (await publicClient.getTransactionReceipt({ hash })).status;
+        if (tipStatus === "reverted") {
           throw new Error("Transaction reverted on-chain");
         }
 
@@ -105,11 +129,11 @@ export function useTipCreator() {
           tx_hash: hash,
           user_from: address.toLowerCase(),
           user_to: creator.toLowerCase(),
-          activity_type: "tip",
-          contract_address: CONTRACTS.CreatorHub,
+          activity_type: ACTIVITY_TYPES.TIP,
+          contract_address: contracts.CreatorHub,
           note: message,
-          token_address: CONTRACTS.FHERC20Vault_USDC,
-          block_number: Number(tipReceipt.blockNumber),
+          token_address: contracts.FHERC20Vault_USDC,
+          block_number: Number(tipBlockNumber),
         });
 
         try {
@@ -131,7 +155,7 @@ export function useTipCreator() {
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Tip failed";
         if (msg.includes("allowance") || msg.includes("approve") || msg.includes("insufficient") || msg.includes("transfer amount exceeds")) {
-          clearVaultApproval(CONTRACTS.CreatorHub);
+          clearVaultApproval(contracts.CreatorHub);
         }
         toast.error(msg);
       } finally {
@@ -139,7 +163,7 @@ export function useTipCreator() {
         setIsTipping(false);
       }
     },
-    [address, connected, encryptInputsAsync, writeContractAsync, publicClient]
+    [address, connected, encryptInputsAsync, unifiedWrite, unifiedWriteAndWait, publicClient, contracts]
   );
 
   return { isTipping, tip };

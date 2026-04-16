@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useAccount } from "wagmi";
 import { useNavigate } from "react-router-dom";
 import {
@@ -13,12 +13,12 @@ import {
   X,
   ExternalLink,
   Search,
+  Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { useChain } from "@/providers/ChainProvider";
 import { useActivityFeed } from "@/hooks/useActivityFeed";
 import { useContacts } from "@/hooks/useContacts";
-
-const PAGE_SIZE = 20;
 
 type FilterTab = "all" | "received" | "sent" | "swap" | "stealth";
 
@@ -114,12 +114,18 @@ function getDateGroup(dateStr: string): string {
 export default function History() {
   const { address } = useAccount();
   const navigate = useNavigate();
-  const { activities, isLoading } = useActivityFeed();
+  const { activeChain } = useChain();
+  const {
+    activities,
+    isLoading,
+    isLoadingMore,
+    hasMore,
+    loadMore,
+  } = useActivityFeed();
   const { addContact } = useContacts();
   const [activeFilter, setActiveFilter] = useState<FilterTab>("all");
   const [selectedTx, setSelectedTx] = useState<(typeof activities)[number] | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
   const filtered = useMemo(() => {
     if (activeFilter === "all") return activities;
@@ -147,20 +153,14 @@ export default function History() {
     );
   }, [filtered, searchQuery]);
 
-  // Reset visible count when filter or search changes
-  useEffect(() => {
-    setVisibleCount(PAGE_SIZE);
-  }, [activeFilter, searchQuery]);
-
-  const visibleActivities = useMemo(
-    () => searchedActivities.slice(0, visibleCount),
-    [searchedActivities, visibleCount],
-  );
-
+  // Pagination is hook-driven now: the hook fetches PAGE_SIZE rows up front
+  // and loadMore() fetches the next page from the server using cursor-based
+  // pagination. Filter/search only narrow the already-loaded rows; clicking
+  // "Load more" fetches more from the server for deeper history.
   const groupedActivities = useMemo(() => {
-    const groups: { label: string; items: typeof visibleActivities }[] = [];
+    const groups: { label: string; items: typeof searchedActivities }[] = [];
     let currentGroup = "";
-    for (const a of visibleActivities) {
+    for (const a of searchedActivities) {
       const group = getDateGroup(a.created_at);
       if (group !== currentGroup) {
         groups.push({ label: group, items: [] });
@@ -169,7 +169,14 @@ export default function History() {
       groups[groups.length - 1].items.push(a);
     }
     return groups;
-  }, [visibleActivities]);
+  }, [searchedActivities]);
+
+  const handleLoadMore = useCallback(async () => {
+    const added = await loadMore();
+    // If 0 rows came back, the hook has already flipped hasMore=false so
+    // the button disappears on the next render.
+    return added;
+  }, [loadMore]);
 
   const handleExport = useCallback(() => {
     const headers = "Date,Type,From,To,Note,TxHash\n";
@@ -189,23 +196,24 @@ export default function History() {
     <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="max-w-5xl mx-auto">
         {/* Page Title */}
-        <div className="mb-8 flex items-start justify-between">
-          <div>
-            <h1 className="text-4xl sm:text-5xl font-heading font-semibold text-[var(--text-primary)] tracking-tight mb-2">
+        <div className="mb-8 flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="text-3xl sm:text-5xl font-heading font-semibold text-[var(--text-primary)] tracking-tight mb-2">
               Activity
             </h1>
-            <p className="text-base text-[var(--text-primary)]/50 leading-relaxed">
+            <p className="text-sm sm:text-base text-[var(--text-primary)]/50 leading-relaxed">
               Your encrypted transaction history
             </p>
           </div>
           {filtered.length > 0 && (
             <button
               onClick={handleExport}
-              className="h-10 px-4 rounded-full bg-gray-100 text-[var(--text-secondary)] text-sm font-medium hover:bg-gray-200 transition-colors flex items-center gap-2"
+              className="h-10 px-3 sm:px-4 rounded-full bg-gray-100 text-[var(--text-secondary)] text-xs sm:text-sm font-medium hover:bg-gray-200 transition-colors flex items-center gap-2 shrink-0"
               aria-label="Export transactions as CSV"
             >
               <Download size={14} />
-              Export CSV
+              <span className="hidden sm:inline">Export CSV</span>
+              <span className="sm:hidden">CSV</span>
             </button>
           )}
         </div>
@@ -223,7 +231,7 @@ export default function History() {
         </div>
 
         {/* Filter Pills */}
-        <div className="flex gap-3 mb-6" role="tablist" aria-label="Transaction filters">
+        <div className="flex gap-2 sm:gap-3 mb-6 overflow-x-auto -mx-1 px-1 pb-1" role="tablist" aria-label="Transaction filters">
           {filterTabs.map((tab) => (
             <button
               key={tab.key}
@@ -232,7 +240,7 @@ export default function History() {
               aria-label={`Filter by ${tab.label.toLowerCase()}`}
               onClick={() => setActiveFilter(tab.key)}
               className={cn(
-                "h-12 px-6 rounded-full font-medium transition-all whitespace-nowrap",
+                "h-10 sm:h-12 px-4 sm:px-6 rounded-full font-medium transition-all whitespace-nowrap text-sm shrink-0",
                 activeFilter === tab.key
                   ? "bg-[var(--text-primary)] text-white"
                   : "bg-white/60 backdrop-blur-2xl text-[var(--text-primary)] border border-white/60 hover:bg-white/80",
@@ -282,7 +290,7 @@ export default function History() {
             </p>
           </div>
         ) : (
-          <div className="rounded-[2rem] glass-card p-8">
+          <div className="rounded-[2rem] glass-card p-4 sm:p-8">
             {groupedActivities.map((group) => (
               <div key={group.label} className="mb-4 last:mb-0">
                 <p className="text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wide px-2 py-3">
@@ -306,23 +314,23 @@ export default function History() {
                 return (
                   <div
                     key={activity.id}
-                    onClick={() => navigate(`/tx/${activity.id}`)}
+                    onClick={() => navigate(`/app/tx/${activity.id}`)}
                     role="link"
                     tabIndex={0}
-                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") navigate(`/tx/${activity.id}`); }}
-                    className="flex items-center justify-between p-6 rounded-2xl bg-white/50 border border-black/5 hover:bg-white/70 transition-all cursor-pointer"
+                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") navigate(`/app/tx/${activity.id}`); }}
+                    className="flex items-center justify-between gap-3 p-4 sm:p-6 rounded-2xl bg-white/50 border border-black/5 hover:bg-white/70 transition-all cursor-pointer"
                   >
-                    <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-3 sm:gap-4 min-w-0 flex-1">
                       <div
                         className={cn(
-                          "w-12 h-12 rounded-xl flex items-center justify-center",
+                          "w-10 h-10 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center shrink-0",
                           typeInfo.bg,
                         )}
                       >
                         {typeInfo.icon}
                       </div>
-                      <div>
-                        <p className="font-medium text-[var(--text-primary)]">
+                      <div className="min-w-0">
+                        <p className="font-medium text-[var(--text-primary)] truncate">
                           {activity.note || truncateAddress(otherAddress)}
                         </p>
                         <p className="text-sm text-[var(--text-primary)]/50">
@@ -332,11 +340,11 @@ export default function History() {
                         </p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-4 shrink-0">
                       <div className="text-right">
                         <p
                           className={cn(
-                            "text-lg font-heading font-medium font-mono",
+                            "text-sm sm:text-lg font-heading font-medium font-mono whitespace-nowrap",
                             isIncoming
                               ? "text-emerald-600"
                               : "text-[var(--text-primary)]",
@@ -366,12 +374,21 @@ export default function History() {
                 </div>
               </div>
             ))}
-            {visibleCount < searchedActivities.length && (
+            {hasMore && !searchQuery && (
               <button
-                onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}
-                className="w-full h-12 rounded-2xl bg-white/50 border border-black/5 text-sm font-medium text-[var(--text-secondary)] hover:bg-white/70 transition-all mt-3"
+                onClick={handleLoadMore}
+                disabled={isLoadingMore}
+                className="w-full h-12 rounded-2xl bg-white/50 border border-black/5 text-sm font-medium text-[var(--text-secondary)] hover:bg-white/70 transition-all mt-3 flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                aria-label="Load more transactions"
               >
-                Load more ({searchedActivities.length - visibleCount} remaining)
+                {isLoadingMore ? (
+                  <>
+                    <Loader2 size={14} className="animate-spin" />
+                    Loading&hellip;
+                  </>
+                ) : (
+                  "Load more"
+                )}
               </button>
             )}
           </div>
@@ -385,7 +402,7 @@ export default function History() {
           >
             <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" />
             <div
-              className="relative w-full max-w-lg mx-4 mb-4 sm:mb-0 glass-card-static rounded-[2rem] p-6 space-y-4 animate-in slide-in-from-bottom-4 duration-300"
+              className="relative w-[calc(100%-1rem)] sm:max-w-lg mx-2 sm:mx-4 mb-4 sm:mb-0 glass-card-static rounded-[2rem] p-6 space-y-4 animate-in slide-in-from-bottom-4 duration-300"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex items-center justify-between">
@@ -397,13 +414,13 @@ export default function History() {
                   <span className="text-sm text-[var(--text-secondary)]">Type</span>
                   <span className="text-sm font-medium">{activityLabels[selectedTx.activity_type] || selectedTx.activity_type}</span>
                 </div>
-                <div className="flex justify-between p-3 rounded-xl bg-white/50 border border-black/5">
-                  <span className="text-sm text-[var(--text-secondary)]">From</span>
-                  <span className="text-sm font-mono">{selectedTx.user_from.slice(0, 10)}...{selectedTx.user_from.slice(-6)}</span>
+                <div className="flex justify-between gap-3 p-3 rounded-xl bg-white/50 border border-black/5">
+                  <span className="text-sm text-[var(--text-secondary)] shrink-0">From</span>
+                  <span className="text-sm font-mono truncate">{truncateAddress(selectedTx.user_from)}</span>
                 </div>
-                <div className="flex justify-between p-3 rounded-xl bg-white/50 border border-black/5">
-                  <span className="text-sm text-[var(--text-secondary)]">To</span>
-                  <span className="text-sm font-mono">{selectedTx.user_to.slice(0, 10)}...{selectedTx.user_to.slice(-6)}</span>
+                <div className="flex justify-between gap-3 p-3 rounded-xl bg-white/50 border border-black/5">
+                  <span className="text-sm text-[var(--text-secondary)] shrink-0">To</span>
+                  <span className="text-sm font-mono truncate">{truncateAddress(selectedTx.user_to)}</span>
                 </div>
                 {selectedTx.note && (
                   <div className="flex justify-between p-3 rounded-xl bg-white/50 border border-black/5">
@@ -421,7 +438,7 @@ export default function History() {
                 </div>
                 {selectedTx.tx_hash && !selectedTx.tx_hash.includes("_") && (
                   <a
-                    href={`https://sepolia.etherscan.io/tx/${selectedTx.tx_hash}`}
+                    href={`${activeChain.explorerUrl}/tx/${selectedTx.tx_hash}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center justify-center gap-2 h-12 rounded-2xl bg-blue-50 text-blue-600 font-medium text-sm hover:bg-blue-100 transition-colors"

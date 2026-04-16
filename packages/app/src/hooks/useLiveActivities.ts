@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
+import { useEffectiveAddress } from "./useEffectiveAddress";
 import { supabase, type ActivityRow } from "@/lib/supabase";
+import { createActivityDedup } from "@/lib/realtime-dedup";
 
 // ══════════════════════════════════════════════════════════════════
 //  useLiveActivities
@@ -13,6 +15,19 @@ export interface LiveActivity extends ActivityRow {
   isNew?: boolean;
 }
 
+// #223: stable secondary sort by `tx_hash desc` so two clients viewing the
+// same activity stream agree on the order even when `created_at` ties (same
+// block / same wall clock). The proper fix is an `event_index` column on
+// the activities table — that's a separate migration.
+function sortLiveActivitiesStable(rows: LiveActivity[]): LiveActivity[] {
+  return [...rows].sort((a, b) => {
+    const dt =
+      new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    if (dt !== 0) return dt;
+    return b.tx_hash.localeCompare(a.tx_hash);
+  });
+}
+
 interface UseLiveActivitiesResult {
   activities: LiveActivity[];
   isLoading: boolean;
@@ -21,10 +36,23 @@ interface UseLiveActivitiesResult {
 }
 
 export function useLiveActivities(limit = 50): UseLiveActivitiesResult {
+  const { effectiveAddress: address } = useEffectiveAddress();
   const [activities, setActivities] = useState<LiveActivity[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const newIdsRef = useRef<Set<string>>(new Set());
+  // #248: dedup by tx_hash too — frontend may insert an activity with one id
+  // and the indexer may insert the SAME tx with a different id. id-based
+  // dedup alone misses that case.
+  const txDedupRef = useRef(createActivityDedup());
+
+  // Clear feed when the connected wallet changes — avoids leaking the prior
+  // user's activity view into the next session.
+  useEffect(() => {
+    setActivities([]);
+    newIdsRef.current = new Set();
+    txDedupRef.current.reset();
+  }, [address]);
 
   // Initial load
   useEffect(() => {
@@ -42,7 +70,7 @@ export function useLiveActivities(limit = 50): UseLiveActivitiesResult {
           .limit(limit);
         if (cancelled) return;
         if (error) throw error;
-        setActivities((data || []) as LiveActivity[]);
+        setActivities(sortLiveActivitiesStable((data || []) as LiveActivity[]));
         setIsLoading(false);
       } catch (err) {
         if (cancelled) return;
@@ -66,11 +94,25 @@ export function useLiveActivities(limit = 50): UseLiveActivitiesResult {
         (payload) => {
           const row = payload.new as LiveActivity;
           if (!row?.id) return;
+          // #248: tx_hash dedup at the top — frontend + indexer can each insert
+          // the same tx with different `id`s; without this the same tx renders
+          // twice. Keep the id-based dedup below as a secondary safety net for
+          // Supabase event replay.
+          if (row.tx_hash && !txDedupRef.current.accept({ tx_hash: row.tx_hash })) {
+            return;
+          }
           newIdsRef.current.add(row.id);
           setActivities((prev) => {
-            // Deduplicate by id (Supabase occasionally replays)
-            if (prev.some((a) => a.id === row.id)) return prev;
-            const next = [{ ...row, isNew: true }, ...prev];
+            // Deduplicate by id (Supabase occasionally replays) AND by
+            // tx_hash (in case dedup window above missed it under StrictMode
+            // double-mount).
+            if (prev.some((a) => a.id === row.id || (row.tx_hash && a.tx_hash === row.tx_hash))) return prev;
+            // Re-sort so the realtime row lands deterministically — same
+            // tie-breaker rule as the initial fetch.
+            const next = sortLiveActivitiesStable([
+              { ...row, isNew: true },
+              ...prev,
+            ]);
             return next.slice(0, limit);
           });
           // Clear the "new" flag after the flash animation completes

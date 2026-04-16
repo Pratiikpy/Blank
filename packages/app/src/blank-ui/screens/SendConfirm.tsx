@@ -1,8 +1,9 @@
 import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Shield, Lock, Zap, Info, ChevronLeft } from "lucide-react";
+import { Shield, Lock, Zap, Info, ChevronLeft, AlertCircle } from "lucide-react";
 import { useSendPayment } from "@/hooks/useSendPayment";
 import { cn } from "@/lib/cn";
+import { mapError } from "@/lib/error-messages";
 
 import { truncateAddress } from "@/lib/address";
 
@@ -13,6 +14,7 @@ export default function SendConfirm() {
     recipient,
     amount,
     note,
+    error,
     isEncrypting,
     isSending,
     confirmSend,
@@ -27,14 +29,21 @@ export default function SendConfirm() {
   }, [step, navigate]);
 
   const isProcessing = step === "sending" || step === "encrypting";
+  const isErrored = step === "error";
 
-  const statusLabel = isEncrypting
-    ? "Encrypting..."
-    : isSending
-      ? "Broadcasting..."
-      : step === "sending"
-        ? "Processing..."
-        : "Confirm & Send";
+  // #265: surface the actual failure reason inline so the user doesn't have
+  // to rely on the toast (which may have dismissed by the time they look).
+  const mappedError = isErrored && error ? mapError(error) : null;
+
+  const statusLabel = isErrored
+    ? "Try again"
+    : isEncrypting
+      ? "Encrypting..."
+      : isSending
+        ? "Broadcasting..."
+        : step === "sending"
+          ? "Processing..."
+          : "Confirm & Send";
 
   return (
     <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -56,23 +65,23 @@ export default function SendConfirm() {
         {/* Page title */}
         <div className="mb-8">
           <h1
-            className="text-4xl font-medium tracking-tight text-[var(--text-primary)] mb-2"
+            className="text-3xl sm:text-4xl font-medium tracking-tight text-[var(--text-primary)] mb-2"
             style={{ fontFamily: "'Outfit', 'Inter', sans-serif" }}
           >
             Confirm Payment
           </h1>
-          <p className="text-base text-[var(--text-secondary)] leading-relaxed">
+          <p className="text-sm sm:text-base text-[var(--text-secondary)] leading-relaxed">
             Review the details before sending
           </p>
         </div>
 
         <div className="flex-1 space-y-5">
           {/* Details card */}
-          <div className="rounded-[2rem] glass-card-static p-6 space-y-0">
+          <div className="rounded-[2rem] glass-card-static p-4 sm:p-6 space-y-0">
             {/* To */}
-            <div className="flex items-center justify-between py-4">
-              <span className="text-[var(--text-secondary)]">To</span>
-              <span className="font-medium text-[var(--text-primary)] font-mono">
+            <div className="flex items-center justify-between gap-3 py-4">
+              <span className="text-[var(--text-secondary)] shrink-0">To</span>
+              <span className="font-medium text-[var(--text-primary)] font-mono truncate">
                 {truncateAddress(recipient)}
               </span>
             </div>
@@ -80,10 +89,10 @@ export default function SendConfirm() {
             <div className="h-px bg-black/5 dark:bg-white/5" />
 
             {/* Amount */}
-            <div className="flex items-center justify-between py-4">
-              <span className="text-[var(--text-secondary)]">Amount</span>
+            <div className="flex items-center justify-between gap-3 py-4">
+              <span className="text-[var(--text-secondary)] shrink-0">Amount</span>
               <span
-                className="text-lg font-semibold font-mono tabular-nums text-[var(--text-primary)]"
+                className="text-base sm:text-lg font-semibold font-mono tabular-nums text-[var(--text-primary)] truncate"
                 style={{ fontFamily: "'JetBrains Mono', monospace" }}
               >
                 ${amount || "0.00"} USDC
@@ -177,6 +186,28 @@ export default function SendConfirm() {
               </div>
             </div>
           )}
+
+          {/* #265: error surface — stays visible until the user retries or
+              backs out, so they don't lose the reason when the toast fades. */}
+          {mappedError && (
+            <div
+              role="alert"
+              className="rounded-2xl bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 p-4 flex gap-3"
+            >
+              <AlertCircle
+                size={20}
+                className="text-red-600 dark:text-red-400 shrink-0 mt-0.5"
+              />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-red-900 dark:text-red-300 mb-0.5">
+                  {mappedError.title}
+                </p>
+                <p className="text-sm text-red-700 dark:text-red-400/80 break-words">
+                  {mappedError.body}
+                </p>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Confirm button */}
@@ -188,11 +219,15 @@ export default function SendConfirm() {
               "w-full h-14 rounded-2xl font-medium transition-all active:scale-95 flex items-center justify-center gap-2",
               isProcessing
                 ? "bg-gray-200 dark:bg-gray-800 text-gray-400 dark:text-gray-600 cursor-not-allowed"
-                : "bg-[#1D1D1F] dark:bg-white text-white dark:text-[#0A0A0A] hover:bg-[#000000] dark:hover:bg-gray-100",
+                : isErrored
+                  ? "bg-red-600 hover:bg-red-700 text-white"
+                  : "bg-[#1D1D1F] dark:bg-white text-white dark:text-[#0A0A0A] hover:bg-[#000000] dark:hover:bg-gray-100",
             )}
           >
             {isProcessing ? (
               <div className="w-5 h-5 border-2 border-gray-400/30 border-t-gray-400 rounded-full animate-spin" />
+            ) : isErrored ? (
+              <AlertCircle size={18} strokeWidth={2.2} />
             ) : (
               <Shield size={18} strokeWidth={2.2} />
             )}

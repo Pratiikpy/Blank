@@ -1,0 +1,149 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - "**"
+  push:
+    branches:
+      - main
+
+# Cancel in-flight runs for the same ref so pushes supersede stale checks.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Fast-fail at the shell level (bash -euo pipefail) for every `run:` step.
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  app:
+    name: App - typecheck + build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # Vite reads these at build time. Provide empty strings so the build
+      # never fails for missing env on CI. Real values live in Vercel/Netlify.
+      VITE_SUPABASE_URL: ""
+      VITE_SUPABASE_ANON_KEY: ""
+      VITE_ANTHROPIC_API_KEY: ""
+      VITE_KIMI_API_KEY: ""
+      VITE_WALLETCONNECT_PROJECT_ID: ""
+      VITE_PAYMASTER_URL: ""
+      VITE_BUNDLER_URL: ""
+    steps:
+      - name: Record start time
+        id: start
+        run: echo "ts=$(date +%s)" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Get pnpm store directory
+        id: pnpm-store
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: pnpm-${{ runner.os }}-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-${{ runner.os }}-
+
+      - name: Install (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+
+      # Playwright Chromium for E2E tests. Gated behind `if: false` until
+      # CI is configured to actually run E2E (today we only typecheck +
+      # build). To enable: flip `if: false` to `if: true` (or drop the
+      # line entirely) and add a corresponding `pnpm exec playwright test`
+      # step after the build.
+      - name: Install Playwright Chromium
+        if: false  # enable when E2E runs in CI
+        working-directory: packages/app
+        run: pnpm exec playwright install chromium --with-deps
+
+      - name: Typecheck
+        working-directory: packages/app
+        run: pnpm exec tsc --noEmit
+
+      - name: Build
+        working-directory: packages/app
+        run: pnpm exec vite build
+
+      - name: Report elapsed time
+        if: always()
+        run: |
+          end=$(date +%s)
+          start=${{ steps.start.outputs.ts }}
+          echo "App job elapsed: $((end - start))s"
+
+  contracts:
+    name: Contracts - compile + test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Record start time
+        id: start
+        run: echo "ts=$(date +%s)" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Get pnpm store directory
+        id: pnpm-store
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: pnpm-${{ runner.os }}-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-${{ runner.os }}-
+
+      - name: Install (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+
+      - name: Compile
+        working-directory: packages/contracts
+        run: pnpm exec hardhat compile
+
+      - name: Test
+        working-directory: packages/contracts
+        env:
+          # Keep gas reporter off in CI so logs stay readable and fast.
+          REPORT_GAS: "false"
+        run: pnpm exec hardhat test
+
+      - name: Report elapsed time
+        if: always()
+        run: |
+          end=$(date +%s)
+          start=${{ steps.start.outputs.ts }}
+          echo "Contracts job elapsed: $((end - start))s"
