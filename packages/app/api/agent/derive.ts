@@ -266,9 +266,14 @@ async function handleImpl(req: any, res: any) {
   // Lazy-import heavy/risky deps INSIDE the handler so any module-load
   // failure is caught by the outer try/catch rather than becoming an
   // opaque Vercel FUNCTION_INVOCATION_FAILED.
+  //
+  // The ".js" extensions on local paths are REQUIRED — Vercel compiles
+  // this .ts to .js, and Node's ESM resolver demands an extension on
+  // dynamic imports. Leaving them off triggers ERR_MODULE_NOT_FOUND at
+  // runtime (confirmed in prod on 2026-04-17).
   const ethers = await import("ethers");
-  const { checkRateLimit, writeRateLimitHeaders } = await import("../_lib/rate-limit");
-  const { getSigner } = await import("../_lib/signer");
+  const { checkRateLimit, writeRateLimitHeaders } = await import("../_lib/rate-limit.js");
+  const { getSigner } = await import("../_lib/signer.js");
 
   // Rate limit by IP
   const ip = ipFromHeaders(req);
