@@ -166,11 +166,13 @@ export default function Gifts() {
   const receivedGifts = giftActivities.filter(
     (a) =>
       a.user_to === address?.toLowerCase() &&
+      a.user_from !== address?.toLowerCase() && // exclude sender-copy rows
       a.activity_type === "gift_created"
   );
   const sentGifts = giftActivities.filter(
     (a) =>
       a.user_from === address?.toLowerCase() &&
+      a.user_to !== address?.toLowerCase() && // exclude sender-copy rows
       a.activity_type === "gift_created"
   );
 
