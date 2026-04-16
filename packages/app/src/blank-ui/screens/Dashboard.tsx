@@ -1079,7 +1079,7 @@ function ActivityList({ activities, isLoading, address, privacyMode, onViewAll }
                     )}
                   >
                     {isIncoming ? "+" : "-"}$
-                    <span aria-hidden="true">{"\u2588\u2588\u2588\u2588.\u2588\u2588"}</span>
+                    <span aria-hidden="true">{"\u2022\u2022\u2022\u2022.\u2022\u2022"}</span>
                     <span className="sr-only">Encrypted amount</span>
                   </p>
                   <p className="text-sm text-[var(--text-secondary)]">
