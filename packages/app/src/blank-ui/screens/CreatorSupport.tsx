@@ -24,6 +24,7 @@ import { useRealtime } from "@/providers/RealtimeProvider";
 import {
   fetchCreatorProfiles,
   fetchCreatorSupporters,
+  fetchMySupportedCreators,
   upsertCreatorProfile,
   type CreatorProfileRow,
   type CreatorSupporterRow,
@@ -197,10 +198,10 @@ export default function CreatorSupport() {
       .finally(() => setIsLoadingCreators(false));
   }, []);
 
-  // Fetch supporters for connected address (tips I sent)
+  // Fetch creators I have supported (tips I sent)
   useEffect(() => {
     if (!address) return;
-    fetchCreatorSupporters(address.toLowerCase()).then(setSupporters);
+    fetchMySupportedCreators(address.toLowerCase()).then(setSupporters);
   }, [address]);
 
   // Issue 37: Fetch supporters OF me (when I'm a creator)
@@ -233,7 +234,7 @@ export default function CreatorSupport() {
     const creatorAddr = selectedCreator.address;
     try {
       await tip(creatorAddr, tier.amount, tipMessage || `${tier.name} tier support`);
-      const refreshed = await fetchCreatorSupporters(address.toLowerCase());
+      const refreshed = await fetchMySupportedCreators(address.toLowerCase());
       setSupporters(refreshed);
 
       // Issue 38: Read contribution and derive tier badge after successful tip

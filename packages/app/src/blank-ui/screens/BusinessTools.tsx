@@ -776,22 +776,22 @@ export default function BusinessTools() {
               <div className="space-y-4">
                 <div>
                   <label className="text-xs text-[var(--text-primary)]/50 font-medium uppercase mb-2 block">Client Wallet Address</label>
-                  <input type="text" value={invoiceClient} onChange={(e) => setInvoiceClient(e.target.value)} placeholder="0x..." className="h-14 w-full px-5 rounded-2xl bg-white/60 border border-black/10 focus:border-black/20 focus:ring-4 focus:ring-black/5 outline-none font-mono text-sm" />
+                  <input type="text" value={invoiceClient} onChange={(e) => setInvoiceClient(e.target.value)} placeholder="0x..." className="h-14 w-full px-5 rounded-2xl bg-white/60 dark:bg-white/10 border border-black/10 dark:border-white/10 focus:border-black/20 dark:focus:border-white/20 focus:ring-4 focus:ring-black/5 dark:focus:ring-white/5 dark:text-white outline-none font-mono text-sm" />
                 </div>
                 <div>
                   <label className="text-xs text-[var(--text-primary)]/50 font-medium uppercase mb-2 block">Amount (USDC)</label>
                   <div className="relative">
                     <span className="absolute left-5 top-1/2 -translate-y-1/2 text-lg text-[var(--text-primary)]/50">$</span>
-                    <input type="number" value={invoiceAmount} onChange={(e) => setInvoiceAmount(e.target.value)} placeholder="0.00" className="h-14 w-full pl-10 pr-5 rounded-2xl bg-white/60 border border-black/10 focus:border-black/20 focus:ring-4 focus:ring-black/5 outline-none text-lg" />
+                    <input type="number" value={invoiceAmount} onChange={(e) => setInvoiceAmount(e.target.value)} placeholder="0.00" className="h-14 w-full pl-10 pr-5 rounded-2xl bg-white/60 dark:bg-white/10 border border-black/10 dark:border-white/10 focus:border-black/20 dark:focus:border-white/20 focus:ring-4 focus:ring-black/5 dark:focus:ring-white/5 dark:text-white outline-none text-lg" />
                   </div>
                 </div>
                 <div>
                   <label className="text-xs text-[var(--text-primary)]/50 font-medium uppercase mb-2 block">Description</label>
-                  <input type="text" value={invoiceDesc} onChange={(e) => setInvoiceDesc(e.target.value)} placeholder="Services rendered" className="h-14 w-full px-5 rounded-2xl bg-white/60 border border-black/10 focus:border-black/20 focus:ring-4 focus:ring-black/5 outline-none" />
+                  <input type="text" value={invoiceDesc} onChange={(e) => setInvoiceDesc(e.target.value)} placeholder="Services rendered" className="h-14 w-full px-5 rounded-2xl bg-white/60 dark:bg-white/10 border border-black/10 dark:border-white/10 focus:border-black/20 dark:focus:border-white/20 focus:ring-4 focus:ring-black/5 dark:focus:ring-white/5 dark:text-white outline-none" />
                 </div>
                 <div>
                   <label className="text-xs text-[var(--text-primary)]/50 font-medium uppercase mb-2 block">Due in (days)</label>
-                  <select value={invoiceDueDays} onChange={(e) => setInvoiceDueDays(e.target.value)} className="h-14 w-full px-5 rounded-2xl bg-white/60 border border-black/10 focus:border-black/20 focus:ring-4 focus:ring-black/5 outline-none">
+                  <select value={invoiceDueDays} onChange={(e) => setInvoiceDueDays(e.target.value)} className="h-14 w-full px-5 rounded-2xl bg-white/60 dark:bg-white/10 border border-black/10 dark:border-white/10 focus:border-black/20 dark:focus:border-white/20 focus:ring-4 focus:ring-black/5 dark:focus:ring-white/5 dark:text-white outline-none">
                     <option value="7">7 days</option>
                     <option value="14">14 days</option>
                     <option value="30">30 days</option>
@@ -822,7 +822,7 @@ export default function BusinessTools() {
                     onChange={(e) => setPayAddresses(e.target.value)}
                     placeholder="0xabc..., 0xdef..., 0x123..."
                     rows={3}
-                    className="w-full px-5 py-4 rounded-2xl bg-white/60 border border-black/10 focus:border-black/20 focus:ring-4 focus:ring-black/5 outline-none font-mono text-sm resize-none"
+                    className="w-full px-5 py-4 rounded-2xl bg-white/60 dark:bg-white/10 border border-black/10 dark:border-white/10 focus:border-black/20 dark:focus:border-white/20 focus:ring-4 focus:ring-black/5 dark:focus:ring-white/5 dark:text-white outline-none font-mono text-sm resize-none"
                   />
                 </div>
                 <div>
@@ -832,7 +832,7 @@ export default function BusinessTools() {
                     onChange={(e) => setPayAmounts(e.target.value)}
                     placeholder="5000, 8000, 3500"
                     rows={2}
-                    className="w-full px-5 py-4 rounded-2xl bg-white/60 border border-black/10 focus:border-black/20 focus:ring-4 focus:ring-black/5 outline-none resize-none"
+                    className="w-full px-5 py-4 rounded-2xl bg-white/60 dark:bg-white/10 border border-black/10 dark:border-white/10 focus:border-black/20 dark:focus:border-white/20 focus:ring-4 focus:ring-black/5 dark:focus:ring-white/5 dark:text-white outline-none resize-none"
                   />
                 </div>
                 <div className="p-4 rounded-2xl bg-blue-50 border border-blue-100 text-sm text-blue-700">
@@ -856,26 +856,26 @@ export default function BusinessTools() {
               <div className="space-y-4">
                 <div>
                   <label className="text-xs text-[var(--text-primary)]/50 font-medium uppercase mb-2 block">Beneficiary Address</label>
-                  <input type="text" value={escrowBeneficiary} onChange={(e) => setEscrowBeneficiary(e.target.value)} placeholder="0x..." className="h-14 w-full px-5 rounded-2xl bg-white/60 border border-black/10 focus:border-black/20 focus:ring-4 focus:ring-black/5 outline-none font-mono text-sm" />
+                  <input type="text" value={escrowBeneficiary} onChange={(e) => setEscrowBeneficiary(e.target.value)} placeholder="0x..." className="h-14 w-full px-5 rounded-2xl bg-white/60 dark:bg-white/10 border border-black/10 dark:border-white/10 focus:border-black/20 dark:focus:border-white/20 focus:ring-4 focus:ring-black/5 dark:focus:ring-white/5 dark:text-white outline-none font-mono text-sm" />
                 </div>
                 <div>
                   <label className="text-xs text-[var(--text-primary)]/50 font-medium uppercase mb-2 block">Escrow Amount (USDC)</label>
                   <div className="relative">
                     <span className="absolute left-5 top-1/2 -translate-y-1/2 text-lg text-[var(--text-primary)]/50">$</span>
-                    <input type="number" value={escrowAmount} onChange={(e) => setEscrowAmount(e.target.value)} placeholder="0.00" className="h-14 w-full pl-10 pr-5 rounded-2xl bg-white/60 border border-black/10 focus:border-black/20 focus:ring-4 focus:ring-black/5 outline-none text-lg" />
+                    <input type="number" value={escrowAmount} onChange={(e) => setEscrowAmount(e.target.value)} placeholder="0.00" className="h-14 w-full pl-10 pr-5 rounded-2xl bg-white/60 dark:bg-white/10 border border-black/10 dark:border-white/10 focus:border-black/20 dark:focus:border-white/20 focus:ring-4 focus:ring-black/5 dark:focus:ring-white/5 dark:text-white outline-none text-lg" />
                   </div>
                 </div>
                 <div>
                   <label className="text-xs text-[var(--text-primary)]/50 font-medium uppercase mb-2 block">Description</label>
-                  <input type="text" value={escrowDesc} onChange={(e) => setEscrowDesc(e.target.value)} placeholder="Project milestone" className="h-14 w-full px-5 rounded-2xl bg-white/60 border border-black/10 focus:border-black/20 focus:ring-4 focus:ring-black/5 outline-none" />
+                  <input type="text" value={escrowDesc} onChange={(e) => setEscrowDesc(e.target.value)} placeholder="Project milestone" className="h-14 w-full px-5 rounded-2xl bg-white/60 dark:bg-white/10 border border-black/10 dark:border-white/10 focus:border-black/20 dark:focus:border-white/20 focus:ring-4 focus:ring-black/5 dark:focus:ring-white/5 dark:text-white outline-none" />
                 </div>
                 <div>
                   <label className="text-xs text-[var(--text-primary)]/50 font-medium uppercase mb-2 block">Arbiter Address (optional)</label>
-                  <input type="text" value={escrowArbiter} onChange={(e) => setEscrowArbiter(e.target.value)} placeholder="0x... (leave empty for no arbiter)" className="h-14 w-full px-5 rounded-2xl bg-white/60 border border-black/10 focus:border-black/20 focus:ring-4 focus:ring-black/5 outline-none font-mono text-sm" />
+                  <input type="text" value={escrowArbiter} onChange={(e) => setEscrowArbiter(e.target.value)} placeholder="0x... (leave empty for no arbiter)" className="h-14 w-full px-5 rounded-2xl bg-white/60 dark:bg-white/10 border border-black/10 dark:border-white/10 focus:border-black/20 dark:focus:border-white/20 focus:ring-4 focus:ring-black/5 dark:focus:ring-white/5 dark:text-white outline-none font-mono text-sm" />
                 </div>
                 <div>
                   <label className="text-xs text-[var(--text-primary)]/50 font-medium uppercase mb-2 block">Deadline (days from now)</label>
-                  <select value={escrowDeadlineDays} onChange={(e) => setEscrowDeadlineDays(e.target.value)} className="h-14 w-full px-5 rounded-2xl bg-white/60 border border-black/10 focus:border-black/20 focus:ring-4 focus:ring-black/5 outline-none">
+                  <select value={escrowDeadlineDays} onChange={(e) => setEscrowDeadlineDays(e.target.value)} className="h-14 w-full px-5 rounded-2xl bg-white/60 dark:bg-white/10 border border-black/10 dark:border-white/10 focus:border-black/20 dark:focus:border-white/20 focus:ring-4 focus:ring-black/5 dark:focus:ring-white/5 dark:text-white outline-none">
                     <option value="7">7 days</option>
                     <option value="14">14 days</option>
                     <option value="30">30 days</option>
@@ -948,7 +948,7 @@ export default function BusinessTools() {
                     value={payInvoiceAmount}
                     onChange={(e) => setPayInvoiceAmount(e.target.value)}
                     placeholder="0.00"
-                    className="h-14 w-full pl-10 pr-5 rounded-2xl bg-white/60 border border-black/10 focus:border-black/20 focus:ring-4 focus:ring-black/5 outline-none text-lg"
+                    className="h-14 w-full pl-10 pr-5 rounded-2xl bg-white/60 dark:bg-white/10 border border-black/10 dark:border-white/10 focus:border-black/20 dark:focus:border-white/20 focus:ring-4 focus:ring-black/5 dark:focus:ring-white/5 dark:text-white outline-none text-lg"
                   />
                 </div>
               </div>

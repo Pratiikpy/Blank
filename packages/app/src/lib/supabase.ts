@@ -560,6 +560,8 @@ export async function insertCreatorSupporter(supporter: Omit<CreatorSupporterRow
   if (!supabase) return;
   const row = {
     ...supporter,
+    creator_address: supporter.creator_address.toLowerCase(),
+    supporter_address: supporter.supporter_address.toLowerCase(),
     chain_id: supporter.chain_id ?? _activeChainIdForSupabase,
   };
   const { error } = await supabase.from("creator_supporters").insert(row);
@@ -575,6 +577,19 @@ export async function fetchCreatorSupporters(creatorAddress: string): Promise<Cr
     .eq("chain_id", _activeChainIdForSupabase)
     .order("created_at", { ascending: false });
   if (error) { console.warn("fetchCreatorSupporters:", error.message); return []; }
+  return data || [];
+}
+
+/** Fetch creators that I (the current user) have supported. */
+export async function fetchMySupportedCreators(supporterAddress: string): Promise<CreatorSupporterRow[]> {
+  if (!supabase) return [];
+  const { data, error } = await supabase
+    .from("creator_supporters")
+    .select("*")
+    .eq("supporter_address", supporterAddress.toLowerCase())
+    .eq("chain_id", _activeChainIdForSupabase)
+    .order("created_at", { ascending: false });
+  if (error) { console.warn("fetchMySupportedCreators:", error.message); return []; }
   return data || [];
 }
 
