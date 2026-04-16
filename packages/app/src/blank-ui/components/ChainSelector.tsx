@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { Check, ChevronDown, Globe } from "lucide-react";
+import { useAccount, useSwitchChain } from "wagmi";
 import { cn } from "@/lib/cn";
 import {
   CHAINS,
@@ -23,6 +24,12 @@ export function ChainSelector() {
   // know about them; gate on effectiveAddress, not wagmi's isConnected.
   const { effectiveAddress, isSmartAccount } = useEffectiveAddress();
   const isConnected = Boolean(effectiveAddress);
+  // EOA path: the BlankApp auto-sync useEffect makes wagmi's chain the
+  // source of truth for activeChainId. Writing setActiveChain directly
+  // from here gets reverted on the next render. Ask the wallet to switch
+  // instead; the sync effect then pulls activeChainId along.
+  const { isConnected: isWagmiConnected } = useAccount();
+  const { switchChain } = useSwitchChain();
 
   useEffect(() => {
     if (!open) return;
@@ -93,7 +100,18 @@ export function ChainSelector() {
                 aria-selected={isActive}
                 disabled={disabled}
                 onClick={() => {
-                  if (!isActive && !disabled) setActiveChain(id);
+                  if (!isActive && !disabled) {
+                    if (isWagmiConnected && switchChain) {
+                      // EOA: trigger MetaMask's native switch popup. On
+                      // approval, BlankApp's wallet→app sync updates
+                      // activeChainId; on rejection, nothing changes.
+                      switchChain({ chainId: id });
+                    } else {
+                      // No wagmi connector (shouldn't happen for enabled
+                      // rows, but keep as a safe fallback).
+                      setActiveChain(id);
+                    }
+                  }
                   setOpen(false);
                 }}
                 className={cn(
