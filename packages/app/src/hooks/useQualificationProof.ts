@@ -5,7 +5,7 @@ import { useUnifiedWrite } from "./useUnifiedWrite";
 import { decodeEventLog } from "viem";
 import toast from "react-hot-toast";
 import { useChain } from "@/providers/ChainProvider";
-import { PaymentReceiptsAbi } from "@/lib/abis";
+import { PaymentReceiptsAbi, FHERC20VaultAbi } from "@/lib/abis";
 import { useCofheDecryptForTx } from "@/lib/cofhe-shim";
 import { insertActivity } from "@/lib/supabase";
 import { ACTIVITY_TYPES } from "@/lib/activity-types";
@@ -143,14 +143,34 @@ export function useQualificationProof() {
   );
 
   // Create a new "balance in vault ≥ threshold" proof. Vault defaults to USDC vault.
+  // Step 1: grant PaymentReceipts FHE read access to the user's vault balance.
+  // Step 2: call proveBalanceAbove on PaymentReceipts.
   const createBalanceProof = useCallback(
     async (thresholdUSDC: number, vault?: `0x${string}`): Promise<bigint | null> => {
       if (thresholdUSDC < 0) {
         toast.error("Threshold must be ≥ 0");
         return null;
       }
-      const vaultAddr = vault ?? contracts.FHERC20Vault_USDC;
+      const vaultAddr = (vault ?? contracts.FHERC20Vault_USDC) as `0x${string}`;
       const thresholdWei = BigInt(Math.round(thresholdUSDC * 1_000_000));
+
+      // Grant PaymentReceipts FHE access to our vault balance handle.
+      // Without this, the contract can't perform FHE.gte() on our balance.
+      const toastId = toast.loading("Granting proof contract access to your balance...");
+      try {
+        await unifiedWriteAndWait({
+          address: vaultAddr,
+          abi: FHERC20VaultAbi,
+          functionName: "allowBalanceReader",
+          args: [contracts.PaymentReceipts],
+          gas: BigInt(5_000_000),
+        });
+        toast.success("Access granted", { id: toastId });
+      } catch (err) {
+        toast.error("Failed to grant balance access", { id: toastId });
+        throw err;
+      }
+
       return _submitProof(
         `balance ≥ $${thresholdUSDC.toLocaleString()}`,
         () => unifiedWriteAndWait({

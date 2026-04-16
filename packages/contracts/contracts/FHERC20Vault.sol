@@ -364,6 +364,17 @@ contract FHERC20Vault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         emit EncryptedApproval(msg.sender, spender, block.timestamp);
     }
 
+    /// @notice Grant a third-party contract FHE read access to your encrypted
+    ///         balance. Required before that contract can perform FHE operations
+    ///         on your balance handle (e.g. PaymentReceipts.proveBalanceAbove).
+    ///         Only the balance owner can call this — consent-based access.
+    /// @param reader The contract address to grant read access to
+    function allowBalanceReader(address reader) external {
+        require(reader != address(0), "FHERC20Vault: reader zero");
+        require(_initialized[msg.sender], "FHERC20Vault: not initialized");
+        FHE.allow(_balances[msg.sender], reader);
+    }
+
     // ─── View Functions ─────────────────────────────────────────────────
 
     /// @notice Get the encrypted balance handle for an account.

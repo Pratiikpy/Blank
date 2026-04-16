@@ -33,6 +33,7 @@ export const FHERC20VaultAbi = [
   { type: "function", name: "transferFrom", inputs: [{ name: "from", type: "address" }, { name: "to", type: "address" }, { name: "encAmount", type: "tuple", internalType: "struct InEuint64", components: InEuint64Components }], outputs: [{ name: "", type: "uint256" }], stateMutability: "nonpayable" },
   { type: "function", name: "approve", inputs: [{ name: "spender", type: "address" }, { name: "encAmount", type: "tuple", internalType: "struct InEuint64", components: InEuint64Components }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "approvePlaintext", inputs: [{ name: "spender", type: "address" }, { name: "amount", type: "uint64" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "allowBalanceReader", inputs: [{ name: "reader", type: "address" }], outputs: [], stateMutability: "nonpayable" },
   // balanceOf returns an encrypted euint64 handle on-chain.
   { type: "function", name: "balanceOf", inputs: [{ name: "account", type: "address" }], outputs: [{ name: "", type: "uint256", internalType: "euint64" }], stateMutability: "view" },
   { type: "function", name: "totalDeposited", inputs: [], outputs: [{ name: "", type: "uint256" }], stateMutability: "view" },
