@@ -22,34 +22,118 @@ export function usePassphrasePrompt(): PassphrasePromptContext {
   return ctx;
 }
 
+interface QueuedRequest {
+  resolver: (v: string | null) => void;
+  title: string;
+  subtitle: string;
+  /** Auto-expire this entry after N ms of sitting in the queue. Protects
+   *  callers whose caller-side flow was cancelled but didn't unwind the
+   *  passphrase promise — prevents hang-forever. */
+  timeoutId: ReturnType<typeof setTimeout> | null;
+}
+
+/** How long a queued request waits before we auto-settle it with null.
+ *  60s balances UX (real users finish typing in <60s) with safety (we
+ *  can't leak promises forever). */
+const QUEUE_ENTRY_TIMEOUT_MS = 60_000;
+
 export function PassphrasePromptProvider({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("Unlock smart wallet");
   const [subtitle, setSubtitle] = useState("Enter your passphrase to sign this transaction.");
   const [value, setValue] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
-  const resolverRef = useRef<((v: string | null) => void) | null>(null);
+  // FIFO queue of pending requests. Concurrent callers each get their own
+  // slot — the modal shows entries one at a time in arrival order.
+  const queueRef = useRef<QueuedRequest[]>([]);
 
   const request = useCallback(
     (opts?: { title?: string; subtitle?: string }) => {
       return new Promise<string | null>((resolve) => {
-        setTitle(opts?.title ?? "Unlock smart wallet");
-        setSubtitle(opts?.subtitle ?? "Enter your passphrase to sign this transaction.");
-        setValue("");
-        resolverRef.current = resolve;
-        setOpen(true);
+        const entry: QueuedRequest = {
+          resolver: resolve,
+          title: opts?.title ?? "Unlock smart wallet",
+          subtitle: opts?.subtitle ?? "Enter your passphrase to sign this transaction.",
+          timeoutId: null,
+        };
+        // #124: auto-settle after 60s so cancelled flows don't leak
+        // promises forever. If the user is mid-type we'll keep the modal
+        // up — the timeout fires against THIS resolver, not the active
+        // modal state.
+        entry.timeoutId = setTimeout(() => {
+          const idx = queueRef.current.indexOf(entry);
+          if (idx >= 0) {
+            queueRef.current.splice(idx, 1);
+            entry.resolver(null);
+            // If this was the front entry and modal is still showing the
+            // corresponding copy, advance to next or close.
+            if (idx === 0) {
+              const next = queueRef.current[0];
+              if (next) {
+                setTitle(next.title);
+                setSubtitle(next.subtitle);
+              } else {
+                setOpen(false);
+              }
+            }
+          }
+        }, QUEUE_ENTRY_TIMEOUT_MS);
+        queueRef.current.push(entry);
+        // If this is the only queued entry, show the modal with its copy.
+        if (queueRef.current.length === 1) {
+          setTitle(entry.title);
+          setSubtitle(entry.subtitle);
+          setValue("");
+          setOpen(true);
+        }
       });
     },
     [],
   );
 
   const close = useCallback((v: string | null) => {
-    if (resolverRef.current) {
-      resolverRef.current(v);
-      resolverRef.current = null;
+    // Settle the FRONT resolver (FIFO) — not whichever one happened to be
+    // last to call request().
+    const front = queueRef.current.shift();
+    if (front) {
+      if (front.timeoutId) clearTimeout(front.timeoutId);
+      front.resolver(v);
+      // TODO (#cross-tab): if we ever want sibling tabs to auto-dismiss their
+      // passphrase modal when another tab resolves the same signing request,
+      // broadcast `passphrase_resolved` here with a requestId. That requires
+      // surfacing the request ID on the QueuedRequest (it isn't today) and a
+      // matching listener that can settle the matching queue entry in the
+      // other tab. Left as a stub — the FIFO queue already handles its own
+      // lifecycle safely within a single tab.
+      // if (v !== null) {
+      //   broadcastAction("passphrase_resolved", { requestId: front.requestId, resolved: true });
+      // }
     }
-    setOpen(false);
+
+    // Reset the input value between entries.
     setValue("");
+
+    const next = queueRef.current[0];
+    if (next) {
+      // More callers waiting — swap in their copy and keep the modal open.
+      setTitle(next.title);
+      setSubtitle(next.subtitle);
+      setOpen(true);
+    } else {
+      setOpen(false);
+    }
+  }, []);
+
+  // Clear any remaining timers on unmount to prevent state-update-on-
+  // unmounted-component warnings during fast-refresh / tab close.
+  useEffect(() => {
+    return () => {
+      for (const entry of queueRef.current) {
+        if (entry.timeoutId) clearTimeout(entry.timeoutId);
+        entry.resolver(null);
+      }
+      queueRef.current = [];
+    };
   }, []);
 
   useEffect(() => {

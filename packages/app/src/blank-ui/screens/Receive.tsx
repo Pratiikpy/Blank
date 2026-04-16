@@ -1,13 +1,17 @@
 import { useState, useCallback } from "react";
-import { useAccount } from "wagmi";
+import { useEffectiveAddress } from "@/hooks/useEffectiveAddress";
 import { QRCodeSVG } from "qrcode.react";
 import { Copy, Check, Share2, Shield } from "lucide-react";
 import toast from "react-hot-toast";
 
 import { truncateAddress } from "@/lib/address";
+import { useMediaQuery } from "@/hooks/useMediaQuery";
 
 export default function Receive() {
-  const { address } = useAccount();
+  // Passkey-aware: useAccount().address is undefined for passkey-only users
+  // and would render the receive page blank.
+  const { effectiveAddress: address } = useEffectiveAddress();
+  const isMobile = useMediaQuery("(max-width: 768px)");
   const [copiedField, setCopiedField] = useState<"address" | "link" | null>(
     null,
   );
@@ -76,7 +80,7 @@ export default function Receive() {
             <div className="w-64 h-64 rounded-3xl bg-white border-4 border-black/5 dark:border-white/10 flex items-center justify-center mb-6 shadow-sm">
               <QRCodeSVG
                 value={paymentLink || address || ""}
-                size={220}
+                size={isMobile ? 160 : 220}
                 level="M"
                 bgColor="#FFFFFF"
                 fgColor="#000000"

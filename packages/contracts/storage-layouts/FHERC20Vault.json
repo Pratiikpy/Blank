@@ -1,0 +1,155 @@
+{
+  "storage": [
+    {
+      "astId": 51490,
+      "contract": "contracts/FHERC20Vault.sol:FHERC20Vault",
+      "label": "_status",
+      "offset": 0,
+      "slot": "0",
+      "type": "t_uint256"
+    },
+    {
+      "astId": 38299,
+      "contract": "contracts/FHERC20Vault.sol:FHERC20Vault",
+      "label": "underlyingToken",
+      "offset": 0,
+      "slot": "1",
+      "type": "t_contract(IERC20)26141"
+    },
+    {
+      "astId": 38301,
+      "contract": "contracts/FHERC20Vault.sol:FHERC20Vault",
+      "label": "name",
+      "offset": 0,
+      "slot": "2",
+      "type": "t_string_storage"
+    },
+    {
+      "astId": 38303,
+      "contract": "contracts/FHERC20Vault.sol:FHERC20Vault",
+      "label": "symbol",
+      "offset": 0,
+      "slot": "3",
+      "type": "t_string_storage"
+    },
+    {
+      "astId": 38305,
+      "contract": "contracts/FHERC20Vault.sol:FHERC20Vault",
+      "label": "tokenDecimals",
+      "offset": 0,
+      "slot": "4",
+      "type": "t_uint8"
+    },
+    {
+      "astId": 38308,
+      "contract": "contracts/FHERC20Vault.sol:FHERC20Vault",
+      "label": "eventHub",
+      "offset": 1,
+      "slot": "4",
+      "type": "t_contract(IEventHub)38285"
+    },
+    {
+      "astId": 38314,
+      "contract": "contracts/FHERC20Vault.sol:FHERC20Vault",
+      "label": "_balances",
+      "offset": 0,
+      "slot": "5",
+      "type": "t_mapping(t_address,t_userDefinedValueType(euint64)4733)"
+    },
+    {
+      "astId": 38322,
+      "contract": "contracts/FHERC20Vault.sol:FHERC20Vault",
+      "label": "_allowances",
+      "offset": 0,
+      "slot": "6",
+      "type": "t_mapping(t_address,t_mapping(t_address,t_userDefinedValueType(euint64)4733))"
+    },
+    {
+      "astId": 38328,
+      "contract": "contracts/FHERC20Vault.sol:FHERC20Vault",
+      "label": "_pendingUnshields",
+      "offset": 0,
+      "slot": "7",
+      "type": "t_mapping(t_address,t_userDefinedValueType(euint64)4733)"
+    },
+    {
+      "astId": 38333,
+      "contract": "contracts/FHERC20Vault.sol:FHERC20Vault",
+      "label": "_initialized",
+      "offset": 0,
+      "slot": "8",
+      "type": "t_mapping(t_address,t_bool)"
+    },
+    {
+      "astId": 38337,
+      "contract": "contracts/FHERC20Vault.sol:FHERC20Vault",
+      "label": "ZERO",
+      "offset": 0,
+      "slot": "9",
+      "type": "t_userDefinedValueType(euint64)4733"
+    }
+  ],
+  "types": {
+    "t_address": {
+      "encoding": "inplace",
+      "label": "address",
+      "numberOfBytes": "20"
+    },
+    "t_bool": {
+      "encoding": "inplace",
+      "label": "bool",
+      "numberOfBytes": "1"
+    },
+    "t_contract(IERC20)26141": {
+      "encoding": "inplace",
+      "label": "contract IERC20",
+      "numberOfBytes": "20"
+    },
+    "t_contract(IEventHub)38285": {
+      "encoding": "inplace",
+      "label": "contract IEventHub",
+      "numberOfBytes": "20"
+    },
+    "t_mapping(t_address,t_bool)": {
+      "encoding": "mapping",
+      "key": "t_address",
+      "label": "mapping(address => bool)",
+      "numberOfBytes": "32",
+      "value": "t_bool"
+    },
+    "t_mapping(t_address,t_mapping(t_address,t_userDefinedValueType(euint64)4733))": {
+      "encoding": "mapping",
+      "key": "t_address",
+      "label": "mapping(address => mapping(address => euint64))",
+      "numberOfBytes": "32",
+      "value": "t_mapping(t_address,t_userDefinedValueType(euint64)4733)"
+    },
+    "t_mapping(t_address,t_userDefinedValueType(euint64)4733)": {
+      "encoding": "mapping",
+      "key": "t_address",
+      "label": "mapping(address => euint64)",
+      "numberOfBytes": "32",
+      "value": "t_userDefinedValueType(euint64)4733"
+    },
+    "t_string_storage": {
+      "encoding": "bytes",
+      "label": "string",
+      "numberOfBytes": "32"
+    },
+    "t_uint256": {
+      "encoding": "inplace",
+      "label": "uint256",
+      "numberOfBytes": "32"
+    },
+    "t_uint8": {
+      "encoding": "inplace",
+      "label": "uint8",
+      "numberOfBytes": "1"
+    },
+    "t_userDefinedValueType(euint64)4733": {
+      "encoding": "inplace",
+      "label": "euint64",
+      "numberOfBytes": "32"
+    }
+  }
+}

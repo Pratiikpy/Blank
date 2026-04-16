@@ -240,8 +240,17 @@ export async function signHash(
   if (hashBytes.length !== 32) throw new Error("hash must be 32 bytes");
 
   // p256.sign returns compact-format bytes (r||s, 64 bytes total) with
-  // low-s normalization by default. Slice into r and s halves.
-  const sigBytes = p256.sign(hashBytes, privBytes);
+  // low-s normalization by default.
+  //
+  // CRITICAL: `prehash: false` is non-negotiable here. Noble's default is
+  // `prehash: true`, which means it re-hashes the input via SHA-256 before
+  // signing. We pass an already-computed digest (userOpHash, EIP-712 hash,
+  // etc.) so re-hashing produces a sig over `sha256(digest)` instead of
+  // `digest` — which the on-chain verifiers (RIP-7212 precompile, Daimo
+  // p256-verifier, BlankAccount.P256.verify) reject because they verify
+  // against the RAW digest. Signing with prehash:false preserves the
+  // canonical "sign the 32-byte hash you were handed" semantics.
+  const sigBytes = p256.sign(hashBytes, privBytes, { prehash: false });
   if (sigBytes.length < 64) throw new Error("unexpected signature length");
   const r = sigBytes.slice(0, 32);
   const s = sigBytes.slice(32, 64);
@@ -273,4 +282,87 @@ export async function verifyPassphrase(chainId: number, passphrase: string): Pro
 export function sha256Hex(data: Uint8Array | string): `0x${string}` {
   const bytes = typeof data === "string" ? new TextEncoder().encode(data) : data;
   return ("0x" + bytesToHex(sha256(bytes))) as `0x${string}`;
+}
+
+/**
+ * E2E-only helper: import a known P-256 private key as the passkey for a
+ * given chain. Used by Phase 2 tests so the test browser talks to a
+ * PRE-FUNDED smart account (whose address was pre-computed in the setup
+ * script). Without this, every test run would create a fresh passkey →
+ * fresh smart account → needs re-funding → slow.
+ *
+ * Flow: hex private key → AES-GCM encrypt with passphrase → IndexedDB.
+ * Same shape as createPasskey() produces, so every downstream path
+ * (useSmartAccount, signHash) works unchanged.
+ *
+ * NOT for production use. Exported with a leading underscore so it's
+ * clear this bypasses random-key generation.
+ */
+export async function _testImportPasskey(
+  chainId: number,
+  privKeyHex: string,
+  passphrase: string,
+  label?: string,
+): Promise<{ pubX: `0x${string}`; pubY: `0x${string}` }> {
+  const clean = privKeyHex.startsWith("0x") ? privKeyHex.slice(2) : privKeyHex;
+  if (clean.length !== 64) throw new Error("privKeyHex must be 32 bytes (64 hex chars)");
+  const privBytes = hexToBytes(clean);
+  const pubBytes = p256.getPublicKey(privBytes, false);
+  if (pubBytes.length !== 65 || pubBytes[0] !== 0x04) {
+    throw new Error("unexpected pubkey format");
+  }
+  const pubX = ("0x" + bytesToHex(pubBytes.slice(1, 33))) as `0x${string}`;
+  const pubY = ("0x" + bytesToHex(pubBytes.slice(33, 65))) as `0x${string}`;
+  const enc = await aesGcmEncrypt(passphrase, privBytes);
+  await dbPut({
+    pubX,
+    pubY,
+    encryptedPrivKey: enc.ciphertext,
+    iv: enc.iv,
+    salt: enc.salt,
+    chainId,
+    label: label ?? "e2e-import",
+    createdAt: Date.now(),
+  });
+  return { pubX, pubY };
+}
+
+/**
+ * Verify a P-256 signature with pure JS math — same curve, same equations
+ * that BlankAccount.P256Verifier runs on-chain (either via RIP-7212
+ * precompile on Base or daimo Solidity verifier on Sepolia). Used by
+ * e2e tests to prove the signature encoding round-trip works before
+ * committing to an on-chain verification call.
+ */
+export function verifyP256(
+  hash: `0x${string}`,
+  r: `0x${string}`,
+  s: `0x${string}`,
+  pubX: `0x${string}`,
+  pubY: `0x${string}`,
+): boolean {
+  const toBytes = (hex: string, len: number): Uint8Array => {
+    const clean = hex.startsWith("0x") ? hex.slice(2) : hex;
+    const padded = clean.padStart(len * 2, "0");
+    const out = new Uint8Array(len);
+    for (let i = 0; i < len; i++) out[i] = parseInt(padded.slice(i * 2, i * 2 + 2), 16);
+    return out;
+  };
+  const hashBytes = toBytes(hash, 32);
+  const compactSig = new Uint8Array(64);
+  compactSig.set(toBytes(r, 32), 0);
+  compactSig.set(toBytes(s, 32), 32);
+  const pubKey = new Uint8Array(65);
+  pubKey[0] = 0x04;
+  pubKey.set(toBytes(pubX, 32), 1);
+  pubKey.set(toBytes(pubY, 32), 33);
+  try {
+    // Match the signing path: verify the raw digest, no re-hashing.
+    // Default `prehash:true` in noble would treat hashBytes as a message
+    // to hash — fine in isolation but breaks consistency with the on-
+    // chain verifiers that operate on the raw digest.
+    return p256.verify(compactSig, hashBytes, pubKey, { prehash: false });
+  } catch {
+    return false;
+  }
 }

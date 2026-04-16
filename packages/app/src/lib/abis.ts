@@ -55,7 +55,7 @@ export const PaymentHubAbi = [
   { type: "function", name: "batchSend", inputs: [{ name: "recipients", type: "address[]" }, { name: "vault", type: "address" }, { name: "amounts", type: "tuple[]", internalType: "struct InEuint64[]", components: InEuint64Components }, { name: "notes", type: "string[]" }], outputs: [], stateMutability: "nonpayable" },
   { type: "event", name: "PaymentSent", inputs: [{ name: "from", type: "address", indexed: true }, { name: "to", type: "address", indexed: true }, { name: "vault", type: "address", indexed: false }, { name: "note", type: "string", indexed: false }, { name: "timestamp", type: "uint256", indexed: false }] },
   { type: "event", name: "RequestCreated", inputs: [{ name: "requestId", type: "uint256", indexed: true }, { name: "from", type: "address", indexed: true }, { name: "to", type: "address", indexed: true }, { name: "vault", type: "address", indexed: false }, { name: "note", type: "string", indexed: false }, { name: "timestamp", type: "uint256", indexed: false }] },
-  { type: "event", name: "RequestFulfilled", inputs: [{ name: "requestId", type: "uint256", indexed: true }, { name: "timestamp", type: "uint256", indexed: false }] },
+  { type: "event", name: "RequestFulfilled", inputs: [{ name: "requestId", type: "uint256", indexed: true }, { name: "vault", type: "address", indexed: true }, { name: "timestamp", type: "uint256", indexed: false }] },
   { type: "event", name: "RequestCancelled", inputs: [{ name: "requestId", type: "uint256", indexed: true }, { name: "timestamp", type: "uint256", indexed: false }] },
   { type: "event", name: "BatchPaymentSent", inputs: [{ name: "from", type: "address", indexed: true }, { name: "vault", type: "address", indexed: false }, { name: "recipientCount", type: "uint256", indexed: false }, { name: "timestamp", type: "uint256", indexed: false }] },
   // Agent attestations (v0.1.3) — ECDSA-verified provenance for AI-derived payments
@@ -114,6 +114,8 @@ export const GroupManagerAbi = [
   { type: "event", name: "MemberAdded", inputs: [{ name: "groupId", type: "uint256", indexed: true }, { name: "member", type: "address", indexed: true }, { name: "timestamp", type: "uint256", indexed: false }] },
   { type: "event", name: "AdminAdded", inputs: [{ name: "groupId", type: "uint256", indexed: true }, { name: "admin", type: "address", indexed: true }, { name: "timestamp", type: "uint256", indexed: false }] },
   { type: "event", name: "DebtSettled", inputs: [{ name: "groupId", type: "uint256", indexed: true }, { name: "from", type: "address", indexed: true }, { name: "to", type: "address", indexed: true }, { name: "timestamp", type: "uint256", indexed: false }] },
+  // euint64 is `type euint64 is bytes32` in Solidity — wire-level it's a 32-byte ctHash we decode as bytes32.
+  { type: "event", name: "DebtSettledEncrypted", inputs: [{ name: "groupId", type: "uint256", indexed: true }, { name: "payer", type: "address", indexed: true }, { name: "payee", type: "address", indexed: true }, { name: "encryptedActual", type: "bytes32", indexed: false, internalType: "euint64" as const }, { name: "timestamp", type: "uint256", indexed: false }] },
   { type: "function", name: "leaveGroup", inputs: [{ name: "groupId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "archiveGroup", inputs: [{ name: "groupId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
   { type: "event", name: "GroupArchived", inputs: [{ name: "groupId", type: "uint256", indexed: true }, { name: "timestamp", type: "uint256", indexed: false }] },
@@ -342,7 +344,19 @@ export const PaymentReceiptsAbi = [
   // Public encrypted aggregates (FHE.allowGlobal — anyone can decrypt)
   { type: "function", name: "getGlobalVolumeHandle", inputs: [], outputs: [{ name: "", type: "uint256", internalType: "euint64" }], stateMutability: "view" },
   { type: "function", name: "getGlobalTxCountHandle", inputs: [], outputs: [{ name: "", type: "uint256", internalType: "euint64" }], stateMutability: "view" },
+  // Authorization (hub wiring). Owner sets which contracts can call bump* / issueReceipt.
+  { type: "function", name: "setAuthorizedCaller", inputs: [{ name: "caller", type: "address" }, { name: "authorized", type: "bool" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "authorizedCallers", inputs: [{ name: "", type: "address" }], outputs: [{ name: "", type: "bool" }], stateMutability: "view" },
+  // Cross-contract aggregate bumps — called from PaymentHub/BusinessHub/GiftMoney/
+  // StealthPayments AFTER a successful encrypted transfer. #91, #92, #199, #207.
+  { type: "function", name: "bumpGlobalVolume", inputs: [{ name: "amount", type: "uint256", internalType: "euint64" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "bumpGlobal", inputs: [{ name: "amount", type: "uint256", internalType: "euint64" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "bumpUserReceived", inputs: [{ name: "user", type: "address" }, { name: "amount", type: "uint256", internalType: "euint64" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "decrementGlobalVolume", inputs: [{ name: "amount", type: "uint256", internalType: "euint64" }], outputs: [], stateMutability: "nonpayable" },
   // Events
   { type: "event", name: "ReceiptIssued", inputs: [{ name: "receiptHash", type: "bytes32", indexed: true }, { name: "payer", type: "address", indexed: true }, { name: "payee", type: "address", indexed: true }, { name: "timestamp", type: "uint256", indexed: false }] },
   { type: "event", name: "ProofCreated", inputs: [{ name: "proofId", type: "uint256", indexed: true }, { name: "prover", type: "address", indexed: true }, { name: "threshold", type: "uint64", indexed: false }, { name: "kind", type: "string", indexed: false }, { name: "timestamp", type: "uint256", indexed: false }] },
+  // #91: emitted by publishProof so indexers and live subscribers learn when a
+  // verdict flips (was previously a silent state change).
+  { type: "event", name: "ProofPublished", inputs: [{ name: "proofId", type: "uint256", indexed: true }, { name: "publisher", type: "address", indexed: true }, { name: "result", type: "bool", indexed: false }, { name: "timestamp", type: "uint256", indexed: false }] },
 ] as const;

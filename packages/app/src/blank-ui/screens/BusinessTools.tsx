@@ -10,11 +10,12 @@ import {
   Loader2,
   AlertTriangle,
 } from "lucide-react";
+import { formatDistanceToNowStrict } from "date-fns";
 import { cn } from "@/lib/cn";
 import toast from "react-hot-toast";
 import { isAddress } from "viem";
 import { useBusinessHub } from "@/hooks/useBusinessHub";
-import { useAccount } from "wagmi";
+import { useEffectiveAddress } from "@/hooks/useEffectiveAddress";
 import {
   fetchVendorInvoices,
   fetchClientInvoices,
@@ -23,12 +24,14 @@ import {
   type EscrowRow,
 } from "@/lib/supabase";
 import { useActivityFeed } from "@/hooks/useActivityFeed";
+import { useRealtime } from "@/providers/RealtimeProvider";
 
 const MAX_PAYROLL_SIZE = 30;
 const INVOICE_PAGE_SIZE = 10;
 const ESCROW_PAGE_SIZE = 10;
 
 type TabValue = "invoices" | "payroll" | "escrow";
+type EscrowFilter = "all" | "mine" | "arbitrating";
 
 const getStatusBadge = (status: string) => {
   const styles: Record<string, string> = {
@@ -51,7 +54,7 @@ const getStatusBadge = (status: string) => {
 // ---------------------------------------------------------------
 
 export default function BusinessTools() {
-  const { address } = useAccount();
+  const { effectiveAddress: address } = useEffectiveAddress();
   const { step, createInvoice, runPayroll, createEscrow, finalizeInvoice, markDelivered, approveRelease, disputeEscrow, payInvoice, cancelInvoice, arbiterDecide, claimExpiredEscrow } = useBusinessHub();
   const { activities } = useActivityFeed();
   const payrollActivities = useMemo(
@@ -60,9 +63,11 @@ export default function BusinessTools() {
   );
 
   const [activeTab, setActiveTab] = useState<TabValue>("invoices");
+  const [escrowFilter, setEscrowFilter] = useState<EscrowFilter>("all");
   const [showModal, setShowModal] = useState(false);
   const [visibleInvoiceCount, setVisibleInvoiceCount] = useState(INVOICE_PAGE_SIZE);
   const [visibleEscrowCount, setVisibleEscrowCount] = useState(ESCROW_PAGE_SIZE);
+  const { subscribe } = useRealtime();
 
   // Real data from Supabase
   const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
@@ -135,6 +140,23 @@ export default function BusinessTools() {
       loadData();
     }
   }, [step, loadData]);
+
+  // Realtime: refetch escrows when this address is added/updated as arbiter,
+  // depositor, or beneficiary. Without the arbiter subscription, Carol's
+  // client never learns Alice named her as arbiter until a manual reload.
+  useEffect(() => {
+    if (!address) return;
+    const addr = address.toLowerCase();
+    const unsubs = [
+      subscribe("escrows", { event: "INSERT", filter: { column: "arbiter_address", value: addr } }, () => loadData()),
+      subscribe("escrows", { event: "UPDATE", filter: { column: "arbiter_address", value: addr } }, () => loadData()),
+      subscribe("escrows", { event: "INSERT", filter: { column: "depositor_address", value: addr } }, () => loadData()),
+      subscribe("escrows", { event: "UPDATE", filter: { column: "depositor_address", value: addr } }, () => loadData()),
+      subscribe("escrows", { event: "INSERT", filter: { column: "beneficiary_address", value: addr } }, () => loadData()),
+      subscribe("escrows", { event: "UPDATE", filter: { column: "beneficiary_address", value: addr } }, () => loadData()),
+    ];
+    return () => { for (const u of unsubs) u(); };
+  }, [address, subscribe, loadData]);
 
   const handleCreateInvoice = async () => {
     if (!invoiceClient || !invoiceAmount) { toast.error("Enter client address and amount"); return; }
@@ -247,9 +269,26 @@ export default function BusinessTools() {
   };
 
   const handleReleaseFunds = async (escrowId: number) => {
+    // Route by role: beneficiary marks delivered; depositor (after
+    // delivery) approves the release. Calling both unconditionally breaks
+    // the depositor path — markDelivered reverts with "not beneficiary".
+    const escrow = escrows.find((e) => e.escrow_id === escrowId);
+    if (!escrow || !address) {
+      toast.error("Escrow not found");
+      return;
+    }
+    const me = address.toLowerCase();
+    const isBeneficiary = escrow.beneficiary_address?.toLowerCase() === me;
+    const isDepositor = escrow.depositor_address?.toLowerCase() === me;
     try {
-      await markDelivered(escrowId);
-      await approveRelease(escrowId);
+      if (isBeneficiary) {
+        await markDelivered(escrowId);
+      } else if (isDepositor) {
+        await approveRelease(escrowId);
+      } else {
+        toast.error("You are neither beneficiary nor depositor of this escrow");
+        return;
+      }
       loadData();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Release failed");
@@ -272,9 +311,60 @@ export default function BusinessTools() {
     { id: "escrow", label: "Escrow", icon: Lock },
   ];
 
+  // Filter escrows by user role (mine = depositor/beneficiary,
+  // arbitrating = named as arbiter). "all" returns every row the user can see.
+  const filteredEscrows = useMemo(() => {
+    if (!address) return escrows;
+    const addr = address.toLowerCase();
+    if (escrowFilter === "mine") {
+      return escrows.filter(
+        (e) =>
+          e.depositor_address.toLowerCase() === addr ||
+          e.beneficiary_address.toLowerCase() === addr,
+      );
+    }
+    if (escrowFilter === "arbitrating") {
+      return escrows.filter(
+        (e) => e.arbiter_address && e.arbiter_address.toLowerCase() === addr,
+      );
+    }
+    return escrows;
+  }, [escrows, escrowFilter, address]);
+
+  const arbitratingCount = useMemo(() => {
+    if (!address) return 0;
+    const addr = address.toLowerCase();
+    return escrows.filter(
+      (e) => e.arbiter_address && e.arbiter_address.toLowerCase() === addr,
+    ).length;
+  }, [escrows, address]);
+
   const formatDate = (iso: string | null) => {
     if (!iso) return "No date";
     return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  };
+
+  // #216: due-dates / deadlines must read identically across timezones for
+  // both parties (vendor + client, depositor + arbiter). The naive
+  // `toLocaleDateString` shows each viewer their own day boundary, which
+  // means "due today" can disagree by 24h between Tokyo and LA. We render
+  // a relative phrase ("in 2 days", "5 hours ago") + the canonical UTC
+  // absolute timestamp so both sides always have a shared reference.
+  const formatDeadline = (iso: string | null): string => {
+    if (!iso) return "No deadline";
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return "Invalid date";
+    const relative = formatDistanceToNowStrict(d, { addSuffix: true });
+    const utc = d.toLocaleString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+      timeZone: "UTC",
+    });
+    return `${relative} (${utc} UTC)`;
   };
 
   const truncateAddr = (addr: string) =>
@@ -284,10 +374,10 @@ export default function BusinessTools() {
     <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="max-w-7xl mx-auto">
         <div className="mb-8">
-          <h1 className="text-4xl sm:text-5xl font-heading font-semibold text-[var(--text-primary)] tracking-tight mb-2">
+          <h1 className="text-3xl sm:text-5xl font-heading font-semibold text-[var(--text-primary)] tracking-tight mb-2">
             Business Tools
           </h1>
-          <p className="text-base text-[var(--text-primary)]/50 leading-relaxed">
+          <p className="text-sm sm:text-base text-[var(--text-primary)]/50 leading-relaxed">
             Manage invoices, payroll, and escrow with financial privacy
           </p>
         </div>
@@ -339,7 +429,7 @@ export default function BusinessTools() {
               </button>
             </div>
 
-            <div className="rounded-[2rem] glass-card p-8">
+            <div className="rounded-[2rem] glass-card p-4 sm:p-8">
               <h3 className="text-xl font-heading font-medium text-[var(--text-primary)] mb-6">Recent Invoices</h3>
 
               {isLoadingData ? (
@@ -363,21 +453,21 @@ export default function BusinessTools() {
                   {invoices.slice(0, visibleInvoiceCount).map((invoice) => (
                     <div
                       key={invoice.id}
-                      className="flex items-center justify-between p-6 rounded-2xl bg-white/50 dark:bg-white/5 border border-black/5 dark:border-white/10 hover:bg-white/70 transition-all"
+                      className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 sm:p-6 rounded-2xl bg-white/50 dark:bg-white/5 border border-black/5 dark:border-white/10 hover:bg-white/70 transition-all"
                     >
-                      <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 rounded-xl bg-[#007AFF]/10 flex items-center justify-center">
+                      <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+                        <div className="w-12 h-12 rounded-xl bg-[#007AFF]/10 flex items-center justify-center shrink-0">
                           <FileText size={24} className="text-[#007AFF]" />
                         </div>
-                        <div>
-                          <p className="font-medium text-[var(--text-primary)]">{truncateAddr(invoice.client_address)}</p>
+                        <div className="min-w-0">
+                          <p className="font-medium text-[var(--text-primary)] truncate">{truncateAddr(invoice.client_address)}</p>
                           <p className="text-sm text-[var(--text-primary)]/50">
-                            {formatDate(invoice.created_at)} &middot; Due {formatDate(invoice.due_date)}
+                            {formatDate(invoice.created_at)} &middot; Due {formatDeadline(invoice.due_date)}
                           </p>
-                          {invoice.description && <p className="text-xs text-[var(--text-primary)]/40">{invoice.description}</p>}
+                          {invoice.description && <p className="text-xs text-[var(--text-primary)]/40 truncate">{invoice.description}</p>}
                         </div>
                       </div>
-                      <div className="flex items-center gap-4">
+                      <div className="flex items-center gap-3 sm:gap-4 justify-between sm:justify-end">
                         <div className="text-right">
                           <p className="text-lg font-heading font-medium encrypted-text">
                             ${"\u2588\u2588\u2588\u2588\u2588.\u2588\u2588"}
@@ -386,7 +476,7 @@ export default function BusinessTools() {
                             {invoice.status}
                           </div>
                         </div>
-                        {invoice.status === "pending" && invoice.client_address === address?.toLowerCase() && (
+                        {invoice.status === "pending" && invoice.client_address?.toLowerCase() === address?.toLowerCase() && (
                           <button
                             onClick={() => setPayInvoiceId(invoice.invoice_id)}
                             disabled={isProcessing}
@@ -395,7 +485,7 @@ export default function BusinessTools() {
                             Pay
                           </button>
                         )}
-                        {invoice.status === "pending" && invoice.vendor_address === address?.toLowerCase() && (
+                        {invoice.status === "pending" && invoice.vendor_address?.toLowerCase() === address?.toLowerCase() && (
                           <button
                             onClick={() => setConfirmCancelInvoiceId(invoice.invoice_id)}
                             disabled={isProcessing}
@@ -404,7 +494,7 @@ export default function BusinessTools() {
                             Cancel
                           </button>
                         )}
-                        {invoice.status === "payment_pending" && (
+                        {invoice.status === "payment_pending" && invoice.client_address?.toLowerCase() === address?.toLowerCase() && (
                           <button
                             onClick={() => handleFinalizeInvoice(invoice.invoice_id)}
                             disabled={isProcessing}
@@ -444,7 +534,7 @@ export default function BusinessTools() {
               </button>
             </div>
 
-            <div className="rounded-[2rem] glass-card p-8">
+            <div className="rounded-[2rem] glass-card p-4 sm:p-8">
               <h3 className="text-xl font-heading font-medium text-[var(--text-primary)] mb-6">Payroll</h3>
               <div className="text-center py-8 text-[var(--text-primary)]/40">
                 <DollarSign size={40} className="mx-auto mb-3 opacity-30" />
@@ -480,7 +570,34 @@ export default function BusinessTools() {
         {/* Escrow Tab */}
         {activeTab === "escrow" && (
           <div className="space-y-6">
-            <div className="flex justify-end">
+            <div className="flex flex-wrap gap-3 items-center justify-between">
+              {/* Role filter: "All" / "Mine" / "Arbitrating" */}
+              <div className="flex gap-2" role="tablist" aria-label="Escrow role filter">
+                {(["all", "mine", "arbitrating"] as EscrowFilter[]).map((f) => (
+                  <button
+                    key={f}
+                    onClick={() => setEscrowFilter(f)}
+                    role="tab"
+                    aria-selected={escrowFilter === f}
+                    className={cn(
+                      "h-10 px-4 rounded-2xl text-sm font-medium transition-all whitespace-nowrap",
+                      escrowFilter === f
+                        ? "bg-[var(--text-primary)] text-white"
+                        : "bg-white/60 backdrop-blur-2xl text-[var(--text-primary)] border border-white/60 hover:bg-white/80",
+                    )}
+                  >
+                    {f === "all" ? "All" : f === "mine" ? "Mine" : "Arbitrating"}
+                    {f === "arbitrating" && arbitratingCount > 0 && (
+                      <span className={cn(
+                        "ml-2 inline-flex items-center justify-center min-w-5 h-5 px-1.5 rounded-full text-xs font-semibold",
+                        escrowFilter === f ? "bg-white/20 text-white" : "bg-purple-100 text-purple-700",
+                      )}>
+                        {arbitratingCount}
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
               <button
                 onClick={() => setShowModal(true)}
                 className="h-12 px-6 rounded-2xl bg-[var(--text-primary)] text-white font-medium transition-transform active:scale-95 hover:bg-[#000000] flex items-center gap-2"
@@ -496,26 +613,41 @@ export default function BusinessTools() {
                 <span className="text-[var(--text-primary)]/50">Loading escrows...</span>
               </div>
             ) : dataError ? (
-              <div className="rounded-[2rem] glass-card p-8">
+              <div className="rounded-[2rem] glass-card p-4 sm:p-8">
                 <button onClick={loadData} className="w-full text-center py-8 text-red-500 hover:bg-red-50/50 rounded-2xl transition-colors">
                   <AlertTriangle size={40} className="mx-auto mb-3 opacity-60" />
                   <p className="font-medium mb-1">{dataError}</p>
                 </button>
               </div>
-            ) : escrows.length === 0 ? (
-              <div className="rounded-[2rem] glass-card p-8">
+            ) : filteredEscrows.length === 0 ? (
+              <div className="rounded-[2rem] glass-card p-4 sm:p-8">
                 <div className="text-center py-8 text-[var(--text-primary)]/40">
                   <Lock size={40} className="mx-auto mb-3 opacity-30" />
-                  <p className="font-medium mb-1">No escrows yet</p>
-                  <p className="text-sm">Create your first escrow to get started</p>
+                  <p className="font-medium mb-1">
+                    {escrowFilter === "arbitrating"
+                      ? "No escrows to arbitrate"
+                      : escrowFilter === "mine"
+                        ? "No escrows you created or are receiving"
+                        : "No escrows yet"}
+                  </p>
+                  <p className="text-sm">
+                    {escrowFilter === "arbitrating"
+                      ? "You'll see escrows here when someone names you as their arbiter"
+                      : "Create your first escrow to get started"}
+                  </p>
                 </div>
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {escrows.slice(0, visibleEscrowCount).map((escrow) => (
+                {filteredEscrows.slice(0, visibleEscrowCount).map((escrow) => {
+                  const isArbiter =
+                    !!address &&
+                    !!escrow.arbiter_address &&
+                    escrow.arbiter_address.toLowerCase() === address.toLowerCase();
+                  return (
                   <div
                     key={escrow.id}
-                    className="rounded-[2rem] glass-card p-8 hover:-translate-y-1 transition-all duration-300"
+                    className="rounded-[2rem] glass-card p-4 sm:p-8 hover:-translate-y-1 transition-all duration-300"
                   >
                     <div className="flex items-start justify-between mb-6">
                       <div>
@@ -523,8 +655,15 @@ export default function BusinessTools() {
                         <p className="text-sm text-[var(--text-primary)]/50">
                           Beneficiary: {truncateAddr(escrow.beneficiary_address)}
                         </p>
-                        <div className={cn("inline-flex mt-2 px-2 py-1 rounded-full text-xs font-medium border", getStatusBadge(escrow.status))}>
-                          {escrow.status}
+                        <div className="flex flex-wrap gap-1.5 mt-2">
+                          <div className={cn("inline-flex px-2 py-1 rounded-full text-xs font-medium border", getStatusBadge(escrow.status))}>
+                            {escrow.status}
+                          </div>
+                          {isArbiter && (
+                            <div className="inline-flex px-2 py-1 rounded-full text-xs font-medium border bg-purple-50 text-purple-700 border-purple-100">
+                              You are arbiter
+                            </div>
+                          )}
                         </div>
                       </div>
                       <div className="w-12 h-12 rounded-xl bg-purple-50 flex items-center justify-center">
@@ -540,7 +679,7 @@ export default function BusinessTools() {
                     </div>
 
                     <div className="text-sm text-[var(--text-primary)]/50">
-                      <p>Deadline: {formatDate(escrow.deadline)}</p>
+                      <p>Deadline: {formatDeadline(escrow.deadline)}</p>
                       {escrow.arbiter_address && escrow.arbiter_address !== "" && (
                         <p>Arbiter: {truncateAddr(escrow.arbiter_address)}</p>
                       )}
@@ -602,14 +741,15 @@ export default function BusinessTools() {
                       </button>
                     )}
                   </div>
-                ))}
-                {visibleEscrowCount < escrows.length && (
+                  );
+                })}
+                {visibleEscrowCount < filteredEscrows.length && (
                   <div className="col-span-full">
                     <button
                       onClick={() => setVisibleEscrowCount((c) => c + ESCROW_PAGE_SIZE)}
                       className="w-full h-12 rounded-2xl bg-white/50 border border-black/5 text-sm font-medium text-[var(--text-secondary)] hover:bg-white/70 transition-all mt-3"
                     >
-                      Load more ({escrows.length - visibleEscrowCount} remaining)
+                      Load more ({filteredEscrows.length - visibleEscrowCount} remaining)
                     </button>
                   </div>
                 )}

@@ -1,67 +1,81 @@
 import { useState, useCallback, useEffect } from "react";
-import { useAccount, useReadContract, usePublicClient } from "wagmi";
+import { useReadContract, usePublicClient } from "wagmi";
 import { useUnifiedWrite } from "./useUnifiedWrite";
 import { parseUnits, formatUnits, encodeFunctionData } from "viem";
 import toast from "react-hot-toast";
-import { CONTRACTS } from "@/lib/constants";
+import { useChain } from "@/providers/ChainProvider";
 import { TestUSDCAbi, FHERC20VaultAbi } from "@/lib/abis";
 import { insertActivity } from "@/lib/supabase";
+import { ACTIVITY_TYPES } from "@/lib/activity-types";
 import { broadcastAction } from "@/lib/cross-tab";
 import { invalidateBalanceQueries } from "@/lib/query-invalidation";
 import { useCofheDecryptForTx } from "@/lib/cofhe-shim";
-import { useSmartAccount } from "./useSmartAccount";
+import { useEffectiveAddress } from "./useEffectiveAddress";
 import { usePassphrasePrompt } from "@/components/PassphrasePrompt";
+import {
+  STORAGE_KEYS,
+  getStoredJson,
+  setStoredJson,
+  getStoredString,
+  setStoredString,
+  removeStored,
+} from "@/lib/storage";
 
 // ─── Rate limiting constants ────────────────────────────────────────
 const FAUCET_COOLDOWN_MS = 60_000; // 1 minute between faucet calls
-const FAUCET_KEY = "blank_last_faucet";
 
 // Pending unshield persistence (tab-close resilience).
-// Key: blank_pending_unshield:<lower-case-address>
-// Value: {requestedAt: ms, txHash: 0x...}
-const PENDING_UNSHIELD_PREFIX = "blank_pending_unshield:";
+// chainId is passed in explicitly from the hook body (sourced from
+// useChain()) so switching chains doesn't cause us to resume a ctHash
+// that belongs to a different network, and so this helper is safe to
+// call after a reload-free chain switch.
+const pendingUnshieldKey = (addr: string, chainId: number) =>
+  STORAGE_KEYS.pendingUnshield(addr, chainId);
 
 export type ShieldStep = "idle" | "approving" | "shielding" | "success" | "error";
 export type UnshieldStep = "idle" | "encrypting" | "requesting" | "decrypting" | "claiming" | "success" | "error";
 
 export function useShield() {
-  const { address: eoaAddress } = useAccount();
-  const publicClient = usePublicClient();
+  const { activeChainId, contracts } = useChain();
+  // Pass `chainId` so wagmi's public client resolves for the active chain
+  // even when no EOA is connected (passkey-only users). Same fix as
+  // useSmartAccount.
+  const publicClient = usePublicClient({ chainId: activeChainId });
   const [step, setStep] = useState<ShieldStep>("idle");
   const [txHash, setTxHash] = useState<`0x${string}` | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const { unifiedWrite } = useUnifiedWrite();
-  const smartAccount = useSmartAccount();
+  const { unifiedWrite, unifiedWriteAndWait } = useUnifiedWrite();
   const passphrasePrompt = usePassphrasePrompt();
 
   // Effective address: smart account when active, EOA otherwise. Without
   // this, smart-wallet users see $0 USDC (we'd be reading the EOA's balance
   // not the smart account's). Same fix as useEncryptedBalance.
-  const address =
-    smartAccount.status === "ready" && smartAccount.account
-      ? (smartAccount.account.address as `0x${string}`)
-      : eoaAddress;
+  const { effectiveAddress: address, smartAccount } = useEffectiveAddress();
 
-  // Read public USDC balance — refetchInterval polls every 5s for fresh data
+  // Read public USDC balance — refetchInterval polls every 5s for fresh data.
+  // `chainId` is passed explicitly so passkey-only users (no EOA → no wagmi
+  // "connected" chain) still get reads routed to the correct chain.
   const { data: publicBalance, refetch: refetchBalance } = useReadContract({
-    address: CONTRACTS.TestUSDC as `0x${string}`,
+    address: contracts.TestUSDC as `0x${string}`,
     abi: TestUSDCAbi,
     functionName: "balanceOf",
     args: address ? [address] : undefined,
+    chainId: activeChainId,
     query: {
-      enabled: !!address && !!CONTRACTS.TestUSDC,
+      enabled: !!address && !!contracts.TestUSDC,
       refetchInterval: 5000, // Poll every 5s for balance updates
     },
   });
 
   // Read vault total deposited
   const { data: vaultBalance, refetch: refetchVault } = useReadContract({
-    address: CONTRACTS.FHERC20Vault_USDC as `0x${string}`,
+    address: contracts.FHERC20Vault_USDC as `0x${string}`,
     abi: FHERC20VaultAbi,
     functionName: "totalDeposited",
+    chainId: activeChainId,
     query: {
-      enabled: !!CONTRACTS.FHERC20Vault_USDC,
+      enabled: !!contracts.FHERC20Vault_USDC,
       refetchInterval: 10000,
     },
   });
@@ -89,10 +103,11 @@ export function useShield() {
   const [isMinting, setIsMinting] = useState(false);
 
   const mintTestTokens = useCallback(async (): Promise<`0x${string}` | null> => {
-    if (!address || !CONTRACTS.TestUSDC || isMinting) return null;
+    if (!address || !contracts.TestUSDC || isMinting) return null;
 
     // Rate limiting: prevent faucet spam (1 minute cooldown)
-    const lastFaucet = parseInt(localStorage.getItem(FAUCET_KEY) || "0");
+    const faucetKey = STORAGE_KEYS.faucetCooldown(address, activeChainId);
+    const lastFaucet = parseInt(getStoredString(faucetKey) || "0");
     if (Date.now() - lastFaucet < FAUCET_COOLDOWN_MS) {
       const remaining = Math.ceil((FAUCET_COOLDOWN_MS - (Date.now() - lastFaucet)) / 1000);
       toast.error(`Please wait ${remaining}s before using faucet again`);
@@ -102,7 +117,7 @@ export function useShield() {
     setIsMinting(true);
     try {
       const hash = await unifiedWrite({
-        address: CONTRACTS.TestUSDC as `0x${string}`,
+        address: contracts.TestUSDC as `0x${string}`,
         abi: TestUSDCAbi,
         functionName: "faucet",
         gas: BigInt(5_000_000), // CoFHE: manual gas limit (precompile breaks estimation)
@@ -114,7 +129,7 @@ export function useShield() {
       await waitAndRefetch(hash);
 
       // Record faucet usage for rate limiting
-      try { localStorage.setItem(FAUCET_KEY, String(Date.now())); } catch {}
+      setStoredString(faucetKey, String(Date.now()));
 
       // Notify other tabs and invalidate cached balances
       broadcastAction("balance_changed");
@@ -128,7 +143,7 @@ export function useShield() {
     } finally {
       setIsMinting(false);
     }
-  }, [address, unifiedWrite, waitAndRefetch, isMinting]);
+  }, [address, unifiedWrite, waitAndRefetch, isMinting, activeChainId, contracts]);
 
   // Shield: approve + deposit — returns hash on success, null on failure.
   //
@@ -140,7 +155,7 @@ export function useShield() {
   //  - EOA (no passkey or passkey not active): existing wagmi path. Two
   //    sequential txs: approve, then shield. User signs each MetaMask popup.
   const shield = useCallback(async (amount: string): Promise<`0x${string}` | null> => {
-    if (!address || !CONTRACTS.TestUSDC || !CONTRACTS.FHERC20Vault_USDC) return null;
+    if (!address || !contracts.TestUSDC || !contracts.FHERC20Vault_USDC) return null;
     if (!amount || amount.trim() === "") {
       toast.error("Enter an amount");
       return null;
@@ -167,7 +182,7 @@ export function useShield() {
         const approveData = encodeFunctionData({
           abi: TestUSDCAbi,
           functionName: "approve",
-          args: [CONTRACTS.FHERC20Vault_USDC as `0x${string}`, amountWei],
+          args: [contracts.FHERC20Vault_USDC as `0x${string}`, amountWei],
         });
         const shieldData = encodeFunctionData({
           abi: FHERC20VaultAbi,
@@ -176,7 +191,7 @@ export function useShield() {
         });
 
         const result = await smartAccount.sendBatchUserOp(
-          [CONTRACTS.TestUSDC as `0x${string}`, CONTRACTS.FHERC20Vault_USDC as `0x${string}`],
+          [contracts.TestUSDC as `0x${string}`, contracts.FHERC20Vault_USDC as `0x${string}`],
           [0n, 0n],
           [approveData, shieldData],
           passphrase,
@@ -198,10 +213,10 @@ export function useShield() {
           tx_hash: result.txHash,
           user_from: smartAccount.account.address.toLowerCase(),
           user_to: smartAccount.account.address.toLowerCase(),
-          activity_type: "shield",
-          contract_address: CONTRACTS.FHERC20Vault_USDC,
+          activity_type: ACTIVITY_TYPES.SHIELD,
+          contract_address: contracts.FHERC20Vault_USDC,
           note: `Shielded ${amount} USDC (via smart wallet)`,
-          token_address: CONTRACTS.TestUSDC,
+          token_address: contracts.TestUSDC,
           block_number: shieldReceipt ? Number(shieldReceipt.blockNumber) : 0,
         });
 
@@ -229,33 +244,38 @@ export function useShield() {
         return null;
       }
 
-      // Step 1: Approve vault to spend USDC
-      const approveHash = await unifiedWrite({
-        address: CONTRACTS.TestUSDC as `0x${string}`,
+      // Step 1: Approve vault to spend USDC. unifiedWriteAndWait so AA path
+      // gets the relayer's pre-confirmed receipt instead of polling the
+      // free RPC tier (which hits rate limits and silently times out).
+      const approveResult = await unifiedWriteAndWait({
+        address: contracts.TestUSDC as `0x${string}`,
         abi: TestUSDCAbi,
         functionName: "approve",
-        args: [CONTRACTS.FHERC20Vault_USDC as `0x${string}`, amountWei],
+        args: [contracts.FHERC20Vault_USDC as `0x${string}`, amountWei],
         gas: BigInt(5_000_000), // CoFHE: manual gas limit (precompile breaks estimation)
       });
       toast.success("Approval submitted...");
 
-      // Wait for approval to confirm
-      await waitAndRefetch(approveHash);
+      // EOA path needs polling; AA path skips it (relayer already waited).
+      if (!approveResult.receipt) await waitAndRefetch(approveResult.hash);
+      else await Promise.all([refetchBalance(), refetchVault()]);
 
       // Step 2: Shield (deposit into vault)
       setStep("shielding");
-      const shieldHash = await unifiedWrite({
-        address: CONTRACTS.FHERC20Vault_USDC as `0x${string}`,
+      const shieldResult = await unifiedWriteAndWait({
+        address: contracts.FHERC20Vault_USDC as `0x${string}`,
         abi: FHERC20VaultAbi,
         functionName: "shield",
         args: [amountWei],
         gas: BigInt(5_000_000), // CoFHE: manual gas limit (precompile breaks estimation)
       });
+      const shieldHash = shieldResult.hash;
 
       setTxHash(shieldHash);
 
-      // Wait for shield to confirm THEN refetch
-      const shieldReceipt = await waitAndRefetch(shieldHash);
+      const shieldReceipt = shieldResult.receipt
+        ? (await Promise.all([refetchBalance(), refetchVault()]), shieldResult.receipt)
+        : await waitAndRefetch(shieldHash);
       setStep("success");
 
       // Notify other tabs and invalidate cached balances
@@ -268,10 +288,10 @@ export function useShield() {
         tx_hash: shieldHash,
         user_from: address.toLowerCase(),
         user_to: address.toLowerCase(),
-        activity_type: "shield",
-        contract_address: CONTRACTS.FHERC20Vault_USDC,
+        activity_type: ACTIVITY_TYPES.SHIELD,
+        contract_address: contracts.FHERC20Vault_USDC,
         note: `Shielded ${amount} USDC`,
-        token_address: CONTRACTS.TestUSDC,
+        token_address: contracts.TestUSDC,
         // Safe: Sepolia block numbers fit in Number.MAX_SAFE_INTEGER for the foreseeable future
         block_number: shieldReceipt ? Number(shieldReceipt.blockNumber) : 0,
       });
@@ -284,7 +304,7 @@ export function useShield() {
       toast.error(err instanceof Error ? err.message : "Shield failed");
       return null;
     }
-  }, [address, unifiedWrite, waitAndRefetch, publicBalance, smartAccount, passphrasePrompt]);
+  }, [address, unifiedWrite, unifiedWriteAndWait, waitAndRefetch, refetchBalance, refetchVault, publicBalance, smartAccount, passphrasePrompt, contracts]);
 
   // ─── Unshield (request → off-chain decrypt → claim) ────────────────
   // v0.1.3 flow: requestUnshield calls FHE.allowPublic on-chain. We then
@@ -297,12 +317,12 @@ export function useShield() {
 
   // Read this user's pending unshield ctHash (zero if none pending)
   const { data: pendingCtHash, refetch: refetchPending } = useReadContract({
-    address: CONTRACTS.FHERC20Vault_USDC as `0x${string}`,
+    address: contracts.FHERC20Vault_USDC as `0x${string}`,
     abi: FHERC20VaultAbi,
     functionName: "pendingUnshield",
     args: address ? [address] : undefined,
     query: {
-      enabled: !!address && !!CONTRACTS.FHERC20Vault_USDC,
+      enabled: !!address && !!contracts.FHERC20Vault_USDC,
       refetchInterval: 8000,
     },
   });
@@ -328,7 +348,7 @@ export function useShield() {
         setUnshieldStep("claiming");
         try {
           const claimHash = await unifiedWrite({
-            address: CONTRACTS.FHERC20Vault_USDC as `0x${string}`,
+            address: contracts.FHERC20Vault_USDC as `0x${string}`,
             abi: FHERC20VaultAbi,
             functionName: "claimUnshield",
             args: [plaintext, result.signature],
@@ -338,23 +358,23 @@ export function useShield() {
           await refetchPending();
 
           // Clear the persisted pending state — claim succeeded
-          try {
-            localStorage.removeItem(`${PENDING_UNSHIELD_PREFIX}${address.toLowerCase()}`);
-          } catch {}
+          removeStored(pendingUnshieldKey(address, activeChainId));
 
           broadcastAction("balance_changed");
           broadcastAction("activity_added");
           invalidateBalanceQueries();
 
+          // Fetch the claim receipt so block_number reflects the actual tx.
+          const claimReceipt = await publicClient.getTransactionReceipt({ hash: claimHash }).catch(() => undefined);
           await insertActivity({
             tx_hash: claimHash,
             user_from: address.toLowerCase(),
             user_to: address.toLowerCase(),
-            activity_type: "unshield_claim",
-            contract_address: CONTRACTS.FHERC20Vault_USDC,
+            activity_type: ACTIVITY_TYPES.UNSHIELD,
+            contract_address: contracts.FHERC20Vault_USDC,
             note: amountHint ? `Unshielded ${amountHint} USDC` : "Unshielded USDC",
-            token_address: CONTRACTS.TestUSDC,
-            block_number: 0,
+            token_address: contracts.TestUSDC,
+            block_number: claimReceipt ? Number(claimReceipt.blockNumber) : 0,
           });
 
           setUnshieldStep("success");
@@ -373,12 +393,12 @@ export function useShield() {
     setUnshieldError(lastErr ?? "Decryption timed out — pending unshield will retry on next page load");
     toast.error(lastErr ?? "Decryption timed out — claim still pending");
     return false;
-  }, [address, publicClient, decryptForTx, unifiedWrite, waitAndRefetch, refetchPending]);
+  }, [address, publicClient, decryptForTx, unifiedWrite, waitAndRefetch, refetchPending, contracts, activeChainId]);
 
   // Public: initiate an unshield. Encrypts amount, calls requestUnshield,
   // then immediately attempts the claim (after the on-chain allowPublic).
   const unshield = useCallback(async (amount: string, encryptInputsAsync: (items: unknown[]) => Promise<unknown[]>, Encryptable: any): Promise<boolean> => {
-    if (!address || !CONTRACTS.FHERC20Vault_USDC) return false;
+    if (!address || !contracts.FHERC20Vault_USDC) return false;
     if (!amount || amount.trim() === "") {
       toast.error("Enter an amount to unshield");
       return false;
@@ -400,7 +420,7 @@ export function useShield() {
 
       setUnshieldStep("requesting");
       const reqHash = await unifiedWrite({
-        address: CONTRACTS.FHERC20Vault_USDC as `0x${string}`,
+        address: contracts.FHERC20Vault_USDC as `0x${string}`,
         abi: FHERC20VaultAbi,
         functionName: "requestUnshield",
         args: [encAmount],
@@ -408,12 +428,11 @@ export function useShield() {
       });
 
       // Persist pending state — if tab closes, we resume on next mount
-      try {
-        localStorage.setItem(
-          `${PENDING_UNSHIELD_PREFIX}${address.toLowerCase()}`,
-          JSON.stringify({ requestedAt: Date.now(), txHash: reqHash, amount }),
-        );
-      } catch {}
+      setStoredJson(pendingUnshieldKey(address, activeChainId), {
+        requestedAt: Date.now(),
+        txHash: reqHash,
+        amount,
+      });
 
       const receipt = await waitAndRefetch(reqHash);
       if (!receipt) {
@@ -438,32 +457,32 @@ export function useShield() {
       toast.error(err instanceof Error ? err.message : "Unshield failed");
       return false;
     }
-  }, [address, unifiedWrite, waitAndRefetch, refetchPending, _attemptClaim]);
+  }, [address, unifiedWrite, waitAndRefetch, refetchPending, _attemptClaim, contracts, activeChainId]);
 
   // Auto-resume any pending unshield from a previous session.
   // Runs once on mount when address + ctHash are available.
   useEffect(() => {
     if (!address || !hasPendingUnshield || unshieldStep !== "idle") return;
-    const stored = localStorage.getItem(`${PENDING_UNSHIELD_PREFIX}${address.toLowerCase()}`);
-    if (!stored) return; // pending on-chain but no local hint — leave it for explicit retry
-    try {
-      const data = JSON.parse(stored);
-      console.log("[useShield] Auto-resuming pending unshield from previous session");
-      _attemptClaim(pendingCtHash as bigint, data.amount ?? "");
-    } catch (err) {
-      // Stored payload corrupt — log so it's visible why auto-resume didn't fire.
-      console.warn("[useShield] Failed to auto-resume pending unshield:", err);
-    }
+    const data = getStoredJson<{ amount?: string } | null>(
+      pendingUnshieldKey(address, activeChainId),
+      null,
+    );
+    if (!data) return; // pending on-chain but no local hint — leave it for explicit retry
+    console.log("[useShield] Auto-resuming pending unshield from previous session");
+    _attemptClaim(pendingCtHash as bigint, data.amount ?? "");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [address, hasPendingUnshield]);
+  }, [address, hasPendingUnshield, activeChainId]);
 
   // Manual claim retry — surfaced to UI for the failure case
   const retryUnshieldClaim = useCallback(async () => {
     if (!address || !hasPendingUnshield) return false;
-    const stored = localStorage.getItem(`${PENDING_UNSHIELD_PREFIX}${address.toLowerCase()}`);
-    const amountHint = stored ? (JSON.parse(stored).amount ?? "") : "";
+    const data = getStoredJson<{ amount?: string } | null>(
+      pendingUnshieldKey(address, activeChainId),
+      null,
+    );
+    const amountHint = data?.amount ?? "";
     return await _attemptClaim(pendingCtHash as bigint, amountHint);
-  }, [address, hasPendingUnshield, pendingCtHash, _attemptClaim]);
+  }, [address, hasPendingUnshield, pendingCtHash, _attemptClaim, activeChainId]);
 
   const reset = useCallback(() => {
     setStep("idle");

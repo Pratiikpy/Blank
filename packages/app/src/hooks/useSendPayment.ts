@@ -1,5 +1,6 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useAccount, usePublicClient } from "wagmi";
+import { useEffectiveAddress } from "./useEffectiveAddress";
 import { useUnifiedWrite } from "./useUnifiedWrite";
 import { parseUnits } from "viem";
 import { sepolia } from "viem/chains";
@@ -10,15 +11,15 @@ import {
 } from "@cofhe/react";
 import { Encryptable } from "@cofhe/sdk";
 import toast from "react-hot-toast";
-import { CONTRACTS } from "@/lib/constants";
+import { useChain } from "@/providers/ChainProvider";
 import { FHERC20VaultAbi, PaymentHubAbi } from "@/lib/abis";
 import { isVaultApproved, markVaultApproved, clearVaultApproval } from "@/lib/approval";
 import { insertActivity } from "@/lib/supabase";
+import { ACTIVITY_TYPES } from "@/lib/activity-types";
 import { broadcastAction } from "@/lib/cross-tab";
 import { invalidateBalanceQueries } from "@/lib/query-invalidation";
-
-// ─── Pending TX recovery key ────────────────────────────────────────
-const PENDING_TX_KEY = "blank_pending_send";
+import { STORAGE_KEYS, getStoredJson, setStoredJson, removeStored } from "@/lib/storage";
+import { mapError } from "@/lib/error-messages";
 
 // ─── Feature flag: atomic encrypt+write ─────────────────────────────
 // When true, uses useCofheEncryptAndWriteContract from @cofhe/react
@@ -67,10 +68,23 @@ const _listeners = new Set<() => void>();
 
 
 export function useSendPayment() {
-  const { address, isConnected } = useAccount();
+  const { isConnected } = useAccount();
+  const { effectiveAddress: address, isSmartAccount } = useEffectiveAddress();
   const { connected: cofheConnected } = useCofheConnection();
-  const publicClient = usePublicClient();
+  const { activeChainId, contracts } = useChain();
+  // Pass `chainId` so passkey-only users (no EOA → no wagmi-connected chain)
+  // get a working publicClient. Same fix pattern as useShield/useSmartAccount.
+  const publicClient = usePublicClient({ chainId: activeChainId });
+  // R5-C: the canProceed gate previously required wagmi `isConnected`,
+  // which is false for passkey-only users. Treat passkey users as
+  // "connected" too — they have an effective address and can submit
+  // UserOps via the relayer.
+  const isAuthenticated = isConnected || isSmartAccount;
   const [state, _setLocalState] = useState<SendPaymentState>(() => _sharedState);
+  // #272: synchronous latch — set before any state update so a double-click
+  // in the same React batch can't fire two writeContract calls. Cleared in
+  // the finally block of each confirm path.
+  const submittingRef = useRef(false);
 
   // Wrapped setState that syncs to shared singleton
   const setState = useCallback((updater: SendPaymentState | ((prev: SendPaymentState) => SendPaymentState)) => {
@@ -90,20 +104,22 @@ export function useSendPayment() {
 
   // ─── Pending TX recovery on mount (#71) ─────────────────────────────
   useEffect(() => {
-    try {
-      const pending = localStorage.getItem(PENDING_TX_KEY);
-      if (pending) {
-        const data = JSON.parse(pending);
-        // Only show if less than 10 minutes old
-        if (Date.now() - data.timestamp < 600_000) {
-          toast(`You have a pending send of ${data.amount} ${data.token}. Check explorer: ${data.hash}`, {
-            duration: 10000,
-          });
-        }
-        localStorage.removeItem(PENDING_TX_KEY);
+    if (!address) return;
+    const key = STORAGE_KEYS.pendingSend(address, activeChainId);
+    const data = getStoredJson<{ timestamp: number; amount: string; token: string; hash: string } | null>(
+      key,
+      null,
+    );
+    if (data) {
+      // Only show if less than 10 minutes old
+      if (Date.now() - data.timestamp < 600_000) {
+        toast(`You have a pending send of ${data.amount} ${data.token}. Check explorer: ${data.hash}`, {
+          duration: 10000,
+        });
       }
-    } catch {}
-  }, []);
+      removeStored(key);
+    }
+  }, [address, activeChainId]);
 
   // ─── Amount warning for large transfers (#90) ─────────────────────
   const amountWarning = parseFloat(state.amount) > 100000
@@ -151,7 +167,7 @@ export function useSendPayment() {
 
   // cofheConnected removed from gate — encryption happens on confirm, not proceed
   const canProceed =
-    isConnected &&
+    isAuthenticated &&
     !!publicClient &&
     state.recipient.length > 0 &&
     state.amount.length > 0 &&
@@ -170,15 +186,22 @@ export function useSendPayment() {
     setState((s) => ({ ...s, step: "confirming", encryptionProgress: 0 }));
   }, [canProceed, address]);
 
-  const confirmSendAtomic = useCallback(async () => {
+  // #239: pulled the body out so we can self-call once on allowance errors
+  // (clear stale cache + re-approve + retry). Without this, the user has to
+  // hit "send" again manually after every cross-device or stale-cache miss.
+  const _runConfirmSendAtomic = useCallback(async (isRetry: boolean): Promise<void> => {
     if (!address) return;
-    if (state.step === "sending") return; // Already submitting
+    // #272: synchronous latch check PRECEDES the state check — state flips
+    // are async (React batching), but the ref is always current.
+    if (submittingRef.current && !isRetry) return;
+    if (state.step === "sending" && !isRetry) return; // Already submitting
 
     if (!publicClient) {
       toast.error("Connection lost. Please refresh.");
       return;
     }
 
+    submittingRef.current = true;
     try {
       setState((s) => ({ ...s, step: "sending", encryptionProgress: 0 }));
 
@@ -188,7 +211,7 @@ export function useSendPayment() {
         return;
       }
 
-      const vaultAddress = CONTRACTS.FHERC20Vault_USDC as `0x${string}`;
+      const vaultAddress = contracts.FHERC20Vault_USDC as `0x${string}`;
       const amountWei = parseUnits(state.amount, 6);
 
       if (amountWei === 0n || parseFloat(state.amount) < 0.01) {
@@ -198,17 +221,17 @@ export function useSendPayment() {
       }
 
       // Approve PaymentHub as a spender on the vault (lazy, cached for 24h)
-      if (!isVaultApproved(CONTRACTS.PaymentHub)) {
+      if (!isVaultApproved(contracts.PaymentHub)) {
         setState((s) => ({ ...s, step: "encrypting" })); // Show approving state
         const approveHash = await unifiedWrite({
-          address: CONTRACTS.FHERC20Vault_USDC,
+          address: contracts.FHERC20Vault_USDC,
           abi: FHERC20VaultAbi,
           functionName: "approvePlaintext",
-          args: [CONTRACTS.PaymentHub, BigInt("0xFFFFFFFFFFFFFFFF")], // MAX_UINT64
+          args: [contracts.PaymentHub, BigInt("0xFFFFFFFFFFFFFFFF")], // MAX_UINT64
           gas: BigInt(5_000_000), // CoFHE: manual gas limit (precompile breaks estimation)
         });
         await publicClient.waitForTransactionReceipt({ hash: approveHash, confirmations: 1 });
-        markVaultApproved(CONTRACTS.PaymentHub);
+        markVaultApproved(contracts.PaymentHub);
       }
 
       // Atomic encrypt + write via PaymentHub.sendPayment():
@@ -222,7 +245,7 @@ export function useSendPayment() {
       // is why the approval step above is required.
       const hash = await encryptAndWrite({
         params: {
-          address: CONTRACTS.PaymentHub,
+          address: contracts.PaymentHub,
           abi: PaymentHubAbi,
           functionName: "sendPayment",
           chain: sepolia,
@@ -237,15 +260,14 @@ export function useSendPayment() {
       });
 
       // Save pending tx for crash recovery (#71)
-      try {
-        localStorage.setItem(PENDING_TX_KEY, JSON.stringify({
-          hash,
-          recipient: state.recipient,
-          amount: state.amount,
-          token: state.token,
-          timestamp: Date.now(),
-        }));
-      } catch {}
+      const pendingSendKey = STORAGE_KEYS.pendingSend(address, activeChainId);
+      setStoredJson(pendingSendKey, {
+        hash,
+        recipient: state.recipient,
+        amount: state.amount,
+        token: state.token,
+        timestamp: Date.now(),
+      });
 
       // Wait for on-chain confirmation before writing to Supabase
       const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
@@ -254,7 +276,7 @@ export function useSendPayment() {
       }
 
       // Clear pending tx on success
-      try { localStorage.removeItem(PENDING_TX_KEY); } catch {}
+      removeStored(pendingSendKey);
 
       // Notify other tabs and invalidate cached balances (#60, #76, #96)
       broadcastAction("balance_changed");
@@ -273,10 +295,10 @@ export function useSendPayment() {
         tx_hash: hash,
         user_from: address.toLowerCase(),
         user_to: state.recipient.toLowerCase(),
-        activity_type: "payment",
+        activity_type: ACTIVITY_TYPES.PAYMENT,
         contract_address: vaultAddress,
         note: state.note,
-        token_address: CONTRACTS.TestUSDC,
+        token_address: contracts.TestUSDC,
         // Safe: Sepolia block numbers fit in Number.MAX_SAFE_INTEGER for the foreseeable future
         block_number: Number(receipt.blockNumber),
       });
@@ -285,19 +307,36 @@ export function useSendPayment() {
     } catch (err) {
       // Clear cached approval on allowance/transfer errors so next attempt re-approves
       const msg = err instanceof Error ? err.message : String(err);
-      if (/allowance|approve|insufficient|ERC20/i.test(msg)) {
-        clearVaultApproval(CONTRACTS.PaymentHub);
+      const isAllowanceErr = /allowance|approve|insufficient|ERC20/i.test(msg);
+      if (isAllowanceErr) {
+        clearVaultApproval(contracts.PaymentHub);
+        // #239: retry once with a freshly-cleared approval. Common cause:
+        // user was approved on-chain but cache TTL flipped, OR a different
+        // tab/device just consumed the allowance. Re-running the same flow
+        // re-approves (because cache is now empty) and resubmits the send.
+        // Guard with isRetry so a genuinely-broken approval can't loop.
+        if (!isRetry) {
+          submittingRef.current = false;
+          return _runConfirmSendAtomic(true);
+        }
       }
+      // #277: map to friendly copy + suppress toast on wallet-cancellation
+      const mapped = mapError(err);
       setState((s) => ({
         ...s,
         step: "error",
         error: err instanceof Error ? err.message : "Transaction failed",
       }));
-      toast.error(
-        err instanceof Error ? err.message : "Transaction failed"
-      );
+      if (!mapped.userCancelled) toast.error(mapped.title);
+    } finally {
+      submittingRef.current = false;
     }
-  }, [address, state.step, state.amount, state.recipient, state.note, encryptAndWrite, unifiedWrite, publicClient]);
+  }, [address, state.step, state.amount, state.recipient, state.note, encryptAndWrite, unifiedWrite, publicClient, activeChainId, contracts]);
+
+  const confirmSendAtomic = useCallback(
+    () => _runConfirmSendAtomic(false),
+    [_runConfirmSendAtomic],
+  );
 
   // ─── Legacy path: separate encrypt then write ──────────────────────
   // Kept as fallback when USE_ATOMIC_ENCRYPT_WRITE is false.
@@ -321,7 +360,17 @@ export function useSendPayment() {
   }, [canProceed, address, state.amount]);
 
   const confirmSendLegacy = useCallback(async () => {
-    if (!address) return;
+    if (!address) {
+      // R5-D: smart-account address resolves asynchronously. If user
+      // races the click before useSmartAccount finishes its first
+      // resolveAccount, address is undefined here. Surface as a real
+      // error instead of the silent return that hid this for hours.
+      toast.error("Smart wallet not ready yet — please wait a moment and try again.");
+      return;
+    }
+    // #272: synchronous latch — prevents double-submit during the React
+    // batching window before `state.step` flips to "encrypting"/"sending".
+    if (submittingRef.current) return;
     if (state.step === "sending" || state.step === "encrypting") return;
 
     if (!publicClient) {
@@ -329,6 +378,7 @@ export function useSendPayment() {
       return;
     }
 
+    submittingRef.current = true;
     try {
       if (!state.amount || state.amount.trim() === "") {
         toast.error("Enter an amount");
@@ -338,12 +388,13 @@ export function useSendPayment() {
       // Step 1: Encrypt
       setState((s) => ({ ...s, step: "encrypting", encryptionProgress: 0 }));
 
-      const vaultAddress = CONTRACTS.FHERC20Vault_USDC as `0x${string}`;
+      const vaultAddress = contracts.FHERC20Vault_USDC as `0x${string}`;
       const amountWei = parseUnits(state.amount, 6);
 
       const encrypted = await encryptInputsAsync([
         Encryptable.uint64(amountWei),
       ]);
+      console.log("[useSendPayment] post-encrypt OK len=", encrypted?.length);
       // Explicitly construct ABI tuple from SDK result (CipherPay pattern)
       const raw = encrypted[0] as any;
       const encAmount = {
@@ -352,24 +403,36 @@ export function useSendPayment() {
         utype: Number(raw.utype ?? raw.data?.utype ?? 5),
         signature: (raw.signature ?? raw.data?.signature ?? "0x") as `0x${string}`,
       };
+      console.log("[useSendPayment] encAmount built, ctHash hex len:", encAmount.ctHash.toString(16).length, "approved:", isVaultApproved(contracts.PaymentHub));
 
       // Step 2: Approve + Send
       setState((s) => ({ ...s, step: "sending", encryptionProgress: 100 }));
+      console.log("[useSendPayment] step=sending. Branch:", isVaultApproved(contracts.PaymentHub) ? "send-only" : "approve+send");
 
-      if (!isVaultApproved(CONTRACTS.PaymentHub)) {
-        const approveHash = await unifiedWrite({
-          address: CONTRACTS.FHERC20Vault_USDC,
-          abi: FHERC20VaultAbi,
-          functionName: "approvePlaintext",
-          args: [CONTRACTS.PaymentHub, BigInt("0xFFFFFFFFFFFFFFFF")],
-          gas: BigInt(5_000_000), // CoFHE: manual gas limit (precompile breaks estimation)
-        });
+      if (!isVaultApproved(contracts.PaymentHub)) {
+        console.log("[useSendPayment] calling unifiedWrite for approvePlaintext... typeof:", typeof unifiedWrite, "fnName:", (unifiedWrite as { name?: string })?.name ?? "?");
+        let approveHash: `0x${string}`;
+        try {
+          approveHash = await unifiedWrite({
+            address: contracts.FHERC20Vault_USDC,
+            abi: FHERC20VaultAbi,
+            functionName: "approvePlaintext",
+            args: [contracts.PaymentHub, BigInt("0xFFFFFFFFFFFFFFFF")],
+            gas: BigInt(5_000_000), // CoFHE: manual gas limit (precompile breaks estimation)
+          });
+        } catch (e) {
+          console.error("[useSendPayment] unifiedWrite(approve) THREW:", String(e).slice(0, 800));
+          throw e;
+        }
+        console.log("[useSendPayment] approve tx hash:", approveHash);
         await publicClient.waitForTransactionReceipt({ hash: approveHash, confirmations: 1 });
-        markVaultApproved(CONTRACTS.PaymentHub);
+        markVaultApproved(contracts.PaymentHub);
+        console.log("[useSendPayment] approve confirmed, proceeding to sendPayment");
       }
 
+      console.log("[useSendPayment] calling unifiedWrite for sendPayment...");
       const hash = await unifiedWrite({
-        address: CONTRACTS.PaymentHub,
+        address: contracts.PaymentHub,
         abi: PaymentHubAbi,
         functionName: "sendPayment",
         args: [
@@ -384,15 +447,14 @@ export function useSendPayment() {
       });
 
       // Save pending tx for crash recovery (#71)
-      try {
-        localStorage.setItem(PENDING_TX_KEY, JSON.stringify({
-          hash,
-          recipient: state.recipient,
-          amount: state.amount,
-          token: state.token,
-          timestamp: Date.now(),
-        }));
-      } catch {}
+      const pendingSendKey = STORAGE_KEYS.pendingSend(address, activeChainId);
+      setStoredJson(pendingSendKey, {
+        hash,
+        recipient: state.recipient,
+        amount: state.amount,
+        token: state.token,
+        timestamp: Date.now(),
+      });
 
       // Wait for on-chain confirmation before writing to Supabase
       const legacyReceipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
@@ -401,7 +463,7 @@ export function useSendPayment() {
       }
 
       // Clear pending tx on success
-      try { localStorage.removeItem(PENDING_TX_KEY); } catch {}
+      removeStored(pendingSendKey);
 
       // Notify other tabs and invalidate cached balances (#60, #76, #96)
       broadcastAction("balance_changed");
@@ -418,10 +480,10 @@ export function useSendPayment() {
         tx_hash: hash,
         user_from: address.toLowerCase(),
         user_to: state.recipient.toLowerCase(),
-        activity_type: "payment",
+        activity_type: ACTIVITY_TYPES.PAYMENT,
         contract_address: vaultAddress,
         note: state.note,
-        token_address: CONTRACTS.TestUSDC,
+        token_address: contracts.TestUSDC,
         // Safe: Sepolia block numbers fit in Number.MAX_SAFE_INTEGER for the foreseeable future
         block_number: Number(legacyReceipt.blockNumber),
       });
@@ -431,16 +493,20 @@ export function useSendPayment() {
       // Clear cached approval on allowance/transfer errors so next attempt re-approves
       const msg = err instanceof Error ? err.message : String(err);
       if (/allowance|approve|insufficient|ERC20/i.test(msg)) {
-        clearVaultApproval(CONTRACTS.PaymentHub);
+        clearVaultApproval(contracts.PaymentHub);
       }
+      // #277: surface friendly copy; suppress toast if user cancelled the prompt.
+      const mapped = mapError(err);
       setState((s) => ({
         ...s,
         step: "error",
         error: err instanceof Error ? err.message : "Transaction failed",
       }));
-      toast.error("Transaction failed");
+      if (!mapped.userCancelled) toast.error(mapped.title);
+    } finally {
+      submittingRef.current = false;
     }
-  }, [encryptedAmount, address, state.step, state.recipient, state.note, unifiedWrite, publicClient]);
+  }, [encryptedAmount, address, state.step, state.recipient, state.note, unifiedWrite, publicClient, activeChainId, contracts]);
 
   // ─── Route to correct implementation ───────────────────────────────
 

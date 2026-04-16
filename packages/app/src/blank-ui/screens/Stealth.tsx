@@ -1,4 +1,5 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   Ghost,
   Copy,
@@ -12,15 +13,30 @@ import {
   Undo2,
   Search,
   Send,
+  Clock,
+  Inbox,
+  Link2,
+  AlertTriangle,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import toast from "react-hot-toast";
-import { useStealthPayments } from "@/hooks/useStealthPayments";
-import { useAccount, useWriteContract, usePublicClient } from "wagmi";
+import {
+  useStealthPayments,
+  getStealthInbox,
+  addToStealthInbox,
+  markInboxEntryStatus,
+  type StealthInboxEntry,
+} from "@/hooks/useStealthPayments";
+import { useWriteContract, usePublicClient } from "wagmi";
+import { useEffectiveAddress } from "@/hooks/useEffectiveAddress";
 import { useActivityFeed } from "@/hooks/useActivityFeed";
-import { CONTRACTS } from "@/lib/constants";
+import { useChain } from "@/providers/ChainProvider";
 import { StealthPaymentsAbi } from "@/lib/abis";
 import { keccak256, encodePacked, formatUnits } from "viem";
+import { STORAGE_KEYS, getStoredJson, setStoredJson } from "@/lib/storage";
+import { copyToClipboard } from "@/lib/clipboard";
+import { onCrossTabAction } from "@/lib/cross-tab";
+import { formatUsdcInput } from "@/lib/format";
 
 // ---------------------------------------------------------------
 //  TYPES
@@ -48,9 +64,8 @@ interface StoredClaimCode {
   createdAt: number;
 }
 
-type TabValue = "create" | "claim" | "sent";
+type TabValue = "create" | "claim" | "sent" | "inbox";
 
-const STEALTH_CLAIM_CODES_KEY = "blank_stealth_claim_codes";
 const REFUND_WINDOW_SECONDS = 30 * 24 * 60 * 60; // 30 days
 
 // ---------------------------------------------------------------
@@ -79,7 +94,11 @@ function getStepLabel(step: string): string {
 // ---------------------------------------------------------------
 
 export default function Stealth() {
-  const { address } = useAccount();
+  // R5-D: passkey-aware. effectiveAddress = smart-account when passkey-only,
+  // EOA otherwise. Without this, "Connect wallet first" gates the create
+  // path for passkey-only users.
+  const { effectiveAddress: address } = useEffectiveAddress();
+  const { activeChainId, contracts } = useChain();
   const {
     step,
     error,
@@ -90,10 +109,13 @@ export default function Stealth() {
     claimStealth,
     finalizeClaim,
     getMyPendingClaims,
+    getPendingClaims,
+    resumePendingClaim,
     reset,
   } = useStealthPayments();
   const { writeContractAsync } = useWriteContract();
-  const publicClient = usePublicClient();
+  // chainId so passkey-only users (no wagmi chain) get a working client.
+  const publicClient = usePublicClient({ chainId: activeChainId });
   const { activities } = useActivityFeed();
 
   const [activeTab, setActiveTab] = useState<TabValue>("create");
@@ -120,6 +142,169 @@ export default function Stealth() {
   const [checkingClaims, setCheckingClaims] = useState(false);
   const [discoveredClaims, setDiscoveredClaims] = useState<number[]>([]);
 
+  // Pending-claim resume state (persisted across sessions via localStorage)
+  const [pendingClaimsTick, setPendingClaimsTick] = useState(0);
+  const [resumingTransferId, setResumingTransferId] = useState<number | null>(null);
+
+  // Stealth Inbox — claim codes this user received via deep link (?inbox=...)
+  // Listed in a dedicated tab so recipients never need to copy/paste codes.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [inboxTick, setInboxTick] = useState(0);
+  const [shareLink, setShareLink] = useState<string | null>(null);
+
+  // Recompute whenever the tick advances (after claim start / finalize / resume)
+  // or the address changes.
+  const pendingClaims = useMemo(
+    () => getPendingClaims(),
+    // `getPendingClaims` is stable per-address; `pendingClaimsTick` forces a
+    // refresh after mutations (claim submitted, finalize succeeded, etc).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [getPendingClaims, pendingClaimsTick, address],
+  );
+
+  // Re-read from localStorage when the flow reaches a terminal state so a
+  // freshly-persisted (or freshly-removed) entry shows/hides immediately.
+  useEffect(() => {
+    if (step === "success" || step === "error" || step === "waiting_for_decryption") {
+      setPendingClaimsTick((t) => t + 1);
+    }
+  }, [step]);
+
+  // #218/#219: another tab mutated the stealth inbox (added a new deep-link
+  // claim, or updated an entry's status). Refresh our list from localStorage
+  // so both tabs stay in sync without a reload.
+  useEffect(() => {
+    if (!address) return;
+    return onCrossTabAction((action, data) => {
+      if (action !== "stealth_inbox_changed") return;
+      // Ignore broadcasts scoped to a different (address, chainId) pair.
+      if (
+        data &&
+        typeof data.address === "string" &&
+        data.address.toLowerCase() !== address.toLowerCase()
+      ) {
+        return;
+      }
+      if (data && typeof data.chainId === "number" && data.chainId !== activeChainId) {
+        return;
+      }
+      setInboxTick((t) => t + 1);
+    });
+  }, [address, activeChainId]);
+
+  // #225: another tab finalized a pending claim. Drop it from our "Resume
+  // Pending Claims" list by re-reading the persisted store.
+  useEffect(() => {
+    if (!address) return;
+    return onCrossTabAction((action, data) => {
+      if (action !== "pending_claim_removed") return;
+      if (
+        data &&
+        typeof data.address === "string" &&
+        data.address.toLowerCase() !== address.toLowerCase()
+      ) {
+        return;
+      }
+      if (data && typeof data.chainId === "number" && data.chainId !== activeChainId) {
+        return;
+      }
+      setPendingClaimsTick((t) => t + 1);
+    });
+  }, [address, activeChainId]);
+
+  // ─── Inbox memo ──────────────────────────────────────────────────
+  // Re-reads localStorage whenever `inboxTick` advances (e.g. after a
+  // deep-link adds an entry, or an entry's status changes).
+  const inboxEntries = useMemo<StealthInboxEntry[]>(() => {
+    if (!address) return [];
+    return getStealthInbox(address, activeChainId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [address, activeChainId, inboxTick]);
+
+  // ─── Deep-link handler: #inbox=<base64>&from=<shortAddr> ─────────
+  //
+  // Preferred form: URL fragment (#inbox=...) — fragments are NEVER sent
+  // to servers, don't appear in browser history by default, don't get
+  // auto-unfurled by Slack/Discord, and don't leak via Referer.
+  //
+  // Backward-compat: if we land on a legacy ?inbox=... query-string link,
+  // we still honour it but warn the user that the old format exposed the
+  // claim code in server logs and they should re-share using a fresh link.
+  useEffect(() => {
+    if (!address) return;
+
+    // Parse the URL fragment manually — it's not touched by react-router
+    // and we *want* it kept out of the router's hash-aware state.
+    const rawHash =
+      typeof window !== "undefined" && window.location.hash
+        ? window.location.hash.replace(/^#/, "")
+        : "";
+    const hashParams = new URLSearchParams(rawHash);
+
+    const hashInbox = hashParams.get("inbox");
+    const queryInbox = searchParams.get("inbox");
+    const inboxParam = hashInbox ?? queryInbox;
+    if (!inboxParam) return;
+
+    const fromLegacyQuery = !hashInbox && !!queryInbox;
+
+    try {
+      const decoded = atob(inboxParam);
+      // Validate shape: 0x + 64 hex chars (32-byte claim code)
+      if (!/^0x[a-fA-F0-9]{64}$/.test(decoded)) {
+        toast.error("Invalid stealth payment link");
+        return;
+      }
+      const claimCodeBytes = decoded as `0x${string}`;
+      const fromHint =
+        hashParams.get("from") ?? searchParams.get("from") ?? undefined;
+      // Same binding the contract uses for claim verification — keccak256
+      // of (claimCode, recipientAddress). This matches computeClaimCodeHash
+      // in useStealthPayments.
+      const claimCodeHash = keccak256(
+        encodePacked(
+          ["bytes32", "address"],
+          [claimCodeBytes, address as `0x${string}`],
+        ),
+      );
+
+      const added = addToStealthInbox(address, activeChainId, {
+        claimCode: claimCodeBytes,
+        claimCodeHash,
+        fromHint,
+      });
+
+      if (added) {
+        toast.success("You have an incoming stealth payment");
+      } else {
+        toast("This stealth link is already in your Inbox", {
+          icon: "\u2139\uFE0F",
+        });
+      }
+
+      if (fromLegacyQuery) {
+        toast(
+          "For security, please re-share the link — the old format exposes the claim code in server logs.",
+          { icon: "\u26A0\uFE0F", duration: 8000 },
+        );
+      }
+
+      setInboxTick((t) => t + 1);
+      setActiveTab("inbox");
+    } catch {
+      toast.error("Could not decode stealth payment link");
+    } finally {
+      // Clear both the query string and the fragment so a refresh doesn't
+      // re-trigger import and the URL stays clean of the claim code.
+      if (queryInbox) {
+        setSearchParams({}, { replace: true });
+      }
+      if (hashInbox && typeof window !== "undefined") {
+        window.history.replaceState(null, "", window.location.pathname);
+      }
+    }
+  }, [address, activeChainId, searchParams, setSearchParams]);
+
   const isSubmitting =
     step !== "idle" && step !== "success" && step !== "error" && step !== "waiting_for_decryption";
 
@@ -142,34 +327,26 @@ export default function Stealth() {
   const saveClaimCodeToStorage = useCallback(
     (code: string, transferId: number, recipientAddr: string) => {
       if (!address) return;
-      const key = `${STEALTH_CLAIM_CODES_KEY}_${address.toLowerCase()}`;
-      try {
-        const existing: StoredClaimCode[] = JSON.parse(
-          localStorage.getItem(key) || "[]"
-        );
-        existing.push({
-          claimCode: code,
-          transferId,
-          recipientAddress: recipientAddr,
-          createdAt: Date.now(),
-        });
-        localStorage.setItem(key, JSON.stringify(existing));
-      } catch {
-        // Storage full or corrupt -- non-critical
-      }
+      const key = STORAGE_KEYS.claimCodes(address, activeChainId);
+      const existing = getStoredJson<StoredClaimCode[]>(key, []);
+      existing.push({
+        claimCode: code,
+        transferId,
+        recipientAddress: recipientAddr,
+        createdAt: Date.now(),
+      });
+      setStoredJson(key, existing);
     },
-    [address]
+    [address, activeChainId]
   );
 
   const getStoredClaimCodes = useCallback((): StoredClaimCode[] => {
     if (!address) return [];
-    const key = `${STEALTH_CLAIM_CODES_KEY}_${address.toLowerCase()}`;
-    try {
-      return JSON.parse(localStorage.getItem(key) || "[]");
-    } catch {
-      return [];
-    }
-  }, [address]);
+    return getStoredJson<StoredClaimCode[]>(
+      STORAGE_KEYS.claimCodes(address, activeChainId),
+      [],
+    );
+  }, [address, activeChainId]);
 
   // ─── Load Sent Transfers (for refund tab) ─────────────────────────
 
@@ -177,7 +354,7 @@ export default function Stealth() {
     if (!address || !publicClient) return;
     setLoadingSent(true);
     try {
-      const stealthAddress = CONTRACTS.StealthPayments as `0x${string}`;
+      const stealthAddress = contracts.StealthPayments as `0x${string}`;
       const ids = (await publicClient.readContract({
         address: stealthAddress,
         abi: StealthPaymentsAbi,
@@ -217,7 +394,7 @@ export default function Stealth() {
     } finally {
       setLoadingSent(false);
     }
-  }, [address, publicClient]);
+  }, [address, publicClient, contracts]);
 
   // Load sent transfers when "sent" tab is activated
   useEffect(() => {
@@ -239,7 +416,7 @@ export default function Stealth() {
       const refundToastId = toast.loading("Processing refund...");
 
       try {
-        const stealthAddress = CONTRACTS.StealthPayments as `0x${string}`;
+        const stealthAddress = contracts.StealthPayments as `0x${string}`;
         const hash = await writeContractAsync({
           address: stealthAddress,
           abi: StealthPaymentsAbi,
@@ -268,7 +445,7 @@ export default function Stealth() {
         setRefundingId(null);
       }
     },
-    [address, writeContractAsync, publicClient, loadSentTransfers]
+    [address, writeContractAsync, publicClient, loadSentTransfers, contracts]
   );
 
   // ─── Check for Pending Claims ─────────────────────────────────────
@@ -331,7 +508,7 @@ export default function Stealth() {
     const result = await sendStealth(
       amount,
       recipient.trim(),
-      CONTRACTS.FHERC20Vault_USDC,
+      contracts.FHERC20Vault_USDC,
       message || "Stealth payment"
     );
 
@@ -339,12 +516,13 @@ export default function Stealth() {
       setNewCode({
         code: result.claimCode,
         transferId: result.transferId,
-        amount: parseFloat(amount).toFixed(2),
+        // #294: preserve full input precision (USDC has 6 decimals on-chain).
+        amount: formatUsdcInput(amount),
       });
       // Save claim code to localStorage for pending claims discovery
       saveClaimCodeToStorage(result.claimCode, result.transferId, recipient.trim());
     }
-  }, [address, amount, recipient, message, sendStealth, saveClaimCodeToStorage]);
+  }, [address, amount, recipient, message, sendStealth, saveClaimCodeToStorage, contracts]);
 
   // ─── Claim Stealth Payment ─────────────────────────────────────────
 
@@ -368,36 +546,190 @@ export default function Stealth() {
     await finalizeClaim(transferId);
   }, [finalizeId, finalizeClaim]);
 
+  // ─── Resume Persisted Pending Claim ───────────────────────────────
+
+  const handleResumeClaim = useCallback(
+    async (transferId: number, claimCode: string) => {
+      setResumingTransferId(transferId);
+      try {
+        await resumePendingClaim(BigInt(transferId), claimCode);
+      } finally {
+        setResumingTransferId(null);
+        // Re-read the persisted list so a just-finalized entry drops out.
+        setPendingClaimsTick((t) => t + 1);
+      }
+    },
+    [resumePendingClaim],
+  );
+
+  // ─── Claim from Inbox ─────────────────────────────────────────────
+  //
+  // The recipient has a claim code but no transferId (the sender doesn't
+  // know the eventual transferId off-chain either — it's only assigned
+  // once the sender's sendStealth tx is mined). We discover it by hashing
+  // the claim code with the recipient's address and calling the existing
+  // `getMyPendingClaims` helper, which maps claimCodeHash -> transferId.
+
+  const handleClaimFromInbox = useCallback(
+    async (entry: StealthInboxEntry) => {
+      if (!address) {
+        toast.error("Connect wallet first");
+        return;
+      }
+
+      markInboxEntryStatus(address, activeChainId, entry.claimCodeHash, "claiming");
+      setInboxTick((t) => t + 1);
+
+      try {
+        const pending = await getMyPendingClaims([entry.claimCodeHash]);
+        if (pending.length === 0) {
+          toast.error(
+            "Transfer not found on-chain yet. Ask the sender to confirm the tx was mined.",
+          );
+          markInboxEntryStatus(address, activeChainId, entry.claimCodeHash, "new");
+          setInboxTick((t) => t + 1);
+          return;
+        }
+
+        const transferId = pending[0];
+        const result = await claimStealth(transferId, entry.claimCode);
+        if (result) {
+          // Auto-decryption polling started — mark as claimed so the user
+          // sees the state change. Full finalization is handled by the
+          // polling loop in useStealthPayments.
+          markInboxEntryStatus(address, activeChainId, entry.claimCodeHash, "claimed");
+          setInboxTick((t) => t + 1);
+        } else {
+          markInboxEntryStatus(address, activeChainId, entry.claimCodeHash, "new");
+          setInboxTick((t) => t + 1);
+        }
+      } catch {
+        markInboxEntryStatus(address, activeChainId, entry.claimCodeHash, "new");
+        setInboxTick((t) => t + 1);
+      }
+    },
+    [address, activeChainId, claimStealth, getMyPendingClaims],
+  );
+
+  // ─── Share Link Builder ───────────────────────────────────────────
+  //
+  // Once a stealth payment is created, build a deep link the sender can
+  // share with the recipient. When opened on the recipient's device,
+  // the `useEffect` above auto-imports the claim into their Inbox.
+  // The claim code IS the secret — putting it in a URL is no worse than
+  // DMing it, and the recipient must already have received the URL
+  // out-of-band (SMS, DM, QR code, etc).
+
+  const buildShareLink = useCallback(
+    (claimCode: string, sender?: string): string => {
+      const encoded = btoa(claimCode);
+      // Fragment (#...) instead of query string (?...) — fragments are not
+      // sent to servers, not unfurled by messengers, and not stored in
+      // server logs or Referer headers.
+      const params = new URLSearchParams({ inbox: encoded });
+      if (sender) {
+        params.set("from", `${sender.slice(0, 6)}...${sender.slice(-4)}`);
+      }
+      return `${window.location.origin}/app/stealth#${params.toString()}`;
+    },
+    [],
+  );
+
+  // Generate the share link whenever `newCode` is produced on the Create tab.
+  useEffect(() => {
+    if (newCode && address) {
+      setShareLink(buildShareLink(newCode.code, address));
+    } else {
+      setShareLink(null);
+    }
+  }, [newCode, address, buildShareLink]);
+
+  const handleCopyShareLink = useCallback(async () => {
+    if (!shareLink) return;
+    const ok = await copyToClipboard(shareLink);
+    if (ok) {
+      setCopied("share-link");
+      toast.success("Link copied! Send it to the recipient.");
+      setTimeout(() => setCopied(null), 2000);
+    } else {
+      toast.error("Could not copy link");
+    }
+  }, [shareLink]);
+
+  // ─── Format "started 3m ago" style relative timestamps ────────────
+
+  const formatRelative = useCallback((timestampMs: number): string => {
+    const diff = Date.now() - timestampMs;
+    const sec = Math.round(diff / 1000);
+    if (sec < 60) return `${sec}s ago`;
+    const min = Math.round(sec / 60);
+    if (min < 60) return `${min}m ago`;
+    const hr = Math.round(min / 60);
+    if (hr < 24) return `${hr}h ago`;
+    const days = Math.round(hr / 24);
+    return `${days}d ago`;
+  }, []);
+
   return (
     <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="max-w-5xl mx-auto">
         {/* Page Title */}
         <div className="mb-8">
-          <h1 className="text-4xl sm:text-5xl font-heading font-semibold text-[var(--text-primary)] tracking-tight mb-2">
+          <h1 className="text-3xl sm:text-5xl font-heading font-semibold text-[var(--text-primary)] tracking-tight mb-2">
             Stealth Payments
           </h1>
-          <p className="text-base text-[var(--text-primary)]/50 leading-relaxed">
+          <p className="text-sm sm:text-base text-[var(--text-primary)]/50 leading-relaxed">
             Send anonymous payments via claim codes
           </p>
         </div>
 
         {/* Tab Switcher */}
-        <div className="flex gap-3 mb-6" role="tablist" aria-label="Stealth payment tabs">
+        <div className="flex flex-wrap gap-2 sm:gap-3 mb-6" role="tablist" aria-label="Stealth payment tabs">
           <button
             onClick={() => setActiveTab("create")}
             role="tab"
             aria-selected={activeTab === "create"}
             aria-label="Create code"
             className={cn(
-              "flex-1 h-14 px-6 rounded-2xl font-medium transition-all",
+              "flex-1 min-w-[120px] sm:min-w-[140px] h-12 sm:h-14 px-3 sm:px-6 rounded-2xl font-medium transition-all text-xs sm:text-sm",
               activeTab === "create"
                 ? "bg-[var(--text-primary)] text-white"
                 : "bg-white/60 backdrop-blur-2xl text-[var(--text-primary)] border border-white/60 hover:bg-white/80"
             )}
           >
             <div className="flex items-center justify-center gap-2">
-              <Plus size={20} />
+              <Plus size={18} className="sm:w-5 sm:h-5" />
               <span>Create Code</span>
+            </div>
+          </button>
+          <button
+            onClick={() => setActiveTab("inbox")}
+            role="tab"
+            aria-selected={activeTab === "inbox"}
+            aria-label="Stealth inbox"
+            className={cn(
+              "flex-1 min-w-[120px] sm:min-w-[140px] h-12 sm:h-14 px-3 sm:px-6 rounded-2xl font-medium transition-all relative text-xs sm:text-sm",
+              activeTab === "inbox"
+                ? "bg-[var(--text-primary)] text-white"
+                : "bg-white/60 backdrop-blur-2xl text-[var(--text-primary)] border border-white/60 hover:bg-white/80"
+            )}
+          >
+            <div className="flex items-center justify-center gap-2">
+              <Inbox size={18} className="sm:w-5 sm:h-5" />
+              <span>Inbox</span>
+              {inboxEntries.some((e) => e.status === "new") && (
+                <span
+                  className={cn(
+                    "ml-1 inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-[11px] font-semibold",
+                    activeTab === "inbox"
+                      ? "bg-white text-[var(--text-primary)]"
+                      : "bg-purple-500 text-white",
+                  )}
+                  aria-label={`${inboxEntries.filter((e) => e.status === "new").length} new incoming payments`}
+                >
+                  {inboxEntries.filter((e) => e.status === "new").length}
+                </span>
+              )}
             </div>
           </button>
           <button
@@ -406,14 +738,14 @@ export default function Stealth() {
             aria-selected={activeTab === "claim"}
             aria-label="Claim code"
             className={cn(
-              "flex-1 h-14 px-6 rounded-2xl font-medium transition-all",
+              "flex-1 min-w-[120px] sm:min-w-[140px] h-12 sm:h-14 px-3 sm:px-6 rounded-2xl font-medium transition-all text-xs sm:text-sm",
               activeTab === "claim"
                 ? "bg-[var(--text-primary)] text-white"
                 : "bg-white/60 backdrop-blur-2xl text-[var(--text-primary)] border border-white/60 hover:bg-white/80"
             )}
           >
             <div className="flex items-center justify-center gap-2">
-              <KeyRound size={20} />
+              <KeyRound size={18} className="sm:w-5 sm:h-5" />
               <span>Claim Code</span>
             </div>
           </button>
@@ -423,14 +755,14 @@ export default function Stealth() {
             aria-selected={activeTab === "sent"}
             aria-label="My sent payments"
             className={cn(
-              "flex-1 h-14 px-6 rounded-2xl font-medium transition-all",
+              "flex-1 min-w-[120px] sm:min-w-[140px] h-12 sm:h-14 px-3 sm:px-6 rounded-2xl font-medium transition-all text-xs sm:text-sm",
               activeTab === "sent"
                 ? "bg-[var(--text-primary)] text-white"
                 : "bg-white/60 backdrop-blur-2xl text-[var(--text-primary)] border border-white/60 hover:bg-white/80"
             )}
           >
             <div className="flex items-center justify-center gap-2">
-              <Send size={20} />
+              <Send size={18} className="sm:w-5 sm:h-5" />
               <span>My Sent</span>
             </div>
           </button>
@@ -475,6 +807,49 @@ export default function Stealth() {
                   <p className="text-2xl font-heading font-medium text-[var(--text-primary)] mb-6">
                     ${newCode.amount}
                   </p>
+
+                  {/* Share Link — the one-click way for the recipient to
+                      receive this payment without copying codes manually.
+                      Opens the Stealth screen on their side with ?inbox=...
+                      which auto-imports the claim to their Inbox. */}
+                  {shareLink && (
+                    <div className="w-full p-4 rounded-2xl bg-indigo-50 border-2 border-indigo-200 mb-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Link2 size={16} className="text-indigo-600" />
+                        <p className="text-xs text-indigo-600 font-medium">
+                          Share Link
+                        </p>
+                      </div>
+                      <p className="font-mono text-[11px] text-indigo-800 break-all mb-3">
+                        {shareLink}
+                      </p>
+                      <button
+                        onClick={handleCopyShareLink}
+                        className="w-full h-10 rounded-xl bg-indigo-500 text-white text-sm font-medium hover:bg-indigo-600 transition-colors flex items-center justify-center gap-2"
+                        aria-label="Copy share link"
+                      >
+                        {copied === "share-link" ? (
+                          <Check size={16} />
+                        ) : (
+                          <Copy size={16} />
+                        )}
+                        <span>
+                          {copied === "share-link" ? "Link copied!" : "Copy Link"}
+                        </span>
+                      </button>
+                      <p className="text-[11px] text-indigo-700/80 mt-2 text-center">
+                        Send this link to the recipient — they'll see it
+                        appear in their Inbox automatically.
+                      </p>
+                      <p className="text-[11px] text-amber-700 dark:text-amber-400 mt-2 flex items-center justify-center gap-1">
+                        <AlertTriangle size={12} />
+                        <span>
+                          Treat this link like a password. Anyone who opens
+                          it can see the claim code. Share privately.
+                        </span>
+                      </p>
+                    </div>
+                  )}
 
                   <div className="flex gap-3 w-full">
                     <button
@@ -716,9 +1091,197 @@ export default function Stealth() {
           </div>
         )}
 
+        {/* Inbox Tab — incoming stealth payments received via deep link */}
+        {activeTab === "inbox" && (
+          <div className="space-y-6">
+            <div className="glass-card-static rounded-3xl p-8">
+              <div className="max-w-2xl mx-auto">
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="w-10 h-10 rounded-xl bg-purple-50 flex items-center justify-center">
+                    <Inbox size={20} className="text-purple-600" />
+                  </div>
+                  <h3 className="text-xl font-heading font-medium text-[var(--text-primary)]">
+                    Stealth Inbox
+                  </h3>
+                </div>
+                <p className="text-sm text-[var(--text-primary)]/50 mb-6">
+                  Incoming stealth payments you've received as a deep link.
+                  Click <span className="font-medium">Claim</span> to receive
+                  the funds — no copy/paste needed.
+                </p>
+
+                {inboxEntries.length === 0 ? (
+                  <div className="py-12 text-center">
+                    <div className="w-16 h-16 rounded-2xl bg-purple-50 flex items-center justify-center mx-auto mb-4">
+                      <Inbox size={32} className="text-purple-400" />
+                    </div>
+                    <p className="text-lg font-heading font-medium text-[var(--text-primary)] mb-1">
+                      No incoming payments
+                    </p>
+                    <p className="text-sm text-[var(--text-primary)]/50">
+                      Ask a sender to share a stealth payment link with you.
+                      It'll appear here automatically.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {inboxEntries.map((entry) => {
+                      const isActive =
+                        entry.status === "claiming" &&
+                        (isSubmitting || isWaitingForDecryption);
+                      return (
+                        <div
+                          key={entry.claimCodeHash}
+                          className={cn(
+                            "flex items-center justify-between p-5 rounded-2xl border transition-all",
+                            entry.status === "claimed"
+                              ? "bg-emerald-50/60 border-emerald-100"
+                              : entry.status === "claiming"
+                                ? "bg-amber-50/60 border-amber-100"
+                                : "bg-purple-50/60 border-purple-100",
+                          )}
+                        >
+                          <div className="flex-1 min-w-0 pr-3">
+                            <div className="flex items-center gap-2 mb-1">
+                              <p className="text-sm font-medium text-[var(--text-primary)]">
+                                From:{" "}
+                                <span className="font-mono text-xs">
+                                  {entry.fromHint || "anonymous"}
+                                </span>
+                              </p>
+                              <div
+                                className={cn(
+                                  "inline-flex px-2 py-0.5 rounded-full text-[11px] font-medium border",
+                                  entry.status === "claimed"
+                                    ? "bg-emerald-100 text-emerald-700 border-emerald-200"
+                                    : entry.status === "claiming"
+                                      ? "bg-amber-100 text-amber-700 border-amber-200"
+                                      : "bg-purple-100 text-purple-700 border-purple-200",
+                                )}
+                              >
+                                {entry.status === "claimed"
+                                  ? "claimed"
+                                  : entry.status === "claiming"
+                                    ? "claiming..."
+                                    : "new"}
+                              </div>
+                            </div>
+                            <p className="text-xs text-[var(--text-primary)]/50">
+                              Received {formatRelative(entry.receivedAt)}
+                            </p>
+                          </div>
+                          <button
+                            disabled={
+                              entry.status === "claimed" ||
+                              isActive ||
+                              isSubmitting ||
+                              isWaitingForDecryption
+                            }
+                            onClick={() => handleClaimFromInbox(entry)}
+                            className={cn(
+                              "h-11 px-5 rounded-xl text-sm font-medium transition-colors flex items-center gap-2 disabled:opacity-50",
+                              entry.status === "claimed"
+                                ? "bg-emerald-500 text-white"
+                                : "bg-[var(--text-primary)] text-white hover:bg-black",
+                            )}
+                          >
+                            {entry.status === "claiming" ? (
+                              <Loader2 size={16} className="animate-spin" />
+                            ) : entry.status === "claimed" ? (
+                              <CheckCircle2 size={16} />
+                            ) : (
+                              <KeyRound size={16} />
+                            )}
+                            <span>
+                              {entry.status === "claimed"
+                                ? "Claimed"
+                                : entry.status === "claiming"
+                                  ? "Claiming..."
+                                  : "Claim"}
+                            </span>
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Privacy notice */}
+                <div className="mt-6 p-4 rounded-2xl bg-blue-50 border border-blue-100">
+                  <div className="flex items-start gap-3">
+                    <Lock size={18} className="text-blue-600 mt-0.5" />
+                    <p className="text-xs text-blue-800">
+                      Inbox entries are stored locally on this device only.
+                      Claim codes never leave your browser until you claim.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Claim Code Tab */}
         {activeTab === "claim" && (
           <div className="space-y-6">
+            {/* Resume Pending Claims — only shown when we have persisted entries
+                for the current signer. These are claimStealth() calls that hit
+                the chain but whose async-decrypt didn't observably finalize in
+                the session that started them (e.g. 60s poll timed out, user
+                navigated away). Clicking Resume runs finalizeClaim() again. */}
+            {pendingClaims.length > 0 && (
+              <div className="glass-card-static rounded-3xl p-8">
+                <div className="max-w-2xl mx-auto">
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center">
+                      <Clock size={20} className="text-amber-600" />
+                    </div>
+                    <h3 className="text-xl font-heading font-medium text-[var(--text-primary)]">
+                      Resume Pending Claims
+                    </h3>
+                  </div>
+                  <p className="text-sm text-[var(--text-primary)]/50 mb-4">
+                    You started these claims but their FHE decryption didn't
+                    finalize in this browser. Resume to finalize and release funds.
+                  </p>
+                  <div className="space-y-3">
+                    {pendingClaims.map((pc) => {
+                      const isResuming = resumingTransferId === pc.transferId;
+                      return (
+                        <div
+                          key={pc.transferId}
+                          className="flex items-center justify-between p-4 rounded-2xl bg-amber-50/60 border border-amber-100"
+                        >
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-amber-900">
+                              Transfer #{pc.transferId}
+                            </p>
+                            <p className="text-xs text-amber-700/80 mt-0.5">
+                              Started {formatRelative(pc.startedAt)}
+                            </p>
+                          </div>
+                          <button
+                            disabled={isResuming || isSubmitting || isWaitingForDecryption}
+                            onClick={() =>
+                              handleResumeClaim(pc.transferId, pc.claimCode)
+                            }
+                            className="h-10 px-5 rounded-xl bg-amber-500 text-white text-sm font-medium hover:bg-amber-600 transition-colors flex items-center gap-2 disabled:opacity-50"
+                          >
+                            {isResuming ? (
+                              <Loader2 size={16} className="animate-spin" />
+                            ) : (
+                              <CheckCircle2 size={16} />
+                            )}
+                            <span>{isResuming ? "Resuming..." : "Resume"}</span>
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Claim Form */}
             <div className="rounded-[2rem] glass-card p-8">
               <div className="max-w-2xl mx-auto">
@@ -1099,14 +1662,33 @@ export default function Stealth() {
                             </p>
                           </div>
                         </div>
-                        <div className="flex items-center gap-3">
+                        <div className="flex flex-col items-end gap-2 min-w-[180px]">
+                          {/* #215: explicit countdown so the sender knows
+                              exactly when the 30-day window opens. While
+                              `daysUntilRefund > 0` the button is disabled and
+                              we show a clear message; at 0 the window is open
+                              and the button enables in amber-styling. */}
+                          {!transfer.claimed && !transfer.finalized && (
+                            <p
+                              className={cn(
+                                "text-xs text-right leading-snug",
+                                canRefund
+                                  ? "text-amber-700 font-medium"
+                                  : "text-[var(--text-primary)]/50",
+                              )}
+                            >
+                              {canRefund
+                                ? "Refund window open"
+                                : `Recipient hasn't claimed yet. Refund available in ${daysUntilRefund} day${daysUntilRefund === 1 ? "" : "s"}.`}
+                            </p>
+                          )}
                           {canRefund ? (
                             <button
                               disabled={isRefunding}
                               onClick={() =>
                                 handleRefund(transfer.transferId)
                               }
-                              className="h-10 px-4 rounded-xl bg-red-500 text-white text-sm font-medium hover:bg-red-600 transition-colors flex items-center gap-2 disabled:opacity-50"
+                              className="h-10 px-4 rounded-xl bg-amber-500 text-white text-sm font-medium hover:bg-amber-600 transition-colors flex items-center gap-2 disabled:opacity-50"
                             >
                               {isRefunding ? (
                                 <Loader2
@@ -1119,9 +1701,14 @@ export default function Stealth() {
                               <span>Refund</span>
                             </button>
                           ) : !transfer.claimed && !transfer.finalized ? (
-                            <p className="text-xs text-[var(--text-primary)]/40 text-right">
-                              Refund in {daysUntilRefund}d
-                            </p>
+                            <button
+                              disabled
+                              className="h-10 px-4 rounded-xl bg-black/5 text-[var(--text-primary)]/40 text-sm font-medium flex items-center gap-2 cursor-not-allowed"
+                              aria-label={`Refund available in ${daysUntilRefund} days`}
+                            >
+                              <Undo2 size={16} />
+                              <span>Refund</span>
+                            </button>
                           ) : null}
                         </div>
                       </div>

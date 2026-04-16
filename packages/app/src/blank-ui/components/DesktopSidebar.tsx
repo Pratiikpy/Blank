@@ -22,6 +22,7 @@ import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { BlankLogo } from "@/blank-ui/landing/BlankLogo";
 import { ChainSelector } from "./ChainSelector";
+import { usePrivacyMode } from "@/providers/PrivacyModeProvider";
 import "@/blank-ui/landing/landing.css"; // pulls in .bl-wordmark + .bl-lockup styles
 
 // ═══════════════════════════════════════════════════════════════════
@@ -58,7 +59,9 @@ const NAV_ITEMS: NavItem[] = [
 export function DesktopSidebar() {
   const navigate = useNavigate();
   const location = useLocation();
-  const [privacyMode, setPrivacyMode] = useState(true);
+  // Shared global privacy mode — toggling here propagates to Dashboard's
+  // BalanceCard, ActivityList masks, etc.
+  const { privacyMode, toggle: togglePrivacy } = usePrivacyMode();
   const [darkMode, setDarkMode] = useState(() => {
     if (typeof window === "undefined") return false;
     return localStorage.getItem("blank_dark_mode") === "true";
@@ -69,9 +72,7 @@ export function DesktopSidebar() {
     return location.pathname.startsWith(path);
   };
 
-  const togglePrivacy = useCallback(() => {
-    setPrivacyMode((prev) => !prev);
-  }, []);
+  // togglePrivacy comes from usePrivacyMode() above
 
   const toggleDarkMode = useCallback(() => {
     setDarkMode((prev) => {

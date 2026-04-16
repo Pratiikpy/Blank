@@ -3,7 +3,7 @@
  * Searches for the first log from the target contract and reads topics[1].
  */
 export function extractEventId(
-  logs: { address: string; topics: readonly string[] }[],
+  logs: readonly { address: string; topics: readonly string[] }[],
   contractAddress: string
 ): number {
   for (const log of logs) {

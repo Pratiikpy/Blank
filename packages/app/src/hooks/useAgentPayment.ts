@@ -1,11 +1,16 @@
-import { useState, useCallback } from "react";
-import { useAccount, usePublicClient } from "wagmi";
+import { useState, useCallback, useEffect } from "react";
+import { usePublicClient } from "wagmi";
+import { useEffectiveAddress } from "./useEffectiveAddress";
 import { Encryptable } from "@cofhe/sdk";
 import toast from "react-hot-toast";
-import { CONTRACTS, SUPPORTED_CHAIN_ID, type EncryptedInput } from "@/lib/constants";
+import { type EncryptedInput } from "@/lib/constants";
+import { useChain } from "@/providers/ChainProvider";
 import { PaymentHubAbi } from "@/lib/abis";
 import { useCofheEncrypt } from "@/lib/cofhe-shim";
 import { insertActivity } from "@/lib/supabase";
+import { ACTIVITY_TYPES } from "@/lib/activity-types";
+import { broadcastAction } from "@/lib/cross-tab";
+import { invalidateBalanceQueries } from "@/lib/query-invalidation";
 import { isVaultApproved, markVaultApproved, clearVaultApproval } from "@/lib/approval";
 import { FHERC20VaultAbi } from "@/lib/abis";
 import { MAX_UINT64 } from "@/lib/constants";
@@ -68,14 +73,40 @@ async function ensureVaultApproval(
 }
 
 export function useAgentPayment() {
-  const { address } = useAccount();
-  const publicClient = usePublicClient();
-  const { unifiedWrite } = useUnifiedWrite();
+  const { effectiveAddress: address } = useEffectiveAddress();
+  const { activeChainId, contracts } = useChain();
+  const publicClient = usePublicClient({ chainId: activeChainId });
+  const { unifiedWrite, unifiedWriteAndWait } = useUnifiedWrite();
   const { encryptInputsAsync } = useCofheEncrypt();
 
   const [step, setStep] = useState<AgentStep>("idle");
   const [error, setError] = useState<string | null>(null);
   const [lastAttestation, setLastAttestation] = useState<AgentAttestation | null>(null);
+
+  // Block-timestamp reference for expiry math. The contract compares the
+  // attestation expiry against `block.timestamp`, not the user's wall clock —
+  // a skewed client clock can make a still-valid attestation look expired
+  // (or vice versa). Fetch the latest block timestamp on mount and every
+  // 10s so the UI countdown + pre-submit check track the chain, not local time.
+  const [blockTimestamp, setBlockTimestamp] = useState<number | null>(null);
+  useEffect(() => {
+    if (!publicClient) return;
+    let cancelled = false;
+    const fetchTs = async () => {
+      try {
+        const block = await publicClient.getBlock({ blockTag: "latest" });
+        if (!cancelled) setBlockTimestamp(Number(block.timestamp));
+      } catch {
+        /* noop — stale timestamp is fine for countdown display */
+      }
+    };
+    fetchTs();
+    const id = setInterval(fetchTs, 10_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [publicClient]);
 
   // Stage 1: ask the server to derive an amount and produce a signed attestation.
   // Returns null on any failure — `error` state is populated.
@@ -96,8 +127,8 @@ export function useAgentPayment() {
             user: address,
             template,
             context,
-            chainId: SUPPORTED_CHAIN_ID,
-            paymentHubAddress: CONTRACTS.PaymentHub,
+            chainId: activeChainId,
+            paymentHubAddress: contracts.PaymentHub,
           }),
         });
         if (!res.ok) {
@@ -128,7 +159,7 @@ export function useAgentPayment() {
         return null;
       }
     },
-    [address],
+    [address, activeChainId, contracts],
   );
 
   // Stage 2: encrypt the attested amount and submit on-chain.
@@ -142,29 +173,38 @@ export function useAgentPayment() {
         toast.error("Recipient must be different from sender");
         return null;
       }
+      // Block-timestamp-aware expiry guard: the contract checks the
+      // attestation against `block.timestamp`, not local wall-clock time.
+      // Refuse to submit if we're within 30s of on-chain expiry (covers
+      // block time + tx inclusion lag + a small safety buffer).
+      const referenceTs = blockTimestamp ?? Math.floor(Date.now() / 1000);
+      if (attestation.expiry - referenceTs <= 30) {
+        toast.error("Attestation about to expire — re-derive");
+        return null;
+      }
       try {
         // Ensure the PaymentHub has vault allowance (one-time per session per hub)
-        if (!isVaultApproved(CONTRACTS.PaymentHub)) {
+        if (!isVaultApproved(contracts.PaymentHub)) {
           setStep("approving");
           await ensureVaultApproval(
             unifiedWrite,
-            CONTRACTS.FHERC20Vault_USDC,
-            CONTRACTS.PaymentHub,
+            contracts.FHERC20Vault_USDC,
+            contracts.PaymentHub,
           );
-          markVaultApproved(CONTRACTS.PaymentHub);
+          markVaultApproved(contracts.PaymentHub);
         }
 
         setStep("encrypting");
         const [encAmount] = await encryptInputsAsync([Encryptable.uint64(attestation.amount)]);
 
         setStep("sending");
-        const hash = await unifiedWrite({
-          address: CONTRACTS.PaymentHub,
+        const agentPayResult = await unifiedWriteAndWait({
+          address: contracts.PaymentHub,
           abi: PaymentHubAbi,
           functionName: "sendPaymentAsAgent",
           args: [
             to,
-            CONTRACTS.FHERC20Vault_USDC,
+            contracts.FHERC20Vault_USDC,
             encAmount as unknown as EncryptedInput,
             note,
             attestation.agent,
@@ -174,20 +214,26 @@ export function useAgentPayment() {
           ],
           gas: BigInt(5_000_000),
         });
-
-        const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
+        const hash = agentPayResult.hash;
+        const receipt = agentPayResult.receipt
+          ? agentPayResult.receipt
+          : await publicClient.waitForTransactionReceipt({ hash, confirmations: 1, timeout: 300_000 });
         if (receipt.status === "reverted") throw new Error("Transaction reverted on-chain");
 
         await insertActivity({
           tx_hash: hash,
           user_from: address.toLowerCase(),
           user_to: to.toLowerCase(),
-          activity_type: "agent_payment",
-          contract_address: CONTRACTS.PaymentHub,
+          activity_type: ACTIVITY_TYPES.AGENT_PAYMENT,
+          contract_address: contracts.PaymentHub,
           note: note || `Agent ${attestation.agent.slice(0, 6)}…${attestation.agent.slice(-4)}`,
-          token_address: CONTRACTS.TestUSDC,
+          token_address: contracts.TestUSDC,
           block_number: Number(receipt.blockNumber),
         });
+
+        broadcastAction("balance_changed");
+        broadcastAction("activity_added");
+        invalidateBalanceQueries();
 
         setStep("success");
         toast.success("Agent payment submitted on-chain!");
@@ -195,7 +241,7 @@ export function useAgentPayment() {
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Agent payment failed";
         if (msg.includes("allowance") || msg.includes("approve")) {
-          clearVaultApproval(CONTRACTS.PaymentHub);
+          clearVaultApproval(contracts.PaymentHub);
         }
         setStep("error");
         setError(msg);
@@ -203,7 +249,7 @@ export function useAgentPayment() {
         return null;
       }
     },
-    [address, publicClient, unifiedWrite, encryptInputsAsync],
+    [address, publicClient, unifiedWrite, unifiedWriteAndWait, encryptInputsAsync, contracts, blockTimestamp],
   );
 
   const reset = useCallback(() => {
@@ -216,6 +262,7 @@ export function useAgentPayment() {
     step,
     error,
     lastAttestation,
+    blockTimestamp,
     derive,
     submit,
     reset,

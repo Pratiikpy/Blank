@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useContacts } from "@/hooks/useContacts";
 import { ChevronLeft, Plus, Trash2, Search, User } from "lucide-react";
 import toast from "react-hot-toast";
+import { truncateAddress } from "@/lib/address";
 
 export default function Contacts() {
   const navigate = useNavigate();
@@ -68,12 +69,14 @@ export default function Contacts() {
             <input
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") handleAdd(); }}
               placeholder="Nickname"
               className="h-12 w-full px-4 rounded-xl bg-white/60 border border-black/5 outline-none"
             />
             <input
               value={newAddress}
               onChange={(e) => setNewAddress(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") handleAdd(); }}
               placeholder="0x... wallet address"
               className="h-12 w-full px-4 rounded-xl bg-white/60 border border-black/5 outline-none font-mono text-sm"
             />
@@ -129,7 +132,7 @@ export default function Contacts() {
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium truncate">{c.nickname}</p>
                   <p className="text-xs font-mono text-[var(--text-tertiary)] truncate">
-                    {c.address}
+                    {truncateAddress(c.address)}
                   </p>
                 </div>
                 <button

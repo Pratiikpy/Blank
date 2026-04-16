@@ -12,10 +12,12 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useGroupSplit } from "@/hooks/useGroupSplit";
-import { useAccount } from "wagmi";
+import { useEffectiveAddress } from "@/hooks/useEffectiveAddress";
 import {
   fetchUserGroups,
   fetchGroupExpenses,
+  fetchGroupById,
+  addSelfToGroup,
   type GroupMembershipRow,
   type GroupExpenseRow,
 } from "@/lib/supabase";
@@ -260,7 +262,7 @@ function AddExpenseModal({
   onClose: () => void;
   onAdded: () => void;
 }) {
-  const { address } = useAccount();
+  const { effectiveAddress: address } = useEffectiveAddress();
   const { addExpense, computeEqualSplit, isProcessing } = useGroupSplit();
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
@@ -709,7 +711,7 @@ function GroupCard({
   const color = addressToColor(group.member_address);
 
   return (
-    <div className="rounded-[2rem] glass-card p-8 hover:-translate-y-1 transition-all duration-300">
+    <div className="rounded-[2rem] glass-card p-4 sm:p-8 hover:-translate-y-1 transition-all duration-300">
       {/* Name + Status */}
       <div className="flex items-start justify-between mb-6">
         <div className="flex-1">
@@ -853,7 +855,7 @@ function GroupCard({
 // ---------------------------------------------------------------
 
 export default function Groups() {
-  const { address } = useAccount();
+  const { effectiveAddress: address } = useEffectiveAddress();
   const { leaveGroup, archiveGroup, isProcessing: groupActionProcessing } = useGroupSplit();
   const [showCreate, setShowCreate] = useState(false);
   const [expenseGroupId, setExpenseGroupId] = useState<number | null>(null);
@@ -866,6 +868,12 @@ export default function Groups() {
     Record<number, GroupExpenseRow[]>
   >({});
   const [loading, setLoading] = useState(true);
+
+  // Join-by-ID UI state (#83). Contract-side `joinGroup(uint256)` does NOT
+  // exist yet — this path is Supabase-only: the user types a group ID, we
+  // look it up and insert a self-membership row. See addSelfToGroup TODO.
+  const [joinGroupIdInput, setJoinGroupIdInput] = useState("");
+  const [joining, setJoining] = useState(false);
 
   const refreshData = useCallback(async () => {
     if (!address) {
@@ -911,24 +919,63 @@ export default function Groups() {
     return acc;
   }, []);
 
+  // Join-by-ID handler (#83) — Supabase-only for now. See addSelfToGroup.
+  const handleJoinByGroupId = useCallback(async () => {
+    if (!address) {
+      toast.error("Connect wallet first");
+      return;
+    }
+    const trimmed = joinGroupIdInput.trim();
+    const parsed = Number(trimmed);
+    if (!trimmed || !Number.isInteger(parsed) || parsed < 0) {
+      toast.error("Enter a valid group ID (positive integer)");
+      return;
+    }
+
+    // Don't re-join a group the user is already a member of.
+    if (uniqueGroups.some((g) => g.group_id === parsed)) {
+      toast("You're already in that group", { icon: "\u2139\uFE0F" });
+      return;
+    }
+
+    setJoining(true);
+    try {
+      const existing = await fetchGroupById(parsed);
+      if (!existing) {
+        toast.error("Group not found — ask the group admin to add you");
+        return;
+      }
+      const ok = await addSelfToGroup(parsed, address.toLowerCase());
+      if (!ok) {
+        toast.error("Failed to join group. Please try again.");
+        return;
+      }
+      toast.success(`Joined "${existing.group_name}"!`);
+      setJoinGroupIdInput("");
+      await refreshData();
+    } finally {
+      setJoining(false);
+    }
+  }, [address, joinGroupIdInput, uniqueGroups, refreshData]);
+
   return (
     <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="max-w-6xl mx-auto">
         {/* Header */}
-        <div className="mb-8 flex items-center justify-between">
-          <div>
-            <h1 className="text-4xl sm:text-5xl font-heading font-semibold text-[var(--text-primary)] tracking-tight mb-2">
+        <div className="mb-8 flex items-start sm:items-center justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="text-3xl sm:text-5xl font-heading font-semibold text-[var(--text-primary)] tracking-tight mb-2">
               Group Expenses
             </h1>
-            <p className="text-base text-[var(--text-primary)]/50 leading-relaxed">
+            <p className="text-sm sm:text-base text-[var(--text-primary)]/50 leading-relaxed">
               Split bills privately with voting approval
             </p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
             <button
               onClick={refreshData}
               disabled={loading}
-              className="h-14 w-14 rounded-2xl bg-white/60 backdrop-blur-2xl border border-white/60 flex items-center justify-center hover:bg-white/80 transition-all"
+              className="h-12 w-12 sm:h-14 sm:w-14 rounded-2xl bg-white/60 backdrop-blur-2xl border border-white/60 flex items-center justify-center hover:bg-white/80 transition-all"
               aria-label="Refresh"
             >
               <RefreshCw
@@ -941,10 +988,62 @@ export default function Groups() {
             </button>
             <button
               onClick={() => setShowCreate(true)}
-              className="h-14 px-6 rounded-2xl bg-[var(--text-primary)] text-white font-medium transition-transform active:scale-95 hover:bg-[#000000] flex items-center gap-2"
+              className="h-12 sm:h-14 px-4 sm:px-6 rounded-2xl bg-[var(--text-primary)] text-white font-medium transition-transform active:scale-95 hover:bg-[#000000] flex items-center gap-2 text-sm sm:text-base"
             >
               <Plus size={20} />
-              <span>Create Group</span>
+              <span className="hidden sm:inline">Create Group</span>
+              <span className="sm:hidden">Create</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Join by Group ID (#83)
+            Supabase-only path: no on-chain membership validation yet. Once
+            `joinGroup(uint256)` is deployed we'll wire the contract call here. */}
+        <div className="glass-card-static rounded-3xl p-6 mb-6">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center">
+              <Users size={20} className="text-blue-500" />
+            </div>
+            <div>
+              <h3 className="text-lg font-heading font-medium text-[var(--text-primary)]">
+                Join a group
+              </h3>
+              <p className="text-xs text-[var(--text-primary)]/50">
+                If someone added you by address, enter the group ID to see it here
+              </p>
+            </div>
+          </div>
+          <div className="flex gap-3">
+            <input
+              type="text"
+              inputMode="numeric"
+              placeholder="Group ID (e.g. 42)"
+              value={joinGroupIdInput}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (/^\d*$/.test(v)) setJoinGroupIdInput(v);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !joining) {
+                  e.preventDefault();
+                  handleJoinByGroupId();
+                }
+              }}
+              className="flex-1 h-12 px-5 rounded-2xl bg-white/60 border border-black/10 focus:border-black/20 focus:ring-4 focus:ring-black/5 outline-none transition-all placeholder:text-black/30 font-mono text-sm"
+            />
+            <button
+              type="button"
+              onClick={handleJoinByGroupId}
+              disabled={joining || !joinGroupIdInput.trim()}
+              className="h-12 px-6 rounded-2xl bg-[var(--text-primary)] text-white font-medium transition-transform active:scale-95 hover:bg-[#000000] flex items-center gap-2 disabled:opacity-50"
+            >
+              {joining ? (
+                <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              ) : (
+                <Plus size={18} />
+              )}
+              <span>Join by ID</span>
             </button>
           </div>
         </div>

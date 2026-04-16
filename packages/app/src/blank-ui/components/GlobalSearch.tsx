@@ -211,7 +211,7 @@ export function GlobalSearch({ compact = false }: GlobalSearchProps) {
                   {matchedActivities.map((activity) => (
                     <button
                       key={activity.id}
-                      onClick={() => handleNavigate(`/tx/${activity.id}`)}
+                      onClick={() => handleNavigate(`/app/tx/${activity.id}`)}
                       className="w-full flex items-center gap-3 px-4 py-3 hover:bg-black/5 transition-colors text-left"
                     >
                       <div className="w-9 h-9 rounded-xl bg-blue-50 flex items-center justify-center flex-shrink-0">

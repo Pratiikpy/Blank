@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useAccount, usePublicClient } from "wagmi";
 import { Lock, Loader2 } from "lucide-react";
-import { CONTRACTS, ACTIVE_CHAIN } from "@/lib/constants";
+import { useChain } from "@/providers/ChainProvider";
 import { PaymentReceiptsAbi } from "@/lib/abis";
 import { useCofheDecryptForView, useCofheConnection } from "@/lib/cofhe-shim";
 import "./global-counter.css";
@@ -24,6 +24,7 @@ const TOKEN_DECIMALS = 6;
 export function GlobalCounter() {
   const publicClient = usePublicClient();
   const { isConnected } = useAccount();
+  const { activeChain, activeChainId, contracts, availableChains, setActiveChain } = useChain();
   const { connected: cofheReady } = useCofheConnection();
   const { decryptForView } = useCofheDecryptForView();
 
@@ -36,12 +37,12 @@ export function GlobalCounter() {
     try {
       const [volHandle, cntHandle] = await Promise.all([
         publicClient.readContract({
-          address: CONTRACTS.PaymentReceipts,
+          address: contracts.PaymentReceipts,
           abi: PaymentReceiptsAbi,
           functionName: "getGlobalVolumeHandle",
         }) as Promise<bigint>,
         publicClient.readContract({
-          address: CONTRACTS.PaymentReceipts,
+          address: contracts.PaymentReceipts,
           abi: PaymentReceiptsAbi,
           functionName: "getGlobalTxCountHandle",
         }) as Promise<bigint>,
@@ -67,27 +68,61 @@ export function GlobalCounter() {
     } finally {
       setLoading(false);
     }
-  }, [publicClient, decryptForView]);
+  }, [publicClient, decryptForView, contracts]);
+
+  // Reset displayed values on chain switch so stale numbers from the
+  // previous chain don't briefly show before the new chain's read lands.
+  useEffect(() => {
+    setVolume(null);
+    setTxCount(null);
+    setLoading(true);
+  }, [activeChainId]);
 
   useEffect(() => {
     if (!cofheReady) return;
+    if (!publicClient || !isConnected) return;
     refresh();
     const id = setInterval(refresh, POLL_MS);
     return () => clearInterval(id);
-  }, [refresh, cofheReady]);
+  }, [refresh, cofheReady, publicClient, isConnected, activeChainId]);
 
   const volumeUSD =
     volume !== null ? Number(volume) / 10 ** TOKEN_DECIMALS : null;
 
   return (
     <section className="gc-section" aria-label="Live encrypted volume">
-      <div className="gc-eyebrow">Live · {ACTIVE_CHAIN.shortName}</div>
+      <div className="gc-eyebrow">Live · {activeChain.shortName}</div>
+
+      {/* #243: cross-chain switcher — each chain has its own PaymentReceipts
+          contract + cofhe network, so we can't aggregate them in one read.
+          Instead, let the viewer flip between chains. setActiveChain re-runs
+          the effect below, refreshing the displayed counter. */}
+      {availableChains.length > 1 && (
+        <div className="gc-chain-tabs" role="tablist" aria-label="Select chain">
+          {availableChains.map((c) => (
+            <button
+              key={c.id}
+              type="button"
+              role="tab"
+              aria-selected={c.id === activeChainId}
+              className={`gc-chain-tab${c.id === activeChainId ? " is-active" : ""}`}
+              onClick={() => {
+                if (c.id !== activeChainId) setActiveChain(c.id);
+              }}
+            >
+              {c.shortName}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="gc-numbers">
         <div className="gc-stat">
-          <div className="gc-stat-label">Encrypted USDC moved through Blank</div>
+          <div className="gc-stat-label">Encrypted USDC moved on {activeChain.name}</div>
           <div className="gc-stat-value">
-            {loading && volumeUSD === null ? (
+            {!isConnected ? (
+              <span className="gc-hint">Connect to view live counter</span>
+            ) : loading && volumeUSD === null ? (
               <Loader2 size={28} className="animate-spin opacity-30" />
             ) : volumeUSD !== null ? (
               <>
@@ -106,9 +141,11 @@ export function GlobalCounter() {
         <div className="gc-divider" aria-hidden />
 
         <div className="gc-stat">
-          <div className="gc-stat-label">Receipts issued</div>
+          <div className="gc-stat-label">Receipts issued on {activeChain.name}</div>
           <div className="gc-stat-value">
-            {loading && txCount === null ? (
+            {!isConnected ? (
+              <span className="gc-hint">Connect to view live counter</span>
+            ) : loading && txCount === null ? (
               <Loader2 size={28} className="animate-spin opacity-30" />
             ) : txCount !== null ? (
               <>{Number(txCount).toLocaleString()}</>

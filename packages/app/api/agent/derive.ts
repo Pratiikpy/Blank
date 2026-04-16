@@ -24,18 +24,31 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { ethers } from "ethers";
+import { checkRateLimit, writeRateLimitHeaders } from "../_lib/rate-limit";
+import { getSigner } from "../_lib/signer";
 
 // ─── AI Providers ─────────────────────────────────────────────────────
 
 const NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1/chat/completions";
 const KIMI_MODEL = "moonshotai/kimi-k2-instruct"; // production-stable variant
-const CLAUDE_MODEL = "claude-opus-4-6";
+
+// Anthropic models, tried in order. If opus-4-6 is deprecated we gracefully
+// fall back to opus-4-5, etc. Override via ANTHROPIC_MODEL_OVERRIDE env var.
+const CLAUDE_MODEL_CHAIN = [
+  "claude-opus-4-6",
+  "claude-opus-4-5",
+  "claude-sonnet-4-6",
+];
+const CLAUDE_MODEL = CLAUDE_MODEL_CHAIN[0]; // reported in response as the "default"
 
 type ProviderId = "kimi" | "anthropic";
 
 interface ProviderResult {
   provider: ProviderId;
   text: string;
+  /** Actual model used (for honest UI attribution — Anthropic has a
+   *  fallback chain, so the attested "opus-4-6" may actually be 4-5). */
+  model?: string;
 }
 
 async function runKimi(prompt: string): Promise<ProviderResult> {
@@ -71,20 +84,41 @@ async function runKimi(prompt: string): Promise<ProviderResult> {
   return { provider: "kimi", text };
 }
 
-async function runAnthropic(prompt: string): Promise<ProviderResult> {
+async function runAnthropic(prompt: string): Promise<ProviderResult & { model: string }> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error("ANTHROPIC_API_KEY not set");
 
   const anthropic = new Anthropic({ apiKey });
-  const response = await anthropic.messages.create({
-    model: CLAUDE_MODEL,
-    max_tokens: 50,
-    messages: [{ role: "user", content: prompt }],
-  });
-  const block = response.content[0];
-  const text = block && block.type === "text" ? block.text : "";
-  if (!text) throw new Error("Anthropic returned empty content");
-  return { provider: "anthropic", text };
+  // Layer 12: try models in order — if the primary (opus-4-6) gets
+  // deprecated we fall back to opus-4-5, then sonnet-4-6. Surfaces the
+  // ACTUAL model used so the UI shows truth, not the preference.
+  const override = process.env.ANTHROPIC_MODEL_OVERRIDE;
+  const chain = override ? [override] : CLAUDE_MODEL_CHAIN;
+
+  const errors: string[] = [];
+  for (const model of chain) {
+    try {
+      const response = await anthropic.messages.create({
+        model,
+        max_tokens: 50,
+        messages: [{ role: "user", content: prompt }],
+      });
+      const block = response.content[0];
+      const text = block && block.type === "text" ? block.text : "";
+      if (!text) throw new Error(`${model} returned empty content`);
+      return { provider: "anthropic", text, model };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      // Only fall through if the error looks like "model not found" or
+      // deprecation. Hard errors (auth, rate limit) should stop here.
+      if (/not_found|does not exist|invalid model|deprecated/i.test(msg)) {
+        errors.push(`${model}: ${msg}`);
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw new Error(`All Anthropic models failed — ${errors.join(" | ")}`);
 }
 
 /**
@@ -160,29 +194,15 @@ Output:`,
   },
 };
 
-// ─── In-memory rate limit (5 req / IP / minute) ───────────────────────
-// Vercel cold starts wipe this — fine for hackathon scope. Move to Redis
-// (Vercel KV) before production.
-const RATE_WINDOW_MS = 60_000;
-const RATE_MAX = 5;
-const rateMap = new Map<string, number[]>();
+// ─── Rate limiting ────────────────────────────────────────────────────
+// Shared limiter: Vercel KV when KV_REST_API_URL + KV_REST_API_TOKEN are
+// set, in-memory fallback for local dev. 5 req / IP / minute.
 
 function ipFromHeaders(req: { headers: Record<string, string | string[] | undefined> }) {
   const fwd = req.headers["x-forwarded-for"];
   if (typeof fwd === "string") return fwd.split(",")[0].trim();
   if (Array.isArray(fwd)) return fwd[0].split(",")[0].trim();
   return "unknown";
-}
-
-function rateLimited(ip: string): boolean {
-  const now = Date.now();
-  const calls = (rateMap.get(ip) ?? []).filter((t) => now - t < RATE_WINDOW_MS);
-  if (calls.length >= RATE_MAX) {
-    rateMap.set(ip, calls);
-    return true;
-  }
-  rateMap.set(ip, [...calls, now]);
-  return false;
 }
 
 // ─── Handler ──────────────────────────────────────────────────────────
@@ -195,19 +215,17 @@ export default async function handler(req: any, res: any) {
 
   // Rate limit by IP
   const ip = ipFromHeaders(req);
-  if (rateLimited(ip)) {
-    res.status(429).json({ error: "Rate limit exceeded — try again in a minute" });
+  const rl = await checkRateLimit({ ip, key: "agent", windowMs: 60_000, max: 5 });
+  writeRateLimitHeaders(res, rl);
+  if (!rl.ok) {
+    res.status(429).json({ error: `Rate limit exceeded — try again in ${rl.resetSeconds}s` });
     return;
   }
 
-  // Required env vars: at least one AI provider key + the agent signing key.
-  const agentKey = process.env.AGENT_PRIVATE_KEY;
+  // Required env vars: at least one AI provider key. Agent signing key
+  // comes from the Signer abstraction (env or KMS — see _lib/signer.ts).
   const hasKimi = !!process.env.NVIDIA_API_KEY;
   const hasClaude = !!process.env.ANTHROPIC_API_KEY;
-  if (!agentKey) {
-    res.status(500).json({ error: "Server not configured — missing AGENT_PRIVATE_KEY" });
-    return;
-  }
   if (!hasKimi && !hasClaude) {
     res.status(500).json({ error: "Server not configured — set at least one of NVIDIA_API_KEY (Kimi) or ANTHROPIC_API_KEY (Claude)" });
     return;
@@ -252,10 +270,12 @@ export default async function handler(req: any, res: any) {
   let amount: bigint;
   let rawText: string;
   let providerUsed: ProviderId;
+  let actualModelUsed: string | undefined;
   try {
     const result = await runAgent(tpl.buildPrompt({ context }));
     rawText = result.text;
     providerUsed = result.provider;
+    actualModelUsed = result.model;
     amount = tpl.parseResponse(rawText);
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Agent derivation failed";
@@ -263,8 +283,14 @@ export default async function handler(req: any, res: any) {
     return;
   }
 
-  // Sign attestation
-  const wallet = new ethers.Wallet(agentKey);
+  // Sign attestation — Signer abstraction lets us swap env keys for KMS later.
+  let signer;
+  try {
+    signer = getSigner("agent");
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : "signer init failed" });
+    return;
+  }
   const nonce = ethers.hexlify(ethers.randomBytes(32));
   const expiry = Math.floor(Date.now() / 1000) + 600; // 10 minutes
 
@@ -274,17 +300,22 @@ export default async function handler(req: any, res: any) {
       [user, nonce, expiry, chainId, paymentHubAddress],
     ),
   );
-  const signature = await wallet.signMessage(ethers.getBytes(innerHash));
+  const signature = await signer.signMessage(ethers.getBytes(innerHash));
+  const agentAddress = await signer.getAddress();
+
+  // Surface the ACTUAL model used (not the preference) so the UI attribution
+  // is honest even if Anthropic's fallback chain kicked in. Fix for #117.
+  const modelReported = providerUsed === "kimi" ? KIMI_MODEL : (actualModelUsed ?? CLAUDE_MODEL);
 
   res.status(200).json({
     amount: amount.toString(),
-    agent: wallet.address,
+    agent: agentAddress,
     nonce,
     expiry,
     signature,
     raw: rawText,
     template,
     provider: providerUsed,
-    model: providerUsed === "kimi" ? KIMI_MODEL : CLAUDE_MODEL,
+    model: modelReported,
   });
 }

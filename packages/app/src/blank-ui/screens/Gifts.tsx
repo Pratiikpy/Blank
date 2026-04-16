@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import {
   Gift,
   Sparkles,
@@ -14,9 +14,12 @@ import {
 import { cn } from "@/lib/cn";
 import toast from "react-hot-toast";
 import { useGiftMoney } from "@/hooks/useGiftMoney";
-import { useAccount } from "wagmi";
+import { usePublicClient } from "wagmi";
+import { useEffectiveAddress } from "@/hooks/useEffectiveAddress";
 import { useActivityFeed } from "@/hooks/useActivityFeed";
-import { CONTRACTS } from "@/lib/constants";
+import { useChain } from "@/providers/ChainProvider";
+import { GiftMoneyAbi } from "@/lib/abis";
+import { formatUsdcInput } from "@/lib/format";
 
 // ---------------------------------------------------------------
 //  THEME OPTIONS
@@ -109,7 +112,13 @@ function getStepLabel(step: string): string {
 // ---------------------------------------------------------------
 
 export default function Gifts() {
-  const { address } = useAccount();
+  // R5-D: resolve smart-account address for passkey-only users so the
+  // "Connect wallet first" gate doesn't block them. EOA users keep the
+  // exact same code path because effectiveAddress falls back to EOA.
+  const { effectiveAddress: address } = useEffectiveAddress();
+  const { contracts, activeChainId } = useChain();
+  // Pass chainId so passkey-only users get a working publicClient.
+  const publicClient = usePublicClient({ chainId: activeChainId });
   const {
     step,
     isProcessing,
@@ -122,6 +131,11 @@ export default function Gifts() {
     reset,
   } = useGiftMoney();
   const { activities } = useActivityFeed();
+
+  // #255: track on-chain expiry per envelope so we can render an "EXPIRED"
+  // badge and disable claim on stale envelopes. Map keyed by envelopeId.
+  // Value is the unix-second expiry timestamp (0 means "no expiry").
+  const [envelopeExpiry, setEnvelopeExpiry] = useState<Record<number, number>>({});
 
   const [activeTab, setActiveTab] = useState<TabValue>("received");
   const [selectedTheme, setSelectedTheme] = useState<number | null>(null);
@@ -161,6 +175,55 @@ export default function Gifts() {
   );
 
   const filteredGifts = activeTab === "received" ? receivedGifts : sentGifts;
+
+  // #255: gather every envelope ID currently visible (sent + received) so
+  // we can fetch each envelope's on-chain expiry once and reuse for the
+  // "EXPIRED" badge + claim-button disable on both tabs.
+  const visibleEnvelopeIds = useMemo(() => {
+    const ids = new Set<number>();
+    for (const a of [...receivedGifts, ...sentGifts]) {
+      const id = parseEnvelopeId(a.note);
+      if (id != null) ids.add(id);
+    }
+    return Array.from(ids);
+  }, [receivedGifts, sentGifts]);
+
+  // Fetch on-chain expiry for envelopes we haven't seen yet. Keep batches
+  // small (parallel via Promise.allSettled) and only update state once at the
+  // end so we don't churn renders.
+  useEffect(() => {
+    if (!publicClient || visibleEnvelopeIds.length === 0) return;
+    const unknown = visibleEnvelopeIds.filter((id) => !(id in envelopeExpiry));
+    if (unknown.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      const results = await Promise.allSettled(
+        unknown.map((id) =>
+          publicClient.readContract({
+            address: contracts.GiftMoney as `0x${string}`,
+            abi: GiftMoneyAbi,
+            functionName: "getEnvelope",
+            args: [BigInt(id)],
+          }),
+        ),
+      );
+      if (cancelled) return;
+      const next: Record<number, number> = {};
+      results.forEach((r, i) => {
+        if (r.status === "fulfilled") {
+          // getEnvelope returns a tuple; expiryTimestamp is the 8th field (index 7).
+          const tuple = r.value as readonly [unknown, unknown, unknown, unknown, unknown, unknown, unknown, bigint];
+          next[unknown[i]] = Number(tuple[7] ?? 0n);
+        }
+      });
+      if (Object.keys(next).length > 0) {
+        setEnvelopeExpiry((prev) => ({ ...prev, ...next }));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [publicClient, contracts.GiftMoney, visibleEnvelopeIds, envelopeExpiry]);
 
   const addRecipient = () => {
     const trimmed = recipientInput.trim();
@@ -209,7 +272,7 @@ export default function Gifts() {
       : 0;
 
     const result = await createGift(
-      CONTRACTS.FHERC20Vault_USDC,
+      contracts.FHERC20Vault_USDC,
       shares,
       allRecipients,
       note,
@@ -222,7 +285,9 @@ export default function Gifts() {
           allRecipients.length === 1
             ? `${allRecipients[0].slice(0, 6)}...${allRecipients[0].slice(-4)}`
             : `${allRecipients.length} recipients`,
-        amount: parseFloat(giftAmount).toFixed(2),
+        // #294: preserve up to 6 decimals so a typed amount like "10.123456"
+        // isn't silently truncated to "10.12" on the success card.
+        amount: formatUsdcInput(giftAmount),
         theme: theme?.name || "Gift",
         message: giftMessage || undefined,
         txHash: result,
@@ -240,6 +305,7 @@ export default function Gifts() {
     createGift,
     computeEqualSplits,
     computeRandomSplits,
+    contracts,
   ]);
 
   // ─── Claim Gift ────────────────────────────────────────────────────
@@ -654,19 +720,40 @@ export default function Gifts() {
                 const envelopeId = parseEnvelopeId(activity.note);
                 const displayNote = stripEnvelopePrefix(activity.note);
 
+                // #255: derive expired state from on-chain envelope expiry.
+                // expiryTs == 0 means "no expiry" per the GiftMoney contract.
+                const expiryTs =
+                  envelopeId != null ? envelopeExpiry[envelopeId] ?? 0 : 0;
+                const isExpired =
+                  expiryTs > 0 && Math.floor(Date.now() / 1000) > expiryTs;
+
                 return (
                   <div
                     key={activity.id}
-                    className="flex items-center justify-between p-6 rounded-2xl bg-white/50 border border-black/5 hover:bg-white/70 transition-all"
+                    className={cn(
+                      "flex items-center justify-between p-6 rounded-2xl border transition-all",
+                      isExpired
+                        ? "bg-amber-50/60 border-amber-200 hover:bg-amber-50/80"
+                        : "bg-white/50 border-black/5 hover:bg-white/70",
+                    )}
                   >
                     <div className="flex items-center gap-4">
                       <div className="w-12 h-12 rounded-xl bg-pink-50 flex items-center justify-center">
                         <Gift size={24} className="text-pink-600" />
                       </div>
                       <div>
-                        <p className="font-medium text-[var(--text-primary)]">
-                          {isSent ? "To" : "From"}{" "}
-                          {otherAddress.slice(0, 6)}...{otherAddress.slice(-4)}
+                        <p className="font-medium text-[var(--text-primary)] flex items-center gap-2">
+                          <span>
+                            {isSent ? "To" : "From"}{" "}
+                            {otherAddress.slice(0, 6)}...{otherAddress.slice(-4)}
+                          </span>
+                          {/* #255: EXPIRED badge */}
+                          {isExpired && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 border border-amber-200 text-[10px] font-semibold tracking-wide text-amber-800 uppercase">
+                              <Clock size={10} />
+                              Expired
+                            </span>
+                          )}
                         </p>
                         <p className="text-sm text-[var(--text-primary)]/50">
                           {displayNote}
@@ -678,6 +765,12 @@ export default function Gifts() {
                           {activity.created_at &&
                             ` \u00B7 ${new Date(activity.created_at).toLocaleDateString()}`}
                         </p>
+                        {/* #255: subtitle for sent expired envelopes */}
+                        {isSent && isExpired && (
+                          <p className="text-xs text-amber-700 mt-1">
+                            Expired — no longer claimable
+                          </p>
+                        )}
                       </div>
                     </div>
                     <div className="flex items-center gap-4">
@@ -688,21 +781,26 @@ export default function Gifts() {
                         <div
                           className={cn(
                             "inline-flex px-2 py-1 rounded-full text-xs font-medium border",
-                            "bg-emerald-50 text-emerald-700 border-emerald-100"
+                            isExpired
+                              ? "bg-amber-50 text-amber-700 border-amber-200"
+                              : "bg-emerald-50 text-emerald-700 border-emerald-100",
                           )}
                         >
-                          {isSent ? "sent" : "received"}
+                          {isExpired ? "expired" : isSent ? "sent" : "received"}
                         </div>
                       </div>
                       {/* Auto-claim for received gifts with known envelope ID */}
                       {!isSent && envelopeId != null && (
                         <button
                           onClick={() => handleClaim(envelopeId)}
-                          disabled={isProcessing}
-                          className="h-10 px-4 rounded-xl bg-emerald-500 text-white text-sm font-medium disabled:opacity-50"
+                          disabled={isProcessing || isExpired}
+                          title={isExpired ? "Envelope expired — no longer claimable" : undefined}
+                          className="h-10 px-4 rounded-xl bg-emerald-500 text-white text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           {isProcessing ? (
                             <Loader2 size={16} className="animate-spin" />
+                          ) : isExpired ? (
+                            "Expired"
                           ) : (
                             "Claim"
                           )}

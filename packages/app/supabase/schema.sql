@@ -18,6 +18,7 @@ create table if not exists activities (
   note text default '',
   token_address text default '',
   block_number bigint default 0,
+  chain_id bigint default 11155111,
   created_at timestamptz default now()
 );
 
@@ -25,6 +26,7 @@ create index if not exists idx_activities_user_to on activities(user_to);
 create index if not exists idx_activities_user_from on activities(user_from);
 create index if not exists idx_activities_created on activities(created_at desc);
 create unique index if not exists idx_activities_tx_hash on activities(tx_hash);
+create index if not exists idx_activities_chain on activities(chain_id);
 
 -- ─── Payment Requests ───────────────────────────────────────────────
 -- So recipients know someone requested money without polling chain.
@@ -180,10 +182,36 @@ create index if not exists idx_contacts_owner on contacts(owner_address);
 create unique index if not exists idx_contacts_unique on contacts(owner_address, contact_address);
 
 -- ═══════════════════════════════════════════════════════════════════
+--  MIGRATIONS (for existing deployments)
+-- ═══════════════════════════════════════════════════════════════════
+-- Existing deployments: the CREATE TABLE statements above use
+-- `create table if not exists`, so they won't add newly introduced
+-- columns to existing tables. Run the migrations below once to bring
+-- an older deployment up to date.
+--
+--   alter table activities add column if not exists chain_id bigint default 11155111;
+--   create index if not exists idx_activities_chain on activities(chain_id);
+--
+-- (The statements are also executed here idempotently so a fresh run
+-- of this file against an existing database self-heals.)
+alter table activities add column if not exists chain_id bigint default 11155111;
+create index if not exists idx_activities_chain on activities(chain_id);
+
+-- ═══════════════════════════════════════════════════════════════════
 --  ROW LEVEL SECURITY
 -- ═══════════════════════════════════════════════════════════════════
 
 -- Activities: anyone can read (public context) and insert (after tx)
+--
+-- TODO(auth): wire Sign-In-with-Ethereum via Supabase Auth, then tighten
+-- these policies to
+--   using (user_from = auth.jwt() ->> 'sub' OR user_to = auth.jwt() ->> 'sub')
+-- and restrict inserts to `user_from = auth.jwt() ->> 'sub'`. Today the
+-- frontend signs transactions on-chain but does NOT authenticate to
+-- Supabase, so a permissive policy is the only option that doesn't break
+-- the app on testnet. Changing to the tightened policy WITHOUT wiring
+-- auth first will break every write path in the app — do the auth work
+-- in the same change.
 alter table activities enable row level security;
 create policy "Anyone can read activities" on activities for select using (true);
 create policy "Anyone can insert activities" on activities for insert with check (true);

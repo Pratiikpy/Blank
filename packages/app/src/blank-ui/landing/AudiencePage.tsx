@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Link } from "react-router-dom";
 import { ArrowRight, Check } from "lucide-react";
 import { LandingNav } from "./LandingNav";
@@ -130,6 +131,12 @@ interface AudiencePageProps {
 
 export default function AudiencePage({ audience }: AudiencePageProps) {
   const c = CONTENT[audience];
+
+  // Reset scroll position when navigating between audience pages — otherwise
+  // readers land halfway down the new page where the previous one was scrolled.
+  useEffect(() => {
+    if (typeof window !== "undefined") window.scrollTo(0, 0);
+  }, [audience]);
 
   return (
     <div className="blank-landing">

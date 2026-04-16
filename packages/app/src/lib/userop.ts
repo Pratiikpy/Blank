@@ -65,10 +65,19 @@ function packUint128Pair(high: bigint, low: bigint): Hex {
  * stays at the protocol minimum.
  */
 export function buildUserOp(fields: UserOpFields): PackedUserOperation {
-  const verificationGasLimit = fields.verificationGasLimit ?? 5_000_000n;
-  const callGasLimit = fields.callGasLimit ?? 5_000_000n;
-  const maxPriorityFeePerGas = fields.maxPriorityFeePerGas ?? 1_500_000_000n; // 1.5 gwei
-  const maxFeePerGas = fields.maxFeePerGas ?? 30_000_000_000n;                // 30 gwei
+  // Defaults sized to fit the BlankPaymaster's typical deposit (~0.005-0.02 ETH).
+  // EntryPoint reserves `(verifGas + callGas + preVerif + pmVerif + pmPostOp) ×
+  // maxFeePerGas` upfront from the paymaster, so total gas cap × max fee must
+  // stay within deposit. With 2M+2M+100k+200k+100k = 4.4M gas at 1 gwei =
+  // 0.0044 ETH per UserOp — fits 1+ ops in a 0.005 ETH deposit.
+  //
+  // Heavier ops (FHE encrypt/decrypt inside the inner call) should pass
+  // larger callGasLimit explicitly. Most simple calls (approve, transfer,
+  // shield) finish in <500k actual gas.
+  const verificationGasLimit = fields.verificationGasLimit ?? 2_000_000n;
+  const callGasLimit = fields.callGasLimit ?? 2_000_000n;
+  const maxPriorityFeePerGas = fields.maxPriorityFeePerGas ?? 100_000_000n;   // 0.1 gwei
+  const maxFeePerGas = fields.maxFeePerGas ?? 1_000_000_000n;                 // 1 gwei
 
   return {
     sender: fields.sender,
@@ -136,6 +145,40 @@ export function encodeFactoryInitCode(
     [BigInt(ownerX), BigInt(ownerY), recoveryModule, salt],
   );
   return encodePacked(["address", "bytes"], [factory, (selector + args.slice(2)) as Hex]);
+}
+
+/**
+ * Encode paymasterAndData for BlankPaymaster (ERC-4337 v0.8).
+ *
+ * Format (per v0.8 PackedUserOperation spec):
+ *   bytes  0-19 (20): paymaster address
+ *   bytes 20-35 (16): paymasterVerificationGasLimit
+ *   bytes 36-51 (16): paymasterPostOpGasLimit
+ *   bytes 52-83 (32): transferAmount (read by BlankPaymaster._validatePaymasterUserOp
+ *                     at PAYMASTER_DATA_OFFSET to compute fee = amount * feeRateBps / 10000)
+ *
+ * CoFHE precompile breaks gas estimation, so we use manual defaults
+ * (200k verif, 100k postOp) that are generous enough for BlankPaymaster's
+ * simple USDC-transferFrom postOp path.
+ *
+ * Passing `transferAmount=0` makes the fee zero — fine for testnet /
+ * sponsored flows. Production can pass the actual send amount to fund
+ * the paymaster treasury.
+ */
+export function encodeBlankPaymasterData(
+  paymaster: Address,
+  transferAmount: bigint = 0n,
+  verificationGasLimit: bigint = 200_000n,
+  postOpGasLimit: bigint = 100_000n,
+): Hex {
+  // 20 bytes: paymaster address
+  const paymasterHex = paymaster.slice(2).padStart(40, "0");
+  // 16 bytes each: verif + postOp gas limits
+  const verifHex = verificationGasLimit.toString(16).padStart(32, "0");
+  const postOpHex = postOpGasLimit.toString(16).padStart(32, "0");
+  // 32 bytes: transferAmount
+  const amountHex = transferAmount.toString(16).padStart(64, "0");
+  return ("0x" + paymasterHex + verifHex + postOpHex + amountHex) as Hex;
 }
 
 /**

@@ -4,7 +4,7 @@ import { ArrowRight, ExternalLink } from "lucide-react";
 import { LandingNav } from "./LandingNav";
 import { LandingFooter } from "./LandingFooter";
 import { useLiveActivities, type LiveActivity } from "@/hooks/useLiveActivities";
-import { ACTIVE_CHAIN } from "@/lib/constants";
+import { useChain } from "@/providers/ChainProvider";
 import "./landing.css";
 
 // ══════════════════════════════════════════════════════════════════
@@ -53,7 +53,7 @@ function timeAgo(iso: string, now: number): string {
 }
 
 // Single row
-function Row({ a, now }: { a: LiveActivity; now: number }) {
+function Row({ a, now, explorerUrl }: { a: LiveActivity; now: number; explorerUrl: string }) {
   return (
     <div className={`ll-live-row${a.isNew ? " new" : ""}`}>
       <div className="ll-live-time">{timeAgo(a.created_at, now)}</div>
@@ -71,7 +71,7 @@ function Row({ a, now }: { a: LiveActivity; now: number }) {
       </div>
       {a.tx_hash && (
         <a
-          href={`${ACTIVE_CHAIN.explorerUrl}/tx/${a.tx_hash}`}
+          href={`${explorerUrl}/tx/${a.tx_hash}`}
           target="_blank"
           rel="noopener noreferrer"
           className="ll-live-link"
@@ -89,6 +89,7 @@ function Row({ a, now }: { a: LiveActivity; now: number }) {
 
 export default function Live() {
   const { activities, isLoading, error, supabaseConfigured } = useLiveActivities(50);
+  const { activeChain } = useChain();
 
   // Re-render the "time ago" column every 15s so rows update without a fetch.
   const [now, setNow] = useState(() => Date.now());
@@ -151,7 +152,7 @@ export default function Live() {
           {!isLoading && !error && activities.length > 0 && (
             <div className="ll-live-list">
               {activities.map((a) => (
-                <Row key={a.id} a={a} now={now} />
+                <Row key={a.id} a={a} now={now} explorerUrl={activeChain.explorerUrl} />
               ))}
             </div>
           )}

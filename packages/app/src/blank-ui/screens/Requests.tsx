@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { useAccount } from "wagmi";
+import { useEffectiveAddress } from "@/hooks/useEffectiveAddress";
 import { useNavigate } from "react-router-dom";
 import {
   ArrowDownLeft,
@@ -345,7 +345,8 @@ function FulfillModal({
 // ---------------------------------------------------------------
 
 export default function Requests() {
-  const { address } = useAccount();
+  // Passkey-aware address — fixes blank Requests page for passkey-only users.
+  const { effectiveAddress: address } = useEffectiveAddress();
   const navigate = useNavigate();
   const { cancelRequest } = useRequestPayment();
 

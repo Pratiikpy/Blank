@@ -50,6 +50,11 @@ export default function SendAmount() {
     if (target) setRecipient(target);
   }, [recipient, urlRecipient, setRecipient]);
 
+  useEffect(() => {
+    setLocalAmount("0");
+    setAmount("");
+  }, [recipient, urlRecipient, setAmount]);
+
   const handleKey = useCallback(
     (key: string) => {
       setLocalAmount((prev) => {

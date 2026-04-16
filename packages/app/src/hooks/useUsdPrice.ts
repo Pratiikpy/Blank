@@ -1,25 +1,25 @@
+import { useAccount } from "wagmi";
 import { useCoingeckoUsdPrice } from "@cofhe/react";
-import { CONTRACTS, SUPPORTED_CHAIN_ID } from "@/lib/constants";
+import { useChain } from "@/providers/ChainProvider";
 
 /**
- * TASK 3: USD price hook wrapping @cofhe/react's useCoingeckoUsdPrice.
+ * USD price hook.
  *
- * The SDK hook requires chainId + tokenAddress (not a coinId string).
- * It internally maps chainId -> CoinGecko platform ID and fetches
- * the token price via /simple/token_price/{platform}.
- *
- * For USDC on Ethereum Sepolia, CoinGecko may not have testnet pricing.
- * Falls back to $1.00 since USDC is a stablecoin.
- *
- * @param tokenAddress - Override token address (defaults to TestUSDC)
- * @param chainId - Override chain ID (defaults to Ethereum Sepolia 11155111)
+ * #103: previously defaulted to SUPPORTED_CHAIN_ID, which is captured at
+ * module load from localStorage. If a user manually switched chains in their
+ * wallet (not via our ChainSelector), this hook would keep pricing against
+ * the old chain even though balances came from the new one. We now prefer
+ * wagmi's live `chain.id` and fall back to the app's active chain (via
+ * ChainProvider) only when disconnected.
  */
 export function useUsdPrice(
   tokenAddress?: `0x${string}`,
   chainId?: number
 ) {
-  const effectiveAddress = tokenAddress ?? CONTRACTS.TestUSDC;
-  const effectiveChainId = chainId ?? SUPPORTED_CHAIN_ID;
+  const { activeChainId, contracts } = useChain();
+  const { chain } = useAccount();
+  const effectiveAddress = tokenAddress ?? contracts.TestUSDC;
+  const effectiveChainId = chainId ?? chain?.id ?? activeChainId;
 
   const { data: price, isLoading, error } = useCoingeckoUsdPrice({
     chainId: effectiveChainId,
@@ -40,10 +40,6 @@ export function useUsdPrice(
 
 /**
  * Convenience: format a raw token amount (in smallest units) as USD string.
- *
- * @param rawAmount - Amount in smallest units (e.g. 1000000 for 1 USDC)
- * @param decimals - Token decimals (default 6 for USDC)
- * @param usdPrice - USD price per token (default 1.0)
  */
 export function formatAsUsd(
   rawAmount: number | bigint,

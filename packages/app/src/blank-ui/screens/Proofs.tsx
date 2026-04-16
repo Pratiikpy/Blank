@@ -14,7 +14,7 @@ import {
 import { cn } from "@/lib/cn";
 import toast from "react-hot-toast";
 import { useQualificationProof, type ProofRecord } from "@/hooks/useQualificationProof";
-import { ACTIVE_CHAIN } from "@/lib/constants";
+import { useChain } from "@/providers/ChainProvider";
 
 // ───────────────────────────────────────────────────────────────────
 //  Proofs — generate & manage encrypted "income ≥ X" proofs
@@ -26,6 +26,7 @@ const PRESET_THRESHOLDS = [1_000, 10_000, 50_000, 100_000];
 
 export default function Proofs() {
   const { address } = useAccount();
+  const { activeChain } = useChain();
   const { createIncomeProof, createBalanceProof, fetchProof, fetchProofsByUser, step, error, reset } =
     useQualificationProof();
 
@@ -52,6 +53,15 @@ export default function Proofs() {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  // Auto-poll while any proof is still pending (not yet ready on-chain).
+  // Handles reorg-safe updates + remote publishes without user action.
+  useEffect(() => {
+    const anyPending = Object.values(proofs).some((p) => !p.isReady);
+    if (!anyPending) return;
+    const id = setInterval(() => refresh(), 10_000);
+    return () => clearInterval(id);
+  }, [proofs, refresh]);
 
   const submitting = step === "creating";
 
@@ -101,10 +111,10 @@ export default function Proofs() {
       <div className="max-w-5xl mx-auto">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-4xl sm:text-5xl font-heading font-semibold text-[var(--text-primary)] tracking-tight mb-2">
+          <h1 className="text-3xl sm:text-5xl font-heading font-semibold text-[var(--text-primary)] tracking-tight mb-2">
             Encrypted Proofs
           </h1>
-          <p className="text-base text-[var(--text-primary)]/50 leading-relaxed max-w-2xl">
+          <p className="text-sm sm:text-base text-[var(--text-primary)]/50 leading-relaxed max-w-2xl">
             Prove "my income is at least $X" — without revealing the actual amount.
             Your proof is an encrypted boolean. Anyone with the link can verify the
             answer on-chain; nobody learns your real income.
@@ -112,7 +122,7 @@ export default function Proofs() {
         </div>
 
         {/* Create proof card */}
-        <div className="glass-card-static rounded-[2rem] p-8 mb-8">
+        <div className="glass-card-static rounded-[2rem] p-4 sm:p-8 mb-8">
           <div className="flex items-start gap-4 mb-6">
             <div className="w-12 h-12 rounded-2xl bg-emerald-50 dark:bg-emerald-500/10 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
               <ShieldCheck size={22} />
@@ -213,7 +223,7 @@ export default function Proofs() {
         </div>
 
         {/* My proofs */}
-        <div className="glass-card-static rounded-[2rem] p-8">
+        <div className="glass-card-static rounded-[2rem] p-4 sm:p-8">
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-xl font-heading font-medium text-[var(--text-primary)]">
               Your proofs
@@ -250,13 +260,13 @@ export default function Proofs() {
               return (
                 <div
                   key={id.toString()}
-                  className="rounded-2xl bg-white/50 dark:bg-white/[0.03] border border-black/5 dark:border-white/5 p-5"
+                  className="rounded-2xl bg-white/50 dark:bg-white/[0.03] border border-black/5 dark:border-white/5 p-4 sm:p-5"
                 >
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex items-start gap-3">
+                  <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+                    <div className="flex items-start gap-3 min-w-0">
                       <div
                         className={cn(
-                          "w-10 h-10 rounded-xl flex items-center justify-center mt-0.5",
+                          "w-10 h-10 rounded-xl flex items-center justify-center mt-0.5 shrink-0",
                           !p.isReady
                             ? "bg-amber-50 text-amber-600 dark:bg-amber-500/10 dark:text-amber-400"
                             : p.isTrue
@@ -272,11 +282,11 @@ export default function Proofs() {
                           <XCircle size={18} />
                         )}
                       </div>
-                      <div>
+                      <div className="min-w-0">
                         <p className="font-medium text-[var(--text-primary)]">
                           Income ≥ ${thresholdUSD.toLocaleString()}
                         </p>
-                        <p className="text-xs text-[var(--text-tertiary)] mt-0.5 font-mono">
+                        <p className="text-xs text-[var(--text-tertiary)] mt-0.5 font-mono break-all">
                           Proof #{id.toString()} · created {created}
                         </p>
                         <p className="text-xs mt-1.5">
@@ -296,7 +306,7 @@ export default function Proofs() {
                         </p>
                       </div>
                     </div>
-                    <div className="flex flex-col gap-1.5 shrink-0">
+                    <div className="flex flex-row sm:flex-col flex-wrap gap-1.5 sm:shrink-0">
                       <a
                         href={buildTweetIntent(id, p.threshold, p.isReady, p.isTrue)}
                         target="_blank"
@@ -316,7 +326,7 @@ export default function Proofs() {
                         Copy link
                       </button>
                       <a
-                        href={`${ACTIVE_CHAIN.explorerUrl}/block/${p.blockNumber}`}
+                        href={`${activeChain.explorerUrl}/block/${p.blockNumber}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-xs font-medium px-3 py-2 rounded-lg bg-black/[0.04] hover:bg-black/[0.07] dark:bg-white/[0.05] dark:hover:bg-white/[0.08] text-[var(--text-secondary)] transition-colors flex items-center gap-1.5"

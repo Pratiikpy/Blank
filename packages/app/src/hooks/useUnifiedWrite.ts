@@ -4,6 +4,15 @@ import { encodeFunctionData, type Abi, type Address, type Hex } from "viem";
 import { useSmartAccount } from "./useSmartAccount";
 import { usePassphrasePrompt } from "@/components/PassphrasePrompt";
 
+// Module-load marker — proves Vite served fresh module to the page.
+// If you don't see this in the browser console at app boot, the page is
+// running a stale cached bundle and any diagnostics added below will
+// silently no-op.
+if (typeof window !== "undefined") {
+  // eslint-disable-next-line no-console
+  console.log("[useUnifiedWrite.module] loaded build-2026-04-14-A");
+}
+
 // ──────────────────────────────────────────────────────────────────
 //  useUnifiedWrite — single-call API that branches on wallet type
 //
@@ -40,6 +49,20 @@ export interface UnifiedBatchCall {
   value?: bigint;
 }
 
+/** Receipt summary the relayer already saw — present only on the AA path. */
+export interface UnifiedReceipt {
+  blockNumber: bigint;
+  blockHash?: Hex;
+  status: "success" | "reverted";
+  logs: Array<{ address: Hex; topics: Hex[]; data: Hex }>;
+}
+
+export interface UnifiedWriteAndWaitResult {
+  hash: Hex;
+  /** AA path: present (relayer-side `tx.wait()` already completed). EOA path: undefined — caller must poll itself. */
+  receipt?: UnifiedReceipt;
+}
+
 export interface UseUnifiedWriteReturn {
   /** True when the active wallet is a smart account (UserOps via relayer). */
   isSmartAccount: boolean;
@@ -49,6 +72,14 @@ export interface UseUnifiedWriteReturn {
   unifiedWrite: (params: UnifiedWriteParams) => Promise<Hex>;
   /** Atomic batch of writes — one UserOp via executeBatch in AA mode, sequential in EOA mode. */
   unifiedWriteBatch: (calls: readonly UnifiedBatchCall[], promptCopy?: { title?: string; subtitle?: string }) => Promise<Hex>;
+  /**
+   * Same as unifiedWrite, but also surfaces the relayer's receipt on the AA
+   * path so callers don't need to re-poll the chain (free RPC tiers like
+   * sepolia.base.org rate-limit getTransactionReceipt enough that waits can
+   * silently exceed a minute even when the tx is mined). On EOA, `receipt`
+   * is undefined — caller still uses publicClient.waitForTransactionReceipt.
+   */
+  unifiedWriteAndWait: (params: UnifiedWriteParams) => Promise<UnifiedWriteAndWaitResult>;
 }
 
 export function useUnifiedWrite(): UseUnifiedWriteReturn {
@@ -64,9 +95,11 @@ export function useUnifiedWrite(): UseUnifiedWriteReturn {
 
   const unifiedWrite = useCallback(
     async (params: UnifiedWriteParams): Promise<Hex> => {
+      console.log("[unifiedWrite] called", { fn: params.functionName, isSmartAccount, smartAccountStatus: smartAccount.status, hasAccount: !!smartAccount.account });
       // EOA path — wagmi unchanged. Cast as any because wagmi's strict
       // ABI inference would require literal abis at every call site.
       if (!isSmartAccount) {
+        console.log("[unifiedWrite] taking EOA wagmi path");
         const hash = await writeContractAsync({
           address: params.address,
           abi: params.abi,
@@ -79,6 +112,50 @@ export function useUnifiedWrite(): UseUnifiedWriteReturn {
       }
 
       // AA path — encode the call data, send via UserOp.
+      console.log("[unifiedWrite] taking AA passkey path, requesting passphrase...");
+      const data = encodeFunctionData({
+        abi: params.abi,
+        functionName: params.functionName,
+        args: params.args ?? [],
+      });
+
+      const passphrase = await passphrasePrompt.request({
+        title: `Sign ${params.functionName}`,
+        subtitle: `Submit via your smart wallet — gas sponsored.`,
+      });
+      console.log("[unifiedWrite] passphrase obtained, calling sendUserOp...");
+      if (!passphrase) throw new Error("Cancelled");
+
+      const result = await smartAccount.sendUserOp(
+        params.address,
+        params.value ?? 0n,
+        data,
+        passphrase,
+      );
+      if (!result) throw new Error(smartAccount.error ?? "UserOp submission failed");
+      return result.txHash;
+    },
+    [isSmartAccount, writeContractAsync, smartAccount, passphrasePrompt],
+  );
+
+  // Same as unifiedWrite but also returns the relayer's pre-confirmed receipt
+  // when on the AA path. Callers wanting the receipt should use this method to
+  // avoid the post-relay RPC poll roulette.
+  const unifiedWriteAndWait = useCallback(
+    async (params: UnifiedWriteParams): Promise<UnifiedWriteAndWaitResult> => {
+      console.log("[unifiedWriteAndWait] called", { fn: params.functionName, isSmartAccount, smartAccountStatus: smartAccount.status });
+      if (!isSmartAccount) {
+        const hash = await writeContractAsync({
+          address: params.address,
+          abi: params.abi,
+          functionName: params.functionName,
+          args: params.args ?? [],
+          value: params.value,
+          gas: params.gas,
+        } as any);
+        return { hash: hash as Hex };
+      }
+
       const data = encodeFunctionData({
         abi: params.abi,
         functionName: params.functionName,
@@ -98,7 +175,19 @@ export function useUnifiedWrite(): UseUnifiedWriteReturn {
         passphrase,
       );
       if (!result) throw new Error(smartAccount.error ?? "UserOp submission failed");
-      return result.txHash;
+
+      // Forward the relayer's view: blockNumber + status + logs from /api/relay.
+      const receipt: UnifiedReceipt | undefined =
+        result.blockNumber !== undefined && result.status
+          ? {
+              blockNumber: result.blockNumber,
+              blockHash: result.blockHash,
+              status: result.status,
+              logs: result.logs ?? [],
+            }
+          : undefined;
+
+      return { hash: result.txHash, receipt };
     },
     [isSmartAccount, writeContractAsync, smartAccount, passphrasePrompt],
   );
@@ -161,5 +250,5 @@ export function useUnifiedWrite(): UseUnifiedWriteReturn {
     [isSmartAccount, writeContractAsync, smartAccount, passphrasePrompt],
   );
 
-  return { isSmartAccount, senderAddress, unifiedWrite, unifiedWriteBatch };
+  return { isSmartAccount, senderAddress, unifiedWrite, unifiedWriteBatch, unifiedWriteAndWait };
 }

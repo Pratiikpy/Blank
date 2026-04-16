@@ -1,17 +1,49 @@
 import { useState, useCallback, useRef } from "react";
-import { useAccount, usePublicClient } from "wagmi";
+import { usePublicClient } from "wagmi";
+import { useEffectiveAddress } from "./useEffectiveAddress";
 import { useUnifiedWrite } from "./useUnifiedWrite";
-import { parseUnits } from "viem";
+import { parseUnits, formatUnits, decodeEventLog, type Log } from "viem";
 import { useCofheEncrypt, useCofheConnection } from "@cofhe/react";
 import { Encryptable } from "@cofhe/sdk";
+import { useCofheDecryptForView } from "@/lib/cofhe-shim";
 import toast from "react-hot-toast";
-import { CONTRACTS, MAX_UINT64, type EncryptedInput } from "@/lib/constants";
+import { MAX_UINT64, type EncryptedInput } from "@/lib/constants";
+import { useChain } from "@/providers/ChainProvider";
 import { GroupManagerAbi, FHERC20VaultAbi } from "@/lib/abis";
 import { insertGroupExpense, insertGroupMembership, insertActivity } from "@/lib/supabase";
+import { insertActivitiesFanout } from "@/lib/activity-fanout";
+import { ACTIVITY_TYPES } from "@/lib/activity-types";
 import { extractEventId } from "@/lib/event-parser";
 import { broadcastAction } from "@/lib/cross-tab";
 import { invalidateBalanceQueries } from "@/lib/query-invalidation";
 import { isVaultApproved, markVaultApproved, clearVaultApproval } from "@/lib/approval";
+
+// Extract the encrypted `actual` handle from the DebtSettledEncrypted event log.
+// Returns null if the event is absent (shouldn't happen post-fix, but fail-soft).
+function extractEncryptedActualHandle(
+  logs: Log[],
+  contractAddress: string,
+): bigint | null {
+  const lcContract = contractAddress.toLowerCase();
+  for (const log of logs) {
+    if (log.address.toLowerCase() !== lcContract) continue;
+    try {
+      const decoded = decodeEventLog({
+        abi: GroupManagerAbi,
+        data: log.data,
+        topics: log.topics,
+        eventName: "DebtSettledEncrypted",
+      });
+      // encryptedActual is declared as `bytes32` (wire form of euint64 ctHash).
+      // The SDK's decryptForView expects the ctHash as a bigint.
+      const handle = (decoded.args as { encryptedActual: `0x${string}` }).encryptedActual;
+      return BigInt(handle);
+    } catch {
+      // Wrong event type — skip
+    }
+  }
+  return null;
+}
 
 async function ensureVaultApproval(
   unifiedWrite: ReturnType<typeof useUnifiedWrite>["unifiedWrite"],
@@ -35,11 +67,13 @@ async function ensureVaultApproval(
 }
 
 export function useGroupSplit() {
-  const { address } = useAccount();
+  const { effectiveAddress: address } = useEffectiveAddress();
   const { connected } = useCofheConnection();
-  const publicClient = usePublicClient();
+  const { contracts, activeChainId } = useChain();
+  const publicClient = usePublicClient({ chainId: activeChainId });
   const { encryptInputsAsync } = useCofheEncrypt();
-  const { unifiedWrite } = useUnifiedWrite();
+  const { decryptForView } = useCofheDecryptForView();
+  const { unifiedWrite, unifiedWriteAndWait } = useUnifiedWrite();
 
   const [isProcessing, setIsProcessing] = useState(false);
   const submittingRef = useRef(false);
@@ -64,20 +98,21 @@ export function useGroupSplit() {
         submittingRef.current = true;
         setIsProcessing(true);
 
-        const hash = await unifiedWrite({
-          address: CONTRACTS.GroupManager as `0x${string}`,
+        const writeResult = await unifiedWriteAndWait({
+          address: contracts.GroupManager as `0x${string}`,
           abi: GroupManagerAbi,
           functionName: "createGroup",
           args: [name, members as `0x${string}`[]],
           gas: BigInt(5_000_000), // CoFHE: manual gas limit (precompile breaks estimation)
         });
-
-        // Wait for on-chain confirmation
-        const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
+        const hash = writeResult.hash;
+        const receipt =
+          writeResult.receipt ??
+          (await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 }));
         if (receipt.status === "reverted") throw new Error("Transaction reverted");
 
         // Extract real group ID from event logs
-        const groupId = extractEventId(receipt.logs, CONTRACTS.GroupManager);
+        const groupId = extractEventId(receipt.logs, contracts.GroupManager);
 
         // Sync memberships to Supabase
         const allMembers = [address, ...members.filter((m) => m !== address)];
@@ -100,7 +135,7 @@ export function useGroupSplit() {
         setIsProcessing(false);
       }
     },
-    [address, connected, unifiedWrite, publicClient]
+    [address, connected, unifiedWrite, unifiedWriteAndWait, publicClient, contracts]
   );
 
   // Add expense with pre-computed encrypted shares
@@ -125,13 +160,13 @@ export function useGroupSplit() {
         setIsProcessing(true);
 
         // Ensure the GroupManager contract is approved to transferFrom on the vault
-        if (!isVaultApproved(CONTRACTS.GroupManager)) {
+        if (!isVaultApproved(contracts.GroupManager)) {
           await ensureVaultApproval(
             unifiedWrite,
-            CONTRACTS.FHERC20Vault_USDC as `0x${string}`,
-            CONTRACTS.GroupManager as `0x${string}`,
+            contracts.FHERC20Vault_USDC as `0x${string}`,
+            contracts.GroupManager as `0x${string}`,
           );
-          markVaultApproved(CONTRACTS.GroupManager);
+          markVaultApproved(contracts.GroupManager);
         }
 
         // Validate all share amounts before encrypting
@@ -157,8 +192,8 @@ export function useGroupSplit() {
         ]);
 
         // Call GroupManager.addExpense() on-chain
-        const hash = await unifiedWrite({
-          address: CONTRACTS.GroupManager as `0x${string}`,
+        const addResult = await unifiedWriteAndWait({
+          address: contracts.GroupManager as `0x${string}`,
           abi: GroupManagerAbi,
           functionName: "addExpense",
           args: [
@@ -172,15 +207,18 @@ export function useGroupSplit() {
           ],
           gas: BigInt(5_000_000), // FHE: manual gas limit (precompile can't be estimated)
         });
-
-        // Wait for on-chain confirmation before writing to Supabase
-        const expenseReceipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
+        const hash = addResult.hash;
+        const expenseReceipt = addResult.receipt
+          ? addResult.receipt
+          : await publicClient.waitForTransactionReceipt({
+              hash, confirmations: 1, timeout: 300_000,
+            });
         if (expenseReceipt.status === "reverted") {
           throw new Error("Transaction reverted on-chain");
         }
 
         // Extract real expense ID from event logs
-        const expenseId = extractEventId(expenseReceipt.logs, CONTRACTS.GroupManager);
+        const expenseId = extractEventId(expenseReceipt.logs, contracts.GroupManager);
 
         // Sync to Supabase
         await insertGroupExpense({
@@ -192,19 +230,23 @@ export function useGroupSplit() {
           tx_hash: hash,
         });
 
-        // Create one activity per member so each gets a notification
-        for (const member of members) {
-          await insertActivity({
+        // Create one activity per member so each gets a notification.
+        // Parallel fanout (Promise.allSettled) so a single row failure doesn't
+        // halt sync for the remaining members. Preserves the per-member
+        // tx_hash suffix so Supabase upsert on tx_hash still works per-row.
+        await insertActivitiesFanout(
+          members.map((member) => ({
             tx_hash: `${hash}_${member.toLowerCase()}`,
             user_from: address.toLowerCase(),
             user_to: member.toLowerCase(),
-            activity_type: "group_expense",
-            contract_address: CONTRACTS.GroupManager,
+            activity_type: ACTIVITY_TYPES.GROUP_EXPENSE,
+            contract_address: contracts.GroupManager,
             note: description,
-            token_address: CONTRACTS.FHERC20Vault_USDC,
+            token_address: contracts.FHERC20Vault_USDC,
             block_number: Number(expenseReceipt.blockNumber),
-          });
-        }
+          })),
+          { userToastOnFailure: true, context: "group-expense" },
+        );
 
         // Notify other tabs and invalidate cached balances
         broadcastAction("balance_changed");
@@ -215,7 +257,7 @@ export function useGroupSplit() {
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Failed to add expense";
         if (msg.includes("allowance") || msg.includes("approve") || msg.includes("insufficient") || msg.includes("transfer amount exceeds")) {
-          clearVaultApproval(CONTRACTS.GroupManager);
+          clearVaultApproval(contracts.GroupManager);
         }
         toast.error(msg);
       } finally {
@@ -223,7 +265,7 @@ export function useGroupSplit() {
         setIsProcessing(false);
       }
     },
-    [address, connected, encryptInputsAsync, unifiedWrite, publicClient]
+    [address, connected, encryptInputsAsync, unifiedWrite, unifiedWriteAndWait, publicClient, contracts]
   );
 
   // Settle a debt with another group member via encrypted vault transfer
@@ -247,13 +289,13 @@ export function useGroupSplit() {
         }
 
         // Ensure the GroupManager contract is approved to transferFrom on the vault
-        if (!isVaultApproved(CONTRACTS.GroupManager)) {
+        if (!isVaultApproved(contracts.GroupManager)) {
           await ensureVaultApproval(
             unifiedWrite,
-            CONTRACTS.FHERC20Vault_USDC as `0x${string}`,
-            CONTRACTS.GroupManager as `0x${string}`,
+            contracts.FHERC20Vault_USDC as `0x${string}`,
+            contracts.GroupManager as `0x${string}`,
           );
-          markVaultApproved(CONTRACTS.GroupManager);
+          markVaultApproved(contracts.GroupManager);
         }
 
         const amountWei = parseUnits(amount, 6);
@@ -261,22 +303,25 @@ export function useGroupSplit() {
           Encryptable.uint64(amountWei),
         ]);
 
-        const hash = await unifiedWrite({
-          address: CONTRACTS.GroupManager as `0x${string}`,
+        const settleResult = await unifiedWriteAndWait({
+          address: contracts.GroupManager as `0x${string}`,
           abi: GroupManagerAbi,
           functionName: "settleDebt",
           args: [
             BigInt(groupId),
             withAddress as `0x${string}`,
-            CONTRACTS.FHERC20Vault_USDC as `0x${string}`,
+            contracts.FHERC20Vault_USDC as `0x${string}`,
             // Type assertion: cofhe SDK encrypted input (see above)
             encAmount as unknown as EncryptedInput,
           ],
           gas: BigInt(5_000_000), // FHE: manual gas limit (precompile can't be estimated)
         });
-
-        // Wait for on-chain confirmation before writing to Supabase
-        const settleReceipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
+        const hash = settleResult.hash;
+        const settleReceipt = settleResult.receipt
+          ? settleResult.receipt
+          : await publicClient.waitForTransactionReceipt({
+              hash, confirmations: 1, timeout: 300_000,
+            });
         if (settleReceipt.status === "reverted") {
           throw new Error("Transaction reverted on-chain");
         }
@@ -285,10 +330,10 @@ export function useGroupSplit() {
           tx_hash: hash,
           user_from: address.toLowerCase(),
           user_to: withAddress.toLowerCase(),
-          activity_type: "debt_settled",
-          contract_address: CONTRACTS.GroupManager,
+          activity_type: ACTIVITY_TYPES.DEBT_SETTLED,
+          contract_address: contracts.GroupManager,
           note: `Settled debt in group ${groupId}`,
-          token_address: CONTRACTS.FHERC20Vault_USDC,
+          token_address: contracts.FHERC20Vault_USDC,
           block_number: Number(settleReceipt.blockNumber),
         });
 
@@ -297,12 +342,44 @@ export function useGroupSplit() {
         broadcastAction("activity_added");
         invalidateBalanceQueries();
 
-        toast.success("Debt settled!");
+        // Decrypt the ACTUAL transferred amount from DebtSettledEncrypted event.
+        // If it's less than requested, the vault didn't have enough — warn user
+        // so their local display + expectations match on-chain debt.
+        // On-chain debt accounting is ALREADY correct (uses actual, not requested).
+        const actualHandle = extractEncryptedActualHandle(
+          settleReceipt.logs as Log[],
+          contracts.GroupManager,
+        );
+        if (actualHandle !== null) {
+          const decrypted = await decryptForView(actualHandle, "uint64");
+          if (typeof decrypted === "bigint") {
+            if (decrypted === amountWei) {
+              toast.success(`Debt settled in full ($${amount})`);
+            } else if (decrypted < amountWei) {
+              const actualStr = formatUnits(decrypted, 6);
+              const shortfall = formatUnits(amountWei - decrypted, 6);
+              toast.error(
+                `Settled $${actualStr} (you tried to settle $${amount} — vault didn't have enough). Remaining unsettled: $${shortfall}`,
+                { duration: 8000 },
+              );
+            } else {
+              // decrypted > amountWei should be impossible (vault clamps downward)
+              toast.success("Debt settled!");
+            }
+          } else {
+            // Decrypt failed (SDK not ready, network, etc) — fall back to plain success.
+            // On-chain accounting is still correct — user just won't see the partial warning.
+            toast.success("Debt settled!");
+          }
+        } else {
+          toast.success("Debt settled!");
+        }
+
         return hash;
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Failed to settle debt";
         if (msg.includes("allowance") || msg.includes("approve") || msg.includes("insufficient") || msg.includes("transfer amount exceeds")) {
-          clearVaultApproval(CONTRACTS.GroupManager);
+          clearVaultApproval(contracts.GroupManager);
         }
         toast.error(msg);
       } finally {
@@ -310,7 +387,7 @@ export function useGroupSplit() {
         setIsProcessing(false);
       }
     },
-    [address, connected, encryptInputsAsync, unifiedWrite, publicClient]
+    [address, connected, encryptInputsAsync, unifiedWrite, unifiedWriteAndWait, publicClient, contracts, decryptForView]
   );
 
   const voteOnExpense = useCallback(
@@ -334,16 +411,18 @@ export function useGroupSplit() {
           Encryptable.uint64(votesWei),
         ]);
 
-        const hash = await unifiedWrite({
-          address: CONTRACTS.GroupManager as `0x${string}`,
+        const voteResult = await unifiedWriteAndWait({
+          address: contracts.GroupManager as `0x${string}`,
           abi: GroupManagerAbi,
           functionName: "voteOnExpense",
           // Type assertion: cofhe SDK encrypted input (see above)
           args: [BigInt(groupId), BigInt(expenseId), encrypted as unknown as EncryptedInput],
           gas: BigInt(5_000_000), // FHE: manual gas limit (precompile can't be estimated)
         });
-
-        const voteReceipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
+        const hash = voteResult.hash;
+        const voteReceipt = voteResult.receipt
+          ? voteResult.receipt
+          : await publicClient.waitForTransactionReceipt({ hash, confirmations: 1, timeout: 300_000 });
         if (voteReceipt.status === "reverted") {
           throw new Error("Transaction reverted on-chain");
         }
@@ -353,9 +432,9 @@ export function useGroupSplit() {
           user_from: address.toLowerCase(),
           user_to: address.toLowerCase(),
           activity_type: "group_vote",
-          contract_address: CONTRACTS.GroupManager,
+          contract_address: contracts.GroupManager,
           note: `Voted on expense #${expenseId} in group #${groupId}`,
-          token_address: CONTRACTS.FHERC20Vault_USDC,
+          token_address: contracts.FHERC20Vault_USDC,
           block_number: Number(voteReceipt.blockNumber),
         });
 
@@ -367,7 +446,7 @@ export function useGroupSplit() {
         setIsProcessing(false);
       }
     },
-    [address, publicClient, unifiedWrite, encryptInputsAsync]
+    [address, publicClient, unifiedWrite, unifiedWriteAndWait, encryptInputsAsync, contracts]
   );
 
   // Leave a group (removes self from membership)
@@ -382,15 +461,17 @@ export function useGroupSplit() {
       submittingRef.current = true;
       setIsProcessing(true);
       try {
-        const hash = await unifiedWrite({
-          address: CONTRACTS.GroupManager as `0x${string}`,
+        const leaveResult = await unifiedWriteAndWait({
+          address: contracts.GroupManager as `0x${string}`,
           abi: GroupManagerAbi,
           functionName: "leaveGroup",
           args: [BigInt(groupId)],
           gas: BigInt(5_000_000), // CoFHE: manual gas limit (precompile breaks estimation)
         });
-
-        const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
+        const hash = leaveResult.hash;
+        const receipt = leaveResult.receipt
+          ? leaveResult.receipt
+          : await publicClient.waitForTransactionReceipt({ hash, confirmations: 1, timeout: 300_000 });
         if (receipt.status === "reverted") {
           throw new Error("Transaction reverted on-chain");
         }
@@ -400,9 +481,9 @@ export function useGroupSplit() {
           user_from: address.toLowerCase(),
           user_to: address.toLowerCase(),
           activity_type: "group_left",
-          contract_address: CONTRACTS.GroupManager,
+          contract_address: contracts.GroupManager,
           note: `Left group #${groupId}`,
-          token_address: CONTRACTS.FHERC20Vault_USDC,
+          token_address: contracts.FHERC20Vault_USDC,
           block_number: Number(receipt.blockNumber),
         });
 
@@ -416,7 +497,7 @@ export function useGroupSplit() {
         setIsProcessing(false);
       }
     },
-    [address, publicClient, unifiedWrite]
+    [address, publicClient, unifiedWrite, unifiedWriteAndWait, contracts]
   );
 
   // Archive a group (admin only, deactivates group)
@@ -431,15 +512,17 @@ export function useGroupSplit() {
       submittingRef.current = true;
       setIsProcessing(true);
       try {
-        const hash = await unifiedWrite({
-          address: CONTRACTS.GroupManager as `0x${string}`,
+        const archiveResult = await unifiedWriteAndWait({
+          address: contracts.GroupManager as `0x${string}`,
           abi: GroupManagerAbi,
           functionName: "archiveGroup",
           args: [BigInt(groupId)],
           gas: BigInt(5_000_000), // CoFHE: manual gas limit (precompile breaks estimation)
         });
-
-        const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
+        const hash = archiveResult.hash;
+        const receipt = archiveResult.receipt
+          ? archiveResult.receipt
+          : await publicClient.waitForTransactionReceipt({ hash, confirmations: 1, timeout: 300_000 });
         if (receipt.status === "reverted") {
           throw new Error("Transaction reverted on-chain");
         }
@@ -449,9 +532,9 @@ export function useGroupSplit() {
           user_from: address.toLowerCase(),
           user_to: address.toLowerCase(),
           activity_type: "group_archived",
-          contract_address: CONTRACTS.GroupManager,
+          contract_address: contracts.GroupManager,
           note: `Archived group #${groupId}`,
-          token_address: CONTRACTS.FHERC20Vault_USDC,
+          token_address: contracts.FHERC20Vault_USDC,
           block_number: Number(receipt.blockNumber),
         });
 
@@ -465,7 +548,7 @@ export function useGroupSplit() {
         setIsProcessing(false);
       }
     },
-    [address, publicClient, unifiedWrite]
+    [address, publicClient, unifiedWrite, unifiedWriteAndWait, contracts]
   );
 
   return { isProcessing, computeEqualSplit, createGroup, addExpense, settleDebt, voteOnExpense, leaveGroup, archiveGroup };

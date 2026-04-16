@@ -1,14 +1,15 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import { useAccount, useReadContract, usePublicClient } from "wagmi";
+import { useReadContract, usePublicClient } from "wagmi";
 import {
   useCofheReadContractAndDecrypt,
   useCofheConnection,
   useCofheActivePermit,
 } from "@cofhe/react";
-import { CONTRACTS, REVEAL_TIMEOUT_MS } from "@/lib/constants";
+import { REVEAL_TIMEOUT_MS } from "@/lib/constants";
+import { useChain } from "@/providers/ChainProvider";
 import { FHERC20VaultAbi } from "@/lib/abis";
 import { invalidateBalanceQueries } from "@/lib/query-invalidation";
-import { useSmartAccount } from "./useSmartAccount";
+import { useEffectiveAddress } from "./useEffectiveAddress";
 
 // ─── Feature flag: set to true to use real cofhe decrypt ─────────────
 // When enabled, the hook uses useCofheReadContractAndDecrypt to read the
@@ -44,20 +45,16 @@ interface EncryptedBalanceState {
  * - Decryption fails
  */
 export function useEncryptedBalance(vaultAddress?: string, decimals = 6) {
-  const { address: eoaAddress } = useAccount();
-  const publicClient = usePublicClient();
+  const { contracts, activeChainId } = useChain();
+  const publicClient = usePublicClient({ chainId: activeChainId });
   const { connected: cofheConnected } = useCofheConnection();
   const activePermit = useCofheActivePermit();
-  const smartAccount = useSmartAccount();
 
   // When a smart wallet is active, balances live under the SMART ACCOUNT
   // address — not the connected EOA. Without this, smart-wallet users see
   // $0 even after a successful shield, because we'd be reading vault
   // .balanceOf(EOA) when the funds went to .balanceOf(smartAccount).
-  const address =
-    smartAccount.status === "ready" && smartAccount.account
-      ? (smartAccount.account.address as `0x${string}`)
-      : eoaAddress;
+  const { effectiveAddress: address } = useEffectiveAddress();
   const [state, setState] = useState<EncryptedBalanceState>({
     raw: null,
     formatted: null,
@@ -67,7 +64,7 @@ export function useEncryptedBalance(vaultAddress?: string, decimals = 6) {
   });
   const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
 
-  const vault = (vaultAddress || CONTRACTS.FHERC20Vault_USDC) as `0x${string}`;
+  const vault = (vaultAddress || contracts.FHERC20Vault_USDC) as `0x${string}`;
 
   // ─── Real decrypt path (TASK 4) ─────────────────────────────────────
   // useCofheReadContractAndDecrypt reads the on-chain encrypted value and
@@ -124,12 +121,13 @@ export function useEncryptedBalance(vaultAddress?: string, decimals = 6) {
     },
   });
 
-  // Read total deposited (plaintext aggregate)
+  // Read total deposited (plaintext aggregate). #283: don't poll when there's
+  // no wallet connected — saves ~4 RPC calls/min per anon viewer.
   const { data: totalDeposited, refetch: refetchTotal } = useReadContract({
     address: vault,
     abi: FHERC20VaultAbi,
     functionName: "totalDeposited",
-    query: { enabled: true, refetchInterval: 15_000 },
+    query: { enabled: !!address, refetchInterval: 15_000 },
   });
 
   // Check if user has initialized their encrypted account

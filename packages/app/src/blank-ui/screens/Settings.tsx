@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAccount, useDisconnect } from "wagmi";
+import { useEffectiveAddress } from "@/hooks/useEffectiveAddress";
 import {
   ChevronLeft,
   Copy,
@@ -16,6 +17,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import toast from "react-hot-toast";
+import { clearAllAddressScopes } from "@/lib/storage";
 
 function truncateAddress(addr: string): string {
   return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
@@ -23,7 +25,9 @@ function truncateAddress(addr: string): string {
 
 export default function Settings() {
   const navigate = useNavigate();
-  const { address, chain } = useAccount();
+  // Passkey-aware address — fixes blank Settings page for passkey-only users.
+  const { effectiveAddress: address } = useEffectiveAddress();
+  const { chain } = useAccount();
   const { disconnect } = useDisconnect();
   const [copied, setCopied] = useState(false);
 
@@ -64,9 +68,12 @@ export default function Settings() {
   }, [address]);
 
   const handleDisconnect = useCallback(() => {
+    // #313: purge per-address caches BEFORE disconnect so a shared browser
+    // doesn't leave the next user with the previous session's cached state.
+    if (address) clearAllAddressScopes(address);
     disconnect();
     navigate("/", { replace: true });
-  }, [disconnect, navigate]);
+  }, [address, disconnect, navigate]);
 
   if (!address) return null;
 

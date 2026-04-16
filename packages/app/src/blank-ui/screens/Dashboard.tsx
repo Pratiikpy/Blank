@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useAccount } from "wagmi";
+import { useEffectiveAddress } from "@/hooks/useEffectiveAddress";
 import {
   Send,
   ArrowDownLeft,
@@ -18,6 +18,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { useCofheConnection, useCofheEncrypt } from "@/lib/cofhe-shim";
+import { usePrivacyMode } from "@/providers/PrivacyModeProvider";
 import { Encryptable } from "@cofhe/sdk";
 import { cn } from "@/lib/cn";
 import toast from "react-hot-toast";
@@ -70,7 +71,7 @@ const activityLabels: Record<string, string> = {
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const { address } = useAccount();
+  const { effectiveAddress: address } = useEffectiveAddress();
   const { activities, isLoading: feedLoading } = useActivityFeed();
   const balance = useEncryptedBalance();
   const {
@@ -89,13 +90,18 @@ export default function Dashboard() {
   } = useShield();
   const isMobile = useMediaQuery("(max-width: 768px)");
   const { connected: cofheConnected } = useCofheConnection();
-  const [privacyMode, setPrivacyMode] = useState(true);
+  // Shared global privacy state — set by sidebar toggle, consumed by
+  // BalanceCard + ActivityList masks here.
+  const { privacyMode, toggle: togglePrivacyMode } = usePrivacyMode();
   const [shieldAmount, setShieldAmount] = useState("");
   const [unshieldAmount, setUnshieldAmount] = useState("");
   const [faucetCooldown, setFaucetCooldown] = useState(0);
   const { encryptInputsAsync } = useCofheEncrypt();
 
-  // Faucet cooldown timer — check localStorage on mount and tick down every second
+  // Faucet cooldown timer — check localStorage on mount and tick down every
+  // second. #259: split into two effects so `isMinting` toggling doesn't
+  // tear down and recreate the interval mid-countdown (which caused the
+  // visible 1-second jump on mint completion).
   useEffect(() => {
     const FAUCET_COOLDOWN_MS = 60_000;
     const FAUCET_KEY = "blank_last_faucet";
@@ -106,11 +112,20 @@ export default function Dashboard() {
     };
     setFaucetCooldown(computeRemaining());
     const interval = setInterval(() => {
-      const remaining = computeRemaining();
-      setFaucetCooldown(remaining);
-      if (remaining <= 0) clearInterval(interval);
+      setFaucetCooldown(computeRemaining());
     }, 1000);
     return () => clearInterval(interval);
+  }, []);
+
+  // When a mint completes (`isMinting` false after being true), eagerly
+  // re-read the FAUCET_KEY so the displayed countdown jumps to the new
+  // window without waiting up to a second for the interval to tick.
+  useEffect(() => {
+    if (isMinting) return;
+    const FAUCET_COOLDOWN_MS = 60_000;
+    const last = parseInt(localStorage.getItem("blank_last_faucet") || "0");
+    const elapsed = Date.now() - last;
+    setFaucetCooldown(elapsed < FAUCET_COOLDOWN_MS ? Math.ceil((FAUCET_COOLDOWN_MS - elapsed) / 1000) : 0);
   }, [isMinting]);
 
   const unshieldBusy =
@@ -142,11 +157,19 @@ export default function Dashboard() {
   const displayAddress = address ? truncateAddress(address) : "";
   const recentActivities = activities.slice(0, 5);
 
-  const hasUnread = activities.length > 0 && activities.some((a) => {
-    const created = new Date(a.created_at).getTime();
+  // #258: memoize so downstream effects/props that depend on `hasUnread`
+  // (header pulse, nav badge) don't see a fresh reference every render.
+  // Date.now() is refreshed on each memo-recompute trigger — not per render —
+  // which is fine since activities re-poll on their own cadence.
+  const hasUnread = useMemo(() => {
+    if (activities.length === 0) return false;
     const fiveMinAgo = Date.now() - 5 * 60 * 1000;
-    return created > fiveMinAgo && a.user_to.toLowerCase() === address?.toLowerCase();
-  });
+    const lowerAddress = address?.toLowerCase();
+    return activities.some((a) => {
+      const created = new Date(a.created_at).getTime();
+      return created > fiveMinAgo && a.user_to.toLowerCase() === lowerAddress;
+    });
+  }, [activities, address]);
 
   const quickActions = [
     {
@@ -179,7 +202,7 @@ export default function Dashboard() {
   // ─── Mobile layout ────────────────────────────────────────────────
   if (isMobile) {
     return (
-      <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <div data-testid="dashboard-root" className="animate-in fade-in slide-in-from-bottom-4 duration-500">
         <div className="max-w-7xl mx-auto space-y-6 px-5">
           {/* Header */}
           <div className="flex items-start justify-between">
@@ -241,7 +264,7 @@ export default function Dashboard() {
           <BalanceCard
             balance={balance}
             privacyMode={privacyMode}
-            onTogglePrivacy={() => setPrivacyMode((p) => !p)}
+            onTogglePrivacy={togglePrivacyMode}
             activityCount={activities.length}
           />
 
@@ -443,7 +466,7 @@ export default function Dashboard() {
 
   // ─── Desktop layout (bento grid, 12 columns) ─────────────────────
   return (
-    <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div data-testid="dashboard-root" className="animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-8 flex items-start justify-between">
@@ -508,7 +531,7 @@ export default function Dashboard() {
             <BalanceCard
               balance={balance}
               privacyMode={privacyMode}
-              onTogglePrivacy={() => setPrivacyMode((p) => !p)}
+              onTogglePrivacy={togglePrivacyMode}
               activityCount={activities.length}
               large
             />

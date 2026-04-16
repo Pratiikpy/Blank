@@ -40,6 +40,42 @@
   100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
 }
 
+/* #243: per-chain tab strip — lets viewers flip between chains to see
+   each chain's encrypted aggregate without changing wallet network. */
+.gc-chain-tabs {
+  display: inline-flex;
+  gap: 0.25rem;
+  background: rgba(0, 0, 0, 0.04);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 999px;
+  padding: 0.25rem;
+  margin: 0 auto 1rem;
+}
+
+.gc-chain-tab {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  padding: 0.4rem 0.95rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: #6B6B6B;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.gc-chain-tab:hover:not(.is-active) {
+  color: var(--ll-ink, #0A0A0A);
+}
+
+.gc-chain-tab.is-active {
+  background: var(--ll-ink, #0A0A0A);
+  color: #fff;
+  font-weight: 600;
+}
+
 .gc-numbers {
   display: flex;
   align-items: stretch;

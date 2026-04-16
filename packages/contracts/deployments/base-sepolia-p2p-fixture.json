@@ -1,0 +1,10 @@
+{
+  "offerId": 1,
+  "expiry": 1776242970,
+  "maker": "0xb860513A3C5348C46cF52a573Fd743bA03c2c53F",
+  "give": "1000000",
+  "want": "1000000",
+  "tokenGive": "0x7Af02f6e1759a7b6219fCc69a8dd430ACb453861",
+  "tokenWant": "0x789f0bC466E172eD737493e9796a6d0a3aB0ff23",
+  "txHash": "0xad8badfbc77baf9dc6c69385e7064ac79452e6ba636e835c9990ce97aa869308"
+}

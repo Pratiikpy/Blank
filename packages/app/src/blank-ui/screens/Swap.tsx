@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { useExchange } from "@/hooks/useExchange";
 import { useShield } from "@/hooks/useShield";
-import { useAccount } from "wagmi";
+import { useEffectiveAddress } from "@/hooks/useEffectiveAddress";
 import toast from "react-hot-toast";
 
 // ---------------------------------------------------------------
@@ -22,7 +22,7 @@ import toast from "react-hot-toast";
 // ---------------------------------------------------------------
 
 export default function Swap() {
-  const { address } = useAccount();
+  const { effectiveAddress: address } = useEffectiveAddress();
   const {
     offers,
     filledOffers,

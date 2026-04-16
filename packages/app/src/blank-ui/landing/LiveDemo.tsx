@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useAccount, useConnect } from "wagmi";
 import {
   Wallet,
@@ -13,7 +13,7 @@ import {
 import { useShield } from "@/hooks/useShield";
 import { useEncryptedBalance } from "@/hooks/useEncryptedBalance";
 import { useCofheConnection } from "@/lib/cofhe-shim";
-import { ACTIVE_CHAIN } from "@/lib/constants";
+import { useChain } from "@/providers/ChainProvider";
 import "./live-demo.css";
 
 // ──────────────────────────────────────────────────────────────────
@@ -37,6 +37,7 @@ const SHIELD_AMOUNT = "50";
 export function LiveDemo() {
   const { address, isConnected } = useAccount();
   const { connect, connectors, isPending: connectPending } = useConnect();
+  const { activeChain } = useChain();
   const { connected: cofheReady } = useCofheConnection();
   const balance = useEncryptedBalance();
   const {
@@ -51,11 +52,35 @@ export function LiveDemo() {
   const [activeStep, setActiveStep] = useState<StepKey>("connect");
   const [faucetTxHash, setFaucetTxHash] = useState<`0x${string}` | null>(null);
   const [revealVisible, setRevealVisible] = useState(false);
+  const [fheSyncTimedOut, setFheSyncTimedOut] = useState(false);
 
-  // Auto-advance on wallet connection
-  if (isConnected && activeStep === "connect") {
-    setTimeout(() => setActiveStep("faucet"), 600);
-  }
+  // Reset demo state when wallet disconnects — no stale tx hashes or step progress.
+  useEffect(() => {
+    if (!isConnected) {
+      setActiveStep("connect");
+      setFaucetTxHash(null);
+      setRevealVisible(false);
+    }
+  }, [isConnected]);
+
+  // Auto-advance on wallet connection (proper effect so timers are cleaned up
+  // and multiple timeouts don't queue when the tab re-renders while hidden).
+  useEffect(() => {
+    if (!isConnected || activeStep !== "connect") return;
+    if (typeof document !== "undefined" && document.hidden) return;
+    const id = setTimeout(() => setActiveStep("faucet"), 600);
+    return () => clearTimeout(id);
+  }, [isConnected, activeStep]);
+
+  // FHE sync timeout — after 30s of !cofheReady, surface an actionable hint.
+  useEffect(() => {
+    if (cofheReady) {
+      setFheSyncTimedOut(false);
+      return;
+    }
+    const id = setTimeout(() => setFheSyncTimedOut(true), 30_000);
+    return () => clearTimeout(id);
+  }, [cofheReady]);
 
   const handleConnect = useCallback(() => {
     const injected = connectors.find((c) => c.id === "injected") ?? connectors[0];
@@ -89,11 +114,11 @@ export function LiveDemo() {
   const shieldDone = shieldStep === "success" || (txHash && publicBalance < 10_000);
 
   const explorerTx = (hash: string | null) =>
-    hash ? `${ACTIVE_CHAIN.explorerUrl}/tx/${hash}` : null;
+    hash ? `${activeChain.explorerUrl}/tx/${hash}` : null;
 
   return (
     <section className="ld-section" aria-label="Live demo">
-      <div className="ld-eyebrow">Live demo · {ACTIVE_CHAIN.shortName}</div>
+      <div className="ld-eyebrow">Live demo · {activeChain.shortName}</div>
       <h2 className="ld-title">See it work in 60 seconds.</h2>
       <p className="ld-lead">
         Real testnet. Real encryption. Same code as the production app.
@@ -131,7 +156,13 @@ export function LiveDemo() {
             <div className="ld-status">
               <CheckCircle2 size={14} /> Connected · {address?.slice(0, 6)}…{address?.slice(-4)}
               {!cofheReady && (
-                <span className="ld-hint"> · syncing FHE…</span>
+                <span className="ld-hint">
+                  {" "}
+                  ·{" "}
+                  {fheSyncTimedOut
+                    ? "FHE sync timed out — reload page"
+                    : "syncing FHE…"}
+                </span>
               )}
             </div>
           )}

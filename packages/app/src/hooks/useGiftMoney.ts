@@ -1,20 +1,24 @@
 import { useState, useCallback } from "react";
-import { useAccount, usePublicClient } from "wagmi";
+import { usePublicClient } from "wagmi";
+import { useEffectiveAddress } from "./useEffectiveAddress";
 import { useUnifiedWrite } from "./useUnifiedWrite";
 import { parseUnits } from "viem";
 import { useCofheEncrypt, useCofheConnection } from "@cofhe/react";
 import { Encryptable } from "@cofhe/sdk";
 import toast from "react-hot-toast";
-import { CONTRACTS, MAX_UINT64, type EncryptedInput } from "@/lib/constants";
+import { MAX_UINT64, type EncryptedInput } from "@/lib/constants";
+import { useChain } from "@/providers/ChainProvider";
 import { GiftMoneyAbi, FHERC20VaultAbi } from "@/lib/abis";
 import { insertActivity } from "@/lib/supabase";
+import { insertActivitiesFanout } from "@/lib/activity-fanout";
+import { ACTIVITY_TYPES } from "@/lib/activity-types";
 import { extractEventId } from "@/lib/event-parser";
 import { broadcastAction } from "@/lib/cross-tab";
 import { invalidateBalanceQueries } from "@/lib/query-invalidation";
 import { isVaultApproved, markVaultApproved, clearVaultApproval } from "@/lib/approval";
+import { STORAGE_KEYS, getStoredJson, setStoredJson } from "@/lib/storage";
 
 // ─── Gift creation rate limiting (#58) ──────────────────────────────
-const GIFT_RATE_KEY = "blank_gift_timestamps";
 const GIFT_MAX_PER_HOUR = 5;
 
 // ─── Step Machine ───────────────────────────────────────────────────
@@ -131,11 +135,12 @@ export function computeEqualSplits(totalAmount: string, recipientCount: number):
 }
 
 export function useGiftMoney() {
-  const { address } = useAccount();
-  const publicClient = usePublicClient();
+  const { effectiveAddress: address } = useEffectiveAddress();
+  const { contracts, activeChainId } = useChain();
+  const publicClient = usePublicClient({ chainId: activeChainId });
   const { connected } = useCofheConnection();
   const { encryptInputsAsync } = useCofheEncrypt();
-  const { unifiedWrite } = useUnifiedWrite();
+  const { unifiedWrite, unifiedWriteAndWait } = useUnifiedWrite();
 
   const [state, setState] = useState<GiftMoneyState>(initialState);
 
@@ -157,15 +162,15 @@ export function useGiftMoney() {
       }
 
       // Rate limiting: max 5 gifts per hour (#58)
-      try {
+      {
         const now = Date.now();
-        const raw = localStorage.getItem(GIFT_RATE_KEY);
-        const timestamps: number[] = raw ? JSON.parse(raw).filter((t: number) => now - t < 3_600_000) : [];
+        const stored = getStoredJson<number[]>(STORAGE_KEYS.giftRateLimit(), []);
+        const timestamps = stored.filter((t: number) => now - t < 3_600_000);
         if (timestamps.length >= GIFT_MAX_PER_HOUR) {
           toast.error("Gift limit reached (5 per hour). Please wait before creating more.");
           return;
         }
-      } catch {}
+      }
 
       if (!publicClient) {
         toast.error("Connection lost. Please refresh.");
@@ -176,12 +181,12 @@ export function useGiftMoney() {
         setState((s) => ({ ...s, step: "approving", isProcessing: true, error: null }));
 
         const vaultAddress = vault as `0x${string}`;
-        const giftMoneyAddress = CONTRACTS.GiftMoney as `0x${string}`;
+        const giftMoneyAddress = contracts.GiftMoney as `0x${string}`;
 
         // Ensure GiftMoney contract is approved to transferFrom on the vault
-        if (!isVaultApproved(CONTRACTS.GiftMoney)) {
+        if (!isVaultApproved(contracts.GiftMoney)) {
           await ensureVaultApproval(unifiedWrite, vaultAddress, giftMoneyAddress);
-          markVaultApproved(CONTRACTS.GiftMoney);
+          markVaultApproved(contracts.GiftMoney);
         }
 
         // Validate all share amounts before encrypting
@@ -205,7 +210,7 @@ export function useGiftMoney() {
         // Submit the transaction
         setState((s) => ({ ...s, step: "sending" }));
 
-        const hash = await unifiedWrite({
+        const writeResult = await unifiedWriteAndWait({
           address: giftMoneyAddress,
           abi: GiftMoneyAbi,
           functionName: "createEnvelope",
@@ -220,9 +225,32 @@ export function useGiftMoney() {
           ],
           gas: BigInt(5_000_000), // FHE: manual gas limit (precompile can't be estimated)
         });
+        const hash = writeResult.hash;
 
-        // Wait for on-chain confirmation before writing to Supabase
-        const giftReceipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
+        // AA path: relayer's receipt is in writeResult.receipt — no chain
+        // poll needed. EOA path: receipt is undefined, so poll the chain
+        // (wagmi-injected publicClient is fine for an EOA-side write since
+        // there's no relayer-vs-frontend RPC race in that case).
+        type ReceiptShape = {
+          status: "success" | "reverted";
+          blockNumber: bigint;
+          logs: ReadonlyArray<{ address: `0x${string}`; topics: readonly `0x${string}`[]; data: `0x${string}` }>;
+        };
+        let giftReceipt: ReceiptShape;
+        if (writeResult.receipt) {
+          giftReceipt = {
+            status: writeResult.receipt.status,
+            blockNumber: writeResult.receipt.blockNumber,
+            logs: writeResult.receipt.logs as ReceiptShape["logs"],
+          };
+        } else {
+          const r = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
+          giftReceipt = {
+            status: r.status,
+            blockNumber: r.blockNumber,
+            logs: r.logs as ReceiptShape["logs"],
+          };
+        }
         if (giftReceipt.status === "reverted") {
           throw new Error("Transaction reverted on-chain");
         }
@@ -235,58 +263,63 @@ export function useGiftMoney() {
         }));
 
         // Record gift creation timestamp for rate limiting
-        try {
+        {
           const now = Date.now();
-          const raw = localStorage.getItem(GIFT_RATE_KEY);
-          const timestamps: number[] = raw ? JSON.parse(raw).filter((t: number) => now - t < 3_600_000) : [];
+          const stored = getStoredJson<number[]>(STORAGE_KEYS.giftRateLimit(), []);
+          const timestamps = stored.filter((t: number) => now - t < 3_600_000);
           timestamps.push(now);
-          localStorage.setItem(GIFT_RATE_KEY, JSON.stringify(timestamps));
-        } catch {}
+          setStoredJson(STORAGE_KEYS.giftRateLimit(), timestamps);
+        }
 
         // Extract envelope ID from the contract event logs
-        const envelopeId = extractEventId(giftReceipt.logs, CONTRACTS.GiftMoney);
+        const envelopeId = extractEventId(giftReceipt.logs, contracts.GiftMoney);
         const envelopeNote = envelopeId
           ? `[envelope:${envelopeId}] ${note || "Gift envelope"}`
           : note || "Gift envelope";
 
-        // Notify other tabs and invalidate cached balances
+        // Sync to Supabase for each recipient + the sender-copy row, all in
+        // parallel via Promise.allSettled so a single row failure doesn't halt
+        // sync for the remaining rows. Unique tx_hash per row (recipient
+        // address or `_sender`) since insertActivity upserts on tx_hash.
+        await insertActivitiesFanout(
+          [
+            ...recipients.map((recipient) => ({
+              tx_hash: `${hash}_${recipient.toLowerCase()}`,
+              user_from: address.toLowerCase(),
+              user_to: recipient.toLowerCase(),
+              activity_type: ACTIVITY_TYPES.GIFT_CREATED,
+              contract_address: giftMoneyAddress,
+              note: envelopeNote,
+              token_address: contracts.TestUSDC,
+              block_number: Number(giftReceipt.blockNumber),
+            })),
+            {
+              tx_hash: `${hash}_sender`,
+              user_from: address.toLowerCase(),
+              user_to: address.toLowerCase(),
+              activity_type: ACTIVITY_TYPES.GIFT_CREATED,
+              contract_address: giftMoneyAddress,
+              note: envelopeNote,
+              token_address: contracts.TestUSDC,
+              block_number: Number(giftReceipt.blockNumber),
+            },
+          ],
+          { userToastOnFailure: true, context: "gift-create" },
+        );
+
+        // #253: broadcasts must fire AFTER insertActivitiesFanout completes —
+        // if they fired earlier, the cross-tab listener would refetch while
+        // the inserts were still in flight and miss the new rows.
         broadcastAction("balance_changed");
         broadcastAction("activity_added");
         invalidateBalanceQueries();
-
-        // Sync to Supabase for each recipient (unique tx_hash per recipient
-        // since insertActivity upserts on tx_hash)
-        for (const recipient of recipients) {
-          await insertActivity({
-            tx_hash: `${hash}_${recipient.toLowerCase()}`,
-            user_from: address.toLowerCase(),
-            user_to: recipient.toLowerCase(),
-            activity_type: "gift_created",
-            contract_address: giftMoneyAddress,
-            note: envelopeNote,
-            token_address: CONTRACTS.TestUSDC,
-            block_number: Number(giftReceipt.blockNumber),
-          });
-        }
-
-        // Activity entry for the sender
-        await insertActivity({
-          tx_hash: `${hash}_sender`,
-          user_from: address.toLowerCase(),
-          user_to: address.toLowerCase(),
-          activity_type: "gift_created",
-          contract_address: giftMoneyAddress,
-          note: envelopeNote,
-          token_address: CONTRACTS.TestUSDC,
-          block_number: Number(giftReceipt.blockNumber),
-        });
 
         toast.success("Gift envelope created!");
         return hash;
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Failed to create gift";
         if (msg.includes("allowance") || msg.includes("approve") || msg.includes("insufficient") || msg.includes("transfer amount exceeds")) {
-          clearVaultApproval(CONTRACTS.GiftMoney);
+          clearVaultApproval(contracts.GiftMoney);
         }
         setState((s) => ({
           ...s,
@@ -297,7 +330,7 @@ export function useGiftMoney() {
         toast.error(msg);
       }
     },
-    [address, connected, state.isProcessing, encryptInputsAsync, unifiedWrite, publicClient]
+    [address, connected, state.isProcessing, encryptInputsAsync, unifiedWrite, unifiedWriteAndWait, publicClient, contracts]
   );
 
   // ─── Claim (Open) Gift ──────────────────────────────────────────────
@@ -315,18 +348,24 @@ export function useGiftMoney() {
       try {
         setState((s) => ({ ...s, step: "sending", isProcessing: true, error: null }));
 
-        const giftMoneyAddress = CONTRACTS.GiftMoney as `0x${string}`;
+        const giftMoneyAddress = contracts.GiftMoney as `0x${string}`;
 
-        const hash = await unifiedWrite({
+        // unifiedWriteAndWait returns the relay-side receipt (tx.wait() already
+        // happened server-side) — skip the unreliable public-RPC poll that
+        // caused claim-never-lands timeouts under testnet RPC throttling.
+        const claimResult = await unifiedWriteAndWait({
           address: giftMoneyAddress,
           abi: GiftMoneyAbi,
           functionName: "claimGift",
           args: [BigInt(envelopeId)],
           gas: BigInt(5_000_000), // CoFHE: manual gas limit (precompile breaks estimation)
         });
-
-        // Wait for on-chain confirmation before writing to Supabase
-        const claimReceipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
+        const hash = claimResult.hash;
+        const claimReceipt = claimResult.receipt
+          ? claimResult.receipt
+          : await publicClient.waitForTransactionReceipt({
+              hash, confirmations: 1, timeout: 300_000,
+            });
         if (claimReceipt.status === "reverted") {
           throw new Error("Transaction reverted on-chain");
         }
@@ -342,12 +381,18 @@ export function useGiftMoney() {
           tx_hash: hash,
           user_from: address.toLowerCase(),
           user_to: address.toLowerCase(),
-          activity_type: "gift_claimed",
+          activity_type: ACTIVITY_TYPES.GIFT_CLAIMED,
           contract_address: giftMoneyAddress,
           note: `Opened gift envelope #${envelopeId}`,
-          token_address: CONTRACTS.TestUSDC,
+          token_address: contracts.TestUSDC,
           block_number: Number(claimReceipt.blockNumber),
         });
+
+        // #90: claimGift previously emitted no broadcast, so the user's own
+        // Received-Gifts list kept the claimed envelope visible until reload.
+        broadcastAction("activity_added");
+        broadcastAction("balance_changed");
+        invalidateBalanceQueries();
 
         toast.success("Gift opened!");
         return hash;
@@ -362,7 +407,7 @@ export function useGiftMoney() {
         toast.error(msg);
       }
     },
-    [address, connected, state.isProcessing, unifiedWrite, publicClient]
+    [address, connected, state.isProcessing, unifiedWrite, unifiedWriteAndWait, publicClient, contracts]
   );
 
   // ─── Deactivate Envelope ─────────────────────────────────────────────
@@ -380,17 +425,21 @@ export function useGiftMoney() {
       try {
         setState((s) => ({ ...s, step: "sending", isProcessing: true, error: null }));
 
-        const giftMoneyAddress = CONTRACTS.GiftMoney as `0x${string}`;
+        const giftMoneyAddress = contracts.GiftMoney as `0x${string}`;
 
-        const hash = await unifiedWrite({
+        const deactivateResult = await unifiedWriteAndWait({
           address: giftMoneyAddress,
           abi: GiftMoneyAbi,
           functionName: "deactivateEnvelope",
           args: [BigInt(envelopeId)],
           gas: BigInt(5_000_000), // CoFHE: manual gas limit (precompile breaks estimation)
         });
-
-        const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
+        const hash = deactivateResult.hash;
+        const receipt = deactivateResult.receipt
+          ? deactivateResult.receipt
+          : await publicClient.waitForTransactionReceipt({
+              hash, confirmations: 1, timeout: 300_000,
+            });
         if (receipt.status === "reverted") {
           throw new Error("Transaction reverted on-chain");
         }
@@ -402,7 +451,28 @@ export function useGiftMoney() {
           txHash: hash,
         }));
 
+        // #196: persist a typed activity row so the sender (and any past
+        // recipients tailing the feed) can audit envelope-state changes.
+        // The deactivation is an admin action by the sender on their own
+        // envelope, so user_to == user_from (same as the sender-copy row
+        // pattern used in createGift).
+        await insertActivity({
+          tx_hash: hash,
+          user_from: address.toLowerCase(),
+          user_to: address.toLowerCase(),
+          activity_type: ACTIVITY_TYPES.GIFT_DEACTIVATED,
+          contract_address: giftMoneyAddress,
+          note: `Deactivated envelope #${envelopeId}`,
+          token_address: contracts.TestUSDC,
+          block_number: Number(receipt.blockNumber),
+        });
+
+        // #126: deactivate previously only broadcast activity. While it
+        // doesn't transfer tokens, the sender's balance-view may still need
+        // to refetch if envelope refunds affect vault ledger.
         broadcastAction("activity_added");
+        broadcastAction("balance_changed");
+        invalidateBalanceQueries();
         toast.success("Envelope deactivated");
         return hash;
       } catch (err) {
@@ -416,7 +486,7 @@ export function useGiftMoney() {
         toast.error(msg);
       }
     },
-    [address, connected, state.isProcessing, unifiedWrite, publicClient]
+    [address, connected, state.isProcessing, unifiedWrite, publicClient, contracts]
   );
 
   // ─── Set Expiry ────────────────────────────────────────────────────
@@ -434,7 +504,7 @@ export function useGiftMoney() {
       try {
         setState((s) => ({ ...s, step: "sending", isProcessing: true, error: null }));
 
-        const giftMoneyAddress = CONTRACTS.GiftMoney as `0x${string}`;
+        const giftMoneyAddress = contracts.GiftMoney as `0x${string}`;
 
         const hash = await unifiedWrite({
           address: giftMoneyAddress,
@@ -456,6 +526,28 @@ export function useGiftMoney() {
           txHash: hash,
         }));
 
+        // #196: persist a typed activity row + cross-tab broadcast so this
+        // admin action shows up in the sender's feed and propagates to other
+        // tabs. expiryTimestamp == 0 means "no expiry" (per contract).
+        const expiryNote =
+          expiryTimestamp === 0
+            ? `Cleared expiry on envelope #${envelopeId}`
+            : `Updated envelope #${envelopeId} expiry to ${new Date(
+                expiryTimestamp * 1000,
+              ).toISOString()}`;
+        await insertActivity({
+          tx_hash: hash,
+          user_from: address.toLowerCase(),
+          user_to: address.toLowerCase(),
+          activity_type: ACTIVITY_TYPES.GIFT_EXPIRY_CHANGED,
+          contract_address: giftMoneyAddress,
+          note: expiryNote,
+          token_address: contracts.TestUSDC,
+          block_number: Number(receipt.blockNumber),
+        });
+
+        broadcastAction("activity_added");
+
         toast.success("Expiry updated");
         return hash;
       } catch (err) {
@@ -469,7 +561,7 @@ export function useGiftMoney() {
         toast.error(msg);
       }
     },
-    [address, connected, state.isProcessing, unifiedWrite, publicClient]
+    [address, connected, state.isProcessing, unifiedWrite, publicClient, contracts]
   );
 
   // ─── Reset ──────────────────────────────────────────────────────────

@@ -1,349 +1,151 @@
 <div align="center">
 
-<img src="https://img.shields.io/badge/Base-Sepolia-0052FF?style=for-the-badge&logo=coinbase&logoColor=white" alt="Base" />
-<img src="https://img.shields.io/badge/FHE-Encrypted-8B5CF6?style=for-the-badge&logo=shield&logoColor=white" alt="FHE" />
-<img src="https://img.shields.io/badge/Solidity-0.8.25-363636?style=for-the-badge&logo=solidity&logoColor=white" alt="Solidity" />
-<img src="https://img.shields.io/badge/React-18-61DAFB?style=for-the-badge&logo=react&logoColor=black" alt="React" />
-<img src="https://img.shields.io/badge/CoFHE-SDK-10B981?style=for-the-badge&logo=lock&logoColor=white" alt="CoFHE" />
-<img src="https://img.shields.io/badge/Contracts-16-F59E0B?style=for-the-badge" alt="Contracts" />
-<img src="https://img.shields.io/badge/License-MIT-10B981?style=for-the-badge" alt="MIT" />
-
-<br /><br />
-
 # Blank
 
-### Your salary is your business. Not the blockchain's.
+**Private payments for the open blockchain.**
 
-Blank is an encrypted payment platform where transaction amounts are invisible on-chain.<br />
-Built on Fully Homomorphic Encryption. The blockchain processes data it cannot read.
+Blank encrypts every transaction amount using Fully Homomorphic Encryption.
+Smart contracts process your money without ever seeing the numbers.
 
-[Launch App](https://blank-omega-jade.vercel.app) &nbsp;&middot;&nbsp; [View Contracts](#deployed-contracts) &nbsp;&middot;&nbsp; [Architecture](#architecture)
+[Launch App](https://blank-omega-jade.vercel.app) · [How It Works](#how-it-works) · [Features](#features)
 
 </div>
 
 ---
 
-## The Problem
+## Why Blank
 
-Every transaction on a public blockchain is a postcard. Amount, sender, receiver &mdash; all visible to anyone with a block explorer.
+Every payment on a public blockchain is visible to everyone. Your salary, your purchases, your savings — all exposed on a block explorer. This limits real-world adoption for individuals and makes enterprise use impossible.
 
-| Consequence | Scale |
-|------------|-------|
-| MEV sandwich bots exploiting visible swap amounts | **$900M+ extracted** (2023) |
-| Hardware wallet breaches leaking home addresses | **272K addresses exposed** |
-| Enterprise adoption stalled | Competitors map supply chains from payment flows |
-| DAO salary transparency | Every contributor's compensation visible to every holder |
-| Targeted physical attacks | High-balance wallets become robbery targets |
+Blank fixes this. Transaction amounts are encrypted before they touch the chain. The blockchain computes on data it cannot read. Only sender and recipient can see the value.
 
-Financial privacy isn't a feature. It's missing infrastructure.
+No trusted intermediary. No hardware enclaves. Pure cryptography.
 
 ---
 
 ## How It Works
 
-Blank encrypts every financial amount using **Fully Homomorphic Encryption** &mdash; computation on encrypted data without decryption. Smart contracts add, compare, and transfer encrypted values. The plaintext never touches the blockchain.
-
 ```
-You type:         $250.00
-SDK encrypts:     ZK proof + TFHE ciphertext (generated in Web Worker)
-CoFHE verifies:   ECDSA signature from threshold network
-Chain stores:     0x7a3f...encrypted ciphertext handle...9e2b
-Contract computes: FHE.add(balance, amount) — on encrypted data
-Recipient sees:   $250.00 (unsealed with their FHE permit)
-Everyone else:    $████.██
+You send $250         →  Encrypted in your browser (TFHE + ZK proof)
+Smart contract runs   →  FHE.add(balance, amount) on ciphertext
+Recipient receives    →  Decrypts $250 with their key
+Everyone else sees    →  $████.██
 ```
 
-No trusted intermediary. No TEE. No MPC with threshold assumptions. Pure math.
-
----
-
-## Encryption Pipeline
-
-```
-                    CLIENT                          OFF-CHAIN                       ON-CHAIN
-                      │                                │                               │
-    User enters $250  │                                │                               │
-          ┌───────────┤                                │                               │
-          │ @cofhe/sdk│                                │                               │
-          │ (dynamic) │                                │                               │
-          ├───────────┤                                │                               │
-          │ TFHE WASM │  ZK Proof of Knowledge         │                               │
-          │ in Worker ├───────────────────────────────►│ CoFHE ZK Verifier             │
-          │           │                                │ POST /verify                  │
-          │           │  { ctHash, signature }         │ Validates proof               │
-          │           │◄───────────────────────────────┤ Signs with ECDSA              │
-          ├───────────┤                                │                               │
-          │ wagmi     │  writeContractAsync({          │                               │
-          │           │    ctHash, signature,           │                               │
-          │           │    securityZone, utype          │                               │
-          │           │  })                             │                               │
-          │           ├────────────────────────────────┼──────────────────────────────►│
-          │           │                                │                    TaskManager│
-          │           │                                │                    ecrecover  │
-          │           │                                │                    ✓ verified │
-          │           │                                │                               │
-          │           │                                │              FHE.asEuint64()  │
-          │           │                                │              FHE.add()        │
-          │           │                                │              FHE.select()     │
-          │           │                                │              FHE.allowThis()  │
-          │           │                                │              FHE.allowSender()│
-          └───────────┘                                └───────────────────────────────┘
-```
-
-Every encrypted input passes through:
-1. **Client-side TFHE encryption** &mdash; plaintext never leaves the browser
-2. **Zero-Knowledge proof generation** &mdash; proves knowledge without revealing value
-3. **Off-chain verification** &mdash; CoFHE threshold network signs the proof
-4. **On-chain signature check** &mdash; TaskManager validates via `ecrecover`
-5. **Homomorphic computation** &mdash; smart contract operates on ciphertext
+Blank uses **Fhenix CoFHE** — a Fully Homomorphic Encryption coprocessor — to perform arithmetic on encrypted values directly inside smart contracts. Amounts never exist as plaintext on-chain.
 
 ---
 
 ## Features
 
-<table>
-<tr>
-<td width="50%">
-
 ### Payments
-- Encrypted wallet (shield / unshield)
-- P2P transfers with encrypted amounts
-- Payment requests with create / fulfill / cancel
-- QR codes and payment links
-- Batch send (up to 30 recipients)
-
-### Social
-- Group expense splitting (equal + custom splits)
-- Quadratic encrypted voting on expenses
-- Creator tips with dynamic tier badges
-- Gift envelopes (equal / random splits with expiry)
-- Stealth payments via anonymous claim codes
-
-</td>
-<td width="50%">
+- **Encrypted transfers** — Send money with amounts hidden from the public chain
+- **Payment requests** — Request money from anyone, fulfill or cancel anytime
+- **Batch payments** — Send to up to 30 recipients in a single transaction
+- **QR codes & payment links** — Share a link, get paid instantly
 
 ### Business
-- Encrypted invoicing with 2-phase verification
-- Batch payroll (employees can't see each other's pay)
-- Escrow with 2-of-2 approval + arbiter disputes
-- P2P exchange with encrypted settlement
+- **Encrypted invoicing** — Create invoices where only vendor and client see the amount. Two-phase verification ensures payment matches the invoice
+- **Confidential payroll** — Run batch payroll where employees cannot see each other's compensation
+- **Escrow** — Lock funds with optional arbiter for dispute resolution
+
+### Social
+- **Group expenses** — Split bills with encrypted amounts and quadratic voting on disputes
+- **Gift envelopes** — Send encrypted gifts to multiple recipients with equal or random splits
+- **Creator support** — Tip creators with dynamic tier badges, all amounts private
+- **Stealth payments** — Anonymous transfers via one-time claim codes. 30-day refund window
 
 ### Privacy Infrastructure
-- Dead man's switch inheritance with vault transfer
-- Cryptographic receipts with FHE-random IDs
-- FHE permit management with local access tracking
-- 30-day stealth payment refunds
+- **Shield / Unshield** — Move between plaintext and encrypted token vaults
+- **Inheritance planning** — Dead man's switch with automatic vault transfer to beneficiaries
+- **Qualification proofs** — Prove "income above $X" or "balance above $Y" without revealing the actual number
+- **P2P exchange** — Atomic swaps with encrypted settlement amounts
 
-</td>
-</tr>
-</table>
+---
+
+## Wallet Support
+
+Blank supports two wallet paths:
+
+| Path | How It Works | Gas |
+|------|-------------|-----|
+| **Passkey (recommended)** | Create a wallet with just a passphrase. No extension needed. Uses ERC-4337 account abstraction with P-256 passkey signing. | Sponsored (free) via Paymaster |
+| **MetaMask / EOA** | Connect any injected wallet. Standard transaction signing. | User pays gas |
+
+Both paths use the same encrypted contracts. The passkey wallet batches multiple operations into a single transaction for better UX.
 
 ---
 
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────────────────────────┐
-│  Frontend                                                                 │
-│  React 18 · Vite 5 · TypeScript · Tailwind · wagmi · viem                │
-│  @cofhe/sdk (dynamic WASM) · Framer Motion · Supabase Realtime           │
-│                                                                           │
-│  23 screens · 15 hooks · 99 aria-labels · WCAG AA compliant              │
-├──────────────────────────────────────────────────────────────────────────┤
-│  Smart Contracts (16 deployed on Ethereum Sepolia)                            │
-│  Solidity 0.8.25 · UUPS upgradeable proxies · FHE.sol v0.0.13           │
-│  28 unique FHE operations · ReentrancyGuard on all state-changing fns    │
-├──────────────────────────────────────────────────────────────────────────┤
-│  FHE Coprocessor (Fhenix CoFHE)                                          │
-│  Threshold Network · ZK Verifier · TaskManager Precompile                │
-│  ECDSA signature verification · Async decryption via permits             │
-├──────────────────────────────────────────────────────────────────────────┤
-│  Data Layer                                                               │
-│  Supabase (notification layer, NOT source of truth)                      │
-│  Blockchain is always authoritative · Realtime on 8 tables               │
-│  localStorage fallback for offline mode                                   │
-└──────────────────────────────────────────────────────────────────────────┘
+Frontend            React · Vite · TypeScript · Tailwind · wagmi
+                    23 screens · 15 hooks · WCAG AA accessible
+
+Smart Contracts     16 UUPS-upgradeable contracts on Base Sepolia
+                    Solidity 0.8.25 · Fhenix CoFHE FHE operations
+
+FHE Coprocessor     Fhenix CoFHE Threshold Network
+                    Client-side TFHE encryption · ZK proof verification
+                    Async decryption via permits
+
+Data Layer          Supabase for notifications and activity feed
+                    Blockchain is always the source of truth
 ```
 
 ---
 
 ## Deployed Contracts
 
-All contracts are UUPS-upgradeable proxies deployed on **Ethereum Sepolia (Chain ID: 11155111)**.
+Live on **Base Sepolia** (Chain ID: 84532).
 
-| Contract | Address | Purpose |
-|----------|---------|---------|
-| **TestUSDC** | `0x1636...7D68` | Test ERC-20 token with faucet |
-| **FHERC20Vault** | `0x3a58...AB51` | Encrypted token vault &mdash; shield, unshield, transfer, transferFromVerified |
-| **PaymentHub** | `0xB628...b5eB` | P2P payments, requests, batch send |
-| **GroupManager** | `0x9443...Dd27` | Group expenses, quadratic voting, debt settlement |
-| **CreatorHub** | `0x62FF...B4A1` | Creator profiles, encrypted tips, tier badges |
-| **BusinessHub** | `0x3048...5717` | Invoicing, payroll, escrow with arbiter |
-| **P2PExchange** | `0x5339...A054` | Atomic swaps with encrypted settlement |
-| **StealthPayments** | `0x4064...591c` | Anonymous transfers via claim codes |
-| **GiftMoney** | `0x845A...d4F9` | Encrypted gift envelopes with expiry |
-| **PrivacyRouter** | `0xeE7D...8BC` | Decrypt-swap-re-encrypt pipeline |
-| **InheritanceManager** | `0x4902...9835` | Dead man's switch with vault transfer |
-| **PaymentReceipts** | `0xE208...8148` | Cryptographic receipts with FHE-random IDs |
-| **EncryptedFlags** | `0x0f62...42Aa` | Compliance engine with encrypted KYC flags |
-| **EventHub** | `0x06F8...20eB` | Unified event aggregation |
-| **TokenRegistry** | `0xE233...888A` | ERC-20 to vault mapping |
-| **MockDEX** | `0x9C29...8Be` | Test exchange for privacy router |
+| Contract | Purpose |
+|----------|---------|
+| **FHERC20Vault** | Encrypted token vault — shield, unshield, encrypted transfers |
+| **PaymentHub** | P2P payments, payment requests, batch send |
+| **BusinessHub** | Invoicing, payroll, escrow with arbiter disputes |
+| **GroupManager** | Group expenses, quadratic voting, debt settlement |
+| **StealthPayments** | Anonymous transfers via claim codes |
+| **GiftMoney** | Encrypted gift envelopes with expiry |
+| **P2PExchange** | Atomic swaps with encrypted settlement |
+| **CreatorHub** | Creator profiles, encrypted tips, tier badges |
+| **InheritanceManager** | Dead man's switch with vault transfer |
+| **PaymentReceipts** | Cryptographic qualification proofs |
+| **BlankAccountFactory** | ERC-4337 smart wallet factory (passkey-based) |
+| **BlankPaymaster** | Gas sponsorship for smart wallet users |
+
+All contracts are also deployed on Ethereum Sepolia (Chain ID: 11155111) for dual-chain support.
 
 ---
 
-## FHE Operations
+## Security
 
-28 unique operations across all contracts:
-
-| Category | Operations | Why |
-|----------|-----------|-----|
-| **Arithmetic** | `add` `sub` `mul` `square` | Encrypted balance math |
-| **Comparison** | `eq` `ne` `gt` `gte` `lt` `lte` `min` `max` | Conditional logic without branching |
-| **Bitwise** | `and` `or` `xor` `not` `shl` `shr` | Flag manipulation |
-| **Control** | `select` `req` | Privacy-preserving conditionals |
-| **Access** | `allowThis` `allowSender` `allow` `allowTransient` | Fine-grained ciphertext permissions |
-| **Decrypt** | `decrypt` `getDecryptResultSafe` | Async decryption via threshold network |
-| **Random** | `randomEuint64` | On-chain encrypted randomness |
-
-### Why `FHE.select()` instead of `require()`
-
-```solidity
-// WRONG: require() leaks information via revert
-require(balance >= amount, "Insufficient"); // Attacker learns: balance < amount
-
-// RIGHT: select() preserves privacy
-euint64 newBalance = FHE.select(
-    FHE.gte(balance, amount),    // encrypted comparison
-    FHE.sub(balance, amount),    // if true: deduct
-    balance                       // if false: no change, no revert
-);
-```
-
-A revert is a 1-bit information leak. Enough reverts reconstruct the balance. `FHE.select()` always succeeds &mdash; the result is encrypted, the observer learns nothing.
-
----
-
-## Security Model
-
-| Layer | Measure | Detail |
-|-------|---------|--------|
-| **Contract** | Reentrancy protection | Custom `nonReentrant` guard on 35+ functions |
-| **Privacy** | `FHE.select()` over `require()` | Zero information leakage from transaction outcomes |
-| **Encryption** | ZK-verified inputs | Every encrypted value signed by CoFHE threshold network |
-| **Access Control** | 4-tier ACL | `allowThis` → `allowSender` → `allow` → `allowTransient` |
-| **Anti-frontrunning** | Stealth claim codes | Bound to `keccak256(code, claimer)` &mdash; unusable by interceptor |
-| **Frontend** | Input validation | `isAddress()` from viem on all address inputs |
-| **Frontend** | parseUnits guards | Empty string checks before every `parseUnits` / `parseFloat` |
-| **UX** | No silent failures | Toast feedback on every disabled button and validation error |
-| **Accessibility** | WCAG AA | 99 aria-labels, 44px touch targets, keyboard focus indicators |
-| **Upgrades** | UUPS proxy | All 16 contracts upgradeable without state loss |
-
----
-
-## Tech Stack
-
-| Layer | Technology |
-|-------|-----------|
-| **Chain** | Ethereum Sepolia (Chain ID: 11155111) |
-| **Contracts** | Solidity 0.8.25 + @fhenixprotocol/cofhe-contracts v0.1.0 + viaIR |
-| **FHE Encryption** | @cofhe/sdk v0.4.0 (dynamic WASM, Web Workers for ZK proofs) |
-| **Contract Framework** | Hardhat + @cofhe/hardhat-plugin v0.4.0 |
-| **Frontend** | React 18, Vite 5, TypeScript 5.5 |
-| **Styling** | Tailwind CSS + glass morphism design system |
-| **Wallet** | wagmi 2.17 + viem 2.38 |
-| **State** | React Query + module-level singletons for cross-route persistence |
-| **Realtime** | Supabase (8 tables with realtime subscriptions) |
-| **Animation** | Framer Motion |
-| **Deployment** | Vercel (frontend) + Hardhat tasks (contracts) |
+- **No information leakage** — Uses `FHE.select()` instead of `require()` to prevent balance inference from reverts
+- **Reentrancy protection** — Custom guard on all state-changing functions
+- **ZK-verified inputs** — Every encrypted value signed by CoFHE threshold network before on-chain use
+- **Non-custodial** — No server ever holds user funds or private keys
+- **Stealth claim binding** — Claim codes bound to `keccak256(code, claimer)`, unusable by interceptors
+- **UUPS upgradeable** — All contracts upgradeable without state migration
 
 ---
 
 ## Development
 
 ```bash
-# Clone
 git clone https://github.com/Pratiikpy/Blank.git
 cd Blank && pnpm install
 
 # Frontend
 cd packages/app
-cp .env.example .env    # Add Supabase keys (optional)
-pnpm dev                # http://localhost:3000
+cp .env.example .env
+pnpm dev
 
 # Contracts
 cd packages/contracts
-cp .env.example .env    # Add PRIVATE_KEY + RPC URLs
+cp .env.example .env
 npx hardhat compile
 npx hardhat test
-
-# Deploy to Ethereum Sepolia
-npx hardhat deploy-all --network eth-sepolia
-npx hardhat deploy-remaining --network eth-sepolia
-npx hardhat deploy-fhe-extras --network eth-sepolia
-npx hardhat deploy-new-features --network eth-sepolia
 ```
-
----
-
-## Project Structure
-
-```
-Blank/
-├── packages/
-│   ├── app/                          # React frontend
-│   │   ├── src/
-│   │   │   ├── blank-ui/
-│   │   │   │   ├── screens/          # 23 screen components
-│   │   │   │   ├── components/       # Shared UI (GlobalSearch, Keypad, Sidebar)
-│   │   │   │   └── theme.css         # Glass morphism design system
-│   │   │   ├── hooks/                # 15 custom hooks (shield, send, groups, etc.)
-│   │   │   ├── lib/
-│   │   │   │   ├── cofhe-shim.ts     # Dynamic @cofhe/sdk integration (bypasses MUI crash)
-│   │   │   │   ├── constants.ts      # 16 contract addresses
-│   │   │   │   ├── abis.ts           # All contract ABIs with InEuint64 tuples
-│   │   │   │   └── supabase.ts       # Notification layer (NOT source of truth)
-│   │   │   └── providers/            # Wagmi + React Query setup
-│   │   ├── vite.config.ts            # WASM + top-level-await + @cofhe/react alias
-│   │   └── vercel.json               # SPA rewrites
-│   │
-│   └── contracts/                    # Solidity smart contracts
-│       ├── contracts/
-│       │   ├── FHERC20Vault.sol      # Core encrypted token vault
-│       │   ├── PaymentHub.sol        # P2P payments + requests
-│       │   ├── GroupManager.sol      # Group expenses + voting
-│       │   ├── CreatorHub.sol        # Creator economy
-│       │   ├── BusinessHub.sol       # Invoicing + payroll + escrow
-│       │   ├── P2PExchange.sol       # Atomic swaps
-│       │   ├── StealthPayments.sol   # Anonymous transfers
-│       │   ├── GiftMoney.sol         # Gift envelopes
-│       │   ├── InheritanceManager.sol # Dead man's switch
-│       │   └── ...                   # 7 more contracts
-│       ├── tasks/                    # Deployment scripts (4 phases)
-│       └── deployments/              # Deployed addresses per network
-│
-
-```
-
----
-
-## Key Technical Decisions
-
-### Why a shim instead of `@cofhe/react`?
-
-`@cofhe/react` imports `@mui/material` which causes a production build crash (`isValidElementType` error from `react-is` version conflict). Our `cofhe-shim.ts` dynamically imports `@cofhe/sdk` at runtime, performs real TFHE encryption with ZK proofs, and falls back gracefully if WASM fails to load.
-
-### Why manual gas limits?
-
-The CoFHE TaskManager precompile doesn't execute during `eth_estimateGas` simulation. Without manual limits, viem defaults to 140M gas which exceeds the 25M block gas limit. All 55 `writeContractAsync` calls use `gas: BigInt(5_000_000)`.
-
-### Why module-level singleton state for send flow?
-
-React Router navigates between `/send/contacts` → `/send/amount` → `/send/confirm` → `/send/success`. Each route mounts a fresh component. `useState` dies on unmount. A module-level singleton persists the recipient, amount, and step across all 4 pages.
-
-### Why Supabase is NOT the source of truth?
-
-Supabase stores notifications and activity cache. Every write happens AFTER on-chain transaction confirmation. If Supabase is down, the app falls back to on-chain events. Encrypted amounts are NEVER stored in Supabase &mdash; only public context (who, when, type, note).
 
 ---
 

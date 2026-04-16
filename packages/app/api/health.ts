@@ -24,7 +24,24 @@ interface FeatureStatus {
   feature: string;
 }
 
-export default function handler(_req: any, res: any) {
+/**
+ * Poll a URL with a short timeout. Returns true if the URL responds with
+ * ANY HTTP status (including 4xx) — we only care that the network is
+ * reachable, not that we have auth for the endpoint.
+ */
+async function probe(url: string, timeoutMs = 3000): Promise<{ ok: boolean; status?: number; error?: string }> {
+  try {
+    const res = await fetch(url, {
+      method: "HEAD",
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    return { ok: true, status: res.status };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export default async function handler(_req: any, res: any) {
   const features: FeatureStatus[] = [
     {
       envVar: "NVIDIA_API_KEY",
@@ -96,6 +113,17 @@ export default function handler(_req: any, res: any) {
     !!process.env.SEPOLIA_RPC_URL &&
     !!process.env.BASE_SEPOLIA_RPC_URL;
 
+  // Layer 8 + 12: probe external dependencies in parallel. Doesn't fail
+  // the request — just reports liveness so frontend can show a "FHE
+  // network degraded" banner and judges can see what's green/red.
+  const [cofheProbe, verifierProbe, tnProbe] = await Promise.all([
+    probe("https://testnet-cofhe.fhenix.zone"),
+    probe("https://testnet-cofhe-vrf.fhenix.zone"),
+    probe("https://testnet-cofhe-tn.fhenix.zone"),
+  ]);
+
+  const fhenixReachable = cofheProbe.ok && verifierProbe.ok && tnProbe.ok;
+
   res.status(httpStatus).json({
     status: httpStatus === 200 ? "ok" : httpStatus === 207 ? "partial" : "degraded",
     summary,
@@ -107,6 +135,12 @@ export default function handler(_req: any, res: any) {
       agentFallback: process.env.NVIDIA_API_KEY && process.env.ANTHROPIC_API_KEY
         ? "claude-opus-4-6"
         : "none",
+      fhenixReachable,
+    },
+    fhenix: {
+      cofhe: cofheProbe,
+      verifier: verifierProbe,
+      thresholdNetwork: tnProbe,
     },
     missingRequired: missingRequired.map((f) => f.envVar),
     missingOptional: missingOptional.map((f) => f.envVar),

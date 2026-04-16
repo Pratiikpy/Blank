@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAccount, usePublicClient, useWriteContract } from "wagmi";
 import { parseUnits, formatUnits } from "viem";
+import { formatUsdcBigint } from "@/lib/format";
 import {
   Fingerprint,
   ShieldCheck,
@@ -15,7 +16,7 @@ import {
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { useSmartAccount } from "@/hooks/useSmartAccount";
-import { ACTIVE_CHAIN, CONTRACTS } from "@/lib/constants";
+import { useChain } from "@/providers/ChainProvider";
 import { TestUSDCAbi } from "@/lib/abis";
 
 // ──────────────────────────────────────────────────────────────────
@@ -32,6 +33,7 @@ import { TestUSDCAbi } from "@/lib/abis";
 export default function SmartWallet() {
   const { status, account, error, createAccount, removeAccount, refresh } = useSmartAccount();
   const { address: eoaAddress } = useAccount();
+  const { activeChain, contracts } = useChain();
   const publicClient = usePublicClient();
   const { writeContractAsync } = useWriteContract();
 
@@ -51,13 +53,13 @@ export default function SmartWallet() {
     try {
       const [s, e] = await Promise.all([
         publicClient.readContract({
-          address: CONTRACTS.TestUSDC,
+          address: contracts.TestUSDC,
           abi: TestUSDCAbi,
           functionName: "balanceOf",
           args: [account.address],
         }) as Promise<bigint>,
         publicClient.readContract({
-          address: CONTRACTS.TestUSDC,
+          address: contracts.TestUSDC,
           abi: TestUSDCAbi,
           functionName: "balanceOf",
           args: [eoaAddress],
@@ -68,7 +70,7 @@ export default function SmartWallet() {
     } catch (err) {
       console.warn("[SmartWallet] balance refresh failed:", err);
     }
-  }, [publicClient, account, eoaAddress]);
+  }, [publicClient, account, eoaAddress, contracts]);
 
   useEffect(() => {
     refreshBalances();
@@ -91,7 +93,7 @@ export default function SmartWallet() {
     setFunding(true);
     try {
       const hash = await writeContractAsync({
-        address: CONTRACTS.TestUSDC,
+        address: contracts.TestUSDC,
         abi: TestUSDCAbi,
         functionName: "transfer",
         args: [account.address, wei],
@@ -108,14 +110,14 @@ export default function SmartWallet() {
     } finally {
       setFunding(false);
     }
-  }, [account, eoaAddress, fundAmount, eoaUsdc, writeContractAsync, publicClient, refreshBalances]);
+  }, [account, eoaAddress, fundAmount, eoaUsdc, writeContractAsync, publicClient, refreshBalances, contracts]);
 
   const handleFaucet = useCallback(async () => {
     if (!eoaAddress) return;
     setFunding(true);
     try {
       const hash = await writeContractAsync({
-        address: CONTRACTS.TestUSDC,
+        address: contracts.TestUSDC,
         abi: TestUSDCAbi,
         functionName: "faucet",
       });
@@ -130,7 +132,7 @@ export default function SmartWallet() {
     } finally {
       setFunding(false);
     }
-  }, [eoaAddress, writeContractAsync, publicClient, refreshBalances]);
+  }, [eoaAddress, writeContractAsync, publicClient, refreshBalances, contracts]);
 
   const handleCreate = async () => {
     if (passphrase.length < 8) {
@@ -175,13 +177,13 @@ export default function SmartWallet() {
           <div className="flex items-center gap-2 mb-2">
             <Fingerprint size={22} className="text-blue-600 dark:text-blue-400" />
             <span className="text-xs font-semibold uppercase tracking-wider text-blue-600 dark:text-blue-400">
-              Smart wallet · ERC-4337 · {ACTIVE_CHAIN.shortName}
+              Smart wallet · ERC-4337 · {activeChain.shortName}
             </span>
           </div>
-          <h1 className="text-4xl sm:text-5xl font-heading font-semibold text-[var(--text-primary)] tracking-tight mb-2">
+          <h1 className="text-3xl sm:text-5xl font-heading font-semibold text-[var(--text-primary)] tracking-tight mb-2">
             Your wallet, no seed phrase
           </h1>
-          <p className="text-base text-[var(--text-primary)]/50 leading-relaxed max-w-2xl">
+          <p className="text-sm sm:text-base text-[var(--text-primary)]/50 leading-relaxed max-w-2xl">
             A P-256 keypair generated in this browser, encrypted with a passphrase
             you choose. Sign every transaction with the passphrase. The smart
             account on-chain only knows the public key — your private key never
@@ -191,7 +193,7 @@ export default function SmartWallet() {
 
         {/* No passkey yet */}
         {status === "no-passkey" && (
-          <div className="glass-card-static rounded-[2rem] p-8 space-y-6">
+          <div className="glass-card-static rounded-[2rem] p-4 sm:p-8 space-y-6">
             <div>
               <h2 className="text-xl font-heading font-medium text-[var(--text-primary)] mb-2">
                 Create your smart wallet
@@ -270,7 +272,7 @@ export default function SmartWallet() {
         {status === "ready" && account && (
           <div className="space-y-5">
             {/* Address card */}
-            <div className="glass-card-static rounded-[2rem] p-8">
+            <div className="glass-card-static rounded-[2rem] p-4 sm:p-8">
               <div className="flex items-start gap-3 mb-5">
                 <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-500/10 flex items-center justify-center text-blue-600 dark:text-blue-400">
                   <Wallet size={18} />
@@ -305,7 +307,7 @@ export default function SmartWallet() {
                 </button>
                 {account.isDeployed && (
                   <a
-                    href={`${ACTIVE_CHAIN.explorerUrl}/address/${account.address}`}
+                    href={`${activeChain.explorerUrl}/address/${account.address}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="font-medium px-3 py-2 rounded-lg bg-black/[0.04] hover:bg-black/[0.07] dark:bg-white/[0.05] dark:hover:bg-white/[0.08] text-[var(--text-secondary)] transition-colors flex items-center gap-1.5"
@@ -317,7 +319,7 @@ export default function SmartWallet() {
             </div>
 
             {/* Fund-in card */}
-            <div className="glass-card-static rounded-[2rem] p-8">
+            <div className="glass-card-static rounded-[2rem] p-4 sm:p-8">
               <div className="flex items-start gap-3 mb-5">
                 <div className="w-10 h-10 rounded-xl bg-amber-50 dark:bg-amber-500/10 flex items-center justify-center text-amber-600 dark:text-amber-400">
                   <Banknote size={18} />
@@ -338,7 +340,7 @@ export default function SmartWallet() {
                     EOA balance (source)
                   </div>
                   <div className="font-mono text-lg font-semibold text-[var(--text-primary)]">
-                    {eoaUsdc !== null ? Number(formatUnits(eoaUsdc, 6)).toLocaleString() : "—"} USDC
+                    {eoaUsdc !== null ? formatUsdcBigint(eoaUsdc) : "—"} USDC
                   </div>
                 </div>
                 <div className="rounded-2xl bg-emerald-50/50 dark:bg-emerald-500/5 border border-emerald-200/40 dark:border-emerald-500/20 p-4">
@@ -346,7 +348,7 @@ export default function SmartWallet() {
                     Smart wallet balance
                   </div>
                   <div className="font-mono text-lg font-semibold text-emerald-700 dark:text-emerald-300">
-                    {smartUsdc !== null ? Number(formatUnits(smartUsdc, 6)).toLocaleString() : "—"} USDC
+                    {smartUsdc !== null ? formatUsdcBigint(smartUsdc) : "—"} USDC
                   </div>
                 </div>
               </div>
@@ -404,7 +406,7 @@ export default function SmartWallet() {
             </div>
 
             {/* Pubkey + delete card */}
-            <div className="glass-card-static rounded-[2rem] p-8">
+            <div className="glass-card-static rounded-[2rem] p-4 sm:p-8">
               <div className="flex items-start gap-3 mb-4">
                 <div className="w-10 h-10 rounded-xl bg-purple-50 dark:bg-purple-500/10 flex items-center justify-center text-purple-600 dark:text-purple-400">
                   <ShieldCheck size={18} />

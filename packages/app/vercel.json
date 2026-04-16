@@ -8,5 +8,11 @@
         { "key": "Cross-Origin-Embedder-Policy", "value": "credentialless" }
       ]
     }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/reconcile-tick",
+      "schedule": "*/10 * * * *"
+    }
   ]
 }

@@ -4,6 +4,7 @@ import {
   useCofheActivePermit,
 } from "@cofhe/react";
 import toast from "react-hot-toast";
+import { STORAGE_KEYS, getStoredJson, setStoredJson } from "@/lib/storage";
 
 interface SharedPermit {
   address: string;
@@ -16,31 +17,18 @@ interface SharedPermitsState {
   sharedPermits: SharedPermit[];
 }
 
-const STORAGE_KEY = "blank_permit_state";
-
 function loadSharedPermits(address: string): SharedPermit[] {
-  try {
-    const stored = localStorage.getItem(`${STORAGE_KEY}_${address.toLowerCase()}`);
-    if (!stored) return [];
-    const parsed = JSON.parse(stored) as Partial<SharedPermitsState & { sharedPermits: SharedPermit[] }>;
-    const loaded = parsed.sharedPermits ?? [];
-    // Filter out expired shared permits on load
-    const validShares = loaded.filter((s) => s.expiresAt > Date.now());
-    return validShares;
-  } catch {
-    return [];
-  }
+  const parsed = getStoredJson<Partial<SharedPermitsState> | null>(
+    STORAGE_KEYS.privacy(address),
+    null,
+  );
+  const loaded = parsed?.sharedPermits ?? [];
+  // Filter out expired shared permits on load
+  return loaded.filter((s) => s.expiresAt > Date.now());
 }
 
 function saveSharedPermits(address: string, sharedPermits: SharedPermit[]) {
-  try {
-    localStorage.setItem(
-      `${STORAGE_KEY}_${address.toLowerCase()}`,
-      JSON.stringify({ sharedPermits })
-    );
-  } catch {
-    // Storage quota exceeded — non-critical, data still in memory
-  }
+  setStoredJson(STORAGE_KEYS.privacy(address), { sharedPermits });
 }
 
 /**

@@ -14,7 +14,7 @@ import {
 import { LandingNav } from "./LandingNav";
 import { LandingFooter } from "./LandingFooter";
 import { useQualificationProof, type ProofRecord } from "@/hooks/useQualificationProof";
-import { ACTIVE_CHAIN } from "@/lib/constants";
+import { useChain } from "@/providers/ChainProvider";
 import "./landing.css";
 import "./how-it-works.css";
 import "./verify.css";
@@ -32,11 +32,13 @@ import "./verify.css";
 export default function Verify() {
   const { proofId: proofIdStr } = useParams<{ proofId: string }>();
   const { isConnected } = useAccount();
+  const { activeChain } = useChain();
   const { fetchProof, publishProof, step } = useQualificationProof();
 
   const [proof, setProof] = useState<ProofRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  const [rpcError, setRpcError] = useState<string | null>(null);
 
   const proofIdBigInt = (() => {
     try {
@@ -53,17 +55,28 @@ export default function Verify() {
       return;
     }
     setLoading(true);
-    const p = await fetchProof(proofIdBigInt);
-    if (!p) {
-      setNotFound(true);
-    } else {
-      setProof(p);
+    try {
+      const p = await fetchProof(proofIdBigInt);
+      setRpcError(null);
+      if (!p) {
+        setNotFound(true);
+      } else {
+        setProof(p);
+        setNotFound(false);
+      }
+    } catch {
+      setRpcError("Network error — try again");
       setNotFound(false);
+      setProof(null);
     }
     setLoading(false);
   }, [proofIdBigInt, fetchProof]);
 
   useEffect(() => {
+    setProof(null);
+    setNotFound(false);
+    setRpcError(null);
+    setLoading(true);
     refresh();
   }, [refresh]);
 
@@ -84,13 +97,15 @@ export default function Verify() {
           <h1 className="ll-section-title">
             {loading
               ? "Loading proof..."
-              : notFound
-                ? "Proof not found"
-                : proof?.isReady
-                  ? proof.isTrue
-                    ? "Verified ✓"
-                    : "Not verified ✗"
-                  : "Pending verification"}
+              : rpcError
+                ? "Network error"
+                : notFound
+                  ? "Proof not found"
+                  : proof?.isReady
+                    ? proof.isTrue
+                      ? "Verified ✓"
+                      : "Not verified ✗"
+                    : "Pending verification"}
           </h1>
         </section>
 
@@ -102,12 +117,26 @@ export default function Verify() {
             </div>
           )}
 
-          {!loading && notFound && (
+          {!loading && rpcError && (
+            <div className="verify-state">
+              <AlertCircle size={36} className="text-red-500" />
+              <p>{rpcError}</p>
+              <p className="verify-hint">
+                We couldn't reach <strong>{activeChain.name}</strong> to read
+                this proof. Check your connection and try again.
+              </p>
+              <button className="ll-btn ll-btn--ghost" onClick={refresh}>
+                Retry
+              </button>
+            </div>
+          )}
+
+          {!loading && !rpcError && notFound && (
             <div className="verify-state">
               <AlertCircle size={36} className="text-red-500" />
               <p>
                 Proof <code>{proofIdStr}</code> doesn't exist on{" "}
-                <strong>{ACTIVE_CHAIN.name}</strong>.
+                <strong>{activeChain.name}</strong>.
               </p>
               <p className="verify-hint">
                 Check the link, or switch to the chain where the proof was
@@ -119,7 +148,7 @@ export default function Verify() {
             </div>
           )}
 
-          {!loading && !notFound && proof && (
+          {!loading && !rpcError && !notFound && proof && (
             <div className="verify-card">
               <div
                 className={
@@ -162,7 +191,7 @@ export default function Verify() {
                   <span className="verify-meta-label">Block</span>
                   <a
                     className="verify-meta-value"
-                    href={`${ACTIVE_CHAIN.explorerUrl}/block/${proof.blockNumber}`}
+                    href={`${activeChain.explorerUrl}/block/${proof.blockNumber}`}
                     target="_blank"
                     rel="noopener noreferrer"
                   >
@@ -177,7 +206,7 @@ export default function Verify() {
                 </div>
                 <div>
                   <span className="verify-meta-label">Network</span>
-                  <span className="verify-meta-value">{ACTIVE_CHAIN.name}</span>
+                  <span className="verify-meta-value">{activeChain.name}</span>
                 </div>
               </div>
 

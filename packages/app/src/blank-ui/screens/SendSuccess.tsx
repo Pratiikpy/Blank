@@ -2,11 +2,13 @@ import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Shield, Check, ExternalLink } from "lucide-react";
 import { useSendPayment } from "@/hooks/useSendPayment";
-import { ACTIVE_CHAIN } from "@/lib/constants";
+import { useChain } from "@/providers/ChainProvider";
+import { truncateAddress } from "@/lib/address";
 
 export default function SendSuccess() {
   const navigate = useNavigate();
   const payment = useSendPayment();
+  const { activeChain } = useChain();
 
   const handleBackHome = () => {
     payment.reset();
@@ -46,7 +48,7 @@ export default function SendSuccess() {
 
         {/* Subtitle */}
         <p className="text-base text-[var(--text-secondary)] text-center max-w-sm mb-6 leading-relaxed">
-          Your encrypted payment has been confirmed on Ethereum Sepolia. The amount is
+          Your encrypted payment has been confirmed on {activeChain.name}. The amount is
           protected by Fully Homomorphic Encryption.
         </p>
 
@@ -63,24 +65,24 @@ export default function SendSuccess() {
         {/* Payment Details */}
         {payment.recipient && (
           <div className="w-full max-w-sm space-y-3 mb-10">
-            <div className="flex justify-between p-3 rounded-xl bg-white/50 border border-black/5">
-              <span className="text-sm text-[var(--text-secondary)]">To</span>
-              <span className="text-sm font-mono">
-                {payment.recipient.slice(0, 10)}...{payment.recipient.slice(-6)}
+            <div className="flex justify-between gap-3 p-3 rounded-xl bg-white/50 border border-black/5">
+              <span className="text-sm text-[var(--text-secondary)] shrink-0">To</span>
+              <span className="text-sm font-mono truncate">
+                {truncateAddress(payment.recipient)}
               </span>
             </div>
-            <div className="flex justify-between p-3 rounded-xl bg-white/50 border border-black/5">
-              <span className="text-sm text-[var(--text-secondary)]">Amount</span>
-              <span className="text-sm font-mono">${payment.amount} USDC</span>
+            <div className="flex justify-between gap-3 p-3 rounded-xl bg-white/50 border border-black/5">
+              <span className="text-sm text-[var(--text-secondary)] shrink-0">Amount</span>
+              <span className="text-sm font-mono truncate">${payment.amount} USDC</span>
             </div>
             {payment.txHash && (
               <a
-                href={`${ACTIVE_CHAIN.explorerUrl}/tx/${payment.txHash}`}
+                href={`${activeChain.explorerUrl}/tx/${payment.txHash}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center justify-center gap-2 h-12 rounded-2xl bg-blue-50 text-blue-600 font-medium text-sm hover:bg-blue-100 transition-colors w-full"
               >
-                View on Basescan <ExternalLink size={16} />
+                View on {activeChain.name} explorer <ExternalLink size={16} />
               </a>
             )}
           </div>

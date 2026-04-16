@@ -20,6 +20,8 @@
  */
 
 import { ethers } from "ethers";
+import { checkRateLimit, writeRateLimitHeaders } from "./_lib/rate-limit";
+import { getSigner } from "./_lib/signer";
 
 // ─── Config ───────────────────────────────────────────────────────────
 
@@ -40,33 +42,20 @@ const SUPPORTED_CHAINS: Record<number, { rpcUrl: string; entryPoint: string }> =
 
 const ENTRYPOINT_ABI = [
   "function handleOps(tuple(address sender, uint256 nonce, bytes initCode, bytes callData, bytes32 accountGasLimits, uint256 preVerificationGas, bytes32 gasFees, bytes paymasterAndData, bytes signature)[] ops, address beneficiary)",
+  "event UserOperationEvent(bytes32 indexed userOpHash, address indexed sender, address indexed paymaster, uint256 nonce, bool success, uint256 actualGasCost, uint256 actualGasUsed)",
+  "event UserOperationRevertReason(bytes32 indexed userOpHash, address indexed sender, uint256 nonce, bytes revertReason)",
 ];
 
-// ─── Rate limiting (in-memory, per-IP) ────────────────────────────────
-// Same limitation as /api/agent/derive — Vercel cold starts wipe the map.
-// Move to Vercel KV before high-traffic production. For testnet hackathon
-// scope this is acceptable; abuse just means slower throughput.
-
-const RATE_WINDOW_MS = 60_000;
-const RATE_MAX = 10; // 10 UserOps per IP per minute
-const rateMap = new Map<string, number[]>();
+// ─── Rate limiting ────────────────────────────────────────────────────
+// Shared limiter: uses Vercel KV when KV_REST_API_URL + KV_REST_API_TOKEN
+// are set (correct across cold starts + instances), falls back to an
+// in-memory Map for local dev. 10 UserOps per IP per minute.
 
 function ipFromHeaders(headers: Record<string, string | string[] | undefined>): string {
   const fwd = headers["x-forwarded-for"];
   if (typeof fwd === "string") return fwd.split(",")[0].trim();
   if (Array.isArray(fwd)) return fwd[0].split(",")[0].trim();
   return "unknown";
-}
-
-function rateLimited(ip: string): boolean {
-  const now = Date.now();
-  const calls = (rateMap.get(ip) ?? []).filter((t) => now - t < RATE_WINDOW_MS);
-  if (calls.length >= RATE_MAX) {
-    rateMap.set(ip, calls);
-    return true;
-  }
-  rateMap.set(ip, [...calls, now]);
-  return false;
 }
 
 // ─── Validation ───────────────────────────────────────────────────────
@@ -108,6 +97,53 @@ function validateUserOp(op: SerializedUserOp): { ok: true } | { ok: false; error
   return { ok: true };
 }
 
+// ─── Relay serialization + local nonce counter ────────────────────
+// The relayer EOA can only submit one tx per nonce. Concurrent calls
+// race for the same nonce, and even a back-to-back confirm-then-read
+// of "pending" can return stale because public RPCs lag behind the
+// chain tip by seconds.
+//
+// Solution: serialize per-chain, AND maintain a local nonce counter that
+// we increment after each successful submission. Providers eventually
+// converge; the counter keeps us one step ahead.
+//
+// Scoped per chainId since each chain has its own nonce sequence.
+const relayQueues: Map<number, Promise<unknown>> = new Map();
+const nextNonceByChain: Map<number, number> = new Map();
+
+async function serialize<T>(chainId: number, fn: () => Promise<T>): Promise<T> {
+  const prev = relayQueues.get(chainId) ?? Promise.resolve();
+  const next = prev.then(() => fn(), () => fn()); // run even if prev rejected
+  relayQueues.set(chainId, next);
+  try {
+    return await next;
+  } finally {
+    // Only clear if this is the tail (no newer entry queued on top)
+    if (relayQueues.get(chainId) === next) relayQueues.delete(chainId);
+  }
+}
+
+/**
+ * Pick a safe nonce: max(local counter, chain pending). Call
+ * `commitNonce(n)` after a successful submission to advance the local
+ * counter. If submission fails the counter is untouched — the next
+ * serialize() turn will re-read chain state and choose again.
+ */
+async function pickNonce(
+  chainId: number,
+  provider: ethers.JsonRpcProvider,
+  relayerAddress: string,
+): Promise<number> {
+  const chainPending = await provider.getTransactionCount(relayerAddress, "pending");
+  const local = nextNonceByChain.get(chainId) ?? 0;
+  return Math.max(local, chainPending);
+}
+
+function commitNonce(chainId: number, used: number) {
+  const local = nextNonceByChain.get(chainId) ?? 0;
+  if (used + 1 > local) nextNonceByChain.set(chainId, used + 1);
+}
+
 // ─── Handler ──────────────────────────────────────────────────────────
 
 export default async function handler(req: any, res: any) {
@@ -117,14 +153,10 @@ export default async function handler(req: any, res: any) {
   }
 
   const ip = ipFromHeaders(req.headers ?? {});
-  if (rateLimited(ip)) {
-    res.status(429).json({ error: "rate limited — try again in a minute" });
-    return;
-  }
-
-  const relayerKey = process.env.RELAYER_PRIVATE_KEY;
-  if (!relayerKey) {
-    res.status(500).json({ error: "server not configured — missing RELAYER_PRIVATE_KEY" });
+  const rl = await checkRateLimit({ ip, key: "relay", windowMs: 60_000, max: 10 });
+  writeRateLimitHeaders(res, rl);
+  if (!rl.ok) {
+    res.status(429).json({ error: `Rate limit exceeded — try again in ${rl.resetSeconds}s` });
     return;
   }
 
@@ -152,7 +184,15 @@ export default async function handler(req: any, res: any) {
 
   const cfg = SUPPORTED_CHAINS[chainId];
   const provider = new ethers.JsonRpcProvider(cfg.rpcUrl);
-  const wallet = new ethers.Wallet(relayerKey, provider);
+
+  let signer;
+  try {
+    signer = getSigner("relayer", provider);
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : "signer init failed" });
+    return;
+  }
+  const wallet = signer.ethersSigner; // for ethers.Contract compatibility
   const entryPoint = new ethers.Contract(cfg.entryPoint, ENTRYPOINT_ABI, wallet);
 
   // ethers expects BigInts for uint256 fields — re-hydrate from strings
@@ -170,16 +210,126 @@ export default async function handler(req: any, res: any) {
   };
 
   try {
-    const tx = await entryPoint.handleOps([ethersOp], wallet.address, {
-      // EntryPoint loop has overhead beyond the UserOp's own gas — give it room.
-      gasLimit: 15_000_000n,
+    const relayerAddress = await signer.getAddress();
+    // Serialize per-chain so concurrent /api/relay calls don't race on
+    // relayer nonce. Inside the queued critical section we read the
+    // pending nonce and submit atomically — no other handler can interleave.
+    const { tx, receipt } = await serialize(chainId, async () => {
+      // Two independent safety mechanisms combine:
+      //   1. Serialization (outer): only one relay call per chain
+      //      executes at a time, so nonce picks are consistent with
+      //      chain state captured at pick-time.
+      //   2. Retry (inner): when the chosen nonce collides (dev HMR
+      //      resets in-memory counter; public RPC lag) we reset the
+      //      counter from chain "pending" and try once more.
+      //
+      // Up to 2 attempts. First attempt uses max(local, chain-pending);
+      // if it fails with a nonce-ish error, reset local and use chain
+      // "pending" straight.
+      const attempt = async (
+        chosenNonce: number,
+      ): Promise<{ tx: typeof submittedTx; receipt: Awaited<ReturnType<typeof submittedTx.wait>> }> => {
+        const submittedTx = await entryPoint.handleOps([ethersOp], relayerAddress, {
+          gasLimit: 15_000_000n,
+          nonce: chosenNonce,
+        });
+        commitNonce(chainId, chosenNonce);
+        const submittedReceipt = await submittedTx.wait();
+        return { tx: submittedTx, receipt: submittedReceipt };
+      };
+
+      // Forward-declare for the attempt signature to satisfy TS
+      let submittedTx: Awaited<ReturnType<typeof entryPoint.handleOps>>;
+      void submittedTx;
+
+      const firstNonce = await pickNonce(chainId, provider, relayerAddress);
+      try {
+        return await attempt(firstNonce);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        const nonceLike = /nonce|already been used|replacement|underpriced|execution reverted/i.test(msg);
+        if (!nonceLike) throw err;
+        // Reset local counter by re-reading chain + bumping past the
+        // just-attempted nonce, then try once more.
+        const chainPending = await provider.getTransactionCount(relayerAddress, "pending");
+        const retryNonce = Math.max(chainPending, firstNonce + 1);
+        nextNonceByChain.set(chainId, retryNonce);
+        console.warn(`[relay] nonce conflict on ${firstNonce}, retrying with ${retryNonce} (${msg.slice(0, 80)})`);
+        return await attempt(retryNonce);
+      }
     });
-    const receipt = await tx.wait();
+
+    // #76: on-chain revert at the EntryPoint level returns status=0.
+    // Without this, we'd return 200 OK and the frontend would cheerfully
+    // render "success" while nothing actually happened.
+    if (!receipt || receipt.status === 0) {
+      res.status(502).json({
+        error: "tx reverted on-chain",
+        hash: tx.hash,
+        blockNumber: receipt?.blockNumber ?? null,
+      });
+      return;
+    }
+
+    // #77: EntryPoint.handleOps succeeds atomically even when the inner
+    // UserOp reverted — it emits UserOperationEvent(success=false) instead
+    // of bubbling the revert. We MUST decode the logs to surface this.
+    let userOpSuccess = true;
+    let revertReason: string | null = null;
+    try {
+      const iface = new ethers.Interface(ENTRYPOINT_ABI);
+      for (const log of receipt.logs ?? []) {
+        try {
+          const parsed = iface.parseLog({ topics: [...log.topics], data: log.data });
+          if (!parsed) continue;
+          if (parsed.name === "UserOperationEvent" && parsed.args.success === false) {
+            userOpSuccess = false;
+          }
+          if (parsed.name === "UserOperationRevertReason") {
+            revertReason = parsed.args.revertReason as string;
+          }
+        } catch {
+          // not an EntryPoint log — skip
+        }
+      }
+    } catch {
+      // parsing failed — fall through; we've at least captured receipt.status
+    }
+
+    if (!userOpSuccess) {
+      res.status(502).json({
+        error: "UserOp inner call reverted",
+        revertReason: revertReason ?? "unknown (EntryPoint emitted UserOperationEvent.success=false)",
+        hash: tx.hash,
+        blockNumber: receipt.blockNumber,
+      });
+      return;
+    }
+
+    // Return the FULL receipt so the frontend doesn't have to re-poll the
+    // RPC for it. Free public RPC tiers (sepolia.base.org) rate-limit the
+    // waitForTransactionReceipt polling loop hard enough that callers
+    // routinely time out at viem's 180s default — even though the tx is
+    // already mined (we just confirmed it via tx.wait() above). Pre-serialize
+    // the logs because ethers' Log objects don't survive JSON.
+    const serializedLogs = (receipt.logs ?? []).map((l) => ({
+      address: l.address,
+      topics: [...l.topics],
+      data: l.data,
+      blockNumber: Number(l.blockNumber),
+      transactionHash: l.transactionHash,
+      transactionIndex: l.index,
+      logIndex: l.index,
+      removed: l.removed,
+    }));
     res.status(200).json({
       hash: tx.hash,
-      blockNumber: receipt?.blockNumber ?? null,
-      status: receipt?.status ?? "submitted",
-      relayer: wallet.address,
+      blockNumber: typeof receipt.blockNumber === "bigint" ? receipt.blockNumber.toString() : receipt.blockNumber,
+      blockHash: receipt.blockHash,
+      status: receipt.status === 1 ? "success" : "reverted",
+      userOpSuccess: true,
+      relayer: relayerAddress,
+      logs: serializedLogs,
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "unknown error";

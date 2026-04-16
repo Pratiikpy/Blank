@@ -3,12 +3,12 @@ import { Check, ChevronDown, Globe } from "lucide-react";
 import { cn } from "@/lib/cn";
 import {
   CHAINS,
-  SUPPORTED_CHAIN_ID,
-  setActiveChainId,
   ETH_SEPOLIA_ID,
   BASE_SEPOLIA_ID,
   type SupportedChainId,
 } from "@/lib/constants";
+import { useChain } from "@/providers/ChainProvider";
+import { useEffectiveAddress } from "@/hooks/useEffectiveAddress";
 
 // Ordered list for the dropdown — Eth Sepolia is the primary chain with the
 // full v0.1.3 feature set; Base Sepolia runs a shield/unshield smoke test only.
@@ -17,6 +17,14 @@ const CHAIN_ORDER: SupportedChainId[] = [ETH_SEPOLIA_ID, BASE_SEPOLIA_ID];
 export function ChainSelector() {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const { activeChainId, setActiveChain } = useChain();
+  // #323: picking a chain while disconnected is a silent no-op — the user
+  // clicks, nothing happens because there's no wallet to signal. Disable
+  // the button and explain why in its aria-label so screen readers help out.
+  // Passkey smart accounts count as "connected" even though wagmi doesn't
+  // know about them; gate on effectiveAddress, not wagmi's isConnected.
+  const { effectiveAddress } = useEffectiveAddress();
+  const isConnected = Boolean(effectiveAddress);
 
   useEffect(() => {
     if (!open) return;
@@ -34,17 +42,27 @@ export function ChainSelector() {
     };
   }, [open]);
 
-  const active = CHAINS[SUPPORTED_CHAIN_ID];
+  const active = CHAINS[activeChainId];
 
   return (
     <div ref={ref} className="relative">
       <button
-        onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-3 w-full px-4 py-2.5 rounded-full hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
-        style={{ background: "transparent", border: "none", cursor: "pointer" }}
+        onClick={() => { if (isConnected) setOpen((v) => !v); }}
+        disabled={!isConnected}
+        className={cn(
+          "flex items-center gap-3 w-full px-4 py-2.5 rounded-full transition-colors",
+          isConnected
+            ? "hover:bg-black/5 dark:hover:bg-white/5 cursor-pointer"
+            : "opacity-40 cursor-not-allowed",
+        )}
+        style={{ background: "transparent", border: "none" }}
         aria-haspopup="listbox"
         aria-expanded={open}
-        aria-label={`Network: ${active.name}. Click to switch.`}
+        aria-label={
+          isConnected
+            ? `Network: ${active.name}. Click to switch.`
+            : `Network: ${active.name}. Connect a wallet to switch chains.`
+        }
       >
         <Globe size={18} className="text-[var(--text-secondary)]" />
         <span className="text-sm text-[var(--text-secondary)] flex-1 text-left">
@@ -66,14 +84,14 @@ export function ChainSelector() {
         >
           {CHAIN_ORDER.map((id) => {
             const chain = CHAINS[id];
-            const isActive = id === SUPPORTED_CHAIN_ID;
+            const isActive = id === activeChainId;
             return (
               <button
                 key={id}
                 role="option"
                 aria-selected={isActive}
                 onClick={() => {
-                  if (!isActive) setActiveChainId(id);
+                  if (!isActive) setActiveChain(id);
                   setOpen(false);
                 }}
                 className={cn(

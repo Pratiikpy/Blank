@@ -1,0 +1,177 @@
+{
+  "storage": [
+    {
+      "astId": 51490,
+      "contract": "contracts/P2PExchange.sol:P2PExchange",
+      "label": "_status",
+      "offset": 0,
+      "slot": "0",
+      "type": "t_uint256"
+    },
+    {
+      "astId": 43425,
+      "contract": "contracts/P2PExchange.sol:P2PExchange",
+      "label": "eventHub",
+      "offset": 0,
+      "slot": "1",
+      "type": "t_contract(IEventHub)43398"
+    },
+    {
+      "astId": 43427,
+      "contract": "contracts/P2PExchange.sol:P2PExchange",
+      "label": "nextOfferId",
+      "offset": 0,
+      "slot": "2",
+      "type": "t_uint256"
+    },
+    {
+      "astId": 43432,
+      "contract": "contracts/P2PExchange.sol:P2PExchange",
+      "label": "offers",
+      "offset": 0,
+      "slot": "3",
+      "type": "t_mapping(t_uint256,t_struct(Offer)43422_storage)"
+    },
+    {
+      "astId": 43437,
+      "contract": "contracts/P2PExchange.sol:P2PExchange",
+      "label": "_userOffers",
+      "offset": 0,
+      "slot": "4",
+      "type": "t_mapping(t_address,t_array(t_uint256)dyn_storage)"
+    },
+    {
+      "astId": 43443,
+      "contract": "contracts/P2PExchange.sol:P2PExchange",
+      "label": "_offerValidation",
+      "offset": 0,
+      "slot": "5",
+      "type": "t_mapping(t_uint256,t_userDefinedValueType(ebool)4725)"
+    }
+  ],
+  "types": {
+    "t_address": {
+      "encoding": "inplace",
+      "label": "address",
+      "numberOfBytes": "20"
+    },
+    "t_array(t_uint256)dyn_storage": {
+      "base": "t_uint256",
+      "encoding": "dynamic_array",
+      "label": "uint256[]",
+      "numberOfBytes": "32"
+    },
+    "t_bool": {
+      "encoding": "inplace",
+      "label": "bool",
+      "numberOfBytes": "1"
+    },
+    "t_contract(IEventHub)43398": {
+      "encoding": "inplace",
+      "label": "contract IEventHub",
+      "numberOfBytes": "20"
+    },
+    "t_mapping(t_address,t_array(t_uint256)dyn_storage)": {
+      "encoding": "mapping",
+      "key": "t_address",
+      "label": "mapping(address => uint256[])",
+      "numberOfBytes": "32",
+      "value": "t_array(t_uint256)dyn_storage"
+    },
+    "t_mapping(t_uint256,t_struct(Offer)43422_storage)": {
+      "encoding": "mapping",
+      "key": "t_uint256",
+      "label": "mapping(uint256 => struct P2PExchange.Offer)",
+      "numberOfBytes": "32",
+      "value": "t_struct(Offer)43422_storage"
+    },
+    "t_mapping(t_uint256,t_userDefinedValueType(ebool)4725)": {
+      "encoding": "mapping",
+      "key": "t_uint256",
+      "label": "mapping(uint256 => ebool)",
+      "numberOfBytes": "32",
+      "value": "t_userDefinedValueType(ebool)4725"
+    },
+    "t_struct(Offer)43422_storage": {
+      "encoding": "inplace",
+      "label": "struct P2PExchange.Offer",
+      "members": [
+        {
+          "astId": 43407,
+          "contract": "contracts/P2PExchange.sol:P2PExchange",
+          "label": "maker",
+          "offset": 0,
+          "slot": "0",
+          "type": "t_address"
+        },
+        {
+          "astId": 43409,
+          "contract": "contracts/P2PExchange.sol:P2PExchange",
+          "label": "tokenGive",
+          "offset": 0,
+          "slot": "1",
+          "type": "t_address"
+        },
+        {
+          "astId": 43411,
+          "contract": "contracts/P2PExchange.sol:P2PExchange",
+          "label": "tokenWant",
+          "offset": 0,
+          "slot": "2",
+          "type": "t_address"
+        },
+        {
+          "astId": 43413,
+          "contract": "contracts/P2PExchange.sol:P2PExchange",
+          "label": "amountGive",
+          "offset": 0,
+          "slot": "3",
+          "type": "t_uint256"
+        },
+        {
+          "astId": 43415,
+          "contract": "contracts/P2PExchange.sol:P2PExchange",
+          "label": "amountWant",
+          "offset": 0,
+          "slot": "4",
+          "type": "t_uint256"
+        },
+        {
+          "astId": 43417,
+          "contract": "contracts/P2PExchange.sol:P2PExchange",
+          "label": "expiry",
+          "offset": 0,
+          "slot": "5",
+          "type": "t_uint256"
+        },
+        {
+          "astId": 43419,
+          "contract": "contracts/P2PExchange.sol:P2PExchange",
+          "label": "active",
+          "offset": 0,
+          "slot": "6",
+          "type": "t_bool"
+        },
+        {
+          "astId": 43421,
+          "contract": "contracts/P2PExchange.sol:P2PExchange",
+          "label": "filled",
+          "offset": 1,
+          "slot": "6",
+          "type": "t_bool"
+        }
+      ],
+      "numberOfBytes": "224"
+    },
+    "t_uint256": {
+      "encoding": "inplace",
+      "label": "uint256",
+      "numberOfBytes": "32"
+    },
+    "t_userDefinedValueType(ebool)4725": {
+      "encoding": "inplace",
+      "label": "ebool",
+      "numberOfBytes": "32"
+    }
+  }
+}

@@ -2,7 +2,8 @@ import { Link } from "react-router-dom";
 import { ArrowRight, Sparkles, ExternalLink } from "lucide-react";
 import { LandingNav } from "./LandingNav";
 import { LandingFooter } from "./LandingFooter";
-import { AGENT_ATTESTATION_ADDRESS, ACTIVE_CHAIN } from "@/lib/constants";
+import { AGENT_ATTESTATION_ADDRESS } from "@/lib/constants";
+import { useChain } from "@/providers/ChainProvider";
 import "./landing.css";
 import "./how-it-works.css";
 
@@ -52,6 +53,7 @@ const ROWS: Row[] = [
 ];
 
 export default function HowItWorks() {
+  const { activeChain } = useChain();
   return (
     <div className="blank-landing">
       <LandingNav />
@@ -103,7 +105,7 @@ export default function HowItWorks() {
               <span className="hiw-agents-label">Agent address</span>
               {AGENT_ATTESTATION_ADDRESS ? (
                 <a
-                  href={`${ACTIVE_CHAIN.explorerUrl}/address/${AGENT_ATTESTATION_ADDRESS}`}
+                  href={`${activeChain.explorerUrl}/address/${AGENT_ATTESTATION_ADDRESS}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="hiw-agents-value"
