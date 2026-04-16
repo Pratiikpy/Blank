@@ -325,6 +325,17 @@ export function BlankApp() {
   const { status: smartAccountStatus, account: smartAccount } = useSmartAccount();
   const hasPasskeyAccount = smartAccountStatus === "ready" && smartAccount !== null;
 
+  // Auto-switch app chain to match wallet — MUST be before all early returns
+  // to satisfy React's hooks ordering rule. When MetaMask is on Base Sepolia
+  // but app defaults to ETH Sepolia (or vice versa), silently switch the app.
+  useEffect(() => {
+    if (!isConnected || !chain?.id) return;
+    if (chain.id === activeChainId) return;
+    if (SUPPORTED_WALLET_CHAINS.has(chain.id)) {
+      setActiveChain(chain.id as SupportedChainId);
+    }
+  }, [isConnected, chain?.id, activeChainId, setActiveChain]);
+
   // #322: wagmi auto-reconnect from storage is async. During that window
   // `isConnected=false` but `isReconnecting=true` — show a brief spinner
   // instead of flashing Onboarding, which is jarring on every reload.
@@ -381,27 +392,6 @@ export function BlankApp() {
     );
   }
 
-  // Network mismatch warning — active chain is chosen via the chain selector
-  // and persisted to localStorage. This guard enforces the wallet is on the
-  // If the wallet is on a different chain than the app's activeChainId,
-  // auto-switch the app to match — as long as it's a supported chain.
-  // This avoids the "Wrong Network" blocker for users on Base Sepolia
-  // when the app defaults to ETH Sepolia (or vice versa).
-  //
-  // Only show "Wrong Network" for truly unsupported chains (mainnet, etc.).
-  // Passkey-only users have no wagmi `chain` to mismatch — skip entirely.
-  useEffect(() => {
-    if (!isConnected || !chain?.id) return;
-    if (chain.id === activeChainId) return;
-    if (SUPPORTED_WALLET_CHAINS.has(chain.id)) {
-      // Wallet is on a supported chain that differs from activeChainId —
-      // silently switch the app to match the wallet.
-      setActiveChain(chain.id as SupportedChainId);
-    }
-  }, [isConnected, chain?.id, activeChainId, setActiveChain]);
-
-  // No "Wrong Network" block for supported chains — the useEffect above
-  // auto-switches the app. Unsupported chains are caught at line 358.
 
   const showNav = !hideNavRoutes.some((r) =>
     location.pathname.startsWith(r),
