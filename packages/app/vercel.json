@@ -12,7 +12,7 @@
   "crons": [
     {
       "path": "/api/cron/reconcile-tick",
-      "schedule": "*/10 * * * *"
+      "schedule": "0 0 * * *"
     }
   ]
 }
