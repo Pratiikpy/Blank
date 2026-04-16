@@ -270,19 +270,19 @@ function RolesBell() {
             onClick={(e) => e.stopPropagation()}
             className="w-full max-w-lg mt-4 sm:mt-16 animate-in slide-in-from-top-4 duration-200"
           >
-            <div className="flex items-center justify-between mb-3 px-1">
+            <div className="flex items-center justify-between mb-4 px-1">
               <h2 className="text-lg font-heading font-semibold text-white drop-shadow-sm">
                 Roles assigned to you
               </h2>
               <button
                 onClick={() => setOpen(false)}
-                className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 border border-white/20 flex items-center justify-center text-white transition-colors"
+                className="w-9 h-9 rounded-full bg-white/20 hover:bg-white/30 border border-white/30 flex items-center justify-center text-white transition-colors backdrop-blur-sm"
                 aria-label="Close"
               >
                 <X size={18} />
               </button>
             </div>
-            <MyRolesPanel onNavigate={() => setOpen(false)} />
+            <MyRolesPanel onNavigate={() => setOpen(false)} className="backdrop-blur-xl bg-white/90 dark:bg-[#1a1a1a]/90 border border-white/20 dark:border-white/10 shadow-2xl" />
             {unreadCount > 0 && (
               <div className="mt-3 text-center">
                 <button
