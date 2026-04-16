@@ -77,9 +77,11 @@ export default function Dashboard() {
   const balance = useEncryptedBalance();
   const {
     mintTestTokens,
+    mintTestUSDT,
     shield,
     publicBalance,
     isMinting,
+    isMintingUsdt,
     step: shieldStep,
     error: shieldError,
     reset: resetShield,
@@ -89,7 +91,7 @@ export default function Dashboard() {
     hasPendingUnshield,
     retryUnshieldClaim,
   } = useShield();
-  const { activeChain } = useChain();
+  const { activeChain, contracts } = useChain();
   const isMobile = useMediaQuery("(max-width: 768px)");
   const { connected: cofheConnected } = useCofheConnection();
   // Shared global privacy state — set by sidebar toggle, consumed by
@@ -154,6 +156,18 @@ export default function Dashboard() {
       toast.error(err instanceof Error ? err.message : "Failed to mint test tokens");
     }
   };
+
+  const handleMintUsdt = async () => {
+    try {
+      await mintTestUSDT();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to mint test USDT");
+    }
+  };
+  // Only chains with a TestUSDT deployment expose the button. ETH Sepolia
+  // currently has USDC only; Base Sepolia has both. Gate the UI on config,
+  // not hard-coded chain IDs, so adding USDT to another chain just works.
+  const hasUsdtFaucet = Boolean(contracts.TestUSDT);
 
   const greeting = useMemo(() => getGreeting(), []);
   const displayAddress = address ? truncateAddress(address) : "";
@@ -273,14 +287,21 @@ export default function Dashboard() {
 
           {/* Shield Section */}
           <div id="shield-section" className="glass-card-static rounded-[2rem] p-6 space-y-4">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between flex-wrap gap-3">
               <div>
                 <p className="text-label text-[var(--text-secondary)]">DEPOSIT TO PRIVATE WALLET</p>
                 <p className="text-sm text-[var(--text-secondary)] mt-1">Deposit USDC to enable encrypted payments</p>
               </div>
-              <button onClick={handleMint} disabled={isMinting || faucetCooldown > 0} className="h-10 px-4 rounded-full bg-emerald-50 text-emerald-600 font-medium text-sm hover:bg-emerald-100 transition-colors disabled:opacity-50" aria-label="Get test USDC">
-                {isMinting ? "Minting..." : faucetCooldown > 0 ? `Try again in ${faucetCooldown}s` : "Get Test USDC"}
-              </button>
+              <div className="flex items-center gap-2">
+                <button onClick={handleMint} disabled={isMinting || faucetCooldown > 0} className="h-10 px-4 rounded-full bg-emerald-50 text-emerald-600 font-medium text-sm hover:bg-emerald-100 transition-colors disabled:opacity-50" aria-label="Get test USDC">
+                  {isMinting ? "Minting..." : faucetCooldown > 0 ? `Try again in ${faucetCooldown}s` : "Get Test USDC"}
+                </button>
+                {hasUsdtFaucet && (
+                  <button onClick={handleMintUsdt} disabled={isMintingUsdt} className="h-10 px-4 rounded-full bg-blue-50 text-blue-600 font-medium text-sm hover:bg-blue-100 transition-colors disabled:opacity-50" aria-label="Get test USDT">
+                    {isMintingUsdt ? "Minting..." : "Get Test USDT"}
+                  </button>
+                )}
+              </div>
             </div>
             <div className="flex gap-3">
               <div className="flex-1 relative">
@@ -306,7 +327,7 @@ export default function Dashboard() {
             </div>
             <div className="flex items-center justify-between text-sm">
               <span className="text-[var(--text-tertiary)]">Vault Balance (Encrypted):</span>
-              <span className="font-mono tabular-nums text-[var(--text-primary)]">{balance.formatted || "\u2588\u2588\u2588\u2588.\u2588\u2588"}</span>
+              <span className="font-mono tabular-nums text-[var(--text-primary)]">{balance.formatted || "\u2022\u2022\u2022\u2022.\u2022\u2022"}</span>
             </div>
             <div className="flex items-center justify-between text-sm">
               <span className="text-[var(--text-tertiary)]">Public USDC Balance:</span>
@@ -578,14 +599,21 @@ export default function Dashboard() {
 
           {/* Shield Section (col-span-full) */}
           <div id="shield-section" className="col-span-full rounded-[2rem] glass-card-static p-6 space-y-4">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between flex-wrap gap-3">
               <div>
                 <p className="text-label text-[var(--text-secondary)]">DEPOSIT TO PRIVATE WALLET</p>
                 <p className="text-sm text-[var(--text-secondary)] mt-1">Deposit USDC to enable encrypted payments</p>
               </div>
-              <button onClick={handleMint} disabled={isMinting || faucetCooldown > 0} className="h-10 px-4 rounded-full bg-emerald-50 text-emerald-600 font-medium text-sm hover:bg-emerald-100 transition-colors disabled:opacity-50" aria-label="Get test USDC">
-                {isMinting ? "Minting..." : faucetCooldown > 0 ? `Try again in ${faucetCooldown}s` : "Get Test USDC"}
-              </button>
+              <div className="flex items-center gap-2">
+                <button onClick={handleMint} disabled={isMinting || faucetCooldown > 0} className="h-10 px-4 rounded-full bg-emerald-50 text-emerald-600 font-medium text-sm hover:bg-emerald-100 transition-colors disabled:opacity-50" aria-label="Get test USDC">
+                  {isMinting ? "Minting..." : faucetCooldown > 0 ? `Try again in ${faucetCooldown}s` : "Get Test USDC"}
+                </button>
+                {hasUsdtFaucet && (
+                  <button onClick={handleMintUsdt} disabled={isMintingUsdt} className="h-10 px-4 rounded-full bg-blue-50 text-blue-600 font-medium text-sm hover:bg-blue-100 transition-colors disabled:opacity-50" aria-label="Get test USDT">
+                    {isMintingUsdt ? "Minting..." : "Get Test USDT"}
+                  </button>
+                )}
+              </div>
             </div>
             <div className="flex gap-3">
               <div className="flex-1 relative">
@@ -611,7 +639,7 @@ export default function Dashboard() {
             </div>
             <div className="flex items-center justify-between text-sm">
               <span className="text-[var(--text-tertiary)]">Vault Balance (Encrypted):</span>
-              <span className="font-mono tabular-nums text-[var(--text-primary)]">{balance.formatted || "\u2588\u2588\u2588\u2588.\u2588\u2588"}</span>
+              <span className="font-mono tabular-nums text-[var(--text-primary)]">{balance.formatted || "\u2022\u2022\u2022\u2022.\u2022\u2022"}</span>
             </div>
             <div className="flex items-center justify-between text-sm">
               <span className="text-[var(--text-tertiary)]">Public USDC Balance:</span>
@@ -875,8 +903,8 @@ function BalanceCard({ balance, privacyMode, onTogglePrivacy, large, activityCou
                   style={{ fontFamily: "'Outfit', 'Inter', sans-serif" }}
                 >
                   {displayAmount
-                    ? <><span aria-hidden="true">{"\u2588\u2588\u2588\u2588\u2588\u2588.\u2588\u2588"}</span><span className="sr-only">Amount hidden</span></>
-                    : formattedBalance ?? <><span aria-hidden="true">{"\u2588\u2588\u2588\u2588.\u2588\u2588"}</span><span className="sr-only">Encrypted</span></>}
+                    ? <><span aria-hidden="true">{"\u2022\u2022\u2022\u2022\u2022\u2022.\u2022\u2022"}</span><span className="sr-only">Amount hidden</span></>
+                    : formattedBalance ?? <><span aria-hidden="true">{"\u2022\u2022\u2022\u2022.\u2022\u2022"}</span><span className="sr-only">Encrypted</span></>}
                 </h2>
               </div>
               {!displayAmount && formattedBalance === null && balance.hasBalance && (

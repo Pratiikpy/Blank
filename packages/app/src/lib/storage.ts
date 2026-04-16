@@ -51,6 +51,10 @@ export const STORAGE_KEYS = {
   giftRateLimit: () => buildStorageKey("gift_rate"),
   faucetCooldown: (address: string, chainId: number) =>
     buildStorageKey("faucet_cooldown", address, chainId),
+  // Per-token cooldown for the USDT faucet — separate key so minting USDT
+  // doesn't silence the USDC faucet button (and vice versa).
+  faucetCooldownUsdt: (address: string, chainId: number) =>
+    buildStorageKey("faucet_cooldown_usdt", address, chainId),
   claimCodes: (address: string, chainId: number) =>
     buildStorageKey("claim_codes", address, chainId),
   pendingStealthClaims: (address: string, chainId: number) =>

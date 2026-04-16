@@ -145,6 +145,53 @@ export function useShield() {
     }
   }, [address, unifiedWrite, waitAndRefetch, isMinting, activeChainId, contracts]);
 
+  // Mint test USDT — parallel to mintTestTokens, uses the per-token cooldown
+  // so USDC and USDT faucets don't block each other. TestUSDT inherits
+  // TestUSDC's bytecode, so the faucet() selector is identical — we can
+  // reuse TestUSDCAbi here. Chains without TestUSDT deployed short-circuit.
+  const [isMintingUsdt, setIsMintingUsdt] = useState(false);
+
+  const mintTestUSDT = useCallback(async (): Promise<`0x${string}` | null> => {
+    if (!address || !contracts.TestUSDT || isMintingUsdt) {
+      if (!contracts.TestUSDT) toast.error("USDT faucet only available on Base Sepolia");
+      return null;
+    }
+
+    const faucetKey = STORAGE_KEYS.faucetCooldownUsdt(address, activeChainId);
+    const lastFaucet = parseInt(getStoredString(faucetKey) || "0");
+    if (Date.now() - lastFaucet < FAUCET_COOLDOWN_MS) {
+      const remaining = Math.ceil((FAUCET_COOLDOWN_MS - (Date.now() - lastFaucet)) / 1000);
+      toast.error(`Please wait ${remaining}s before using USDT faucet again`);
+      return null;
+    }
+
+    setIsMintingUsdt(true);
+    try {
+      const hash = await unifiedWrite({
+        address: contracts.TestUSDT as `0x${string}`,
+        abi: TestUSDCAbi,
+        functionName: "faucet",
+        gas: BigInt(5_000_000),
+      });
+      toast("Minting 10,000 test USDT...", { icon: "⏳" });
+
+      await waitAndRefetch(hash);
+
+      setStoredString(faucetKey, String(Date.now()));
+
+      broadcastAction("balance_changed");
+      invalidateBalanceQueries();
+
+      toast.success("10,000 USDT minted!");
+      return hash;
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to mint test USDT");
+      return null;
+    } finally {
+      setIsMintingUsdt(false);
+    }
+  }, [address, unifiedWrite, waitAndRefetch, isMintingUsdt, activeChainId, contracts]);
+
   // Shield: approve + deposit — returns hash on success, null on failure.
   //
   // Two execution paths share this entry point:
@@ -502,6 +549,8 @@ export function useShield() {
     vaultBalance: vaultBalance ? Number(formatUnits(vaultBalance as bigint, 6)) : 0,
     shield,
     mintTestTokens,
+    mintTestUSDT,
+    isMintingUsdt,
     // Unshield surface (new in v0.1.3 migration)
     unshield,
     unshieldStep,
