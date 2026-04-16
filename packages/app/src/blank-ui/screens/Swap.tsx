@@ -193,7 +193,7 @@ export default function Swap() {
                 </div>
                 <h3 className="text-2xl font-heading font-medium text-[var(--text-primary)] mb-2">Offer Created!</h3>
                 <p className="text-[var(--text-primary)]/60 text-center">
-                  Offering {lastSwap.give} USDC for {lastSwap.want} USDC
+                  Offering {lastSwap.give} USDC for {lastSwap.want} USDT
                 </p>
               </div>
             ) : (
@@ -206,7 +206,7 @@ export default function Swap() {
               {/* Give Amount */}
               <div>
                 <label className="text-xs text-[var(--text-primary)]/50 font-medium tracking-wide uppercase mb-2 block">
-                  You Give (USDC)
+                  You Give (USDC from vault)
                 </label>
                 <div className="p-4 rounded-2xl bg-white/50 border border-black/5">
                   <input
@@ -230,7 +230,7 @@ export default function Swap() {
               {/* Want Amount */}
               <div>
                 <label className="text-xs text-[var(--text-primary)]/50 font-medium tracking-wide uppercase mb-2 block">
-                  You Want (USDC)
+                  You Want (USDT to vault)
                 </label>
                 <div className="p-4 rounded-2xl bg-white/50 border border-black/5">
                   <input
@@ -331,7 +331,7 @@ export default function Swap() {
                     </div>
                     <div>
                       <p className="font-medium text-[var(--text-primary)]">
-                        {offer.amount_give} USDC &rarr; {offer.amount_want} USDC
+                        {offer.amount_give} USDC &rarr; {offer.amount_want} USDT
                       </p>
                       <p className="text-sm text-[var(--text-primary)]/50">
                         {offer.maker_address.slice(0, 6)}...{offer.maker_address.slice(-4)} &middot; {formatTime(offer.created_at)}
@@ -372,7 +372,7 @@ export default function Swap() {
                     </div>
                     <div>
                       <p className="font-medium text-[var(--text-primary)]">
-                        Offering {offer.amount_give} USDC for {offer.amount_want} USDC
+                        Offering {offer.amount_give} USDC for {offer.amount_want} USDT
                       </p>
                       <p className="text-sm text-[var(--text-primary)]/50">
                         Created {formatTime(offer.created_at)}
@@ -426,7 +426,7 @@ export default function Swap() {
                       </div>
                       <div>
                         <p className="font-medium text-[var(--text-primary)]">
-                          {isMaker ? "Sold" : "Bought"} {offer.amount_give} USDC for {offer.amount_want} USDC
+                          {isMaker ? "Sold" : "Bought"} {offer.amount_give} USDC for {offer.amount_want} USDT
                         </p>
                         <p className="text-sm text-[var(--text-primary)]/50">
                           Filled {formatTime(offer.created_at)} &middot; Offer #{offer.offer_id}
@@ -485,7 +485,7 @@ export default function Swap() {
                     </div>
                     <div>
                       <p className="font-medium text-[var(--text-primary)]/50">
-                        {offer.amount_give} USDC &rarr; {offer.amount_want} USDC
+                        {offer.amount_give} USDC &rarr; {offer.amount_want} USDT
                       </p>
                       <p className="text-sm text-[var(--text-primary)]/30">
                         {offer.maker_address.slice(0, 6)}...{offer.maker_address.slice(-4)} &middot; Expired {formatTime(offer.expiry!)}
