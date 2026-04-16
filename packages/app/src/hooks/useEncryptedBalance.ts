@@ -154,20 +154,27 @@ export function useEncryptedBalance(vaultAddress?: string, decimals = 6) {
       const isLoading = isReadingEncrypted || isDecrypting;
 
       if (isLoading) {
+        // Keep the last known formatted value while re-decrypting — avoids
+        // flashing ████.██ when the balance handle changes (e.g. incoming
+        // payment updates the ciphertext). The stale value is replaced as
+        // soon as the new decryption completes.
         setState((s) => ({
           ...s,
           isLoading: true,
           error: null,
+          // Preserve previous raw + formatted so the UI doesn't flash
         }));
         return;
       }
 
       if (decryptError) {
-        // Decrypt failed — fall through to showing "Encrypted"
+        // Decrypt failed — only show "Encrypted" if we have no prior value.
+        // If we previously decrypted successfully, keep showing that value
+        // with an error flag so the user doesn't lose context.
         setState((s) => ({
           ...s,
-          raw: null,
-          formatted: "Encrypted",
+          raw: s.raw,
+          formatted: s.formatted ?? "Encrypted",
           isLoading: false,
           error: decryptError.message,
         }));
@@ -196,12 +203,13 @@ export function useEncryptedBalance(vaultAddress?: string, decimals = 6) {
         return;
       }
 
-      // No data yet but not loading — might be disabled due to missing permit
+      // No data yet but not loading — might be disabled due to missing permit.
+      // Keep prior decrypted value if we had one — don't flash ████ on permit refresh.
       if (disabledDueToMissingPermit) {
         setState((s) => ({
           ...s,
-          raw: null,
-          formatted: "Encrypted",
+          raw: s.raw,
+          formatted: s.formatted ?? "Encrypted",
           isLoading: false,
           error: null,
         }));
