@@ -22,7 +22,16 @@
  * derivation. Replay is prevented by the nonce mapping in PaymentHub.
  */
 
-import Anthropic from "@anthropic-ai/sdk";
+// Lazy-import Anthropic SDK so the function doesn't crash on Vercel
+// when only NVIDIA_API_KEY is set and @anthropic-ai/sdk fails to bundle.
+let _AnthropicClass: typeof import("@anthropic-ai/sdk").default | null = null;
+async function getAnthropic() {
+  if (!_AnthropicClass) {
+    const mod = await import("@anthropic-ai/sdk");
+    _AnthropicClass = mod.default;
+  }
+  return _AnthropicClass;
+}
 import { ethers } from "ethers";
 import { checkRateLimit, writeRateLimitHeaders } from "../_lib/rate-limit";
 import { getSigner } from "../_lib/signer";
@@ -88,7 +97,8 @@ async function runAnthropic(prompt: string): Promise<ProviderResult & { model: s
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error("ANTHROPIC_API_KEY not set");
 
-  const anthropic = new Anthropic({ apiKey });
+  const AnthropicSDK = await getAnthropic();
+  const anthropic = new AnthropicSDK({ apiKey });
   // Layer 12: try models in order — if the primary (opus-4-6) gets
   // deprecated we fall back to opus-4-5, then sonnet-4-6. Surfaces the
   // ACTUAL model used so the UI shows truth, not the preference.
