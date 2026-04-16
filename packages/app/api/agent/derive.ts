@@ -22,16 +22,6 @@
  * derivation. Replay is prevented by the nonce mapping in PaymentHub.
  */
 
-// Lazy-import Anthropic SDK so the function doesn't crash on Vercel
-// when only NVIDIA_API_KEY is set and @anthropic-ai/sdk fails to bundle.
-let _AnthropicClass: typeof import("@anthropic-ai/sdk").default | null = null;
-async function getAnthropic() {
-  if (!_AnthropicClass) {
-    const mod = await import("@anthropic-ai/sdk");
-    _AnthropicClass = mod.default;
-  }
-  return _AnthropicClass;
-}
 import { ethers } from "ethers";
 import { checkRateLimit, writeRateLimitHeaders } from "../_lib/rate-limit";
 import { getSigner } from "../_lib/signer";
@@ -97,30 +87,42 @@ async function runAnthropic(prompt: string): Promise<ProviderResult & { model: s
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error("ANTHROPIC_API_KEY not set");
 
-  const AnthropicSDK = await getAnthropic();
-  const anthropic = new AnthropicSDK({ apiKey });
-  // Layer 12: try models in order — if the primary (opus-4-6) gets
-  // deprecated we fall back to opus-4-5, then sonnet-4-6. Surfaces the
-  // ACTUAL model used so the UI shows truth, not the preference.
+  // Use raw fetch instead of @anthropic-ai/sdk to avoid Vercel bundling issues.
   const override = process.env.ANTHROPIC_MODEL_OVERRIDE;
   const chain = override ? [override] : CLAUDE_MODEL_CHAIN;
 
   const errors: string[] = [];
   for (const model of chain) {
     try {
-      const response = await anthropic.messages.create({
-        model,
-        max_tokens: 50,
-        messages: [{ role: "user", content: prompt }],
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: 50,
+          messages: [{ role: "user", content: prompt }],
+        }),
+        signal: AbortSignal.timeout(30_000),
       });
-      const block = response.content[0];
-      const text = block && block.type === "text" ? block.text : "";
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        if (/not_found|does not exist|invalid model|deprecated/i.test(body)) {
+          errors.push(`${model}: ${body.slice(0, 100)}`);
+          continue;
+        }
+        throw new Error(`Anthropic HTTP ${res.status}: ${body.slice(0, 200)}`);
+      }
+      const json = (await res.json()) as any;
+      const block = json?.content?.[0];
+      const text = block?.type === "text" ? block.text : "";
       if (!text) throw new Error(`${model} returned empty content`);
       return { provider: "anthropic", text, model };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      // Only fall through if the error looks like "model not found" or
-      // deprecation. Hard errors (auth, rate limit) should stop here.
       if (/not_found|does not exist|invalid model|deprecated/i.test(msg)) {
         errors.push(`${model}: ${msg}`);
         continue;
