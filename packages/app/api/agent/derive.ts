@@ -75,7 +75,7 @@ async function runKimi(prompt: string): Promise<ProviderResult> {
     }),
     // Soft cap so a hung NVIDIA call doesn't block the whole request — the
     // fallback path takes over instead.
-    signal: AbortSignal.timeout(30_000),
+    signal: AbortSignal.timeout(60_000),
   });
 
   if (!res.ok) {
@@ -111,7 +111,7 @@ async function runAnthropic(prompt: string): Promise<ProviderResult & { model: s
           max_tokens: 50,
           messages: [{ role: "user", content: prompt }],
         }),
-        signal: AbortSignal.timeout(30_000),
+        signal: AbortSignal.timeout(60_000),
       });
       if (!res.ok) {
         const body = await res.text().catch(() => "");
