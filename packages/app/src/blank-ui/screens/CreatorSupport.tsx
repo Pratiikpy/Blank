@@ -16,7 +16,7 @@ import { cn } from "@/lib/cn";
 import toast from "react-hot-toast";
 import { useTipCreator } from "@/hooks/useTipCreator";
 import { useUnifiedWrite } from "@/hooks/useUnifiedWrite";
-import { useWriteContract, usePublicClient } from "wagmi";
+import { usePublicClient } from "wagmi";
 import { useEffectiveAddress } from "@/hooks/useEffectiveAddress";
 import { CreatorHubAbi } from "@/lib/abis";
 import { useChain } from "@/providers/ChainProvider";
@@ -77,7 +77,6 @@ export default function CreatorSupport() {
   const { contracts } = useChain();
   const { isTipping, tip } = useTipCreator();
   const publicClient = usePublicClient();
-  const { writeContractAsync } = useWriteContract();
   // Passkey-aware writer — handleCreateProfile uses this so passkey-only
   // users can register profiles via UserOps, not just EOA wallets.
   const { unifiedWriteAndWait } = useUnifiedWrite();

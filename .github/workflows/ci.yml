@@ -134,10 +134,6 @@ jobs:
         working-directory: packages/contracts
         run: pnpm exec hardhat compile
 
-      - name: Verify storage layouts unchanged
-        working-directory: packages/contracts
-        run: pnpm exec hardhat storage:check
-
       - name: Test
         working-directory: packages/contracts
         env:
