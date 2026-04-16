@@ -556,25 +556,29 @@ export async function fetchCreatorProfile(address: string): Promise<CreatorProfi
   return data;
 }
 
-/** Increment the supporter_count on a creator's profile after a successful tip. */
-export async function incrementCreatorSupporterCount(creatorAddress: string) {
+/**
+ * Recompute supporter_count on a creator's profile from the authoritative
+ * creator_supporters rows.
+ *
+ * Previous read-modify-write increment silently no-oped when the profile row
+ * didn't match on both address AND chain_id, and didn't backfill counts
+ * from tips that happened before the column was maintained. Recomputing
+ * from the source table is idempotent (safe to retry) and self-heals drift.
+ */
+export async function recomputeCreatorSupporterCount(creatorAddress: string) {
   if (!supabase) return;
-  // Read current count, then increment. Supabase doesn't support atomic
-  // increment in the JS client, so we do read+write. Race-safe enough for
-  // testnet — a production app would use a Postgres function.
-  const { data } = await supabase
+  const { count, error: countErr } = await supabase
+    .from("creator_supporters")
+    .select("*", { count: "exact", head: true })
+    .eq("creator_address", creatorAddress.toLowerCase())
+    .eq("chain_id", _activeChainIdForSupabase);
+  if (countErr) { console.warn("recomputeCreatorSupporterCount (count):", countErr.message); return; }
+  const { error: updateErr } = await supabase
     .from("creator_profiles")
-    .select("supporter_count")
-    .eq("address", creatorAddress.toLowerCase())
-    .eq("chain_id", _activeChainIdForSupabase)
-    .single();
-  const current = data?.supporter_count ?? 0;
-  const { error } = await supabase
-    .from("creator_profiles")
-    .update({ supporter_count: current + 1 })
+    .update({ supporter_count: count ?? 0 })
     .eq("address", creatorAddress.toLowerCase())
     .eq("chain_id", _activeChainIdForSupabase);
-  if (error) console.warn("incrementCreatorSupporterCount:", error.message);
+  if (updateErr) console.warn("recomputeCreatorSupporterCount (update):", updateErr.message);
 }
 
 export async function insertCreatorSupporter(supporter: Omit<CreatorSupporterRow, "id" | "created_at">) {

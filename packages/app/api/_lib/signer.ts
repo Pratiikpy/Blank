@@ -23,10 +23,39 @@
  * the cached pubkey.
  */
 
-// @ts-expect-error — install @aws-sdk/client-kms
-import { KMSClient, GetPublicKeyCommand, SignCommand } from "@aws-sdk/client-kms";
+// KMS SDK intentionally NOT imported at module top level. The AWS SDK is
+// several MB and its initialization adds seconds to every cold start — but
+// the default env backend (used in prod today) never touches KMS. Lazy-load
+// it only inside buildKmsSigner when BLANK_SIGNER_BACKEND=kms. Types are
+// referenced via a local declare so env-backend users never require the
+// package being resolvable in the bundle.
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { ethers } from "ethers";
+
+// Minimal structural types — keeps this file typesafe without importing
+// the full AWS SDK type surface. Only the shapes we actually touch.
+interface KMSClient { send(cmd: unknown): Promise<{ PublicKey?: Uint8Array; Signature?: Uint8Array }>; }
+type KMSClientCtor = new (cfg: unknown) => KMSClient;
+interface KMSCommand { readonly input: unknown; }
+type KMSCommandCtor = new (input: unknown) => KMSCommand;
+
+// Populated on first use in buildKmsSigner. Null until KMS backend is picked.
+let kmsModule: {
+  KMSClient: KMSClientCtor;
+  GetPublicKeyCommand: KMSCommandCtor;
+  SignCommand: KMSCommandCtor;
+} | null = null;
+
+async function loadKmsModule() {
+  if (kmsModule) return kmsModule;
+  const mod = await import("@aws-sdk/client-kms");
+  kmsModule = {
+    KMSClient: mod.KMSClient as unknown as KMSClientCtor,
+    GetPublicKeyCommand: mod.GetPublicKeyCommand as unknown as KMSCommandCtor,
+    SignCommand: mod.SignCommand as unknown as KMSCommandCtor,
+  };
+  return kmsModule;
+}
 
 export interface BlankSigner {
   getAddress(): Promise<string>;
@@ -190,6 +219,7 @@ async function kmsSignDigest(
   if (digest.length !== 32) {
     throw new Error(`kmsSignDigest expects a 32-byte digest, got ${digest.length}`);
   }
+  const { SignCommand } = await loadKmsModule();
   const cmd = new SignCommand({
     KeyId: keyId,
     Message: digest,
@@ -278,6 +308,7 @@ async function resolveKmsPubkey(
   const cached = pubkeyCache.get(role);
   if (cached) return cached;
 
+  const { GetPublicKeyCommand } = await loadKmsModule();
   const cmd = new GetPublicKeyCommand({ KeyId: keyId });
   const res = await client.send(cmd);
   const der = res.PublicKey;
@@ -289,10 +320,12 @@ async function resolveKmsPubkey(
   return entry;
 }
 
-// Lazy KMS client — created on first use, shared across roles.
+// Lazy KMS client — created on first use, shared across roles. Async because
+// we now dynamic-import the SDK only when KMS backend is requested.
 let sharedKmsClient: KMSClient | undefined;
-function getKmsClient(): KMSClient {
+async function getKmsClient(): Promise<KMSClient> {
   if (!sharedKmsClient) {
+    const { KMSClient } = await loadKmsModule();
     // Region + credentials resolved from the standard AWS env chain:
     // AWS_REGION (or AWS_DEFAULT_REGION), AWS_ACCESS_KEY_ID/SECRET_ACCESS_KEY,
     // IAM role on EC2/ECS/Lambda, etc.
@@ -303,13 +336,16 @@ function getKmsClient(): KMSClient {
 
 function buildKmsSigner(role: Role, provider?: ethers.Provider): BlankSigner {
   const keyId = kmsKeyIdForRole(role);
-  const client = getKmsClient();
+  // Don't instantiate the client synchronously — loading @aws-sdk/client-kms
+  // is async now. Each async method below fetches the client on first use.
+  const withClient = <T>(fn: (c: KMSClient) => Promise<T>): Promise<T> =>
+    getKmsClient().then(fn);
 
   // Resolve pubkey+address lazily on first call — async work can't happen in
   // this synchronous factory. Cache the promise so concurrent callers share.
   let resolved: Promise<{ address: string; rawPubkey: Uint8Array }> | undefined;
   const getResolved = () => {
-    if (!resolved) resolved = resolveKmsPubkey(client, role, keyId);
+    if (!resolved) resolved = withClient((c) => resolveKmsPubkey(c, role, keyId));
     return resolved;
   };
 
@@ -317,6 +353,7 @@ function buildKmsSigner(role: Role, provider?: ethers.Provider): BlankSigner {
   const buildEthersSigner = async (): Promise<KmsEthersSigner> => {
     if (cachedSigner) return cachedSigner;
     const { address, rawPubkey } = await getResolved();
+    const client = await getKmsClient();
     cachedSigner = new KmsEthersSigner(client, keyId, address, rawPubkey, provider ?? null);
     return cachedSigner;
   };
@@ -369,7 +406,7 @@ function buildKmsSigner(role: Role, provider?: ethers.Provider): BlankSigner {
     async signMessage(msg) {
       const { rawPubkey } = await getResolved();
       const digest = eip191Digest(msg);
-      return kmsSignDigest(client, keyId, digest, rawPubkey);
+      return withClient((c) => kmsSignDigest(c, keyId, digest, rawPubkey));
     },
     ethersSigner: lazySigner,
   };
