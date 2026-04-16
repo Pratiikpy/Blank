@@ -26,7 +26,7 @@ const PRESET_THRESHOLDS = [1_000, 10_000, 50_000, 100_000];
 
 export default function Proofs() {
   const { address } = useAccount();
-  const { activeChain } = useChain();
+  const { activeChain, activeChainId } = useChain();
   const { createIncomeProof, createBalanceProof, fetchProof, fetchProofsByUser, step, error, reset } =
     useQualificationProof();
 
@@ -83,7 +83,7 @@ export default function Proofs() {
   }, [thresholdInput, proofKind, createIncomeProof, createBalanceProof, reset, refresh]);
 
   const buildShareLink = (proofId: bigint) =>
-    `${window.location.origin}/verify/${proofId.toString()}`;
+    `${window.location.origin}/verify/${proofId.toString()}?chain=${activeChainId}`;
 
   const copyShareLink = (proofId: bigint) => {
     navigator.clipboard.writeText(buildShareLink(proofId));
