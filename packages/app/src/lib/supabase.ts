@@ -556,6 +556,27 @@ export async function fetchCreatorProfile(address: string): Promise<CreatorProfi
   return data;
 }
 
+/** Increment the supporter_count on a creator's profile after a successful tip. */
+export async function incrementCreatorSupporterCount(creatorAddress: string) {
+  if (!supabase) return;
+  // Read current count, then increment. Supabase doesn't support atomic
+  // increment in the JS client, so we do read+write. Race-safe enough for
+  // testnet — a production app would use a Postgres function.
+  const { data } = await supabase
+    .from("creator_profiles")
+    .select("supporter_count")
+    .eq("address", creatorAddress.toLowerCase())
+    .eq("chain_id", _activeChainIdForSupabase)
+    .single();
+  const current = data?.supporter_count ?? 0;
+  const { error } = await supabase
+    .from("creator_profiles")
+    .update({ supporter_count: current + 1 })
+    .eq("address", creatorAddress.toLowerCase())
+    .eq("chain_id", _activeChainIdForSupabase);
+  if (error) console.warn("incrementCreatorSupporterCount:", error.message);
+}
+
 export async function insertCreatorSupporter(supporter: Omit<CreatorSupporterRow, "id" | "created_at">) {
   if (!supabase) return;
   const row = {

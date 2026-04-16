@@ -8,7 +8,7 @@ import toast from "react-hot-toast";
 import { MAX_UINT64, type EncryptedInput } from "@/lib/constants";
 import { useChain } from "@/providers/ChainProvider";
 import { CreatorHubAbi, FHERC20VaultAbi } from "@/lib/abis";
-import { insertActivity, insertCreatorSupporter } from "@/lib/supabase";
+import { insertActivity, insertCreatorSupporter, incrementCreatorSupporterCount } from "@/lib/supabase";
 import { ACTIVITY_TYPES } from "@/lib/activity-types";
 import { broadcastAction } from "@/lib/cross-tab";
 import { invalidateBalanceQueries } from "@/lib/query-invalidation";
@@ -142,6 +142,7 @@ export function useTipCreator() {
             supporter_address: address,
             message,
           });
+          await incrementCreatorSupporterCount(creator);
         } catch (supporterErr) {
           console.warn("Failed to insert creator supporter record:", supporterErr);
         }
