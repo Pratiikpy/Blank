@@ -22,9 +22,14 @@
  * derivation. Replay is prevented by the nonce mapping in PaymentHub.
  */
 
-import { ethers } from "ethers";
-import { checkRateLimit, writeRateLimitHeaders } from "../_lib/rate-limit";
-import { getSigner } from "../_lib/signer";
+// IMPORTANT: no top-level runtime imports. If any dependency throws during
+// module evaluation, Vercel returns FUNCTION_INVOCATION_FAILED BEFORE our
+// top-level try/catch in the handler runs — with no visible error. By
+// dynamic-importing inside the handler, any load-time failure is caught
+// and surfaced in the response body instead of as an opaque 500.
+//
+// Trade-off: ~10-20ms extra per cold start for the dynamic imports. That's
+// fine for this endpoint's call volume and worth the diagnosability.
 
 // ─── AI Providers ─────────────────────────────────────────────────────
 
@@ -237,7 +242,9 @@ export default async function handler(req: any, res: any) {
 
 async function handleImpl(req: any, res: any) {
   // GET: simple diagnostic probe so we can hit this URL from a browser and
-  // see what's configured — no secrets exposed, just booleans.
+  // see what's configured — no secrets exposed, just booleans. Intentionally
+  // avoids any dynamic imports so it's robust even if a _lib/ module is
+  // broken and we're using this probe to diagnose the breakage.
   if (req.method === "GET") {
     res.status(200).json({
       ok: true,
@@ -255,6 +262,13 @@ async function handleImpl(req: any, res: any) {
     res.status(405).json({ error: "Method not allowed" });
     return;
   }
+
+  // Lazy-import heavy/risky deps INSIDE the handler so any module-load
+  // failure is caught by the outer try/catch rather than becoming an
+  // opaque Vercel FUNCTION_INVOCATION_FAILED.
+  const ethers = await import("ethers");
+  const { checkRateLimit, writeRateLimitHeaders } = await import("../_lib/rate-limit");
+  const { getSigner } = await import("../_lib/signer");
 
   // Rate limit by IP
   const ip = ipFromHeaders(req);
