@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Shield, Check, ExternalLink } from "lucide-react";
 import { useSendPayment } from "@/hooks/useSendPayment";
 import { useChain } from "@/providers/ChainProvider";
+import { getExplorerTxUrl } from "@/lib/constants";
 import { truncateAddress } from "@/lib/address";
 
 export default function SendSuccess() {
@@ -77,12 +78,12 @@ export default function SendSuccess() {
             </div>
             {payment.txHash && (
               <a
-                href={`${activeChain.explorerUrl}/tx/${payment.txHash}`}
+                href={getExplorerTxUrl(payment.txHash, activeChain.id)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center justify-center gap-2 h-12 rounded-2xl bg-blue-50 text-blue-600 font-medium text-sm hover:bg-blue-100 transition-colors w-full"
               >
-                View on {activeChain.name} explorer <ExternalLink size={16} />
+                View on Explorer <ExternalLink size={16} />
               </a>
             )}
           </div>

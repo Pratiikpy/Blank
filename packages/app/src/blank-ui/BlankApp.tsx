@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useState, useEffect } from "react";
 import { Routes, Route, useLocation, useNavigate } from "react-router-dom";
 import { useAccount } from "wagmi";
 import { useSwitchChain } from "wagmi";
@@ -25,6 +25,7 @@ import {
   Bell,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
+import type { SupportedChainId } from "@/lib/constants";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { useChain } from "@/providers/ChainProvider";
 import { useMyRoles } from "@/hooks/useMyRoles";
@@ -314,7 +315,7 @@ const SUPPORTED_WALLET_CHAINS = new Set<number>([11155111, 84532]);
 export function BlankApp() {
   const { isConnected, isConnecting, isReconnecting, chain } = useAccount();
   const { switchChain } = useSwitchChain();
-  const { activeChainId, activeChain } = useChain();
+  const { activeChainId, activeChain, setActiveChain } = useChain();
   const location = useLocation();
   const isMobile = useMediaQuery("(max-width: 768px)");
   // R5-C: passkey-first auth. When a smart-account passkey exists for the
@@ -382,32 +383,25 @@ export function BlankApp() {
 
   // Network mismatch warning — active chain is chosen via the chain selector
   // and persisted to localStorage. This guard enforces the wallet is on the
-  // same chain so reads/writes route to the correct addresses.
+  // If the wallet is on a different chain than the app's activeChainId,
+  // auto-switch the app to match — as long as it's a supported chain.
+  // This avoids the "Wrong Network" blocker for users on Base Sepolia
+  // when the app defaults to ETH Sepolia (or vice versa).
   //
-  // R5-C: passkey-only users have no wagmi `chain` to mismatch — skip this
-  // check for them. Their smart account was created on activeChainId and
-  // all subsequent writes route through the relayer, so there's no wallet
-  // chain to keep in sync.
-  if (isConnected && chain?.id !== activeChainId) {
-    return (
-      <div className="blank-app min-h-dvh flex items-center justify-center px-6">
-        <div className="glass-card-static rounded-[2rem] p-10 max-w-md text-center">
-          <div className="w-16 h-16 rounded-2xl bg-amber-50 flex items-center justify-center mx-auto mb-6">
-            <AlertTriangle size={32} className="text-amber-500" />
-          </div>
-          <h2 className="text-2xl font-heading font-semibold mb-3">Wrong Network</h2>
-          <p className="text-[var(--text-secondary)] mb-6">Please switch to {activeChain.name} to use Blank Pay.</p>
-          <button
-            onClick={() => switchChain?.({ chainId: activeChainId })}
-            className="h-14 w-full rounded-2xl bg-[#1D1D1F] text-white font-medium hover:bg-black transition-colors"
-            aria-label={`Switch to ${activeChain.name} network`}
-          >
-            Switch to {activeChain.name}
-          </button>
-        </div>
-      </div>
-    );
-  }
+  // Only show "Wrong Network" for truly unsupported chains (mainnet, etc.).
+  // Passkey-only users have no wagmi `chain` to mismatch — skip entirely.
+  useEffect(() => {
+    if (!isConnected || !chain?.id) return;
+    if (chain.id === activeChainId) return;
+    if (SUPPORTED_WALLET_CHAINS.has(chain.id)) {
+      // Wallet is on a supported chain that differs from activeChainId —
+      // silently switch the app to match the wallet.
+      setActiveChain(chain.id as SupportedChainId);
+    }
+  }, [isConnected, chain?.id, activeChainId, setActiveChain]);
+
+  // No "Wrong Network" block for supported chains — the useEffect above
+  // auto-switches the app. Unsupported chains are caught at line 358.
 
   const showNav = !hideNavRoutes.some((r) =>
     location.pathname.startsWith(r),

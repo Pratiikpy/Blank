@@ -218,7 +218,7 @@ export default function Dashboard() {
               </p>
             </div>
             <button
-              onClick={() => navigate("/app/requests")}
+              onClick={() => navigate("/app/history")}
               className="relative w-10 h-10 rounded-full bg-white/60 border border-black/5 flex items-center justify-center hover:bg-white/80 transition-all shrink-0 mt-1"
               aria-label="Notifications"
             >
@@ -482,7 +482,7 @@ export default function Dashboard() {
             </p>
           </div>
           <button
-            onClick={() => navigate("/app/requests")}
+            onClick={() => navigate("/app/history")}
             className="relative w-10 h-10 rounded-full bg-white/60 border border-black/5 flex items-center justify-center hover:bg-white/80 transition-all shrink-0 mt-1"
             aria-label="Notifications"
           >
