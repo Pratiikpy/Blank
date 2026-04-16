@@ -4,7 +4,6 @@ import { ArrowRight, ExternalLink } from "lucide-react";
 import { LandingNav } from "./LandingNav";
 import { LandingFooter } from "./LandingFooter";
 import { useLiveActivities, type LiveActivity } from "@/hooks/useLiveActivities";
-import { useChain } from "@/providers/ChainProvider";
 import { getExplorerTxUrl } from "@/lib/constants";
 import "./landing.css";
 
@@ -90,7 +89,6 @@ function Row({ a, now }: { a: LiveActivity; now: number }) {
 
 export default function Live() {
   const { activities, isLoading, error, supabaseConfigured } = useLiveActivities(50);
-  const { activeChain } = useChain();
 
   // Re-render the "time ago" column every 15s so rows update without a fetch.
   const [now, setNow] = useState(() => Date.now());
