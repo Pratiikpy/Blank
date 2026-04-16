@@ -26,6 +26,7 @@ import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { useActivityFeed } from "@/hooks/useActivityFeed";
 import { useEncryptedBalance } from "@/hooks/useEncryptedBalance";
 import { useShield } from "@/hooks/useShield";
+import { useChain } from "@/providers/ChainProvider";
 
 function getGreeting(): string {
   const hour = new Date().getHours();
@@ -88,6 +89,7 @@ export default function Dashboard() {
     hasPendingUnshield,
     retryUnshieldClaim,
   } = useShield();
+  const { activeChain } = useChain();
   const isMobile = useMediaQuery("(max-width: 768px)");
   const { connected: cofheConnected } = useCofheConnection();
   // Shared global privacy state — set by sidebar toggle, consumed by
@@ -266,6 +268,7 @@ export default function Dashboard() {
             privacyMode={privacyMode}
             onTogglePrivacy={togglePrivacyMode}
             activityCount={activities.length}
+            chainName={activeChain.name}
           />
 
           {/* Shield Section */}
@@ -533,6 +536,7 @@ export default function Dashboard() {
               privacyMode={privacyMode}
               onTogglePrivacy={togglePrivacyMode}
               activityCount={activities.length}
+              chainName={activeChain.name}
               large
             />
           </div>
@@ -822,9 +826,10 @@ interface BalanceCardProps {
   onTogglePrivacy: () => void;
   large?: boolean;
   activityCount?: number;
+  chainName?: string;
 }
 
-function BalanceCard({ balance, privacyMode, onTogglePrivacy, large, activityCount = 0 }: BalanceCardProps) {
+function BalanceCard({ balance, privacyMode, onTogglePrivacy, large, activityCount = 0, chainName = "Ethereum Sepolia" }: BalanceCardProps) {
   // Use balance.formatted from the hook — it handles decrypted values correctly.
   // balance.raw is the encrypted ciphertext handle (NOT the actual amount).
   // balance.isDecrypted tells us if the SDK successfully decrypted the value.
@@ -889,7 +894,7 @@ function BalanceCard({ balance, privacyMode, onTogglePrivacy, large, activityCou
           {/* Subtitle + eye toggle */}
           <div className="flex items-center gap-3 mb-8">
             <span className="text-sm text-[var(--text-secondary)]">
-              USDC &middot; Ethereum Sepolia
+              USDC &middot; {chainName}
             </span>
             <button
               onClick={() => {
