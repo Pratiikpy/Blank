@@ -25,6 +25,7 @@ import {
   fetchCreatorProfiles,
   fetchCreatorSupporters,
   fetchMySupportedCreators,
+  recomputeCreatorSupporterCount,
   upsertCreatorProfile,
   type CreatorProfileRow,
   type CreatorSupporterRow,
@@ -208,6 +209,12 @@ export default function CreatorSupport() {
   useEffect(() => {
     if (!address || !isCreator) { setMySupporters([]); return; }
     fetchCreatorSupporters(address.toLowerCase()).then(setMySupporters);
+    // Self-heal: historical tips made before supporter_count was maintained
+    // leave the gallery card stuck at 0. Recompute once on mount from the
+    // source-of-truth creator_supporters rows, then refresh the gallery.
+    recomputeCreatorSupporterCount(address.toLowerCase()).then(() => {
+      fetchCreatorProfiles().then(setCreators);
+    });
   }, [address, isCreator]);
 
   // #233: Realtime auto-refresh — when a supporter tips this creator, the
@@ -221,6 +228,9 @@ export default function CreatorSupport() {
       { event: "INSERT", filter: { column: "creator_address", value: addrLower } },
       () => {
         fetchCreatorSupporters(addrLower).then(setMySupporters);
+        // Also refresh the creator gallery so *my* card's supporter_count
+        // ticks up when someone tips me while I'm on this page.
+        fetchCreatorProfiles().then(setCreators);
       },
     );
     return unsubscribe;
@@ -236,6 +246,10 @@ export default function CreatorSupport() {
       await tip(creatorAddr, tier.amount, tipMessage || `${tier.name} tier support`);
       const refreshed = await fetchMySupportedCreators(address.toLowerCase());
       setSupporters(refreshed);
+      // Refresh the creator gallery so the tipped creator's card picks up
+      // the newly-recomputed supporter_count. Without this, the number
+      // stays frozen at whatever was loaded on mount.
+      fetchCreatorProfiles().then(setCreators);
 
       // Issue 38: Read contribution and derive tier badge after successful tip
       if (publicClient) {

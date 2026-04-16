@@ -220,6 +220,37 @@ function ipFromHeaders(req: { headers: Record<string, string | string[] | undefi
 // ─── Handler ──────────────────────────────────────────────────────────
 
 export default async function handler(req: any, res: any) {
+  try {
+    return await handleImpl(req, res);
+  } catch (err) {
+    // Previously an unexpected throw bubbled up as a generic Vercel 500
+    // with no body — impossible to diagnose from the browser. Surface the
+    // message so the user (or a log tail) can actually see what failed.
+    const msg = err instanceof Error ? err.message : String(err);
+    const stack = err instanceof Error ? err.stack?.split("\n").slice(0, 3).join("\n") : undefined;
+    // Log the full thing server-side for Vercel runtime logs.
+    console.error("[/api/agent/derive] unhandled:", err);
+    res.status(500).json({ error: `agent handler crashed: ${msg}`, stackHint: stack });
+    return;
+  }
+}
+
+async function handleImpl(req: any, res: any) {
+  // GET: simple diagnostic probe so we can hit this URL from a browser and
+  // see what's configured — no secrets exposed, just booleans.
+  if (req.method === "GET") {
+    res.status(200).json({
+      ok: true,
+      hasNvidia: !!process.env.NVIDIA_API_KEY,
+      hasAnthropic: !!process.env.ANTHROPIC_API_KEY,
+      hasAgentKey: !!process.env.AGENT_PRIVATE_KEY || !!process.env.KMS_AGENT_KEY_ID,
+      signerBackend: (process.env.BLANK_SIGNER_BACKEND ?? "env").toLowerCase(),
+      providerPreference: process.env.AGENT_PROVIDER_PREFERENCE ?? "kimi",
+      hint: "POST with { user, template, context, chainId, paymentHubAddress } to derive an amount.",
+    });
+    return;
+  }
+
   if (req.method !== "POST") {
     res.status(405).json({ error: "Method not allowed" });
     return;
