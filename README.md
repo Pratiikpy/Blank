@@ -228,11 +228,11 @@ npx hardhat test
 
 ## Roadmap
 
-- [ ] Mainnet deployment (Base → Ethereum)
-- [ ] Mobile-optimized progressive web app
-- [ ] Multi-token encrypted vaults (ETH, USDT, DAI)
-- [ ] Cross-chain bridge integration for encrypted off-ramp
-- [ ] Fiat on-ramp with privacy-preserving KYC proofs
+- [ ] Claimable payment links — send money via a shareable link, recipient claims without needing your address
+- [ ] Contact nicknames — save addresses with names instead of copy-pasting hex strings
+- [ ] Transaction notes search — search history by note text, not just address
+- [ ] Recurring payments — schedule weekly/monthly encrypted transfers that auto-execute
+- [ ] Export payment receipts as PDF — for tax, accounting, or proof of payment
 
 ---
 
