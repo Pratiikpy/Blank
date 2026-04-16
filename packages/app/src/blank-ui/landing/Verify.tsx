@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useSearchParams } from "react-router-dom";
 import { useAccount } from "wagmi";
 import {
   CheckCircle2,
@@ -31,8 +31,20 @@ import "./verify.css";
 
 export default function Verify() {
   const { proofId: proofIdStr } = useParams<{ proofId: string }>();
+  const [searchParams] = useSearchParams();
   const { isConnected } = useAccount();
-  const { activeChain } = useChain();
+  const { activeChain, activeChainId, setActiveChain } = useChain();
+
+  // Auto-switch chain from ?chain= URL param so shared links work
+  // without requiring the viewer to manually switch chains.
+  useEffect(() => {
+    const chainParam = searchParams.get("chain");
+    if (!chainParam) return;
+    const parsed = parseInt(chainParam, 10) as import("@/lib/constants").SupportedChainId;
+    if (parsed && parsed !== activeChainId) {
+      setActiveChain(parsed);
+    }
+  }, [searchParams, activeChainId, setActiveChain]);
   const { fetchProof, publishProof, step } = useQualificationProof();
 
   const [proof, setProof] = useState<ProofRecord | null>(null);
