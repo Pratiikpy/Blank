@@ -3,7 +3,7 @@ import { CheckCircle, ExternalLink, Send, Copy, Check } from "lucide-react";
 import { useState } from "react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Button } from "@/components/ui/Button";
-import { BASE_SEPOLIA } from "@/lib/constants";
+import { getExplorerTxUrl } from "@/lib/constants";
 import { copyToClipboard } from "@/lib/clipboard";
 
 interface PaymentSuccessProps {
@@ -142,7 +142,7 @@ export function PaymentSuccess({
           </button>
 
           <a
-            href={`${BASE_SEPOLIA.explorerUrl}/tx/${txHash}`}
+            href={getExplorerTxUrl(txHash)}
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center justify-center gap-1 text-caption text-accent/70 hover:text-accent mt-2 transition-colors"

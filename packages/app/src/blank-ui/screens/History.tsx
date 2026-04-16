@@ -16,7 +16,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
-import { useChain } from "@/providers/ChainProvider";
+import { getExplorerTxUrl } from "@/lib/constants";
 import { useActivityFeed } from "@/hooks/useActivityFeed";
 import { useContacts } from "@/hooks/useContacts";
 
@@ -114,7 +114,6 @@ function getDateGroup(dateStr: string): string {
 export default function History() {
   const { address } = useAccount();
   const navigate = useNavigate();
-  const { activeChain } = useChain();
   const {
     activities,
     isLoading,
@@ -438,13 +437,13 @@ export default function History() {
                 </div>
                 {selectedTx.tx_hash && !selectedTx.tx_hash.includes("_") && (
                   <a
-                    href={`${activeChain.explorerUrl}/tx/${selectedTx.tx_hash}`}
+                    href={getExplorerTxUrl(selectedTx.tx_hash, selectedTx.chain_id)}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center justify-center gap-2 h-12 rounded-2xl bg-blue-50 text-blue-600 font-medium text-sm hover:bg-blue-100 transition-colors"
-                    aria-label="View transaction on Basescan"
+                    aria-label="View transaction on block explorer"
                   >
-                    View on Basescan
+                    View on Explorer
                     <ExternalLink size={16} />
                   </a>
                 )}

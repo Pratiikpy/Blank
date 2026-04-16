@@ -5,6 +5,7 @@ import { LandingNav } from "./LandingNav";
 import { LandingFooter } from "./LandingFooter";
 import { useLiveActivities, type LiveActivity } from "@/hooks/useLiveActivities";
 import { useChain } from "@/providers/ChainProvider";
+import { getExplorerTxUrl } from "@/lib/constants";
 import "./landing.css";
 
 // ══════════════════════════════════════════════════════════════════
@@ -53,7 +54,7 @@ function timeAgo(iso: string, now: number): string {
 }
 
 // Single row
-function Row({ a, now, explorerUrl }: { a: LiveActivity; now: number; explorerUrl: string }) {
+function Row({ a, now }: { a: LiveActivity; now: number }) {
   return (
     <div className={`ll-live-row${a.isNew ? " new" : ""}`}>
       <div className="ll-live-time">{timeAgo(a.created_at, now)}</div>
@@ -71,11 +72,11 @@ function Row({ a, now, explorerUrl }: { a: LiveActivity; now: number; explorerUr
       </div>
       {a.tx_hash && (
         <a
-          href={`${explorerUrl}/tx/${a.tx_hash}`}
+          href={getExplorerTxUrl(a.tx_hash, a.chain_id)}
           target="_blank"
           rel="noopener noreferrer"
           className="ll-live-link"
-          aria-label="View transaction on Etherscan"
+          aria-label="View transaction on block explorer"
           title={a.tx_hash}
         >
           <ExternalLink size={15} strokeWidth={2} />
@@ -119,7 +120,7 @@ export default function Live() {
           <div className="ll-live-status">
             <span className="ll-live-dot" />
             {supabaseConfigured
-              ? "Streaming from Ethereum Sepolia"
+              ? `Streaming from ${activeChain.name}`
               : "Supabase not configured — showing empty state"}
           </div>
 
@@ -152,7 +153,7 @@ export default function Live() {
           {!isLoading && !error && activities.length > 0 && (
             <div className="ll-live-list">
               {activities.map((a) => (
-                <Row key={a.id} a={a} now={now} explorerUrl={activeChain.explorerUrl} />
+                <Row key={a.id} a={a} now={now} />
               ))}
             </div>
           )}

@@ -17,6 +17,7 @@ import { formatDistanceToNowStrict } from "date-fns";
 import { cn } from "@/lib/cn";
 import { useAgentPayment, type AgentTemplate, type AgentAttestation } from "@/hooks/useAgentPayment";
 import { useChain } from "@/providers/ChainProvider";
+import { getExplorerTxUrl } from "@/lib/constants";
 import { useEffectiveAddress } from "@/hooks/useEffectiveAddress";
 import { fetchActivities, supabase, type ActivityRow } from "@/lib/supabase";
 import { ACTIVITY_TYPES } from "@/lib/activity-types";
@@ -633,7 +634,7 @@ export default function AgentPayments() {
                       {p.tx_hash.slice(0, 18)}…
                     </code>
                     <a
-                      href={`${activeChain.explorerUrl}/tx/${p.tx_hash}`}
+                      href={getExplorerTxUrl(p.tx_hash, p.chain_id)}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="inline-flex items-center gap-1.5 text-xs font-medium text-purple-600 dark:text-purple-300 hover:text-purple-700 dark:hover:text-purple-200 transition-colors"

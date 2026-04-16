@@ -23,6 +23,14 @@ export interface ChainInfo {
   thresholdNetworkUrl: string;
 }
 
+/** Get the block explorer tx URL for a given chain. Falls back to Base Sepolia. */
+export function getExplorerTxUrl(txHash: string, chainId?: number): string {
+  const chain = chainId && chainId in CHAINS
+    ? CHAINS[chainId as SupportedChainId]
+    : CHAINS[BASE_SEPOLIA_ID];
+  return `${chain.explorerUrl}/tx/${txHash}`;
+}
+
 export const CHAINS: Record<SupportedChainId, ChainInfo> = {
   [ETH_SEPOLIA_ID]: {
     id: ETH_SEPOLIA_ID,
