@@ -10,8 +10,6 @@ import {
 import { useChain } from "@/providers/ChainProvider";
 import { useEffectiveAddress } from "@/hooks/useEffectiveAddress";
 
-// Ordered list for the dropdown — Eth Sepolia is the primary chain with the
-// full v0.1.3 feature set; Base Sepolia runs a shield/unshield smoke test only.
 const CHAIN_ORDER: SupportedChainId[] = [ETH_SEPOLIA_ID, BASE_SEPOLIA_ID];
 
 export function ChainSelector() {
@@ -23,7 +21,7 @@ export function ChainSelector() {
   // the button and explain why in its aria-label so screen readers help out.
   // Passkey smart accounts count as "connected" even though wagmi doesn't
   // know about them; gate on effectiveAddress, not wagmi's isConnected.
-  const { effectiveAddress } = useEffectiveAddress();
+  const { effectiveAddress, isSmartAccount } = useEffectiveAddress();
   const isConnected = Boolean(effectiveAddress);
 
   useEffect(() => {
@@ -85,37 +83,45 @@ export function ChainSelector() {
           {CHAIN_ORDER.map((id) => {
             const chain = CHAINS[id];
             const isActive = id === activeChainId;
+            // Passkey wallets only exist on one chain — switching would
+            // drop the user to Onboarding. Disable the other chain.
+            const disabled = !isActive && isSmartAccount;
             return (
               <button
                 key={id}
                 role="option"
                 aria-selected={isActive}
+                disabled={disabled}
                 onClick={() => {
-                  if (!isActive) setActiveChain(id);
+                  if (!isActive && !disabled) setActiveChain(id);
                   setOpen(false);
                 }}
                 className={cn(
                   "flex items-center justify-between gap-3 w-full px-4 py-3 text-left transition-colors",
-                  "hover:bg-black/5 dark:hover:bg-white/5",
+                  disabled
+                    ? "opacity-40 cursor-not-allowed"
+                    : "hover:bg-black/5 dark:hover:bg-white/5 cursor-pointer",
                   isActive && "bg-black/[0.03] dark:bg-white/[0.03]",
                 )}
-                style={{ background: "transparent", border: "none", cursor: "pointer" }}
+                style={{ background: "transparent", border: "none" }}
               >
                 <div className="flex flex-col">
                   <span className="text-sm font-medium text-[var(--text-primary)]">
                     {chain.name}
                   </span>
                   <span className="text-xs text-[var(--text-tertiary)]">
-                    Chain ID {chain.id}
+                    {disabled ? "Passkey wallet on other chain" : `Chain ID ${chain.id}`}
                   </span>
                 </div>
                 {isActive && <Check size={16} className="text-emerald-600" />}
               </button>
             );
           })}
-          <div className="px-4 py-2 border-t border-black/5 dark:border-white/5 text-[11px] text-[var(--text-tertiary)]">
-            Switching reloads the page.
-          </div>
+          {isSmartAccount && (
+            <div className="px-4 py-2 border-t border-black/5 dark:border-white/5 text-[11px] text-[var(--text-tertiary)]">
+              Passkey wallets are chain-specific. Connect MetaMask to use other chains.
+            </div>
+          )}
         </div>
       )}
     </div>
