@@ -29,8 +29,21 @@
 // it only inside buildKmsSigner when BLANK_SIGNER_BACKEND=kms. Types are
 // referenced via a local declare so env-backend users never require the
 // package being resolvable in the bundle.
-import { secp256k1 } from "@noble/curves/secp256k1.js";
+//
+// @noble/curves is ONLY used on the KMS path (to recover ECDSA r/s/v from
+// a KMS DER signature). Lazy-import too — one less module evaluated on
+// cold start for env-backend users, and isolates env users from any Node
+// ABI mismatch the curves package might hit on unusual runtimes.
 import { ethers } from "ethers";
+
+type Secp256k1Module = typeof import("@noble/curves/secp256k1.js");
+let secp256k1Module: Secp256k1Module["secp256k1"] | null = null;
+async function loadSecp256k1() {
+  if (secp256k1Module) return secp256k1Module;
+  const mod = await import("@noble/curves/secp256k1.js");
+  secp256k1Module = mod.secp256k1;
+  return secp256k1Module;
+}
 
 // Minimal structural types — keeps this file typesafe without importing
 // the full AWS SDK type surface. Only the shapes we actually touch.
@@ -154,11 +167,12 @@ function addressFromPubkey(rawPubkey: Uint8Array): string {
  * the one that recovers to our cached pubkey. Also normalize s to low-s
  * (EIP-2) — Ethereum rejects high-s signatures.
  */
-function ethSignatureFromKmsDer(
+async function ethSignatureFromKmsDer(
   derSig: Uint8Array,
   digest: Uint8Array,
   expectedPubkey: Uint8Array,
-): string {
+): Promise<string> {
+  const secp256k1 = await loadSecp256k1();
   const parsed = secp256k1.Signature.fromBytes(derSig, "der");
   let r = parsed.r;
   let s = parsed.s;
@@ -229,7 +243,7 @@ async function kmsSignDigest(
   const res = await client.send(cmd);
   const der = res.Signature;
   if (!der) throw new Error("KMS SignCommand returned no Signature");
-  return ethSignatureFromKmsDer(der as Uint8Array, digest, expectedPubkey);
+  return await ethSignatureFromKmsDer(der as Uint8Array, digest, expectedPubkey);
 }
 
 /**
