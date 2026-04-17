@@ -19,9 +19,14 @@
  * refuse to submit (in which case user is no worse off than before).
  */
 
-import { ethers } from "ethers";
-import { checkRateLimit, writeRateLimitHeaders } from "./_lib/rate-limit";
-import { getSigner } from "./_lib/signer";
+// IMPORTANT: no top-level runtime imports. If a dependency throws during
+// module evaluation (which ethers v6 has done before on Vercel's runtime,
+// and _lib/signer has a dynamic-import chain for KMS), Vercel returns
+// FUNCTION_INVOCATION_FAILED before our top-level try/catch can catch it.
+// Lazy-imports inside handleImpl route any load-time failure through the
+// outer try/catch so the client sees JSON instead of Vercel's HTML error.
+import type { ethers as EthersT } from "ethers";
+type Ethers = typeof EthersT;
 
 // ─── Config ───────────────────────────────────────────────────────────
 
@@ -167,6 +172,13 @@ async function handleImpl(req: any, res: any) {
     res.status(405).json({ error: "method not allowed" });
     return;
   }
+
+  // Lazy-load all heavy deps INSIDE the handler so module-level failures
+  // are caught by the outer try/catch and returned as JSON.
+  const ethersMod = await import("ethers");
+  const ethers: Ethers = (ethersMod as unknown as Ethers);
+  const { checkRateLimit, writeRateLimitHeaders } = await import("./_lib/rate-limit.js");
+  const { getSigner } = await import("./_lib/signer.js");
 
   const ip = ipFromHeaders(req.headers ?? {});
   const rl = await checkRateLimit({ ip, key: "relay", windowMs: 60_000, max: 10 });

@@ -2,6 +2,12 @@ import type { Config } from "tailwindcss";
 
 export default {
   content: ["./index.html", "./src/**/*.{js,ts,jsx,tsx}"],
+  // Class-based dark mode so Tailwind's `dark:` variants align with the
+  // CSS-variable-driven `.dark` class in theme.css. Without this, Tailwind
+  // defaults to `media` (OS `prefers-color-scheme`), which desyncs from the
+  // in-app toggle — users with OS in dark mode would see dark modals
+  // overlaid on a light app because only Tailwind `dark:` classes fired.
+  darkMode: "class",
   theme: {
     extend: {
       colors: {
