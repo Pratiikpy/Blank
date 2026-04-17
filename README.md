@@ -57,24 +57,24 @@ No trusted intermediary. No hardware enclaves. No MPC committees. Pure math.
 
 This wave we migrated the whole app from Fhenix's older testnet to CoFHE v0.4, added passkey smart wallets, and made the app run on Base Sepolia and Ethereum Sepolia off one codebase.
 
-### 🔐 CoFHE v0.4 Migration
+### CoFHE v0.4 Migration
 - **Sixteen contracts moved over**: Every hub (PaymentHub, BusinessHub, GroupManager, StealthPayments, P2PExchange, InheritanceManager, CreatorHub, PaymentReceipts, and others) was ported to the `@fhenixprotocol/cofhe-contracts` v0.4 API with no state migration — UUPS proxies upgraded in place. The piece that took the longest was `transferFromVerified`: hubs verify an encrypted input in their own `msg.sender` context, then pass the verified handle to the vault. Without that, cross-contract FHE signature checks fail silently, and nothing tells you why.
 - **Twenty-eight FHE operations rewritten**: `FHE.asEuint`, `FHE.add`, `FHE.select`, and the four-tier ACL (`allowThis`, `allowSender`, `allow`, `allowTransient`) now follow the v0.4 handle model.
 
-### 🔑 Passkey Smart Wallets
+### Passkey Smart Wallets
 - **ERC-4337 accounts signed by P-256 passkeys**: Sign up with a passphrase — no browser extension, no MetaMask. The app creates a smart account and signs UserOps with WebAuthn.
 - **Paymaster-sponsored gas**: BlankPaymaster pays for passkey users' first-time account deployment, approvals, and payments. Gas is free to the sender on testnet.
 - **Shared hook with MetaMask path**: Both wallet paths go through `useUnifiedWrite`, so we are not maintaining two versions of the app.
 
-### 🌐 Dual-Chain
+### Dual-Chain
 - **Base Sepolia and Ethereum Sepolia on one codebase**: Same contracts deployed on both chains. Chain switch is a UI affordance, not a separate build.
 - **Per-chain activity + explorer links**: Activity feeds show each transaction on the chain it actually happened on, not the viewer's active chain. Explorer links route to the right network.
 
-### 🤖 AI Agent Payments
+### AI Agent Payments
 - **Kimi K2 parses plain English into an amount**: The server runs the model (Claude as backup), derives an amount, and signs it with an agent private key.
 - **On-chain ecrecover**: PaymentHub verifies the signature and ties every agent-authored payment back to the agent that signed it. The private key never leaves the server. Signatures expire in ten minutes so replays cannot work.
 
-### 📜 Verifiable Balance Proofs
+### Verifiable Balance Proofs
 - **Shareable proof URLs**: A user generates a proof that their balance is above some number and gets a link they can share. Anyone without a wallet can open it, click verify, and the Threshold Network's decrypted answer is published on-chain with a signature check.
 - **No trusted backend**: The contract does the math. Nobody has to trust our server for the answer.
 
