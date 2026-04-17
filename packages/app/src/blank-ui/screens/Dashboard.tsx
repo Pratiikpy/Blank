@@ -72,7 +72,7 @@ const activityLabels: Record<string, string> = {
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const { effectiveAddress: address } = useEffectiveAddress();
+  const { effectiveAddress: address, isSmartAccount, smartAccount } = useEffectiveAddress();
   const { activities, isLoading: feedLoading } = useActivityFeed();
   const balance = useEncryptedBalance();
   const {
@@ -772,36 +772,57 @@ export default function Dashboard() {
               Encryption Status
             </h3>
             <div className="space-y-4">
-              {/* FHE Status */}
-              <div className={cn(
-                "flex items-center justify-between p-4 rounded-2xl border",
-                cofheConnected
-                  ? "bg-emerald-50 dark:bg-emerald-500/10 border-emerald-100 dark:border-emerald-500/20"
-                  : "bg-amber-50 dark:bg-amber-500/10 border-amber-100 dark:border-amber-500/20"
-              )}>
-                <div className="flex items-center gap-3">
+              {/* FHE Status — cofheConnected is only true after the smart
+                  account is deployed on-chain. Before first tx, a passkey
+                  user sits at "Connecting to FHE..." forever, which reads
+                  like a bug. Treat passkey-with-undeployed-account as its
+                  own state: "Ready on first transaction". */}
+              {(() => {
+                const isUndeployedPasskey = isSmartAccount && smartAccount.account && !smartAccount.account.isDeployed;
+                const showReady = cofheConnected;
+                const showPending = !cofheConnected && isUndeployedPasskey;
+                const tone = showReady ? "ready" : showPending ? "pending" : "warning";
+                return (
                   <div className={cn(
-                    "w-10 h-10 rounded-xl flex items-center justify-center",
-                    cofheConnected ? "bg-emerald-500" : "bg-amber-500"
+                    "flex items-center justify-between p-4 rounded-2xl border",
+                    tone === "ready" && "bg-emerald-50 dark:bg-emerald-500/10 border-emerald-100 dark:border-emerald-500/20",
+                    tone === "pending" && "bg-blue-50 dark:bg-blue-500/10 border-blue-100 dark:border-blue-500/20",
+                    tone === "warning" && "bg-amber-50 dark:bg-amber-500/10 border-amber-100 dark:border-amber-500/20",
                   )}>
-                    <Shield size={20} className="text-white" />
+                    <div className="flex items-center gap-3">
+                      <div className={cn(
+                        "w-10 h-10 rounded-xl flex items-center justify-center",
+                        tone === "ready" && "bg-emerald-500",
+                        tone === "pending" && "bg-blue-500",
+                        tone === "warning" && "bg-amber-500",
+                      )}>
+                        <Shield size={20} className="text-white" />
+                      </div>
+                      <div>
+                        {tone === "ready" && (
+                          <>
+                            <p className="font-medium text-emerald-900 dark:text-emerald-300">FHE Active</p>
+                            <p className="text-sm text-emerald-700 dark:text-emerald-400">All amounts encrypted</p>
+                          </>
+                        )}
+                        {tone === "pending" && (
+                          <>
+                            <p className="font-medium text-blue-900 dark:text-blue-300">FHE Ready</p>
+                            <p className="text-sm text-blue-700 dark:text-blue-400">Your first transaction will deploy your wallet</p>
+                          </>
+                        )}
+                        {tone === "warning" && (
+                          <>
+                            <p className="font-medium text-amber-900 dark:text-amber-300">Connecting to FHE…</p>
+                            <p className="text-sm text-amber-700 dark:text-amber-400">Encryption initializing</p>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    {tone === "ready" && <CheckCircle size={24} className="text-emerald-600 dark:text-emerald-400" />}
                   </div>
-                  <div>
-                    {cofheConnected ? (
-                      <>
-                        <p className="font-medium text-emerald-900 dark:text-emerald-300">FHE Active</p>
-                        <p className="text-sm text-emerald-700 dark:text-emerald-400">All amounts encrypted</p>
-                      </>
-                    ) : (
-                      <>
-                        <p className="font-medium text-amber-900 dark:text-amber-300">Connecting to FHE...</p>
-                        <p className="text-sm text-amber-700 dark:text-amber-400">Encryption initializing</p>
-                      </>
-                    )}
-                  </div>
-                </div>
-                {cofheConnected && <CheckCircle size={24} className="text-emerald-600 dark:text-emerald-400" />}
-              </div>
+                );
+              })()}
 
               {/* Async Decryption */}
               <div className="flex items-center justify-between p-4 rounded-2xl bg-white/50 dark:bg-white/5 border border-black/5 dark:border-white/10">

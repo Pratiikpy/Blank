@@ -9,23 +9,38 @@
  * health verbally so callers can branch.
  */
 
-import { ethers } from "ethers";
-import { getSigner } from "./_lib/signer";
+// Same pattern as derive.ts — lazy-import ethers and _lib/signer inside the
+// handler so any module-load failure is caught by the outer try/catch and
+// surfaced as JSON, not as Vercel's opaque FUNCTION_INVOCATION_FAILED.
 
-const SUPPORTED_CHAINS: Record<number, { name: string; rpcUrl: string; lowEthThreshold: bigint }> = {
-  11155111: {
-    name: "Ethereum Sepolia",
-    rpcUrl: process.env.SEPOLIA_RPC_URL || "https://ethereum-sepolia.publicnode.com",
-    lowEthThreshold: ethers.parseEther("0.5"),
-  },
-  84532: {
-    name: "Base Sepolia",
-    rpcUrl: process.env.BASE_SEPOLIA_RPC_URL || "https://sepolia.base.org",
-    lowEthThreshold: ethers.parseEther("0.5"),
-  },
-};
+export default async function handler(req: any, res: any) {
+  try {
+    return await handleImpl(req, res);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[/api/relayer-health] unhandled:", err);
+    res.status(500).json({ error: `relayer-health crashed: ${msg}` });
+    return;
+  }
+}
 
-export default async function handler(_req: any, res: any) {
+async function handleImpl(_req: any, res: any) {
+  const ethers = await import("ethers");
+  const { getSigner } = await import("./_lib/signer.js");
+
+  const SUPPORTED_CHAINS: Record<number, { name: string; rpcUrl: string; lowEthThreshold: bigint }> = {
+    11155111: {
+      name: "Ethereum Sepolia",
+      rpcUrl: process.env.SEPOLIA_RPC_URL || "https://ethereum-sepolia.publicnode.com",
+      lowEthThreshold: ethers.parseEther("0.5"),
+    },
+    84532: {
+      name: "Base Sepolia",
+      rpcUrl: process.env.BASE_SEPOLIA_RPC_URL || "https://sepolia.base.org",
+      lowEthThreshold: ethers.parseEther("0.5"),
+    },
+  };
+
   let relayerAddress: string;
   try {
     const signer = getSigner("relayer");

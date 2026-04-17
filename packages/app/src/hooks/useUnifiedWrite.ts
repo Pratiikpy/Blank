@@ -82,6 +82,42 @@ export interface UseUnifiedWriteReturn {
   unifiedWriteAndWait: (params: UnifiedWriteParams) => Promise<UnifiedWriteAndWaitResult>;
 }
 
+/**
+ * Map cryptic low-level errors from the relayer / EntryPoint / wagmi into
+ * something a user can act on. The input messages are e.g.
+ * "entryPoint.handleOps failed: insufficient funds for intrinsic transaction cost..."
+ * and the user sees that verbatim today — no idea if they should retry, top
+ * up their wallet, or contact support.
+ */
+function humanizeWriteError(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err ?? "Transaction failed");
+  const s = raw.toLowerCase();
+  if (s.includes("cancelled") || s.includes("user rejected") || s.includes("denied")) {
+    return "Cancelled.";
+  }
+  if (s.includes("insufficient funds for intrinsic") || s.includes("insufficient funds for gas")) {
+    return "The relayer ran out of gas money. Please try again in a moment, or let us know if this keeps happening.";
+  }
+  if (s.includes("connector not connected")) {
+    return "Wallet not connected. If you signed up with a passphrase, try refreshing the page.";
+  }
+  if (s.includes("entrypoint") && s.includes("reverted")) {
+    return "The smart wallet rejected this transaction. Check the amount and try again.";
+  }
+  if (s.includes("nonce") && (s.includes("already") || s.includes("used") || s.includes("too low"))) {
+    return "Another transaction is still pending. Please wait a few seconds and try again.";
+  }
+  if (s.includes("timeout") || s.includes("aborted")) {
+    return "Request timed out. The network may be slow — please try again.";
+  }
+  if (s.includes("rate limit")) {
+    return "Too many requests. Please wait a minute and try again.";
+  }
+  // Unrecognized — surface the raw message so it's still debuggable but
+  // cap the length so it fits in a toast.
+  return raw.length > 180 ? raw.slice(0, 180) + "…" : raw;
+}
+
 export function useUnifiedWrite(): UseUnifiedWriteReturn {
   const { writeContractAsync } = useWriteContract();
   const smartAccount = useSmartAccount();
@@ -100,15 +136,19 @@ export function useUnifiedWrite(): UseUnifiedWriteReturn {
       // ABI inference would require literal abis at every call site.
       if (!isSmartAccount) {
         console.log("[unifiedWrite] taking EOA wagmi path");
-        const hash = await writeContractAsync({
-          address: params.address,
-          abi: params.abi,
-          functionName: params.functionName,
-          args: params.args ?? [],
-          value: params.value,
-          gas: params.gas,
-        } as any);
-        return hash as Hex;
+        try {
+          const hash = await writeContractAsync({
+            address: params.address,
+            abi: params.abi,
+            functionName: params.functionName,
+            args: params.args ?? [],
+            value: params.value,
+            gas: params.gas,
+          } as any);
+          return hash as Hex;
+        } catch (err) {
+          throw new Error(humanizeWriteError(err));
+        }
       }
 
       // AA path — encode the call data, send via UserOp.
@@ -126,13 +166,18 @@ export function useUnifiedWrite(): UseUnifiedWriteReturn {
       console.log("[unifiedWrite] passphrase obtained, calling sendUserOp...");
       if (!passphrase) throw new Error("Cancelled");
 
-      const result = await smartAccount.sendUserOp(
-        params.address,
-        params.value ?? 0n,
-        data,
-        passphrase,
-      );
-      if (!result) throw new Error(smartAccount.error ?? "UserOp submission failed");
+      let result;
+      try {
+        result = await smartAccount.sendUserOp(
+          params.address,
+          params.value ?? 0n,
+          data,
+          passphrase,
+        );
+      } catch (err) {
+        throw new Error(humanizeWriteError(err));
+      }
+      if (!result) throw new Error(humanizeWriteError(smartAccount.error ?? "UserOp submission failed"));
       return result.txHash;
     },
     [isSmartAccount, writeContractAsync, smartAccount, passphrasePrompt],
@@ -168,13 +213,18 @@ export function useUnifiedWrite(): UseUnifiedWriteReturn {
       });
       if (!passphrase) throw new Error("Cancelled");
 
-      const result = await smartAccount.sendUserOp(
-        params.address,
-        params.value ?? 0n,
-        data,
-        passphrase,
-      );
-      if (!result) throw new Error(smartAccount.error ?? "UserOp submission failed");
+      let result;
+      try {
+        result = await smartAccount.sendUserOp(
+          params.address,
+          params.value ?? 0n,
+          data,
+          passphrase,
+        );
+      } catch (err) {
+        throw new Error(humanizeWriteError(err));
+      }
+      if (!result) throw new Error(humanizeWriteError(smartAccount.error ?? "UserOp submission failed"));
 
       // Forward the relayer's view: blockNumber + status + logs from /api/relay.
       const receipt: UnifiedReceipt | undefined =
@@ -243,8 +293,13 @@ export function useUnifiedWrite(): UseUnifiedWriteReturn {
       });
       if (!passphrase) throw new Error("Cancelled");
 
-      const result = await smartAccount.sendBatchUserOp(targets, values, datas, passphrase);
-      if (!result) throw new Error(smartAccount.error ?? "Batch UserOp submission failed");
+      let result;
+      try {
+        result = await smartAccount.sendBatchUserOp(targets, values, datas, passphrase);
+      } catch (err) {
+        throw new Error(humanizeWriteError(err));
+      }
+      if (!result) throw new Error(humanizeWriteError(smartAccount.error ?? "Batch UserOp submission failed"));
       return result.txHash;
     },
     [isSmartAccount, writeContractAsync, smartAccount, passphrasePrompt],
