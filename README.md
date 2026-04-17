@@ -21,7 +21,7 @@ Built on Fully Homomorphic Encryption — the blockchain processes your money wi
 
 <br />
 
-<img src="docs/screenshots/dashboard.png" alt="Blank Dashboard" width="800" />
+<img src="docs/screenshots/landing.gif" alt="Blank — the amount is the secret" width="800" />
 
 </div>
 
@@ -50,6 +50,33 @@ Everyone else sees    →  $████.██
 ```
 
 No trusted intermediary. No hardware enclaves. No MPC committees. Pure math.
+
+---
+
+## What's New in Wave 2 (April 2026)
+
+This wave we migrated the whole app from Fhenix's older testnet to CoFHE v0.4, added passkey smart wallets, and made the app run on Base Sepolia and Ethereum Sepolia off one codebase.
+
+### 🔐 CoFHE v0.4 Migration
+- **Sixteen contracts moved over**: Every hub (PaymentHub, BusinessHub, GroupManager, StealthPayments, P2PExchange, InheritanceManager, CreatorHub, PaymentReceipts, and others) was ported to the `@fhenixprotocol/cofhe-contracts` v0.4 API with no state migration — UUPS proxies upgraded in place. The piece that took the longest was `transferFromVerified`: hubs verify an encrypted input in their own `msg.sender` context, then pass the verified handle to the vault. Without that, cross-contract FHE signature checks fail silently, and nothing tells you why.
+- **Twenty-eight FHE operations rewritten**: `FHE.asEuint`, `FHE.add`, `FHE.select`, and the four-tier ACL (`allowThis`, `allowSender`, `allow`, `allowTransient`) now follow the v0.4 handle model.
+
+### 🔑 Passkey Smart Wallets
+- **ERC-4337 accounts signed by P-256 passkeys**: Sign up with a passphrase — no browser extension, no MetaMask. The app creates a smart account and signs UserOps with WebAuthn.
+- **Paymaster-sponsored gas**: BlankPaymaster pays for passkey users' first-time account deployment, approvals, and payments. Gas is free to the sender on testnet.
+- **Shared hook with MetaMask path**: Both wallet paths go through `useUnifiedWrite`, so we are not maintaining two versions of the app.
+
+### 🌐 Dual-Chain
+- **Base Sepolia and Ethereum Sepolia on one codebase**: Same contracts deployed on both chains. Chain switch is a UI affordance, not a separate build.
+- **Per-chain activity + explorer links**: Activity feeds show each transaction on the chain it actually happened on, not the viewer's active chain. Explorer links route to the right network.
+
+### 🤖 AI Agent Payments
+- **Kimi K2 parses plain English into an amount**: The server runs the model (Claude as backup), derives an amount, and signs it with an agent private key.
+- **On-chain ecrecover**: PaymentHub verifies the signature and ties every agent-authored payment back to the agent that signed it. The private key never leaves the server. Signatures expire in ten minutes so replays cannot work.
+
+### 📜 Verifiable Balance Proofs
+- **Shareable proof URLs**: A user generates a proof that their balance is above some number and gets a link they can share. Anyone without a wallet can open it, click verify, and the Threshold Network's decrypted answer is published on-chain with a signature check.
+- **No trusted backend**: The contract does the math. Nobody has to trust our server for the answer.
 
 ---
 
@@ -98,19 +125,6 @@ Split bills with encrypted amounts. Resolve disputes with quadratic voting. Send
 </tr>
 </table>
 
-### All Features
-
-| Category | Features |
-|----------|----------|
-| **Payments** | Encrypted P2P transfers, payment requests (create/fulfill/cancel), batch send, QR codes, payment links |
-| **Business** | Encrypted invoicing with 2-phase verification, confidential payroll, escrow with arbiter disputes |
-| **Social** | Group expense splitting, quadratic voting, creator tips with tier badges, gift envelopes |
-| **Privacy** | Stealth payments via claim codes, shield/unshield between plaintext and encrypted vaults |
-| **Proofs** | Qualification proofs — prove "income above $X" without revealing the actual number |
-| **Infrastructure** | Dead man's switch inheritance, P2P exchange with encrypted settlement, AI agent payments |
-
----
-
 ## Wallet Support
 
 Blank supports two wallet paths — no compromise on either:
@@ -124,6 +138,17 @@ Blank supports two wallet paths — no compromise on either:
 | **Best for** | New users, mobile, passwordless UX | Existing crypto users |
 
 Both paths use the same encrypted contracts and the same UI.
+
+### All Features
+
+| Category | Features |
+|----------|----------|
+| **Payments** | Encrypted P2P transfers, payment requests (create/fulfill/cancel), batch send, QR codes, payment links |
+| **Business** | Encrypted invoicing with 2-phase verification, confidential payroll, escrow with arbiter disputes |
+| **Social** | Group expense splitting, quadratic voting, creator tips with tier badges, gift envelopes |
+| **Privacy** | Stealth payments via claim codes, shield/unshield between plaintext and encrypted vaults |
+| **Proofs** | Qualification proofs — prove "income above $X" without revealing the actual number |
+| **Infrastructure** | Dead man's switch inheritance, P2P exchange with encrypted settlement, AI agent payments |
 
 ---
 
@@ -226,13 +251,11 @@ npx hardhat test
 
 ---
 
-## Roadmap
+## Coming in Wave 3
 
-- [ ] Claimable payment links — send money via a shareable link, recipient claims without needing your address
-- [ ] Contact nicknames — save addresses with names instead of copy-pasting hex strings
-- [ ] Transaction notes search — search history by note text, not just address
-- [ ] Recurring payments — schedule weekly/monthly encrypted transfers that auto-execute
-- [ ] Export payment receipts as PDF — for tax, accounting, or proof of payment
+Next wave we want to take Blank from "runs on testnet" to something a small group of users actually uses. That probably means narrowing the app rather than shipping more features — picking one audience (likely freelancers invoicing clients), cutting anything that doesn't serve them, and using it ourselves for a month before calling it a real product. Everything above already works. The gap is not the tech.
+
+Smaller things we want to land alongside: claimable payment links so you can send money by URL without knowing the recipient's address, contact nicknames instead of copy-pasted hex, and search over transaction notes. No promises on timing.
 
 ---
 

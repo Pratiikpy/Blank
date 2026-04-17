@@ -31,7 +31,10 @@ Thumbs.db
 # docs/           — project documentation (specs, roadmaps, reports, verification)
 references/
 design-assets/
-docs/
+docs/*
+# but keep screenshots — the README references them
+!docs/screenshots/
+!docs/screenshots/**
 
 # Dev artifacts
 memory/
