@@ -229,8 +229,29 @@ export default async function handler(req: any, res: any) {
       const attempt = async (
         chosenNonce: number,
       ): Promise<{ tx: typeof submittedTx; receipt: Awaited<ReturnType<typeof submittedTx.wait>> }> => {
+        // Derive a tight gasLimit instead of a fixed 15M. At 25 gwei on
+        // ETH Sepolia, 15M means Ethereum asks the relayer to reserve
+        // 0.375 ETH — if the relayer has less, the tx fails at the
+        // intrinsic-cost check before even reaching EntryPoint.
+        //
+        // accountGasLimits packs (verificationGasLimit, callGasLimit).
+        // Sum those + preVerificationGas + buffer → real upper bound.
+        const packedGas = BigInt(ethersOp.accountGasLimits);
+        const verifGas = (packedGas >> 128n) & 0xffffffffffffffffffffffffffffffffn;
+        const callGas = packedGas & 0xffffffffffffffffffffffffffffffffn;
+        const preVerif = BigInt(ethersOp.preVerificationGas);
+        // EntryPoint overhead + wiggle room. Initcode paths cost more.
+        const hasInitCode = ethersOp.initCode !== "0x" && ethersOp.initCode.length > 2;
+        const overhead = hasInitCode ? 500_000n : 200_000n;
+        const computed = verifGas + callGas + preVerif + overhead;
+        // Minimum floor for simple calls, hard ceiling at 8M to avoid
+        // wasteful preauth holds on the relayer balance.
+        const FLOOR = 1_500_000n;
+        const CEILING = 8_000_000n;
+        let gasLimit = computed < FLOOR ? FLOOR : computed;
+        if (gasLimit > CEILING) gasLimit = CEILING;
         const submittedTx = await entryPoint.handleOps([ethersOp], relayerAddress, {
-          gasLimit: 15_000_000n,
+          gasLimit,
           nonce: chosenNonce,
         });
         commitNonce(chainId, chosenNonce);
