@@ -147,6 +147,22 @@ function commitNonce(chainId: number, used: number) {
 // ─── Handler ──────────────────────────────────────────────────────────
 
 export default async function handler(req: any, res: any) {
+  try {
+    return await handleImpl(req, res);
+  } catch (err) {
+    // Without this catch, any throw during module-level resolution of
+    // ethers/signer/rate-limit surfaces as Vercel's HTML
+    // FUNCTION_INVOCATION_FAILED page, which the client tries to parse as
+    // JSON and surfaces as "relay HTTP 500" with no actionable detail.
+    // Return proper JSON so the frontend's humanizeWriteError can map it.
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[/api/relay] unhandled:", err);
+    res.status(500).json({ error: `relay crashed: ${msg}` });
+    return;
+  }
+}
+
+async function handleImpl(req: any, res: any) {
   if (req.method !== "POST") {
     res.status(405).json({ error: "method not allowed" });
     return;
