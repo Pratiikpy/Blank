@@ -253,7 +253,7 @@ npx hardhat test
 
 ## Coming in Wave 3
 
-Next wave we want to take Blank from "runs on testnet" to something a small group of users actually uses. That probably means narrowing the app rather than shipping more features — picking one audience (likely freelancers invoicing clients), cutting anything that doesn't serve them, and using it ourselves for a month before calling it a real product. Everything above already works. The gap is not the tech.
+Next wave we want to take Blank from "runs on testnet" to something a small group of users actually uses. That probably means narrowing the app rather than shipping more features picking one audience (likely freelancers invoicing clients), cutting anything that doesn't serve them, and using it ourselves before calling it a real product. The gap is not the tech.
 
 Smaller things we want to land alongside: claimable payment links so you can send money by URL without knowing the recipient's address, contact nicknames instead of copy-pasted hex, and search over transaction notes. No promises on timing.
 
