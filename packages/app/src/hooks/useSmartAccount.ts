@@ -366,7 +366,13 @@ export function useSmartAccount() {
           const msg = err instanceof Error ? err.message : "UserOp submission failed";
           setError(msg);
           setStatus("error");
-          return null;
+          // Re-throw so the caller's try/catch sees the real message.
+          // Returning null here previously meant the caller read the
+          // stale `error` state instead and users saw generic toasts
+          // like "UserOp submission failed" with no actionable detail
+          // about what actually broke (insufficient relayer gas,
+          // reverted tx, bad signature, etc).
+          throw err instanceof Error ? err : new Error(msg);
         }
       })();
 
