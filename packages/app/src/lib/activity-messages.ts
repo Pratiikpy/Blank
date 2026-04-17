@@ -117,6 +117,7 @@ export const MESSAGE_FORMATTERS: Record<ActivityType, Formatter> = {
   [ACTIVITY_TYPES.UNSHIELD]: ({ from }) => `${from} unshielded tokens`,
   [ACTIVITY_TYPES.UNSHIELD_CLAIM]: ({ from }) =>
     `${from} claimed an unshield`,
+  [ACTIVITY_TYPES.MINT]: ({ from }) => `${from} minted test tokens`,
 
   [ACTIVITY_TYPES.SWAP_INITIATED]: ({ from }) =>
     `${from} initiated a private swap`,
