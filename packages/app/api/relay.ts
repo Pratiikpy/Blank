@@ -19,14 +19,13 @@
  * refuse to submit (in which case user is no worse off than before).
  */
 
-// IMPORTANT: no top-level runtime imports. If a dependency throws during
-// module evaluation (which ethers v6 has done before on Vercel's runtime,
-// and _lib/signer has a dynamic-import chain for KMS), Vercel returns
-// FUNCTION_INVOCATION_FAILED before our top-level try/catch can catch it.
-// Lazy-imports inside handleImpl route any load-time failure through the
-// outer try/catch so the client sees JSON instead of Vercel's HTML error.
-import type { ethers as EthersT } from "ethers";
-type Ethers = typeof EthersT;
+// ethers is top-level because validateUserOp (a module-level function)
+// uses it at call time — lazy-loading broke that with "ethers is not
+// defined" at runtime. The original FUNCTION_INVOCATION_FAILED was from
+// _lib/signer's module-load chain, not ethers. Keep ethers here; lazy
+// the rest inside handleImpl so any _lib/ failure is caught by the
+// outer try/catch and returned as JSON instead of Vercel's HTML page.
+import { ethers } from "ethers";
 
 // ─── Config ───────────────────────────────────────────────────────────
 
@@ -173,10 +172,11 @@ async function handleImpl(req: any, res: any) {
     return;
   }
 
-  // Lazy-load all heavy deps INSIDE the handler so module-level failures
-  // are caught by the outer try/catch and returned as JSON.
-  const ethersMod = await import("ethers");
-  const ethers: Ethers = (ethersMod as unknown as Ethers);
+  // Lazy-load _lib deps INSIDE the handler so any module-level failure
+  // in rate-limit or signer is caught by the outer try/catch and returned
+  // as JSON instead of Vercel's HTML FUNCTION_INVOCATION_FAILED page.
+  // ethers stays top-level because module-level functions in this file
+  // reference it at call time.
   const { checkRateLimit, writeRateLimitHeaders } = await import("./_lib/rate-limit.js");
   const { getSigner } = await import("./_lib/signer.js");
 
