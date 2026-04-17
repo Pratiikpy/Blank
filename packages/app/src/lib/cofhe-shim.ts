@@ -144,6 +144,7 @@ async function loadSdk(): Promise<boolean> {
 
       const config = _sdkModules.createCofheConfig({
         supportedChains: [_sdkModules.activeChain],
+        react: { autogeneratePermits: true },
       });
       _sdkClient = _sdkModules.createCofheClient(config);
 
@@ -715,6 +716,31 @@ export function useCofheActivePermit() {
   }, [address, sdkTick]);
 
   return permitData;
+}
+
+// ─── useCofheNavigateToCreatePermit ────────────────────────────────
+// Real SDK exports this as navigation into a built-in modal; we don't use
+// their modal UI so we expose it as an imperative function that directly
+// calls `permits.getOrCreateSelfPermit()`. One EIP-712 signature popup,
+// then the permit lands in the SDK's permit store and every
+// `useCofheActivePermit` subscriber re-renders.
+//
+// Returned callback accepts an unused `cause` arg to match the real SDK's
+// signature `({ cause }?) => void` so call sites can be swapped 1:1.
+export function useCofheNavigateToCreatePermit() {
+  return useCallback(async (_opts?: { cause?: unknown }) => {
+    if (!_sdkLoaded || !_sdkClient || !_sdkClient.connected) {
+      console.warn("[cofhe-shim] navigate-to-create-permit: SDK not connected");
+      return;
+    }
+    try {
+      await _sdkClient.permits?.getOrCreateSelfPermit?.();
+      _notifySdkStateChange();
+    } catch (err) {
+      console.error("[cofhe-shim] navigate-to-create-permit failed:", err);
+      throw err;
+    }
+  }, []);
 }
 
 // ─── useCoingeckoUsdPrice ───────────────────────────────────────────

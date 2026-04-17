@@ -2,6 +2,7 @@ import { useState, useCallback, useMemo, useEffect } from "react";
 import { useAccount, useDisconnect } from "wagmi";
 import {
   useCofheActivePermit,
+  useCofheNavigateToCreatePermit,
 } from "@cofhe/react";
 import toast from "react-hot-toast";
 import { STORAGE_KEYS, getStoredJson, setStoredJson } from "@/lib/storage";
@@ -73,22 +74,28 @@ export function usePrivacy() {
     permitExpiresAt !== null && permitExpiresAt <= Date.now();
 
   // ── Permit creation ───────────────────────────────────────────────
-  // useCofheCreatePermitMutation is not exported from @cofhe/react's
-  // public API. The CofheProvider handles permits on wallet connection.
-  // isCreating is kept as a stable false for consumers that read it.
-  const isCreating = false;
+  // Real path: useCofheNavigateToCreatePermit triggers the SDK's
+  // getOrCreateSelfPermit flow, which pops an EIP-712 signature and caches
+  // the resulting permit. Returns when the permit is active so the UI can
+  // re-render with the decrypted balance immediately.
+  const navigateToCreate = useCofheNavigateToCreatePermit();
+  const [isCreating, setIsCreating] = useState(false);
   const { disconnect } = useDisconnect();
 
   const createPermit = useCallback(async () => {
     if (!address) return;
-    // The CofheProvider auto-creates permits on wallet connection.
-    // Manual permit creation requires the SDK's internal mutation
-    // which is not yet exported in the public @cofhe/react API.
-    toast("Permit is automatically created when you connect your wallet. To renew, use the Reconnect Wallet button below.", {
-      icon: "\uD83D\uDD11",
-      duration: 5000,
-    });
-  }, [address]);
+    if (isCreating) return;
+    setIsCreating(true);
+    try {
+      await navigateToCreate();
+      toast.success("Permit created — balance unlocked", { icon: "\uD83D\uDD13" });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to create permit";
+      toast.error(msg);
+    } finally {
+      setIsCreating(false);
+    }
+  }, [address, isCreating, navigateToCreate]);
 
   const reconnectWallet = useCallback(() => {
     disconnect();
