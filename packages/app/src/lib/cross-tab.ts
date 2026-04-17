@@ -27,19 +27,44 @@ export type CrossTabAction =
   | "aa_passkey_changed"
   | "passphrase_resolved";
 
+const WINDOW_EVENT = "blank-cross-action";
+
 export function broadcastAction(
   action: CrossTabAction,
   data?: Record<string, unknown>,
 ) {
-  getCrossTabChannel()?.postMessage({ action, data, timestamp: Date.now() });
+  const payload = { action, data, timestamp: Date.now() };
+  // Cross-tab: BroadcastChannel only delivers to OTHER browsing contexts on
+  // the same origin. It does NOT fire in the sending tab — that's correct
+  // for its stated purpose, but breaks our use case where two hook
+  // instances in the SAME tab need to sync (PasskeyCreationModal's
+  // useSmartAccount and BlankApp's useSmartAccount).
+  getCrossTabChannel()?.postMessage(payload);
+  // Same-tab: a plain CustomEvent on window reaches every listener in this
+  // tab synchronously. Combined with the BroadcastChannel, broadcastAction
+  // now reaches every listener on this origin regardless of tab.
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent(WINDOW_EVENT, { detail: payload }));
+  }
 }
 
 export function onCrossTabAction(
   callback: (action: CrossTabAction, data?: Record<string, unknown>) => void,
 ) {
+  const unsubs: Array<() => void> = [];
   const ch = getCrossTabChannel();
-  if (!ch) return () => {};
-  const handler = (e: MessageEvent) => callback(e.data.action, e.data.data);
-  ch.addEventListener("message", handler);
-  return () => ch.removeEventListener("message", handler);
+  if (ch) {
+    const chHandler = (e: MessageEvent) => callback(e.data.action, e.data.data);
+    ch.addEventListener("message", chHandler);
+    unsubs.push(() => ch.removeEventListener("message", chHandler));
+  }
+  if (typeof window !== "undefined") {
+    const winHandler = (e: Event) => {
+      const d = (e as CustomEvent).detail ?? {};
+      callback(d.action, d.data);
+    };
+    window.addEventListener(WINDOW_EVENT, winHandler);
+    unsubs.push(() => window.removeEventListener(WINDOW_EVENT, winHandler));
+  }
+  return () => { for (const u of unsubs) u(); };
 }
