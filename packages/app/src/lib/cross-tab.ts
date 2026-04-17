@@ -24,6 +24,7 @@ export type CrossTabAction =
   | "stealth_inbox_changed"
   | "pending_claim_removed"
   | "aa_nonce_used"
+  | "aa_passkey_changed"
   | "passphrase_resolved";
 
 export function broadcastAction(
