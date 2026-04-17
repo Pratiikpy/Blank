@@ -804,7 +804,12 @@ export default function InheritancePlanning() {
                   }
                 }}
                 disabled={isProcessing || !claimOwner}
-                className="h-12 flex-1 rounded-xl bg-amber-500 text-white font-medium disabled:opacity-30 flex items-center justify-center gap-2"
+                className={cn(
+                  "h-12 flex-1 rounded-xl font-medium flex items-center justify-center gap-2 transition-colors",
+                  isProcessing || !claimOwner
+                    ? "bg-gray-200 dark:bg-white/10 text-gray-500 dark:text-white/40 cursor-not-allowed"
+                    : "bg-amber-500 hover:bg-amber-600 text-white",
+                )}
               >
                 {isProcessing ? <Loader2 size={16} className="animate-spin" /> : null}
                 Start Claim
@@ -822,7 +827,12 @@ export default function InheritancePlanning() {
                   }
                 }}
                 disabled={isProcessing || !claimOwner || ownerVaultCount === 0}
-                className="h-12 flex-1 rounded-xl bg-emerald-500 text-white font-medium disabled:opacity-30 flex items-center justify-center gap-2"
+                className={cn(
+                  "h-12 flex-1 rounded-xl font-medium flex items-center justify-center gap-2 transition-colors",
+                  isProcessing || !claimOwner || ownerVaultCount === 0
+                    ? "bg-gray-200 dark:bg-white/10 text-gray-500 dark:text-white/40 cursor-not-allowed"
+                    : "bg-emerald-500 hover:bg-emerald-600 text-white",
+                )}
               >
                 {isProcessing ? <Loader2 size={16} className="animate-spin" /> : null}
                 Finalize Claim{ownerVaultCount > 0 ? ` (${ownerVaultCount} vault${ownerVaultCount !== 1 ? "s" : ""})` : ""}

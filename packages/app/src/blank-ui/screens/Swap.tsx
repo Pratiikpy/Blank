@@ -11,10 +11,12 @@ import {
   ChevronDown,
   Clock,
   ShieldCheck,
+  Info,
 } from "lucide-react";
 import { useExchange } from "@/hooks/useExchange";
 import { useShield } from "@/hooks/useShield";
 import { useEffectiveAddress } from "@/hooks/useEffectiveAddress";
+import { useChain } from "@/providers/ChainProvider";
 import toast from "react-hot-toast";
 
 // ---------------------------------------------------------------
@@ -23,6 +25,11 @@ import toast from "react-hot-toast";
 
 export default function Swap() {
   const { effectiveAddress: address } = useEffectiveAddress();
+  const { contracts, activeChain } = useChain();
+  // P2P requires a second token + vault to trade against. Ethereum Sepolia
+  // only has USDC deployed today; USDT is Base-Sepolia-only. Rendering the
+  // swap form here would let users create offers that cannot be filled.
+  const hasUsdt = Boolean(contracts.TestUSDT && contracts.FHERC20Vault_USDT);
   const {
     offers,
     filledOffers,
@@ -118,7 +125,22 @@ export default function Swap() {
           </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+        {!hasUsdt && (
+          <div className="mb-6 rounded-2xl p-5 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 flex items-start gap-3">
+            <Info size={20} className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-medium text-amber-900 dark:text-amber-200 mb-1">
+                P2P Exchange is not available on {activeChain.name}
+              </p>
+              <p className="text-sm text-amber-800 dark:text-amber-300/80 leading-relaxed">
+                The swap protocol needs two distinct tokens. Today only Base Sepolia has both USDC and USDT vaults deployed.
+                Switch to Base Sepolia (from the chain selector in the sidebar) to create or fill swap offers.
+              </p>
+            </div>
+          </div>
+        )}
+
+        <div className={`grid grid-cols-1 md:grid-cols-3 gap-6 mb-6 ${!hasUsdt ? "opacity-50 pointer-events-none" : ""}`}>
           {/* Balance Card */}
           <div className="md:col-span-1 space-y-3">
             <h3 className="text-lg font-heading font-medium text-[var(--text-primary)] mb-4">
