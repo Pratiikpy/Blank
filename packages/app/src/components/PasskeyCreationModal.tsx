@@ -121,6 +121,13 @@ export function PasskeyCreationModal({ open, onClose, onSuccess }: PasskeyCreati
             >
               Counterfactual — deploys automatically on your first transaction.
             </p>
+            <button
+              onClick={onClose}
+              autoFocus
+              className="w-full h-12 rounded-2xl bg-[#1D1D1F] dark:bg-white text-white dark:text-[#0A0A0A] font-medium hover:bg-black dark:hover:bg-gray-100 transition-colors flex items-center justify-center gap-2"
+            >
+              Enter the app
+            </button>
           </div>
         )}
 

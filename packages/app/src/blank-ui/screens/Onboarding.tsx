@@ -234,9 +234,11 @@ export default function Onboarding() {
         open={passkeyModalOpen}
         onClose={() => setPasskeyModalOpen(false)}
         onSuccess={() => {
-          // Modal stays open briefly to show the success state; its own
-          // X button closes it, at which point hasPasskey()=true drives
-          // BlankApp to render the main shell.
+          // Auto-close after 1.2s so the user sees the success state
+          // briefly then lands on the dashboard without a manual refresh.
+          // BlankApp's R5-C gate flips as soon as smartAccount.status
+          // becomes "ready", and this modal's close triggers the re-render.
+          setTimeout(() => setPasskeyModalOpen(false), 1200);
         }}
       />
     </div>
