@@ -151,7 +151,7 @@ export default function Profile() {
                   balanceRevealed ? "decrypted-text" : "encrypted-text",
                 )}
               >
-                ${balanceRevealed && isDecrypted && realBalance ? realBalance : balanceRevealed && hasBalance ? "Decrypting..." : balanceRevealed ? "0.00" : "██████.██"}
+                ${balanceRevealed && isDecrypted && realBalance ? realBalance : balanceRevealed && hasBalance ? "Decrypting..." : balanceRevealed ? "0.00" : "••••••.••"}
               </p>
               <div className="flex items-center gap-2 mt-3">
                 <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-100">

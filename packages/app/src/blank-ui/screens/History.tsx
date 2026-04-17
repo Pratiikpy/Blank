@@ -351,7 +351,7 @@ export default function History() {
                         >
                           {isIncoming ? "+" : "-"}$
                           <span aria-hidden="true" className="encrypted-text">
-                            {"\u2588\u2588\u2588\u2588\u2588.\u2588\u2588"}
+                            {"\u2022\u2022\u2022\u2022\u2022.\u2022\u2022"}
                           </span>
                           <span className="sr-only">Amount hidden</span>
                         </p>
@@ -429,7 +429,7 @@ export default function History() {
                 )}
                 <div className="flex justify-between p-3 rounded-xl bg-white/50 border border-black/5">
                   <span className="text-sm text-[var(--text-secondary)]">Amount</span>
-                  <span className="text-sm font-mono encrypted-text">{"\u2588\u2588\u2588\u2588\u2588.\u2588\u2588"}</span>
+                  <span className="text-sm font-mono encrypted-text">{"\u2022\u2022\u2022\u2022\u2022.\u2022\u2022"}</span>
                 </div>
                 <div className="flex justify-between p-3 rounded-xl bg-white/50 border border-black/5">
                   <span className="text-sm text-[var(--text-secondary)]">Date</span>

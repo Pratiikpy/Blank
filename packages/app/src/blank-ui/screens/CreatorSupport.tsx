@@ -443,7 +443,7 @@ export default function CreatorSupport() {
                     </div>
                     <div className="p-3 rounded-xl bg-white/50 dark:bg-white/5 border border-black/5 dark:border-white/10">
                       <p className="text-xs text-[var(--text-primary)]/50 mb-1">Earnings</p>
-                      <p className="text-sm font-medium encrypted-text">{"\u2588\u2588\u2588\u2588\u2588"}</p>
+                      <p className="text-sm font-medium encrypted-text">{"\u2022\u2022\u2022\u2022\u2022"}</p>
                     </div>
                   </div>
 
@@ -618,7 +618,7 @@ export default function CreatorSupport() {
                   </div>
                   <div className="text-right">
                     <p className="font-medium encrypted-text">
-                      ${"\u2588\u2588\u2588.\u2588\u2588"}
+                      ${"\u2022\u2022\u2022.\u2022\u2022"}
                     </p>
                     <p className="text-sm text-emerald-600">Active</p>
                   </div>

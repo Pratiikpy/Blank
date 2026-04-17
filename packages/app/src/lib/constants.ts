@@ -192,7 +192,9 @@ export const TOKEN_DECIMALS = 6; // TestUSDC.decimals() — used by all hooks
 export const APP_NAME = "Blank";
 export const APP_DESCRIPTION = "Your salary is your business. Not the blockchain's.";
 
-export const ENCRYPTED_PLACEHOLDER = "\u2588\u2588\u2588\u2588.\u2588\u2588"; // ████.██
+// Bullet characters (•) instead of full-block (█). Reads as a design choice,
+// not a loading-shimmer artifact. Matches the typographic dots in Dashboard.
+export const ENCRYPTED_PLACEHOLDER = "\u2022\u2022\u2022\u2022.\u2022\u2022"; // ••••.••
 export const REVEAL_TIMEOUT_MS = 10_000; // Auto-hide revealed amounts after 10s
 export const PERMIT_EXPIRY_DAYS = 7;
 export const MAX_BATCH_RECIPIENTS = 30;

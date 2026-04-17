@@ -559,7 +559,7 @@ export default function InheritancePlanning() {
                     <p className="text-sm text-[var(--text-primary)]/50 font-medium">Protected Funds</p>
                   </div>
                   <p className="text-2xl font-heading font-medium encrypted-text">
-                    ${"\u2588\u2588\u2588\u2588\u2588\u2588.\u2588\u2588"}
+                    ${"\u2022\u2022\u2022\u2022\u2022\u2022.\u2022\u2022"}
                   </p>
                 </div>
               </div>

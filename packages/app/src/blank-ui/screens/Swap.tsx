@@ -157,7 +157,7 @@ export default function Swap() {
                 </div>
                 <div className="text-right">
                   <p className="text-sm font-medium encrypted-text">
-                    {"\u2588\u2588\u2588\u2588\u2588"}
+                    {"\u2022\u2022\u2022\u2022\u2022"}
                   </p>
                 </div>
               </div>

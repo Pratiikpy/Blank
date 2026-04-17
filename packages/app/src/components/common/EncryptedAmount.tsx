@@ -5,7 +5,7 @@ import { cn } from "@/lib/cn";
 
 // ─── Constants ──────────────────────────────────────────────────────
 
-const ENCRYPTED_PLACEHOLDER = "\u2588\u2588\u2588\u2588.\u2588\u2588"; // ████.██
+const ENCRYPTED_PLACEHOLDER = "\u2022\u2022\u2022\u2022.\u2022\u2022"; // ████.██
 const REVEAL_TIMEOUT_MS = 10_000;
 const SCRAMBLE_CHARS = "0123456789$.,#%&!@*";
 const SCRAMBLE_DURATION = 350;

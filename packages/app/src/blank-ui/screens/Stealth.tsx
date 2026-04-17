@@ -1800,7 +1800,7 @@ export default function Stealth() {
                   <div className="flex items-center gap-4">
                     <div className="text-right">
                       <p className="text-lg font-heading font-medium encrypted-text">
-                        ${"\u2588\u2588\u2588\u2588\u2588.\u2588\u2588"}
+                        ${"\u2022\u2022\u2022\u2022\u2022.\u2022\u2022"}
                       </p>
                       <div
                         className={cn(

@@ -84,11 +84,11 @@ const FAQ_ITEMS: FAQItem[] = [
     id: "why-masked",
     icon: <EyeOff size={20} />,
     iconBg: "bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400",
-    question: "Why do amounts show as \u2588\u2588\u2588\u2588?",
+    question: "Why do amounts show as \u2022\u2022\u2022\u2022?",
     answer: (
       <p>
         Amounts are encrypted on-chain using FHE. The masked display
-        (\u2588\u2588\u2588\u2588.\u2588\u2588) indicates that the value is stored as ciphertext.
+        (\u2022\u2022\u2022\u2022.\u2022\u2022) indicates that the value is stored as ciphertext.
         Only you can decrypt your own balance and transaction amounts using your
         FHE permit. Tap or click the eye icon to reveal your decrypted balance
         -- it will auto-hide after 10 seconds for security.
