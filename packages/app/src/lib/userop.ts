@@ -139,7 +139,14 @@ export function encodeFactoryInitCode(
   salt: bigint,
 ): Hex {
   // createAccount(uint256 x, uint256 y, address recoveryModule, uint256 salt)
-  const selector = "0x12cd5db8" as Hex; // keccak256("createAccount(uint256,uint256,address,uint256)")[0:4]
+  // Correct selector computed from keccak256("createAccount(uint256,uint256,address,uint256)")[0:4].
+  // The previous value (0x12cd5db8) did not match any function in the deployed
+  // factory bytecode, so SenderCreator's low-level call returned empty, making
+  // EntryPoint revert with AA13 "initCode failed or OOG" on every first-time
+  // UserOp. This only surfaced against fresh passkeys on prod — dev tests
+  // happened to reuse passkeys whose counterfactual was already deployed, so
+  // the initCode path was never exercised.
+  const selector = "0x20b66d7f" as Hex;
   const args = encodeAbiParameters(
     [{ type: "uint256" }, { type: "uint256" }, { type: "address" }, { type: "uint256" }],
     [BigInt(ownerX), BigInt(ownerY), recoveryModule, salt],
