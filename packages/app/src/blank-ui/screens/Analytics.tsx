@@ -73,7 +73,7 @@ function StatCard({
         className="text-2xl font-heading font-medium encrypted-text mb-1"
         style={{ fontFamily: "'JetBrains Mono', monospace" }}
       >
-        ${"\u2588\u2588\u2588\u2588\u2588.\u2588\u2588"}
+        ${"\u2022\u2022\u2022\u2022\u2022.\u2022\u2022"}
       </p>
       <p className="text-sm text-[var(--text-primary)]/50">{label}</p>
     </div>

@@ -337,7 +337,7 @@ export default function TransactionDetail() {
             <p className="text-xs text-[var(--text-tertiary)] mb-1">Amount</p>
             <p className="text-xl font-heading font-medium font-mono text-[var(--text-primary)]">
               <span aria-hidden="true" className="encrypted-text">
-                {"\u2588\u2588\u2588\u2588\u2588.\u2588\u2588"}
+                {"\u2022\u2022\u2022\u2022\u2022.\u2022\u2022"}
               </span>
               <span className="sr-only">Amount hidden (encrypted)</span>
             </p>

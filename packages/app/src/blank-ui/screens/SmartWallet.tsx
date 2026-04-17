@@ -354,7 +354,11 @@ export default function SmartWallet() {
                     EOA balance (source)
                   </div>
                   <div className="font-mono text-lg font-semibold text-[var(--text-primary)]">
-                    {eoaUsdc !== null ? formatUsdcBigint(eoaUsdc) : "—"} USDC
+                    {!eoaAddress ? (
+                      <span className="text-sm text-[var(--text-tertiary)]">No MetaMask connected</span>
+                    ) : (
+                      <>{eoaUsdc !== null ? formatUsdcBigint(eoaUsdc) : "—"} USDC</>
+                    )}
                   </div>
                 </div>
                 <div className="rounded-2xl bg-emerald-50/50 dark:bg-emerald-500/5 border border-emerald-200/40 dark:border-emerald-500/20 p-4">
@@ -400,12 +404,12 @@ export default function SmartWallet() {
                 </button>
               </div>
 
-              {(!eoaUsdc || eoaUsdc === 0n) && (
+              {eoaAddress && (!eoaUsdc || eoaUsdc === 0n) && (
                 <div className="mt-3 flex items-center justify-between gap-2 text-xs">
                   <span className="text-[var(--text-tertiary)]">Need test USDC first?</span>
                   <button
                     onClick={handleFaucet}
-                    disabled={funding}
+                    disabled={funding || !eoaAddress}
                     className="font-medium px-3 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 dark:bg-amber-500/10 dark:hover:bg-amber-500/15 text-amber-700 dark:text-amber-300 transition-colors disabled:opacity-50"
                   >
                     Mint 10,000 USDC to my EOA

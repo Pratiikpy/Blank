@@ -283,10 +283,11 @@ export default function AgentPayments() {
             Pay with an AI agent
           </h1>
           <p className="text-base text-[var(--text-primary)]/50 leading-relaxed max-w-2xl">
-            Describe a payment in natural language. A server-side Claude derives the
-            number, signs the attestation with a published agent key, and you submit
-            the encrypted amount on-chain. The agent's address is recoverable on every
-            event — auditable forever, never custodial.
+            Describe a payment in natural language. A server-side AI agent
+            (Kimi K2 primary, Claude fallback) derives the number, signs the
+            attestation with a published agent key, and you submit the encrypted
+            amount on-chain. The agent's address is recoverable on every event —
+            auditable forever, never custodial.
           </p>
         </div>
 

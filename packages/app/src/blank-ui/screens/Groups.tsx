@@ -763,7 +763,7 @@ function GroupCard({
             Your Share
           </p>
           <p className="text-lg font-heading font-medium encrypted-text">
-            ${"\u2588\u2588\u2588.\u2588\u2588"}
+            ${"\u2022\u2022\u2022.\u2022\u2022"}
           </p>
         </div>
       </div>

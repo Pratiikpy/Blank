@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { useAccount } from "wagmi";
+import { useEffectiveAddress } from "@/hooks/useEffectiveAddress";
 import {
   ShieldCheck,
   Loader2,
@@ -25,7 +25,10 @@ import { useChain } from "@/providers/ChainProvider";
 const PRESET_THRESHOLDS = [1_000, 10_000, 50_000, 100_000];
 
 export default function Proofs() {
-  const { address } = useAccount();
+  // Passkey-aware — passkey-only users have no wagmi address but still have
+  // a smart-account address via useEffectiveAddress. Without this the page
+  // showed "Connect your wallet" even when a passkey was fully set up.
+  const { effectiveAddress: address } = useEffectiveAddress();
   const { activeChain, activeChainId } = useChain();
   const { createIncomeProof, createBalanceProof, fetchProof, fetchProofsByUser, step, error, reset } =
     useQualificationProof();

@@ -470,7 +470,7 @@ export default function BusinessTools() {
                       <div className="flex items-center gap-3 sm:gap-4 justify-between sm:justify-end">
                         <div className="text-right">
                           <p className="text-lg font-heading font-medium encrypted-text">
-                            ${"\u2588\u2588\u2588\u2588\u2588.\u2588\u2588"}
+                            ${"\u2022\u2022\u2022\u2022\u2022.\u2022\u2022"}
                           </p>
                           <div className={cn("inline-flex px-2 py-1 rounded-full text-xs font-medium border", getStatusBadge(invoice.status))}>
                             {invoice.status}
@@ -674,7 +674,7 @@ export default function BusinessTools() {
                     <div className="p-4 rounded-2xl bg-white/50 dark:bg-white/5 border border-black/5 dark:border-white/10 mb-4">
                       <p className="text-xs text-[var(--text-primary)]/50 font-medium tracking-wide uppercase mb-1">Escrow Amount</p>
                       <p className="text-2xl font-heading font-medium encrypted-text">
-                        ${"\u2588\u2588\u2588\u2588\u2588\u2588.\u2588\u2588"}
+                        ${"\u2022\u2022\u2022\u2022\u2022\u2022.\u2022\u2022"}
                       </p>
                     </div>
 
