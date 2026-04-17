@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { useCofheConnection, useCofheEncrypt } from "@/lib/cofhe-shim";
 import { usePrivacyMode } from "@/providers/PrivacyModeProvider";
+import { usePrivacy } from "@/hooks/usePrivacy";
 import { Encryptable } from "@cofhe/sdk";
 import { cn } from "@/lib/cn";
 import toast from "react-hot-toast";
@@ -97,6 +98,7 @@ export default function Dashboard() {
   // Shared global privacy state — set by sidebar toggle, consumed by
   // BalanceCard + ActivityList masks here.
   const { privacyMode, toggle: togglePrivacyMode } = usePrivacyMode();
+  const { hasPermit, createPermit, isCreating: isCreatingPermit } = usePrivacy();
   const [shieldAmount, setShieldAmount] = useState("");
   const [unshieldAmount, setUnshieldAmount] = useState("");
   const [faucetCooldown, setFaucetCooldown] = useState(0);
@@ -281,6 +283,9 @@ export default function Dashboard() {
             balance={balance}
             privacyMode={privacyMode}
             onTogglePrivacy={togglePrivacyMode}
+            hasPermit={hasPermit}
+            onCreatePermit={createPermit}
+            isCreatingPermit={isCreatingPermit}
             activityCount={activities.length}
             chainName={activeChain.name}
           />
@@ -556,6 +561,9 @@ export default function Dashboard() {
               balance={balance}
               privacyMode={privacyMode}
               onTogglePrivacy={togglePrivacyMode}
+              hasPermit={hasPermit}
+              onCreatePermit={createPermit}
+              isCreatingPermit={isCreatingPermit}
               activityCount={activities.length}
               chainName={activeChain.name}
               large
@@ -873,12 +881,15 @@ interface BalanceCardProps {
   balance: ReturnType<typeof useEncryptedBalance>;
   privacyMode: boolean;
   onTogglePrivacy: () => void;
+  hasPermit: boolean;
+  onCreatePermit: () => void | Promise<void>;
+  isCreatingPermit: boolean;
   large?: boolean;
   activityCount?: number;
   chainName?: string;
 }
 
-function BalanceCard({ balance, privacyMode, onTogglePrivacy, large, activityCount = 0, chainName = "Ethereum Sepolia" }: BalanceCardProps) {
+function BalanceCard({ balance, privacyMode, onTogglePrivacy, hasPermit, onCreatePermit, isCreatingPermit, large, activityCount = 0, chainName = "Ethereum Sepolia" }: BalanceCardProps) {
   // Use balance.formatted from the hook — it handles decrypted values correctly.
   // balance.raw is the encrypted ciphertext handle (NOT the actual amount).
   // balance.isDecrypted tells us if the SDK successfully decrypted the value.
@@ -929,7 +940,17 @@ function BalanceCard({ balance, privacyMode, onTogglePrivacy, large, activityCou
                 </h2>
               </div>
               {!displayAmount && formattedBalance === null && balance.hasBalance && (
-                <p className="text-xs text-emerald-600 mt-1 flex items-center gap-1"><Lock size={10} /> Balance encrypted — decryption requires CoFHE permit</p>
+                <button
+                  onClick={onCreatePermit}
+                  disabled={isCreatingPermit}
+                  className="text-xs text-emerald-600 mt-1 flex items-center gap-1 hover:text-emerald-500 disabled:opacity-60 cursor-pointer"
+                >
+                  {isCreatingPermit ? (
+                    <><Loader2 size={10} className="animate-spin" /> Creating permit…</>
+                  ) : (
+                    <><Lock size={10} /> Balance encrypted — tap to create permit</>
+                  )}
+                </button>
               )}
             </div>
             <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-500/10 border border-emerald-500/20">
@@ -947,13 +968,24 @@ function BalanceCard({ balance, privacyMode, onTogglePrivacy, large, activityCou
             </span>
             <button
               onClick={() => {
+                // Eye is dead weight without a permit — toggling privacyMode
+                // can't reveal an amount we haven't decrypted yet. If there's
+                // an encrypted handle but no permit, drive the user into the
+                // permit-creation flow instead of silently no-oping.
+                if (balance.hasBalance && !hasPermit && !balance.isDecrypted) {
+                  void onCreatePermit();
+                  return;
+                }
                 balance.toggleReveal();
                 onTogglePrivacy();
               }}
-              className="p-1.5 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+              disabled={isCreatingPermit}
+              className="p-1.5 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 transition-colors disabled:opacity-60"
               aria-label={displayAmount ? "Reveal balance" : "Hide balance"}
             >
-              {displayAmount ? (
+              {isCreatingPermit ? (
+                <Loader2 size={18} className="text-[var(--text-tertiary)] animate-spin" />
+              ) : displayAmount ? (
                 <Eye size={18} className="text-[var(--text-tertiary)]" />
               ) : (
                 <EyeOff size={18} className="text-[var(--text-tertiary)]" />
