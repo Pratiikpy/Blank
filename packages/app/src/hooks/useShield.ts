@@ -126,7 +126,7 @@ export function useShield() {
       setTxHash(hash);
 
       // Wait for confirmation THEN refetch
-      await waitAndRefetch(hash);
+      const receipt = await waitAndRefetch(hash);
 
       // Record faucet usage for rate limiting
       setStoredString(faucetKey, String(Date.now()));
@@ -134,6 +134,20 @@ export function useShield() {
       // Notify other tabs and invalidate cached balances
       broadcastAction("balance_changed");
       invalidateBalanceQueries();
+
+      // Record in the activity feed so the Activity tab updates visibly.
+      // Self-send (from == to) because the faucet mints to the caller.
+      await insertActivity({
+        tx_hash: hash,
+        user_from: address.toLowerCase(),
+        user_to: address.toLowerCase(),
+        activity_type: ACTIVITY_TYPES.MINT,
+        contract_address: contracts.TestUSDC,
+        token_address: contracts.TestUSDC,
+        note: "",
+        block_number: receipt?.blockNumber !== undefined ? Number(receipt.blockNumber) : 0,
+      });
+      broadcastAction("activity_added");
 
       toast.success("10,000 USDC minted!");
       return hash;
@@ -175,12 +189,24 @@ export function useShield() {
       });
       toast("Minting 10,000 test USDT...", { icon: "⏳" });
 
-      await waitAndRefetch(hash);
+      const receipt = await waitAndRefetch(hash);
 
       setStoredString(faucetKey, String(Date.now()));
 
       broadcastAction("balance_changed");
       invalidateBalanceQueries();
+
+      await insertActivity({
+        tx_hash: hash,
+        user_from: address.toLowerCase(),
+        user_to: address.toLowerCase(),
+        activity_type: ACTIVITY_TYPES.MINT,
+        contract_address: contracts.TestUSDT,
+        token_address: contracts.TestUSDT,
+        note: "",
+        block_number: receipt?.blockNumber !== undefined ? Number(receipt.blockNumber) : 0,
+      });
+      broadcastAction("activity_added");
 
       toast.success("10,000 USDT minted!");
       return hash;

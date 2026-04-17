@@ -75,6 +75,7 @@ export const ACTIVITY_TYPES = {
   SHIELD: "shield",
   UNSHIELD: "unshield",
   UNSHIELD_CLAIM: "unshield_claim",
+  MINT: "mint",
 
   // Privacy router swaps
   SWAP_INITIATED: "swap_initiated",
