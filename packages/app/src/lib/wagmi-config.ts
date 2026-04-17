@@ -31,7 +31,12 @@ export const wagmiConfig = createConfig({
   chains: [sepolia, baseSepolia],
   connectors: [
     injected(),
-    coinbaseWallet({ appName: "Blank" }),
+    // `preference: 'eoaOnly'` stops the Coinbase Smart Wallet popup path.
+    // Our COOP header is `same-origin` (required for TFHE's SharedArrayBuffer
+    // in FHE.js), which is incompatible with Coinbase Smart Wallet's popup.
+    // Without this flag the SDK spams a COOP error to the console on every
+    // page load even though no user has connected via Coinbase.
+    coinbaseWallet({ appName: "Blank", preference: "eoaOnly" }),
     ...(projectId ? [walletConnect({ projectId })] : []),
   ],
   transports: {
