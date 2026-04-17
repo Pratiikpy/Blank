@@ -194,6 +194,17 @@ export function PassphrasePromptProvider({ children }: { children: React.ReactNo
                 value={value}
                 onChange={(e) => setValue(e.target.value)}
                 placeholder="Passphrase"
+                // Suppress Chrome's password-manager dropdown. This is an
+                // ephemeral signing passphrase, NOT a saved credential.
+                // new-password reliably stops "No username / saved passwords"
+                // autofill from rendering over the modal.
+                autoComplete="new-password"
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck={false}
+                name="blank-passphrase"
+                data-lpignore="true"
+                data-1p-ignore="true"
                 className="w-full h-12 px-4 rounded-2xl bg-black/[0.04] dark:bg-white/[0.05] border border-black/5 dark:border-white/5 focus:border-black/20 focus:ring-4 focus:ring-black/5 outline-none font-mono text-sm"
               />
               <button
