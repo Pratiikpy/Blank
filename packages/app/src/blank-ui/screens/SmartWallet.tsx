@@ -215,6 +215,13 @@ export default function SmartWallet() {
                   onChange={(e) => setPassphrase(e.target.value)}
                   placeholder="At least 8 characters"
                   disabled={creating}
+                  autoComplete="new-password"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  spellCheck={false}
+                  name="blank-new-passphrase"
+                  data-lpignore="true"
+                  data-1p-ignore="true"
                   className="w-full h-12 px-4 rounded-2xl bg-white/60 dark:bg-white/[0.03] border border-black/5 focus:border-black/20 focus:ring-4 focus:ring-black/5 outline-none font-mono text-sm disabled:opacity-50"
                 />
               </div>
@@ -228,6 +235,13 @@ export default function SmartWallet() {
                   onChange={(e) => setConfirmPassphrase(e.target.value)}
                   placeholder="Re-enter to confirm"
                   disabled={creating}
+                  autoComplete="new-password"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  spellCheck={false}
+                  name="blank-confirm-passphrase"
+                  data-lpignore="true"
+                  data-1p-ignore="true"
                   className="w-full h-12 px-4 rounded-2xl bg-white/60 dark:bg-white/[0.03] border border-black/5 focus:border-black/20 focus:ring-4 focus:ring-black/5 outline-none font-mono text-sm disabled:opacity-50"
                 />
               </div>

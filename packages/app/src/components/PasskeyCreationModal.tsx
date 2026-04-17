@@ -143,6 +143,13 @@ export function PasskeyCreationModal({ open, onClose, onSuccess }: PasskeyCreati
                 onChange={(e) => setPassphrase(e.target.value)}
                 placeholder="Create a passphrase"
                 autoFocus
+                autoComplete="new-password"
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck={false}
+                name="blank-new-passphrase"
+                data-lpignore="true"
+                data-1p-ignore="true"
                 data-testid="passkey-passphrase-new"
                 className="w-full h-12 px-4 rounded-2xl bg-black/[0.04] dark:bg-white/[0.05] border border-black/5 dark:border-white/5 focus:border-black/20 focus:ring-4 focus:ring-black/5 outline-none font-mono text-sm"
               />
@@ -156,6 +163,13 @@ export function PasskeyCreationModal({ open, onClose, onSuccess }: PasskeyCreati
                 value={confirm}
                 onChange={(e) => setConfirm(e.target.value)}
                 placeholder="Repeat passphrase"
+                autoComplete="new-password"
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck={false}
+                name="blank-confirm-passphrase"
+                data-lpignore="true"
+                data-1p-ignore="true"
                 data-testid="passkey-passphrase-confirm"
                 className="w-full h-12 px-4 rounded-2xl bg-black/[0.04] dark:bg-white/[0.05] border border-black/5 dark:border-white/5 focus:border-black/20 focus:ring-4 focus:ring-black/5 outline-none font-mono text-sm"
               />
