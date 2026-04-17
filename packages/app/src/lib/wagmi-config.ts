@@ -1,7 +1,7 @@
 import { createConfig } from "wagmi";
 import { fallback, http } from "viem";
 import { sepolia, baseSepolia } from "wagmi/chains";
-import { coinbaseWallet, injected, walletConnect } from "wagmi/connectors";
+import { injected, walletConnect } from "wagmi/connectors";
 import { ETH_SEPOLIA_ID, BASE_SEPOLIA_ID } from "./constants";
 import { getRpcUrls } from "./rpc";
 
@@ -30,13 +30,12 @@ function makeTransport(chainId: typeof ETH_SEPOLIA_ID | typeof BASE_SEPOLIA_ID) 
 export const wagmiConfig = createConfig({
   chains: [sepolia, baseSepolia],
   connectors: [
+    // Only `injected` (MetaMask etc.) + WalletConnect. Coinbase Wallet
+    // connector removed because the SDK emits COOP warnings on every page
+    // load (our COOP is `same-origin` for TFHE's SharedArrayBuffer) even
+    // with `preference: eoaOnly`. Onboarding only surfaces injected + WC
+    // anyway, so no UX loss.
     injected(),
-    // `preference: 'eoaOnly'` stops the Coinbase Smart Wallet popup path.
-    // Our COOP header is `same-origin` (required for TFHE's SharedArrayBuffer
-    // in FHE.js), which is incompatible with Coinbase Smart Wallet's popup.
-    // Without this flag the SDK spams a COOP error to the console on every
-    // page load even though no user has connected via Coinbase.
-    coinbaseWallet({ appName: "Blank", preference: "eoaOnly" }),
     ...(projectId ? [walletConnect({ projectId })] : []),
   ],
   transports: {
