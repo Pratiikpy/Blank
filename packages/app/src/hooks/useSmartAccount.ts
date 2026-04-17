@@ -166,6 +166,21 @@ export function useSmartAccount() {
     });
   }, [resolveAccount]);
 
+  // Every component that calls useSmartAccount() gets its own React state.
+  // When PasskeyCreationModal's instance of the hook creates an account,
+  // BlankApp's separate instance has no idea and stays on "idle"/"no-passkey".
+  // Result: modal closes but the app still renders Onboarding until manual
+  // page reload. Broadcast a cross-tab action on creation/removal so every
+  // instance re-resolves and flips to "ready" in sync.
+  useEffect(() => {
+    const unsub = onCrossTabAction((action, data) => {
+      if (action !== "aa_passkey_changed") return;
+      if (data && typeof data.chainId === "number" && data.chainId !== activeChainId) return;
+      resolveAccount().catch(() => {});
+    });
+    return unsub;
+  }, [resolveAccount, activeChainId]);
+
   // #246: cross-tab nonce sync — another tab just consumed a nonce for the
   // same (address, chainId). Bump our local hint to at least nonce+1 so a
   // concurrent submit here doesn't read the same on-chain value and collide.
@@ -216,6 +231,11 @@ export function useSmartAccount() {
         };
         setAccount(result);
         setStatus("ready");
+        // Tell every other useSmartAccount instance on this origin to
+        // re-resolve — without this, BlankApp's gate keeps showing
+        // Onboarding because its separate hook instance still has
+        // status="idle" / "no-passkey".
+        broadcastAction("aa_passkey_changed", { chainId: activeChainId });
         return result;
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Account creation failed";
@@ -231,6 +251,7 @@ export function useSmartAccount() {
     await deletePasskey(activeChainId);
     setAccount(null);
     setStatus("no-passkey");
+    broadcastAction("aa_passkey_changed", { chainId: activeChainId });
   }, [activeChainId]);
 
   // ─── Send UserOp (core path used by both single + batch) ───────────
