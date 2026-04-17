@@ -101,6 +101,18 @@ function humanizeWriteError(err: unknown): string {
   if (s.includes("connector not connected")) {
     return "Wallet not connected. If you signed up with a passphrase, try refreshing the page.";
   }
+  // Paymaster funding issues — symptoms include "aa31", "paymaster deposit",
+  // and also the bare "transaction execution reverted (..., reason=null)"
+  // that EntryPoint emits when the paymaster's stake is too low to
+  // pre-fund the UserOp. The user-visible root cause is paymaster funding,
+  // not their own wallet.
+  if (
+    s.includes("aa31") ||
+    s.includes("paymaster deposit too low") ||
+    (s.includes("entrypoint.handleops failed") && s.includes("reason=null"))
+  ) {
+    return "The gas sponsor is out of funds. The Blank team has been notified; please try again in a few minutes.";
+  }
   if (s.includes("entrypoint") && s.includes("reverted")) {
     return "The smart wallet rejected this transaction. Check the amount and try again.";
   }
