@@ -27,7 +27,8 @@ import {
   markInboxEntryStatus,
   type StealthInboxEntry,
 } from "@/hooks/useStealthPayments";
-import { useWriteContract, usePublicClient } from "wagmi";
+import { usePublicClient } from "wagmi";
+import { useUnifiedWrite } from "@/hooks/useUnifiedWrite";
 import { useEffectiveAddress } from "@/hooks/useEffectiveAddress";
 import { useActivityFeed } from "@/hooks/useActivityFeed";
 import { useChain } from "@/providers/ChainProvider";
@@ -113,7 +114,10 @@ export default function Stealth() {
     resumePendingClaim,
     reset,
   } = useStealthPayments();
-  const { writeContractAsync } = useWriteContract();
+  // Route refund through useUnifiedWrite so passkey users go via the AA
+  // relayer path; wagmi's writeContractAsync throws "Connector not connected"
+  // for passkey-only users (no EOA → no wagmi connector).
+  const { unifiedWriteAndWait } = useUnifiedWrite();
   // chainId so passkey-only users (no wagmi chain) get a working client.
   const publicClient = usePublicClient({ chainId: activeChainId });
   const { activities } = useActivityFeed();
@@ -407,7 +411,7 @@ export default function Stealth() {
 
   const handleRefund = useCallback(
     async (transferId: number) => {
-      if (!address || !writeContractAsync || !publicClient) {
+      if (!address || !publicClient) {
         toast.error("Connect wallet first");
         return;
       }
@@ -417,7 +421,7 @@ export default function Stealth() {
 
       try {
         const stealthAddress = contracts.StealthPayments as `0x${string}`;
-        const hash = await writeContractAsync({
+        const { hash, receipt: aaReceipt } = await unifiedWriteAndWait({
           address: stealthAddress,
           abi: StealthPaymentsAbi,
           functionName: "refund",
@@ -425,12 +429,12 @@ export default function Stealth() {
           gas: BigInt(5_000_000), // CoFHE: manual gas limit (precompile breaks estimation)
         });
 
-        const receipt = await publicClient.waitForTransactionReceipt({
-          hash,
-          confirmations: 1,
-        });
+        // AA path returns a pre-fetched receipt from the relayer; EOA path
+        // does not, so fall through to publicClient in that case.
+        const status = aaReceipt?.status
+          ?? (await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 })).status;
 
-        if (receipt.status === "reverted") {
+        if (status === "reverted") {
           throw new Error("Refund transaction reverted");
         }
 
@@ -445,7 +449,7 @@ export default function Stealth() {
         setRefundingId(null);
       }
     },
-    [address, writeContractAsync, publicClient, loadSentTransfers, contracts]
+    [address, unifiedWriteAndWait, publicClient, loadSentTransfers, contracts]
   );
 
   // ─── Check for Pending Claims ─────────────────────────────────────
