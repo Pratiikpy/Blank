@@ -10,6 +10,7 @@ import {
 } from "@/lib/constants";
 import { useChain } from "@/providers/ChainProvider";
 import { useEffectiveAddress } from "@/hooks/useEffectiveAddress";
+import { hasPasskey } from "@/lib/passkey";
 
 const CHAIN_ORDER: SupportedChainId[] = [ETH_SEPOLIA_ID, BASE_SEPOLIA_ID];
 
@@ -48,6 +49,23 @@ export function ChainSelector() {
   }, [open]);
 
   const active = CHAINS[activeChainId];
+
+  // Check which other chains have a passkey stored locally. A passkey user
+  // can freely switch between chains they've ever created a passkey on —
+  // only NEW chains (no passkey yet) are gated with "Passkey wallet on
+  // other chain" because switching would drop them to the onboarding flow.
+  const [passkeyChains, setPasskeyChains] = useState<Set<number>>(new Set());
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const entries: Array<[number, boolean]> = await Promise.all(
+        CHAIN_ORDER.map(async (id) => [id, await hasPasskey(id)] as [number, boolean]),
+      );
+      if (cancelled) return;
+      setPasskeyChains(new Set(entries.filter(([, has]) => has).map(([id]) => id)));
+    })();
+    return () => { cancelled = true; };
+  }, [open]);
 
   return (
     <div ref={ref} className="relative">
@@ -90,9 +108,14 @@ export function ChainSelector() {
           {CHAIN_ORDER.map((id) => {
             const chain = CHAINS[id];
             const isActive = id === activeChainId;
-            // Passkey wallets only exist on one chain — switching would
-            // drop the user to Onboarding. Disable the other chain.
-            const disabled = !isActive && isSmartAccount;
+            // Every chain is selectable. Passkey users switching to a
+            // chain where they don't yet have a passkey will land on
+            // Onboarding and can create one there — that's better than
+            // being locked out of the other chain entirely (which was
+            // the old behavior, and broke USDT access for users whose
+            // passkey was on ETH Sepolia only).
+            const hasPasskeyOnChain = passkeyChains.has(id);
+            const disabled = false;
             return (
               <button
                 key={id}
@@ -128,16 +151,22 @@ export function ChainSelector() {
                     {chain.name}
                   </span>
                   <span className="text-xs text-[var(--text-tertiary)]">
-                    {disabled ? "Passkey wallet on other chain" : `Chain ID ${chain.id}`}
+                    {isActive
+                      ? `Chain ID ${chain.id}`
+                      : hasPasskeyOnChain
+                        ? `Chain ID ${chain.id} · passkey ready`
+                        : isSmartAccount
+                          ? `Chain ID ${chain.id} · will set up passkey`
+                          : `Chain ID ${chain.id}`}
                   </span>
                 </div>
                 {isActive && <Check size={16} className="text-emerald-600" />}
               </button>
             );
           })}
-          {isSmartAccount && (
+          {isSmartAccount && passkeyChains.size < CHAIN_ORDER.length && (
             <div className="px-4 py-2 border-t border-black/5 dark:border-white/5 text-[11px] text-[var(--text-tertiary)]">
-              Passkey wallets are chain-specific. Connect MetaMask to use other chains.
+              Passkeys are per-chain. Go to Smart Wallet to create one on another chain.
             </div>
           )}
         </div>
