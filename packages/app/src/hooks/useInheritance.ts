@@ -2,7 +2,7 @@ import { useState, useCallback } from "react";
 import { useReadContract, usePublicClient } from "wagmi";
 import { useEffectiveAddress } from "./useEffectiveAddress";
 import { useUnifiedWrite } from "./useUnifiedWrite";
-import { sepolia } from "viem/chains";
+import { chainIdToViemChain } from "@/lib/viem-chains";
 import { useCofheEncryptAndWriteContract } from "@cofhe/react";
 import { InheritanceManagerAbi } from "@/lib/abis";
 import { useChain } from "@/providers/ChainProvider";
@@ -342,7 +342,7 @@ export function useInheritance() {
             address: contracts.InheritanceManager,
             abi: InheritanceManagerAbi,
             functionName: "finalizeClaim",
-            chain: sepolia,
+            chain: chainIdToViemChain(activeChainId),
             account: address,
             gas: BigInt(5_000_000), // FHE: manual gas limit (precompile can't be estimated)
           },

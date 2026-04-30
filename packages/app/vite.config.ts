@@ -39,15 +39,23 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks(id) {
-          // Keep cofhe + its MUI/emotion deps together with React to avoid isValidElementType error
-          if (id.includes("@cofhe/") || id.includes("@mui/") || id.includes("@emotion/")) {
+          // Cofhe runtime. MUI / Emotion were dropped in the P3 cleanup —
+          // they were unused in src/, and the previous group existed only
+          // to avoid an isValidElementType error from a half-imported MUI.
+          if (id.includes("@cofhe/")) {
             return "vendor-cofhe";
           }
           if (id.includes("node_modules/react/") || id.includes("node_modules/react-dom/") || id.includes("react-router-dom") || id.includes("react-is")) {
             return "vendor-react";
           }
-          if (id.includes("wagmi") || id.includes("viem") || id.includes("@tanstack/react-query")) {
-            return "vendor-web3";
+          if (id.includes("viem") || id.includes("@tanstack/react-query")) {
+            return "vendor-viem";
+          }
+          if (id.includes("wagmi") || id.includes("@wagmi/") || id.includes("@walletconnect/") || id.includes("@coinbase/")) {
+            return "vendor-wallet";
+          }
+          if (id.includes("lucide-react")) {
+            return "vendor-icons";
           }
           if (id.includes("framer-motion")) {
             return "vendor-motion";

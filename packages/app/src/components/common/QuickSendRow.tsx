@@ -2,6 +2,7 @@ import { useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Plus, ArrowRight } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { truncateAddress } from "@/lib/address";
 import { GradientAvatar } from "./GradientAvatar";
 
 // ─── Types ──────────────────────────────────────────────────────────
@@ -20,11 +21,6 @@ interface QuickSendRowProps {
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────
-
-function truncateAddress(addr: string): string {
-  if (addr.length <= 10) return addr;
-  return `${addr.slice(0, 6)}\u2026${addr.slice(-4)}`;
-}
 
 function getDisplayName(contact: Contact): string {
   if (contact.name && contact.name.trim().length > 0) {

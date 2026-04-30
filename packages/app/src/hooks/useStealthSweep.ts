@@ -39,7 +39,7 @@ import {
   type WalletClient,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { sepolia, baseSepolia } from "viem/chains";
+import { chainIdToViemChain } from "@/lib/viem-chains";
 import { erc20Abi } from "viem";
 import { usePublicClient } from "wagmi";
 
@@ -47,9 +47,13 @@ import { useChain } from "@/providers/ChainProvider";
 import { useEffectiveAddress } from "./useEffectiveAddress";
 import { useUnifiedWrite } from "./useUnifiedWrite";
 import { computeStealthKey } from "@/lib/stealth";
-import { loadStealthKeys } from "@/lib/stealth-keystore";
+import {
+  loadStealthKeys,
+  unlockStealthKeys,
+  hasStealthKeysStored,
+} from "@/lib/stealth-keystore";
+import { usePassphrasePrompt } from "@/components/PassphrasePrompt";
 import { useStealthInbox, type StealthInboxEntry } from "./useStealthInbox";
-import { ETH_SEPOLIA_ID, BASE_SEPOLIA_ID } from "@/lib/constants";
 import { BlankAccountAbi } from "@/lib/abis";
 
 /** Gas budget for the stealth EOA's outgoing ERC-20 transfer + a small
@@ -73,11 +77,8 @@ interface UseStealthSweepResult {
   error: string | null;
 }
 
-function getViemChain(chainId: number) {
-  if (chainId === ETH_SEPOLIA_ID) return sepolia;
-  if (chainId === BASE_SEPOLIA_ID) return baseSepolia;
-  throw new Error(`Stealth sweep: unsupported chain ${chainId}`);
-}
+// Use the shared chainIdToViemChain helper from lib/viem-chains.
+const getViemChain = chainIdToViemChain;
 
 /** Build a wallet client signed by the stealth-derived privkey. The
  *  RPC URL comes from the user's wagmi config — we re-use the public
@@ -102,6 +103,7 @@ export function useStealthSweep(): UseStealthSweepResult {
   const publicClient = usePublicClient({ chainId: activeChainId });
   const { unifiedWrite, senderAddress } = useUnifiedWrite();
   const inbox = useStealthInbox();
+  const passphrasePrompt = usePassphrasePrompt();
 
   const [step, setStep] = useState<UseStealthSweepResult["step"]>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -121,7 +123,25 @@ export function useStealthSweep(): UseStealthSweepResult {
         );
       }
 
-      const keysRecord = loadStealthKeys(effectiveAddress);
+      let keysRecord = loadStealthKeys(effectiveAddress);
+      // Lazy unlock: encrypted-at-rest keys live on disk; the in-memory
+      // cache may be empty on a fresh page load. If the user has stored
+      // keys but this hook has never decrypted them, prompt for the
+      // passphrase here so the sweep can proceed inline.
+      if (!keysRecord && hasStealthKeysStored(effectiveAddress)) {
+        const pass = await passphrasePrompt.request({
+          title: "Unlock stealth keys",
+          subtitle: "Required to derive the sweep private key for this stealth address.",
+        });
+        if (!pass) {
+          throw new Error("Sweep cancelled — passphrase required");
+        }
+        try {
+          keysRecord = await unlockStealthKeys(effectiveAddress, pass);
+        } catch {
+          throw new Error("Wrong passphrase — sweep aborted");
+        }
+      }
       if (!keysRecord) {
         throw new Error("Stealth keys not configured for this account");
       }

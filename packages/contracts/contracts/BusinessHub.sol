@@ -904,8 +904,10 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         // Lock plaintext amount in the underlying ERC20 (not encrypted — escrow needs release)
         // The user shields tokens first, then this function takes from their PUBLIC balance
         // This is the correct pattern: escrow amounts must be releasable without FHE passthrough
+        // Audit fix: safeTransferFrom — non-standard ERC-20s that return false silently
+        // would otherwise leave the contract in a "deposit succeeded" state with no funds.
         IERC20 underlying = IERC20(IFHERC20Vault(vault).underlyingToken());
-        underlying.transferFrom(msg.sender, address(this), plaintextAmount);
+        underlying.safeTransferFrom(msg.sender, address(this), plaintextAmount);
 
         euint64 amount = FHE.asEuint64(plaintextAmount);
         FHE.allowThis(amount);
@@ -984,7 +986,7 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         // Transfer plaintext escrowed funds to the decided recipient
         address recipient = releaseToBeneficiary ? e.beneficiary : e.depositor;
         IERC20 underlying = IERC20(IFHERC20Vault(e.vault).underlyingToken());
-        underlying.transfer(recipient, e.plaintextAmount);
+        underlying.safeTransfer(recipient, e.plaintextAmount);
 
         emit EscrowArbiterDecided(escrowId, releaseToBeneficiary, block.timestamp);
         emit EscrowReleased(escrowId, block.timestamp);
@@ -1001,7 +1003,7 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
         // Return plaintext escrowed funds to depositor
         IERC20 underlying = IERC20(IFHERC20Vault(e.vault).underlyingToken());
-        underlying.transfer(e.depositor, e.plaintextAmount);
+        underlying.safeTransfer(e.depositor, e.plaintextAmount);
 
         emit EscrowExpiryClaimed(escrowId, block.timestamp);
         try eventHub.emitActivity(e.depositor, address(0), "escrow_expired", e.description, escrowId) {} catch {}
@@ -1013,7 +1015,7 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
         // Transfer plaintext escrowed funds to beneficiary
         IERC20 underlying = IERC20(IFHERC20Vault(e.vault).underlyingToken());
-        underlying.transfer(e.beneficiary, e.plaintextAmount);
+        underlying.safeTransfer(e.beneficiary, e.plaintextAmount);
 
         emit EscrowReleased(escrowId, block.timestamp);
         try eventHub.emitActivity(e.depositor, e.beneficiary, "escrow_released", e.description, escrowId) {} catch {}
@@ -1077,6 +1079,11 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         FHE.allowTransient(amount, paymentReceipts);
         try IPaymentReceipts(paymentReceipts).bumpGlobal(amount) {} catch {}
     }
+
+    /// @dev Reserved storage to avoid collisions on future upgrades.
+    ///      Append-only: when adding a new state variable in a later upgrade,
+    ///      decrement the gap size so total storage is unchanged.
+    uint256[50] private __gap;
 
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 

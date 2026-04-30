@@ -297,7 +297,7 @@ export const StealthPaymentsAbi = [
   // Events
   { type: "event", name: "StealthSent", inputs: [{ name: "transferId", type: "uint256", indexed: true }, { name: "sender", type: "address", indexed: true }, { name: "claimCodeHash", type: "bytes32", indexed: false }, { name: "vault", type: "address", indexed: false }, { name: "note", type: "string", indexed: false }, { name: "timestamp", type: "uint256", indexed: false }] },
   { type: "event", name: "StealthClaimStarted", inputs: [{ name: "transferId", type: "uint256", indexed: true }, { name: "claimer", type: "address", indexed: true }, { name: "timestamp", type: "uint256", indexed: false }] },
-  { type: "event", name: "StealthFinalized", inputs: [{ name: "transferId", type: "uint256", indexed: true }, { name: "claimer", type: "address", indexed: true }, { name: "plaintextAmount", type: "uint256", indexed: false }, { name: "timestamp", type: "uint256", indexed: false }] },
+  { type: "event", name: "StealthFinalized", inputs: [{ name: "transferId", type: "uint256", indexed: true }, { name: "claimer", type: "address", indexed: true }, { name: "timestamp", type: "uint256", indexed: false }] },
 ] as const;
 
 // ─── EncryptedFlags — Encrypted compliance flags, fee engine, access control ──

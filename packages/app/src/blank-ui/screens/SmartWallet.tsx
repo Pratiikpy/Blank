@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAccount, usePublicClient, useWriteContract } from "wagmi";
+import { useUnifiedWrite } from "@/hooks/useUnifiedWrite";
 import { parseUnits, formatUnits } from "viem";
 import { formatUsdcBigint } from "@/lib/format";
 import {
@@ -35,7 +36,16 @@ export default function SmartWallet() {
   const { address: eoaAddress } = useAccount();
   const { activeChain, contracts } = useChain();
   const publicClient = usePublicClient();
+  // EOA-only: handleFund moves USDC from the user's connected EOA to their
+  // smart account. Passkey-only users never reach handleFund (UI hides it
+  // when there's no connected EOA), so the writeContractAsync hook is the
+  // right primitive — useUnifiedWrite would route the call through the
+  // smart account, which would be a no-op self-transfer.
   const { writeContractAsync } = useWriteContract();
+  // handleFaucet mints test USDC. The faucet method is callable from any
+  // address; route through useUnifiedWrite so passkey users mint into their
+  // smart account directly instead of hitting "Connector not connected".
+  const { unifiedWriteAndWait } = useUnifiedWrite();
 
   const [passphrase, setPassphrase] = useState("");
   const [confirmPassphrase, setConfirmPassphrase] = useState("");
@@ -113,26 +123,29 @@ export default function SmartWallet() {
   }, [account, eoaAddress, fundAmount, eoaUsdc, writeContractAsync, publicClient, refreshBalances, contracts]);
 
   const handleFaucet = useCallback(async () => {
-    if (!eoaAddress) return;
     setFunding(true);
     try {
-      const hash = await writeContractAsync({
+      const { hash } = await unifiedWriteAndWait({
         address: contracts.TestUSDC,
         abi: TestUSDCAbi,
         functionName: "faucet",
       });
-      toast.loading("Minting 10,000 USDC to your EOA…", { id: "faucet-tx" });
+      // Copy depends on which account just received the mint. AA path drops
+      // straight into the smart wallet; EOA path lands in the EOA and the
+      // user still needs to click Fund to move it to the AA.
+      const isAA = !!account;
+      toast.loading(isAA ? "Minting 10,000 USDC to your smart wallet…" : "Minting 10,000 USDC to your EOA…", { id: "faucet-tx" });
       if (publicClient) {
         await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
       }
-      toast.success("10,000 USDC minted to your EOA — now click Fund", { id: "faucet-tx" });
+      toast.success(isAA ? "10,000 USDC ready in your smart wallet!" : "10,000 USDC minted to your EOA — now click Fund", { id: "faucet-tx" });
       await refreshBalances();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Faucet failed", { id: "faucet-tx" });
     } finally {
       setFunding(false);
     }
-  }, [eoaAddress, writeContractAsync, publicClient, refreshBalances, contracts]);
+  }, [account, unifiedWriteAndWait, publicClient, refreshBalances, contracts]);
 
   const handleCreate = async () => {
     if (passphrase.length < 8) {

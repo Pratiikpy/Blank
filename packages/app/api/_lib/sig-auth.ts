@@ -132,11 +132,12 @@ export function buildRequestEmailMessage(args: {
   ].join("\n");
 }
 
-/** Whether strict-auth is enabled. When unset, endpoints accept
- *  unsigned requests (with a server-side warning) for backward compat
- *  during rollout. Set to "1" in production env to require signatures. */
+/** Whether strict-auth is enabled. Default-on; explicit opt-out via
+ *  STRICT_EMAIL_AUTH="0" for local dev. The earlier default-off shape
+ *  let anyone who knew an invoice id spam the client's inbox — so the
+ *  shipped default is now fail-closed. */
 export function strictEmailAuthEnabled(): boolean {
-  return process.env.STRICT_EMAIL_AUTH === "1";
+  return process.env.STRICT_EMAIL_AUTH !== "0";
 }
 
 /** Tolerate clients whose clocks are slightly fast.

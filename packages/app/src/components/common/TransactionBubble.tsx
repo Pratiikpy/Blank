@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { formatDistanceToNowStrict } from "date-fns";
 import { cn } from "@/lib/cn";
+import { truncateAddress } from "@/lib/address";
 import { EncryptedAmount } from "./EncryptedAmount";
 
 // ─── Types ──────────────────────────────────────────────────────────
@@ -85,11 +86,6 @@ const typeConfig: Record<TransactionType, TypeConfig> = {
 };
 
 // ─── Helpers ────────────────────────────────────────────────────────
-
-function truncateAddress(addr: string) {
-  if (addr.length <= 12) return addr;
-  return `${addr.slice(0, 6)}\u2026${addr.slice(-4)}`;
-}
 
 function relativeTime(dateStr: string): string {
   return formatDistanceToNowStrict(new Date(dateStr), { addSuffix: false })
