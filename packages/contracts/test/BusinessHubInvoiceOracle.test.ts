@@ -154,6 +154,7 @@ async function createInvoice(
   amount: bigint,
 ): Promise<bigint> {
   const enc = await encUint64(ctx.cofheClient, ctx.vendor, amount);
+  const now = await hre.ethers.provider.getBlock("latest");
   await ctx.businessHub
     .connect(ctx.vendor)
     .createInvoice(
@@ -161,12 +162,20 @@ async function createInvoice(
       await ctx.vault.getAddress(),
       enc,
       "Oracle-fallback test invoice",
-      Math.floor(Date.now() / 1000) + 7 * 24 * 3600,
+      now!.timestamp + 7 * 24 * 3600,
     );
   return 0n;
 }
 
-const ONE_HOUR_FROM_NOW = () => BigInt(Math.floor(Date.now() / 1000) + 3600);
+// Use chain timestamp, not wallclock. Other test files (Blank.test.ts)
+// use evm_increaseTime by up to a year and that drift can leak into
+// loadFixture snapshots, making any wallclock-based expiresAt look
+// already-expired when block.timestamp checks fire.
+async function chainNow(): Promise<bigint> {
+  const latest = await hre.ethers.provider.getBlock("latest");
+  return BigInt(latest!.timestamp);
+}
+const ONE_HOUR_FROM_NOW = async () => (await chainNow()) + 3600n;
 const RANDOM_NONCE = () =>
   ("0x" + hre.ethers.hexlify(hre.ethers.randomBytes(32)).slice(2)) as `0x${string}`;
 
@@ -206,7 +215,7 @@ describe("BusinessHub.payInvoiceWithOracleQuote — happy path", () => {
     const expectedUsdcOut = usdc(100);
     const ratePpm = 1_000_000n;
     const nonce = RANDOM_NONCE();
-    const expiresAt = ONE_HOUR_FROM_NOW();
+    const expiresAt = (await ONE_HOUR_FROM_NOW());
     const businessHubAddr = await ctx.businessHub.getAddress();
     const exoticAddr = await ctx.exoticToken.getAddress();
     const chainId = BigInt((await hre.ethers.provider.getNetwork()).chainId);
@@ -269,7 +278,7 @@ describe("BusinessHub.payInvoiceWithOracleQuote — replay protection", () => {
     const expectedUsdcOut = usdc(100);
     const ratePpm = 1_000_000n;
     const nonce = RANDOM_NONCE();
-    const expiresAt = ONE_HOUR_FROM_NOW();
+    const expiresAt = (await ONE_HOUR_FROM_NOW());
     const businessHubAddr = await ctx.businessHub.getAddress();
     const exoticAddr = await ctx.exoticToken.getAddress();
     const chainId = BigInt((await hre.ethers.provider.getNetwork()).chainId);
@@ -332,13 +341,14 @@ describe("BusinessHub.payInvoiceWithOracleQuote — replay protection", () => {
     const id2 = 1n;
     const exoticAddr = await f.ctx.exoticToken.getAddress();
     const chainId = BigInt((await hre.ethers.provider.getNetwork()).chainId);
+    const expiresAt2 = await ONE_HOUR_FROM_NOW();
     const sig2 = await signOracleQuote(f.ctx.oracle, {
       invoiceId: id2,
       payToken: exoticAddr,
       payAmountIn: parseUnits("50", USDC_DECIMALS),
       expectedUsdcOut: usdc(50),
       ratePpm: 1_000_000n,
-      expiresAt: ONE_HOUR_FROM_NOW(),
+      expiresAt: expiresAt2,
       nonce: f.nonce,
       contractAddr: businessHubAddr,
       chainId,
@@ -354,7 +364,7 @@ describe("BusinessHub.payInvoiceWithOracleQuote — replay protection", () => {
           parseUnits("50", USDC_DECIMALS),
           usdc(50),
           1_000_000n,
-          ONE_HOUR_FROM_NOW(),
+          expiresAt2,
           f.nonce,
           sig2,
           enc3,
@@ -371,7 +381,7 @@ describe("BusinessHub.payInvoiceWithOracleQuote — sig + bound rejection", () =
     const businessHubAddr = await ctx.businessHub.getAddress();
     const chainId = BigInt((await hre.ethers.provider.getNetwork()).chainId);
 
-    const expiresAt = BigInt(Math.floor(Date.now() / 1000) - 60); // 60s ago
+    const expiresAt = (await chainNow()) - 60n; // 60s ago, relative to chain time
     const args = {
       invoiceId: id,
       payToken: exoticAddr,
@@ -416,7 +426,7 @@ describe("BusinessHub.payInvoiceWithOracleQuote — sig + bound rejection", () =
       payAmountIn: parseUnits("100", USDC_DECIMALS),
       expectedUsdcOut: usdc(100),
       ratePpm: 0n,
-      expiresAt: ONE_HOUR_FROM_NOW(),
+      expiresAt: (await ONE_HOUR_FROM_NOW()),
       nonce: RANDOM_NONCE(),
       contractAddr: businessHubAddr,
       chainId,
@@ -454,7 +464,7 @@ describe("BusinessHub.payInvoiceWithOracleQuote — sig + bound rejection", () =
       payAmountIn: parseUnits("100", USDC_DECIMALS),
       expectedUsdcOut: usdc(100),
       ratePpm: 100_000_001n,
-      expiresAt: ONE_HOUR_FROM_NOW(),
+      expiresAt: (await ONE_HOUR_FROM_NOW()),
       nonce: RANDOM_NONCE(),
       contractAddr: businessHubAddr,
       chainId,
@@ -493,7 +503,7 @@ describe("BusinessHub.payInvoiceWithOracleQuote — sig + bound rejection", () =
       payAmountIn: parseUnits("100", USDC_DECIMALS),
       expectedUsdcOut: usdc(200),
       ratePpm: 1_000_000n,
-      expiresAt: ONE_HOUR_FROM_NOW(),
+      expiresAt: (await ONE_HOUR_FROM_NOW()),
       nonce: RANDOM_NONCE(),
       contractAddr: businessHubAddr,
       chainId,
@@ -532,7 +542,7 @@ describe("BusinessHub.payInvoiceWithOracleQuote — sig + bound rejection", () =
       payAmountIn: parseUnits("100", USDC_DECIMALS),
       expectedUsdcOut: usdc(100),
       ratePpm: 1_000_000n,
-      expiresAt: ONE_HOUR_FROM_NOW(),
+      expiresAt: (await ONE_HOUR_FROM_NOW()),
       nonce: RANDOM_NONCE(),
       contractAddr: businessHubAddr,
       chainId,
@@ -552,7 +562,7 @@ describe("BusinessHub.payInvoiceWithOracleQuote — sig + bound rejection", () =
         await ctx.vault.getAddress(),
         altEnc,
         "Attacker invoice",
-        Math.floor(Date.now() / 1000) + 3600,
+        Number((await chainNow()) + 3600n),
       );
     await ctx.exoticToken.mint(ctx.attacker.address, args.payAmountIn);
     await ctx.exoticToken.connect(ctx.attacker).approve(businessHubAddr, args.payAmountIn);
@@ -610,7 +620,7 @@ describe("BusinessHub.payInvoiceWithOracleQuote — digest binding", () => {
       expectedUsdcOut,
       enc,
       nonce: RANDOM_NONCE(),
-      expiresAt: ONE_HOUR_FROM_NOW(),
+      expiresAt: (await ONE_HOUR_FROM_NOW()),
       exoticAddr,
       businessHubAddr,
       realChainId,
@@ -752,7 +762,7 @@ describe("BusinessHub.payInvoiceWithOracleQuote — pre-flight reverts", () => {
           parseUnits("100", USDC_DECIMALS),
           usdc(100),
           1_000_000n,
-          ONE_HOUR_FROM_NOW(),
+          (await ONE_HOUR_FROM_NOW()),
           RANDOM_NONCE(),
           "0x" + "00".repeat(65),
           enc,
@@ -773,7 +783,7 @@ describe("BusinessHub.payInvoiceWithOracleQuote — pre-flight reverts", () => {
           parseUnits("100", USDC_DECIMALS),
           usdc(100),
           1_000_000n,
-          ONE_HOUR_FROM_NOW(),
+          (await ONE_HOUR_FROM_NOW()),
           RANDOM_NONCE(),
           "0x" + "00".repeat(65),
           enc,
