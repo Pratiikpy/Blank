@@ -24,7 +24,7 @@
 import { createPublicClient, http, type Address, type Hex, type PublicClient } from "viem";
 import { sepolia, baseSepolia } from "viem/chains";
 
-import { ETH_SEPOLIA_ID, BASE_SEPOLIA_ID } from "./addresses";
+import { ETH_SEPOLIA_ID, BASE_SEPOLIA_ID } from "./addresses.js";
 
 /** Max age (seconds) of a signature timestamp before we reject it.
  *

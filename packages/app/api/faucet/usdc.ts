@@ -25,8 +25,8 @@
  */
 
 import { ethers } from "ethers";
-import { getContracts, ETH_SEPOLIA_ID, BASE_SEPOLIA_ID } from "../_lib/addresses";
-import { checkRateLimit, writeRateLimitHeaders } from "../_lib/rate-limit";
+import { getContracts, ETH_SEPOLIA_ID, BASE_SEPOLIA_ID } from "../_lib/addresses.js";
+import { checkRateLimit, writeRateLimitHeaders } from "../_lib/rate-limit.js";
 
 /** 100 USDC (6 decimals). Cheap enough for a one-time drip per AA. */
 const FAUCET_AMOUNT_UNITS = 100_000_000n;

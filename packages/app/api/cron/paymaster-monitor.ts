@@ -34,8 +34,8 @@ import {
   RPC_URLS,
   ETH_SEPOLIA_ID,
   BASE_SEPOLIA_ID,
-} from "../_lib/addresses";
-import { sendEmail, emailEnabled } from "../_lib/resend";
+} from "../_lib/addresses.js";
+import { sendEmail, emailEnabled } from "../_lib/resend.js";
 
 const ENTRYPOINT_ABI = [
   "function balanceOf(address account) view returns (uint256)",

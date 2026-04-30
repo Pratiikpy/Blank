@@ -242,7 +242,7 @@ async function handleImpl(req: any, res: any) {
   }
 
   const validation = validateUserOp(userOp as SerializedUserOp);
-  if (!validation.ok) {
+  if (validation.ok === false) {
     res.status(400).json({ error: validation.error });
     return;
   }

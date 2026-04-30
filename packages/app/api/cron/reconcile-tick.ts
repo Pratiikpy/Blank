@@ -10,7 +10,7 @@
  * expensive reconciliation runs.
  */
 
-import { getSupabaseAdmin } from "../_lib/supabase-admin";
+import { getSupabaseAdmin } from "../_lib/supabase-admin.js";
 
 const SUPPORTED_CHAIN_IDS = [11155111, 84532];
 const ACTIVE_WINDOW_HOURS = 24;

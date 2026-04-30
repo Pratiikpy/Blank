@@ -32,7 +32,7 @@
  */
 
 import { ethers } from "ethers";
-import { getSupabaseAdmin } from "./supabase-admin";
+import { getSupabaseAdmin } from "./supabase-admin.js";
 
 const NONCE_BYTES = 12;
 const TAG_BYTES = 16;

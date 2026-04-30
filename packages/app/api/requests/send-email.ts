@@ -10,16 +10,16 @@
  * Returns: { ok: true, messageId } | { ok: false, error }
  */
 
-import { getSupabaseAdmin } from "../_lib/supabase-admin";
-import { checkRateLimit, writeRateLimitHeaders } from "../_lib/rate-limit";
-import { sendEmail, emailEnabled, EmailNotConfiguredError } from "../_lib/resend";
-import { renderPaymentRequestEmail } from "../_lib/email-templates";
+import { getSupabaseAdmin } from "../_lib/supabase-admin.js";
+import { checkRateLimit, writeRateLimitHeaders } from "../_lib/rate-limit.js";
+import { sendEmail, emailEnabled, EmailNotConfiguredError } from "../_lib/resend.js";
+import { renderPaymentRequestEmail } from "../_lib/email-templates.js";
 import {
   buildRequestEmailMessage,
   checkTimestampWindow,
   strictEmailAuthEnabled,
   verifyOwnerSignature,
-} from "../_lib/sig-auth";
+} from "../_lib/sig-auth.js";
 
 interface SendRequestEmailBody {
   requestId: number;

@@ -3,7 +3,7 @@
  * clients before / on / after the due date.
  */
 
-import { renderBrandedEmail } from "./email-templates";
+import { renderBrandedEmail } from "./email-templates.js";
 
 export type ReminderKind = "upcoming" | "due_today" | "overdue";
 

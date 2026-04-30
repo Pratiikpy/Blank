@@ -28,14 +28,14 @@
  */
 
 import { ethers } from "ethers";
-import { checkRateLimit, writeRateLimitHeaders } from "./_lib/rate-limit";
-import { getSupabaseAdmin } from "./_lib/supabase-admin";
+import { checkRateLimit, writeRateLimitHeaders } from "./_lib/rate-limit.js";
+import { getSupabaseAdmin } from "./_lib/supabase-admin.js";
 import {
   ETH_SEPOLIA_ID,
   BASE_SEPOLIA_ID,
   CONTRACTS_BY_CHAIN,
   RPC_URLS,
-} from "./_lib/addresses";
+} from "./_lib/addresses.js";
 
 // ─── Config ───────────────────────────────────────────────────────────
 // Addresses are pulled from the shared server-side module at
