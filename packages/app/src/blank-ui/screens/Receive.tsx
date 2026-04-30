@@ -1,11 +1,24 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { useEffectiveAddress } from "@/hooks/useEffectiveAddress";
 import { QRCodeSVG } from "qrcode.react";
-import { Copy, Check, Share2, Shield } from "lucide-react";
+import { Copy, Check, Share2, Shield, MessageSquare } from "lucide-react";
 import toast from "react-hot-toast";
 
 import { truncateAddress } from "@/lib/address";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
+
+/** Match SendAmount's input rules so a recipient can never produce a link the
+ *  payer screen will reject: numeric only, single decimal point, max 6 dp.
+ *  Returns the sanitised string (empty = no constraint). */
+function sanitizeAmount(raw: string): string {
+  const trimmed = raw.replace(/[^0-9.]/g, "");
+  const parts = trimmed.split(".");
+  if (parts.length === 1) return parts[0];
+  // Collapse multiple dots: keep first dot only.
+  const head = parts[0];
+  const tail = parts.slice(1).join("").slice(0, 6);
+  return tail.length > 0 ? `${head}.${tail}` : `${head}.`;
+}
 
 export default function Receive() {
   // Passkey-aware: useAccount().address is undefined for passkey-only users
@@ -15,10 +28,28 @@ export default function Receive() {
   const [copiedField, setCopiedField] = useState<"address" | "link" | null>(
     null,
   );
+  const [requestAmount, setRequestAmount] = useState("");
+  const [requestNote, setRequestNote] = useState("");
 
-  const paymentLink = address
-    ? `${window.location.origin}/app/send/amount?to=${address}`
-    : "";
+  // Build the pay-link with optional amount + note URL params. SendAmount.tsx
+  // (`?to=&amount=&note=`) consumes all three on the receiver's first paint,
+  // so a "request $50 for dinner" link lands the payer on a pre-filled
+  // confirm flow with one tap. Keeps the bare address case unchanged when
+  // both inputs are empty.
+  const paymentLink = useMemo(() => {
+    if (!address) return "";
+    const url = new URL(`${window.location.origin}/app/send/amount`);
+    url.searchParams.set("to", address);
+    // Strip a trailing dot so the URL doesn't look broken when the user
+    // typed "5." but never finished the decimals.
+    const cleanedAmount = requestAmount.replace(/\.$/, "");
+    if (cleanedAmount && cleanedAmount !== "0") {
+      url.searchParams.set("amount", cleanedAmount);
+    }
+    const trimmedNote = requestNote.trim();
+    if (trimmedNote) url.searchParams.set("note", trimmedNote);
+    return url.toString();
+  }, [address, requestAmount, requestNote]);
 
   const copyToClipboard = useCallback(
     async (text: string, field: "address" | "link") => {
@@ -36,17 +67,23 @@ export default function Receive() {
 
   const handleShare = useCallback(async () => {
     if (!navigator.share || !address) return;
+    const cleanedAmount = requestAmount.replace(/\.$/, "");
+    const trimmedNote = requestNote.trim();
+    const hasAmount = cleanedAmount && cleanedAmount !== "0";
+    const text = hasAmount
+      ? `Send me $${cleanedAmount} on BlankPay${trimmedNote ? ` — ${trimmedNote}` : ""}`
+      : "Send me an FHE-encrypted payment on BlankPay";
     try {
       await navigator.share({
-        title: "Pay me on BlankPay",
-        text: "Send me an FHE-encrypted payment on BlankPay",
+        title: hasAmount ? `Pay $${cleanedAmount} on BlankPay` : "Pay me on BlankPay",
+        text,
         url: paymentLink,
       });
     } catch {
       // User cancelled or share not supported -- fallback to copy
       copyToClipboard(paymentLink, "link");
     }
-  }, [address, paymentLink, copyToClipboard]);
+  }, [address, paymentLink, copyToClipboard, requestAmount, requestNote]);
 
   if (!address) return null;
 
@@ -102,8 +139,48 @@ export default function Receive() {
             </div>
 
             <p className="text-sm text-[var(--text-secondary)] text-center mt-4">
-              Scan to send me money
+              {requestAmount && requestAmount !== "0"
+                ? `Scan to send $${requestAmount.replace(/\.$/, "")}`
+                : "Scan to send me money"}
             </p>
+
+            {/* Optional request inputs — populate the QR/link with a
+                specific amount + note. Empty inputs preserve the bare
+                "send to my address" QR. */}
+            <div className="w-full mt-6 pt-6 border-t border-black/5 dark:border-white/10 space-y-3">
+              <p className="text-xs font-semibold tracking-widest uppercase text-[var(--text-secondary)]">
+                Request a specific amount (optional)
+              </p>
+              <div className="relative">
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)] font-medium">
+                  $
+                </span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  className="h-12 w-full pl-9 pr-4 rounded-xl bg-white/60 dark:bg-white/5 border border-black/5 dark:border-white/10 focus:border-black/20 dark:focus:border-white/20 focus:ring-4 focus:ring-black/5 dark:focus:ring-white/5 outline-none transition-all placeholder:text-[var(--text-tertiary)] font-mono"
+                  placeholder="0.00"
+                  aria-label="Request amount in USDC"
+                  value={requestAmount}
+                  onChange={(e) => setRequestAmount(sanitizeAmount(e.target.value))}
+                />
+              </div>
+              <div className="relative">
+                <MessageSquare
+                  size={16}
+                  className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]"
+                />
+                <input
+                  type="text"
+                  className="h-12 w-full pl-11 pr-4 rounded-xl bg-white/60 dark:bg-white/5 border border-black/5 dark:border-white/10 focus:border-black/20 dark:focus:border-white/20 focus:ring-4 focus:ring-black/5 dark:focus:ring-white/5 outline-none transition-all placeholder:text-[var(--text-tertiary)]"
+                  placeholder="What is this for?"
+                  aria-label="Payment note"
+                  value={requestNote}
+                  onChange={(e) => setRequestNote(e.target.value)}
+                  maxLength={280}
+                />
+              </div>
+            </div>
           </div>
 
           {/* Address & Links Card */}

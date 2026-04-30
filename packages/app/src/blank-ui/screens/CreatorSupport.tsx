@@ -414,6 +414,7 @@ export default function CreatorSupport() {
             {filteredCreators.map((creator, index) => (
               <div
                 key={creator.address}
+                data-creator-address={creator.address.toLowerCase()}
                 onClick={() => setSelectedCreator(creator)}
                 className={cn(
                   "rounded-[2rem] glass-card p-6 hover:-translate-y-1 transition-all duration-300 cursor-pointer relative",

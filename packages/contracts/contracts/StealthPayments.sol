@@ -18,6 +18,11 @@ interface IEventHub {
     function emitActivity(address user1, address user2, string calldata activityType, string calldata note, uint256 refId) external;
 }
 
+interface IPaymentReceipts {
+    function bumpGlobal(euint64 amount) external;
+    function decrementGlobalVolume(euint64 amount) external;
+}
+
 /// @title StealthPayments — Privacy-preserving stealth payment system
 /// @notice Enables payments where the recipient address is encrypted using FHE.
 ///         Social context (sender, claim code hash, note, timestamp) is public.
@@ -85,6 +90,15 @@ contract StealthPayments is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
 
     /// @dev Encrypted zero constant (initialized once, reused to save gas)
     euint64 private ZERO;
+
+    // ─── #199: PaymentReceipts wiring (append-only storage) ─────────────
+    // When non-zero, sendStealth bumps the global encrypted volume so the
+    // landing-page counter reflects in-flight stealth value, and refund
+    // decrements that same counter so refunded volume doesn't permanently
+    // over-count. claimStealth/finalizeClaim do NOT bump again — the send
+    // already counted the value as "moved through Blank". Zero-address =
+    // feature off (back-compat with pre-#199 deployments).
+    address public paymentReceipts;
 
     // ─── Events ─────────────────────────────────────────────────────────
 
@@ -192,6 +206,11 @@ contract StealthPayments is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
 
         _senderTransfers[msg.sender].push(id);
         _claimCodeToTransferId[claimCodeHash] = id + 1; // +1 because 0 means "not found"
+
+        // #199: feed the landing-page counter when escrow is funded. The
+        // matching decrementGlobalVolume call lives in refund() so refunded
+        // value doesn't permanently over-count.
+        _bumpGlobal(encAmount);
 
         emit StealthSent(id, msg.sender, claimCodeHash, vault, note, block.timestamp);
         try eventHub.emitActivity(msg.sender, address(0), "stealth_sent", note, id) {} catch {}
@@ -329,6 +348,11 @@ contract StealthPayments is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
         // Return the escrowed tokens to the sender
         IERC20(st.underlyingToken).safeTransfer(msg.sender, st.plaintextAmount);
 
+        // #199: decrement the global encrypted volume aggregate. The matching
+        // bump lives in sendStealth(); without this decrement, refunded volume
+        // would permanently over-count the landing-page counter.
+        _decrementGlobal(st.encryptedAmount);
+
         try eventHub.emitActivity(msg.sender, address(0), "stealth_refunded", st.note, transferId) {} catch {}
     }
 
@@ -428,6 +452,32 @@ contract StealthPayments is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
 
     function setEventHub(address _eventHub) external onlyOwner {
         eventHub = IEventHub(_eventHub);
+    }
+
+    /// @notice #199: Set the PaymentReceipts contract address. When non-zero,
+    ///         sendStealth bumps and refund decrements the global encrypted
+    ///         volume aggregate. Zero-address = feature off (back-compat).
+    function setPaymentReceipts(address _paymentReceipts) external onlyOwner {
+        paymentReceipts = _paymentReceipts;
+    }
+
+    /// @dev Internal: bump global volume on send. Wrapped in try/catch so a
+    ///      misconfigured (non-authorized) PaymentReceipts can never block a
+    ///      stealth send. Mirrors BusinessHub._bumpReceipts and
+    ///      PaymentHub._bumpAggregate defensive patterns.
+    function _bumpGlobal(euint64 amount) internal {
+        if (paymentReceipts == address(0)) return;
+        FHE.allowTransient(amount, paymentReceipts);
+        try IPaymentReceipts(paymentReceipts).bumpGlobal(amount) {} catch {}
+    }
+
+    /// @dev Internal: decrement global volume on refund. Same defensive
+    ///      try/catch as _bumpGlobal — refund must never be blocked by a
+    ///      misconfigured receipts contract.
+    function _decrementGlobal(euint64 amount) internal {
+        if (paymentReceipts == address(0)) return;
+        FHE.allowTransient(amount, paymentReceipts);
+        try IPaymentReceipts(paymentReceipts).decrementGlobalVolume(amount) {} catch {}
     }
 
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}

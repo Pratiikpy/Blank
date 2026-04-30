@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Plus,
   Users,
@@ -9,10 +9,16 @@ import {
   Vote,
   LogOut,
   Archive,
+  Camera,
+  Loader2,
+  Upload,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useGroupSplit } from "@/hooks/useGroupSplit";
+import { recognizeReceipt } from "@/lib/receipt-ocr";
+import { SplitwiseImportModal } from "@/blank-ui/components";
 import { useEffectiveAddress } from "@/hooks/useEffectiveAddress";
+import { useChain } from "@/providers/ChainProvider";
 import {
   fetchUserGroups,
   fetchGroupExpenses,
@@ -266,6 +272,37 @@ function AddExpenseModal({
   const { addExpense, computeEqualSplit, isProcessing } = useGroupSplit();
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
+  const [scanning, setScanning] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Phase 3.3 — receipt OCR. Runs entirely in the browser via tesseract.js
+  // (image never leaves the user's device). The first invocation pays a
+  // one-time WASM download; subsequent scans are fast.
+  const handleScanReceipt = useCallback(
+    async (file: File) => {
+      setScanning(true);
+      const toastId = toast.loading("Reading receipt…");
+      try {
+        const result = await recognizeReceipt(file);
+        if (result.total != null && !amount) {
+          setAmount(result.total.toFixed(2));
+        }
+        if (result.merchant && !description) {
+          setDescription(result.merchant);
+        }
+        if (result.total == null && !result.merchant) {
+          toast.error("Couldn't read this receipt — try a sharper photo.", { id: toastId });
+        } else {
+          toast.success("Receipt scanned — review the fields.", { id: toastId });
+        }
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "OCR failed", { id: toastId });
+      } finally {
+        setScanning(false);
+      }
+    },
+    [amount, description],
+  );
   const [memberInput, setMemberInput] = useState("");
   const [expenseMembers, setExpenseMembers] = useState<string[]>([]);
   const [splitMode, setSplitMode] = useState<"equal" | "custom">("equal");
@@ -339,7 +376,30 @@ function AddExpenseModal({
         </div>
 
         <div>
-          <label className="text-xs text-[var(--text-primary)]/50 font-medium tracking-wide uppercase mb-2 block">Description</label>
+          <div className="flex items-center justify-between mb-2">
+            <label className="text-xs text-[var(--text-primary)]/50 font-medium tracking-wide uppercase">Description</label>
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={scanning}
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-600 hover:text-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {scanning ? <Loader2 size={12} className="animate-spin" /> : <Camera size={12} />}
+              {scanning ? "Reading…" : "Scan receipt"}
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) void handleScanReceipt(file);
+                e.target.value = "";
+              }}
+            />
+          </div>
           <input type="text" placeholder="What was this expense for?" value={description} onChange={(e) => setDescription(e.target.value)}
             className="h-14 w-full px-5 rounded-2xl bg-white/60 border border-black/10 focus:border-black/20 focus:ring-4 focus:ring-black/5 outline-none transition-all placeholder:text-black/30" />
         </div>
@@ -693,6 +753,7 @@ function GroupCard({
   group,
   expenses,
   onAddExpense,
+  onImportSplitwise,
   onSettleDebt,
   onVote,
   onLeave,
@@ -702,6 +763,7 @@ function GroupCard({
   group: GroupMembershipRow;
   expenses: GroupExpenseRow[];
   onAddExpense: (groupId: number) => void;
+  onImportSplitwise: (groupId: number) => void;
   onSettleDebt: (groupId: number) => void;
   onVote: (groupId: number) => void;
   onLeave: (groupId: number) => void;
@@ -751,8 +813,10 @@ function GroupCard({
       {/* Amounts (encrypted) */}
       <div className="grid grid-cols-2 gap-4 mb-6">
         <div className="p-4 rounded-2xl bg-white/50 border border-black/5">
+          {/* Audit A27 #6: clarify that the number is the COUNT of expenses,
+              not a dollar sum. "Expenses: 3" was being misread as "$3". */}
           <p className="text-xs text-[var(--text-primary)]/50 font-medium tracking-wide uppercase mb-1">
-            Expenses
+            Expense count
           </p>
           <p className="text-lg font-heading font-medium text-[var(--text-primary)]">
             {expenses.length}
@@ -762,8 +826,18 @@ function GroupCard({
           <p className="text-xs text-[var(--text-primary)]/50 font-medium tracking-wide uppercase mb-1">
             Your Share
           </p>
-          <p className="text-lg font-heading font-medium encrypted-text">
-            ${"\u2022\u2022\u2022.\u2022\u2022"}
+          {/* Audit A27 #4: amounts are FHE-encrypted on-chain; we don't have
+              plaintext copies in Supabase to sum here. Showing a fake
+              `\u2022\u2022\u2022.\u2022\u2022` placeholder implied a hidden value the eye toggle
+              could reveal \u2014 it can't. Honest copy + a tiny "encrypted"
+              tag tells the user this is by design. The real per-user
+              share is reachable via FHE decryption (Settle modal does
+              this on demand). */}
+          <p className="text-base font-heading font-medium text-[var(--text-primary)]/60 italic">
+            Encrypted
+          </p>
+          <p className="text-[10px] text-[var(--text-primary)]/40 mt-0.5">
+            Decrypts during Settle
           </p>
         </div>
       </div>
@@ -778,12 +852,12 @@ function GroupCard({
             {expenses.slice(0, 3).map((exp) => (
               <div
                 key={exp.id}
-                className="flex items-center justify-between p-3 rounded-xl bg-white/30 border border-black/5 text-sm"
+                className="flex items-center justify-between gap-3 p-3 rounded-xl bg-white/30 border border-black/5 text-sm min-w-0"
               >
-                <span className="text-[var(--text-primary)]">
+                <span className="text-[var(--text-primary)] truncate min-w-0 flex-1">
                   {exp.description}
                 </span>
-                <span className="text-[var(--text-primary)]/50 font-mono text-xs">
+                <span className="text-[var(--text-primary)]/50 font-mono text-xs shrink-0">
                   {exp.payer_address.slice(0, 6)}...{exp.payer_address.slice(-4)}
                 </span>
               </div>
@@ -814,6 +888,14 @@ function GroupCard({
           aria-label="Vote on expense"
         >
           <Vote size={18} />
+        </button>
+        <button
+          onClick={() => onImportSplitwise(group.group_id)}
+          className="h-12 w-12 rounded-2xl bg-black/5 text-[var(--text-primary)] font-medium transition-all active:scale-95 hover:bg-black/10 flex items-center justify-center"
+          aria-label="Import from Splitwise"
+          title="Import from Splitwise CSV"
+        >
+          <Upload size={18} />
         </button>
       </div>
 
@@ -856,9 +938,16 @@ function GroupCard({
 
 export default function Groups() {
   const { effectiveAddress: address } = useEffectiveAddress();
+  // Audit Top-28 #28: subscribe to active chain so a chain switch
+  // re-runs refreshData(). Without this, switching chains kept stale
+  // groups + expenses on screen even though fetchUserGroups already
+  // filters by _activeChainIdForSupabase server-side.
+  const { activeChainId } = useChain();
   const { leaveGroup, archiveGroup, isProcessing: groupActionProcessing } = useGroupSplit();
   const [showCreate, setShowCreate] = useState(false);
   const [expenseGroupId, setExpenseGroupId] = useState<number | null>(null);
+  // Phase 3.3 — Splitwise CSV import per-group modal trigger.
+  const [importGroupId, setImportGroupId] = useState<number | null>(null);
   const [settleGroupId, setSettleGroupId] = useState<number | null>(null);
   const [voteGroupId, setVoteGroupId] = useState<number | null>(null);
 
@@ -902,7 +991,7 @@ export default function Groups() {
       // Supabase might be down -- offline mode
     }
     setLoading(false);
-  }, [address]);
+  }, [address, activeChainId]);
 
   // Fetch on mount + poll every 30s
   useEffect(() => {
@@ -1085,6 +1174,7 @@ export default function Groups() {
                 group={group}
                 expenses={expensesMap[group.group_id] || []}
                 onAddExpense={setExpenseGroupId}
+                onImportSplitwise={setImportGroupId}
                 onSettleDebt={setSettleGroupId}
                 onVote={setVoteGroupId}
                 onLeave={async (gid) => {
@@ -1127,6 +1217,17 @@ export default function Groups() {
         <VoteModal
           groupId={voteGroupId}
           onClose={() => setVoteGroupId(null)}
+        />
+      )}
+      {importGroupId !== null && (
+        <SplitwiseImportModal
+          groupId={importGroupId}
+          // Pass an empty list — the user can paste addresses freely.
+          // Future: pre-populate with addresses already seen on this
+          // group's expenses (no obvious member-list source today).
+          groupMembers={[]}
+          onClose={() => setImportGroupId(null)}
+          onImported={refreshData}
         />
       )}
     </div>

@@ -75,14 +75,50 @@ contract BlankPaymaster is BasePaymaster {
             require(initFactory == approvedFactory, "BlankPaymaster: unapproved factory");
         }
 
-        // 3. Verify the execute() target if any approved targets are set.
-        //    execute(address,uint256,bytes) selector = 0xb61d27f6 — first 4
-        //    bytes of callData. Target sits at offset 16..36 (selector + arg0 padding).
-        if (userOp.callData.length >= 68 && approvedTargetsCount > 0) {
+        // 3. Verify call targets if any approved targets are set. Two
+        //    selectors are accepted; everything else is rejected so the
+        //    paymaster cannot be used to call arbitrary contracts.
+        //
+        //    execute(address,uint256,bytes)               = 0xb61d27f6
+        //    executeBatch(address[],uint256[],bytes[])    = 0x47e1da2a
+        //
+        //    Without this batch validation, an attacker could craft an
+        //    executeBatch calldata containing arbitrary targets and have
+        //    the paymaster sponsor gas — bypassing the per-target check
+        //    that only fired on the execute() selector.
+        if (approvedTargetsCount > 0) {
+            require(userOp.callData.length >= 4, "BlankPaymaster: empty callData");
             bytes4 selector = bytes4(userOp.callData[:4]);
+
             if (selector == bytes4(0xb61d27f6)) {
+                // execute(address,uint256,bytes) — target sits at offset 4..36 (selector + 32B-padded address)
+                require(userOp.callData.length >= 36, "BlankPaymaster: malformed execute");
                 address target = address(bytes20(userOp.callData[16:36]));
                 require(approvedTargets[target], "BlankPaymaster: unapproved target");
+            } else if (selector == bytes4(0x47e1da2a)) {
+                // executeBatch(address[],uint256[],bytes[]) — validate every target.
+                // ABI layout: [selector(4)] [offset_targets(32)] [offset_values(32)]
+                //             [offset_datas(32)] ... [targets_len(32)] [target_0(32)] ...
+                // For canonical Solidity encoding, offset_targets == 0x60.
+                // BlankAccount.executeBatch uses `calldata targets` which strictly
+                // decodes the same layout — non-canonical calldata reverts there,
+                // so the paymaster's view always matches the account's view.
+                require(userOp.callData.length >= 100, "BlankPaymaster: malformed executeBatch");
+                uint256 targetsOffset = uint256(bytes32(userOp.callData[4:36]));
+                require(targetsOffset == 0x60, "BlankPaymaster: non-canonical executeBatch");
+                uint256 lenAt = 4 + targetsOffset;
+                require(userOp.callData.length >= lenAt + 32, "BlankPaymaster: truncated executeBatch");
+                uint256 nTargets = uint256(bytes32(userOp.callData[lenAt:lenAt + 32]));
+                require(nTargets > 0 && nTargets <= 20, "BlankPaymaster: bad batch size");
+                uint256 dataNeeded = lenAt + 32 + nTargets * 32;
+                require(userOp.callData.length >= dataNeeded, "BlankPaymaster: short targets");
+                for (uint256 i = 0; i < nTargets; i++) {
+                    uint256 addrSlot = lenAt + 32 + i * 32;
+                    address target = address(bytes20(userOp.callData[addrSlot + 12:addrSlot + 32]));
+                    require(approvedTargets[target], "BlankPaymaster: unapproved batch target");
+                }
+            } else {
+                revert("BlankPaymaster: selector not allowed");
             }
         }
 

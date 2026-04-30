@@ -33,16 +33,53 @@ const ENTRYPOINT_V08 = "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108";
 const EXECUTE_SELECTOR = "0xb61d27f6"; // BlankAccount.execute(address,uint256,bytes)
 const EXECUTE_BATCH_SELECTOR = "0x47e1da2a"; // BlankAccount.executeBatch (allowlisted)
 
-const SUPPORTED_CHAINS: Record<number, { rpcUrl: string; entryPoint: string }> = {
+// Per-chain RPC fallback list. Ordered: user-configured private (Alchemy /
+// QuickNode etc.) first, then a curated public list. ethers' FallbackProvider
+// with quorum=1 picks the fastest healthy node and rotates on failure — so a
+// single 429 from Alchemy doesn't kill the request, it falls through to the
+// next provider.
+const SUPPORTED_CHAINS: Record<number, { rpcUrls: string[]; entryPoint: string }> = {
   11155111: {
-    rpcUrl: process.env.SEPOLIA_RPC_URL || "https://ethereum-sepolia.publicnode.com",
+    rpcUrls: [
+      process.env.SEPOLIA_RPC_URL,
+      "https://ethereum-sepolia-rpc.publicnode.com",
+      "https://sepolia.drpc.org",
+      "https://1rpc.io/sepolia",
+      "https://rpc.sepolia.org",
+    ].filter((u): u is string => typeof u === "string" && u.length > 0),
     entryPoint: ENTRYPOINT_V08,
   },
   84532: {
-    rpcUrl: process.env.BASE_SEPOLIA_RPC_URL || "https://sepolia.base.org",
+    rpcUrls: [
+      process.env.BASE_SEPOLIA_RPC_URL,
+      "https://base-sepolia-rpc.publicnode.com",
+      "https://base-sepolia.gateway.tenderly.co",
+      "https://base-sepolia.drpc.org",
+      "https://sepolia.base.org",
+    ].filter((u): u is string => typeof u === "string" && u.length > 0),
     entryPoint: ENTRYPOINT_V08,
   },
 };
+
+/** Build a single JsonRpcProvider, but capable of retrying SPECIFIC reads
+ *  (eth_getTransactionCount = the relayer-EOA nonce) against the next
+ *  fallback URL if the primary fails or returns a stale value.
+ *
+ *  Why not FallbackProvider with quorum=1? It would let two different
+ *  upstream nodes each return a different "pending" nonce for the SMART
+ *  ACCOUNT — and ethers picks whichever responds first. That race
+ *  caused two consecutive UserOps (approve → sendPayment) to both pick
+ *  the same UserOp-nonce, which EntryPoint then rejected with AA25.
+ *
+ *  Single primary provider keeps the read-after-write semantics callers
+ *  rely on. We still expose `rpcUrls` so the catch-block can rotate
+ *  manually on a 429/502 if needed. */
+function buildProvider(rpcUrls: string[]): ethers.JsonRpcProvider {
+  if (rpcUrls.length === 0) {
+    throw new Error("no RPC URL configured");
+  }
+  return new ethers.JsonRpcProvider(rpcUrls[0]);
+}
 
 const ENTRYPOINT_ABI = [
   "function handleOps(tuple(address sender, uint256 nonce, bytes initCode, bytes callData, bytes32 accountGasLimits, uint256 preVerificationGas, bytes32 gasFees, bytes paymasterAndData, bytes signature)[] ops, address beneficiary)",
@@ -211,7 +248,7 @@ async function handleImpl(req: any, res: any) {
   }
 
   const cfg = SUPPORTED_CHAINS[chainId];
-  const provider = new ethers.JsonRpcProvider(cfg.rpcUrl);
+  const provider = buildProvider(cfg.rpcUrls);
 
   let signer;
   try {
@@ -272,10 +309,14 @@ async function handleImpl(req: any, res: any) {
         const hasInitCode = ethersOp.initCode !== "0x" && ethersOp.initCode.length > 2;
         const overhead = hasInitCode ? 500_000n : 200_000n;
         const computed = verifGas + callGas + preVerif + overhead;
-        // Minimum floor for simple calls, hard ceiling at 8M to avoid
-        // wasteful preauth holds on the relayer balance.
+        // Minimum floor for simple calls. Ceiling sized for FHE batch
+        // ops (runPayroll N-recipient, group expense fan-out) but stays
+        // under Base Sepolia / ETH Sepolia per-tx RPC caps (which reject
+        // anything > ~20M with "gas limit too high"). Public RPCs apply
+        // tighter limits than the chain's block gas — 18M is the safe
+        // upper bound that covers a 3-recipient FHE payroll.
         const FLOOR = 1_500_000n;
-        const CEILING = 8_000_000n;
+        const CEILING = 18_000_000n;
         let gasLimit = computed < FLOOR ? FLOOR : computed;
         if (gasLimit > CEILING) gasLimit = CEILING;
         const submittedTx = await entryPoint.handleOps([ethersOp], relayerAddress, {
@@ -380,6 +421,35 @@ async function handleImpl(req: any, res: any) {
       relayer: relayerAddress,
       logs: serializedLogs,
     });
+
+    // Phase 7.2: USDC auto-drip on first AA deployment.
+    // Fire-and-forget — must NOT block the response. If the new AA
+    // landed (initCode was non-empty AND the UserOp succeeded), mint
+    // 100 testnet USDC to it so the user lands with something
+    // spendable instead of a $0 balance and a "where do I get USDC?"
+    // wall. Skipped silently when RELAYER_PRIVATE_KEY is missing or
+    // the mint reverts — the user can still hit the manual faucet
+    // button (Phase 7.3).
+    const initCode = ethersOp.initCode ?? "0x";
+    const isFirstDeploy = initCode !== "0x" && initCode.length > 2;
+    if (isFirstDeploy) {
+      void (async () => {
+        try {
+          const { getContracts } = await import("./_lib/addresses.js");
+          const contracts = getContracts(chainId);
+          if (!contracts) return;
+          const TestUSDCAbi = ["function mint(address to, uint256 amount) external"];
+          const usdc = new ethers.Contract(contracts.TestUSDC, TestUSDCAbi, wallet);
+          const FAUCET_AMOUNT = 100_000_000n; // 100 USDC at 6 decimals
+          const mintTx = await usdc.mint(ethersOp.sender, FAUCET_AMOUNT);
+          await mintTx.wait();
+          console.log(`[relay] auto-faucet 100 USDC → ${ethersOp.sender} on chain ${chainId} (${mintTx.hash})`);
+        } catch (faucetErr) {
+          // Non-fatal — user still has a working AA, can hit /api/faucet/usdc manually.
+          console.warn(`[relay] auto-faucet failed for ${ethersOp.sender}:`, faucetErr instanceof Error ? faucetErr.message : faucetErr);
+        }
+      })();
+    }
   } catch (err) {
     const msg = err instanceof Error ? err.message : "unknown error";
     res.status(502).json({ error: `entryPoint.handleOps failed: ${msg}` });

@@ -115,7 +115,7 @@ export function useActivityFeed() {
     setIsLoading(true);
 
     try {
-      const data = await fetchActivities(addresses, PAGE_SIZE);
+      const data = await fetchActivities(addresses, PAGE_SIZE, undefined, activeChainId);
       if (data.length > 0) {
         const sorted = sortActivitiesStable(data);
         setActivities(sorted);
@@ -134,7 +134,7 @@ export function useActivityFeed() {
     }
 
     setIsLoading(false);
-  }, [addresses, cacheKey]);
+  }, [addresses, cacheKey, activeChainId]);
 
   /**
    * Load the next page of older activities using the oldest current row's
@@ -157,7 +157,7 @@ export function useActivityFeed() {
 
     setIsLoadingMore(true);
     try {
-      const data = await fetchActivities(addresses, PAGE_SIZE, oldest.created_at);
+      const data = await fetchActivities(addresses, PAGE_SIZE, oldest.created_at, activeChainId);
       // Dedupe against existing tx_hashes in the list — avoids any chance
       // of a realtime insert landing between loadMore calls duplicating a row.
       const existing = new Set(activities.map((a) => a.tx_hash));
@@ -180,7 +180,7 @@ export function useActivityFeed() {
     } finally {
       setIsLoadingMore(false);
     }
-  }, [addresses, activities, isLoadingMore]);
+  }, [addresses, activities, isLoadingMore, activeChainId]);
 
   // Real-time subscription
   useEffect(() => {

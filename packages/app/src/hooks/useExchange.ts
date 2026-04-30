@@ -101,6 +101,13 @@ export function useExchange() {
             throw new Error("Approval transaction reverted on-chain");
           }
           markVaultApproved(contracts.P2PExchange);
+          // Give the RPC node a beat to catch up before the next UserOp
+          // reads EntryPoint.getNonce. On Base Sepolia public RPC there's
+          // observable lag where two consecutive UserOps both see the
+          // same nonce and the second hits AA25. The local nonce hint in
+          // useSmartAccount handles most cases, but a brief settlement
+          // wait is defence-in-depth.
+          await new Promise((r) => setTimeout(r, 3_000));
         }
 
         if (!amountGive || amountGive.trim() === "") {

@@ -89,7 +89,7 @@ export function useEncryptedBalance(vaultAddress?: string, decimals = 6) {
       isFetching: isDecrypting,
       error: decryptError,
     },
-    disabledDueToMissingPermit,
+    disabledDueToMissingValidPermit,
   } = useCofheReadContractAndDecrypt(
     {
       address: vault,
@@ -193,19 +193,35 @@ export function useEncryptedBalance(vaultAddress?: string, decimals = 6) {
           { minimumFractionDigits: 2, maximumFractionDigits: decimals }
         );
 
-        setState((s) => ({
-          ...s,
-          raw: rawBigint,
-          formatted,
-          isLoading: false,
-          error: null,
-        }));
+        setState((s) => {
+          // Audit Top-28 #10: when balance transitions from no-decrypt
+          // (raw=null) to first successful decrypt, auto-reveal once so
+          // the user sees the value they just created a permit to see.
+          // The reveal-timeout in toggleReveal still applies — after
+          // REVEAL_TIMEOUT_MS the balance auto-hides again. Subsequent
+          // polls land here with s.raw !== null and don't touch isRevealed.
+          const justBecameDecrypted = s.raw === null;
+          if (justBecameDecrypted) {
+            clearTimeout(timeoutRef.current);
+            timeoutRef.current = setTimeout(() => {
+              setState((prev) => ({ ...prev, isRevealed: false }));
+            }, REVEAL_TIMEOUT_MS);
+          }
+          return {
+            ...s,
+            raw: rawBigint,
+            formatted,
+            isLoading: false,
+            error: null,
+            isRevealed: justBecameDecrypted ? true : s.isRevealed,
+          };
+        });
         return;
       }
 
       // No data yet but not loading — might be disabled due to missing permit.
       // Keep prior decrypted value if we had one — don't flash ████ on permit refresh.
-      if (disabledDueToMissingPermit) {
+      if (disabledDueToMissingValidPermit) {
         setState((s) => ({
           ...s,
           raw: s.raw,
@@ -254,7 +270,7 @@ export function useEncryptedBalance(vaultAddress?: string, decimals = 6) {
     isDecrypting,
     decryptedBalance,
     decryptError,
-    disabledDueToMissingPermit,
+    disabledDueToMissingValidPermit,
     balanceHandle,
     isInitialized,
     decimals,
@@ -310,7 +326,7 @@ export function useEncryptedBalance(vaultAddress?: string, decimals = 6) {
         ? (typeof decryptedBalance === "bigint" ? decryptedBalance : BigInt(String(decryptedBalance))) > 0n
         : (balanceHandle as bigint | undefined) !== undefined && (balanceHandle as bigint) > 0n,
     isDecrypted: canUseRealDecrypt && decryptedBalance !== undefined && !decryptError,
-    disabledDueToMissingPermit,
+    disabledDueToMissingValidPermit,
     toggleReveal,
     refetch: fetchBalance,
   };

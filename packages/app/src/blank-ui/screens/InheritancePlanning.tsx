@@ -391,6 +391,21 @@ export default function InheritancePlanning() {
   });
   const ownerPlanTuple = ownerPlanData as readonly [string, bigint, bigint, bigint, boolean, readonly string[]] | undefined;
   const ownerVaultCount = ownerPlanTuple?.[5]?.length ?? 0;
+  // Audit Top-28 #27: derive whether the owner's 7-day challenge period
+  // has elapsed so the Finalize button can disable + explain rather than
+  // silently revert on-chain. The contract enforces the same check; this
+  // simply mirrors it client-side so the user gets a clear "wait X more
+  // days" message instead of a generic tx-failed toast.
+  const CHALLENGE_PERIOD_SECONDS = 7 * 86400;
+  const ownerClaimStartedAt = Number(ownerPlanTuple?.[3] ?? 0n);
+  const ownerClaimChallengeEndsAt = ownerClaimStartedAt > 0
+    ? ownerClaimStartedAt + CHALLENGE_PERIOD_SECONDS
+    : 0;
+  const ownerClaimGraceRemainingSeconds = ownerClaimChallengeEndsAt > 0
+    ? Math.max(0, ownerClaimChallengeEndsAt - Math.floor(Date.now() / 1000))
+    : 0;
+  const finalizeBlockedByGrace = ownerClaimStartedAt > 0 && ownerClaimGraceRemainingSeconds > 0;
+  const finalizeBlockedNoClaim = ownerClaimStartedAt === 0 && isValidClaimOwner;
 
   // Derived state from real plan
   const isActive = plan?.active ?? false;
@@ -821,15 +836,25 @@ export default function InheritancePlanning() {
                       toast.error("Owner has no vaults configured in their plan");
                       return;
                     }
+                    if (finalizeBlockedByGrace) {
+                      toast.error(
+                        `Wait ${Math.ceil(ownerClaimGraceRemainingSeconds / 86400)} more day(s) — the 7-day challenge period is still active.`,
+                      );
+                      return;
+                    }
+                    if (finalizeBlockedNoClaim) {
+                      toast.error("No claim started yet. Use Start Claim first.");
+                      return;
+                    }
                     finalizeClaim(claimOwner, ownerVaultCount);
                   } else {
                     toast.error("Invalid Ethereum address");
                   }
                 }}
-                disabled={isProcessing || !claimOwner || ownerVaultCount === 0}
+                disabled={isProcessing || !claimOwner || ownerVaultCount === 0 || finalizeBlockedByGrace || finalizeBlockedNoClaim}
                 className={cn(
                   "h-12 flex-1 rounded-xl font-medium flex items-center justify-center gap-2 transition-colors",
-                  isProcessing || !claimOwner || ownerVaultCount === 0
+                  isProcessing || !claimOwner || ownerVaultCount === 0 || finalizeBlockedByGrace || finalizeBlockedNoClaim
                     ? "bg-gray-200 dark:bg-white/10 text-gray-500 dark:text-white/40 cursor-not-allowed"
                     : "bg-emerald-500 hover:bg-emerald-600 text-white",
                 )}
@@ -838,6 +863,24 @@ export default function InheritancePlanning() {
                 Finalize Claim{ownerVaultCount > 0 ? ` (${ownerVaultCount} vault${ownerVaultCount !== 1 ? "s" : ""})` : ""}
               </button>
             </div>
+            {/* Audit Top-28 #27: surface why the Finalize button is disabled
+                rather than letting users tap it and watch their tx revert
+                on-chain. Three states: (a) no claim started yet,
+                (b) challenge period still running, (c) ready. */}
+            {finalizeBlockedByGrace && (
+              <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
+                Challenge period ends in {Math.ceil(ownerClaimGraceRemainingSeconds / 86400)} day(s)
+                {ownerClaimGraceRemainingSeconds < 86400
+                  ? ` (${Math.ceil(ownerClaimGraceRemainingSeconds / 3600)} hour${ownerClaimGraceRemainingSeconds < 3600 ? "" : "s"})`
+                  : ""}. The owner can still cancel the claim until then.
+              </p>
+            )}
+            {finalizeBlockedNoClaim && (
+              <p className="mt-2 text-xs text-[var(--text-secondary)]">
+                Tap "Start Claim" first. After the 7-day challenge period elapses,
+                "Finalize Claim" will become available.
+              </p>
+            )}
           </div>
         </div>
       </div>

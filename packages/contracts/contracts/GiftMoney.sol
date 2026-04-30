@@ -15,6 +15,11 @@ interface IEventHub {
     function emitActivity(address user1, address user2, string calldata activityType, string calldata note, uint256 refId) external;
 }
 
+interface IPaymentReceipts {
+    function bumpUserReceived(address user, euint64 amount) external;
+    function bumpGlobal(euint64 amount) external;
+}
+
 /// @title GiftMoney — "Red Envelope" encrypted random splits
 /// @notice Sender distributes encrypted FHERC20 tokens across N recipients.
 ///         Each recipient gets a pre-computed share (computed off-chain to avoid
@@ -74,6 +79,17 @@ contract GiftMoney is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     mapping(address => uint256[]) private _sentEnvelopes;
 
     uint256 public constant MAX_RECIPIENTS = 30;
+
+    // ─── #204: PaymentReceipts wiring (append-only storage) ─────────────
+    // When non-zero, createEnvelope forwards each recipient's transferred
+    // share to paymentReceipts.bumpUserReceived(recipient, actual) and bumps
+    // the global aggregate via paymentReceipts.bumpGlobal. This lets gift
+    // recipients prove their income via proveIncomeAbove and feeds the
+    // landing-page counter. Mirrors BusinessHub._bumpReceipts (#92).
+    //
+    // Must be appended after all prior state (UUPS storage-layout rule).
+    // Zero-address = feature off (back-compat with pre-#204 deployments).
+    address public paymentReceipts;
 
     // ─── Events ─────────────────────────────────────────────────────────
 
@@ -188,6 +204,11 @@ contract GiftMoney is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
             FHE.allow(transferred, recipient);
             FHE.allow(transferred, msg.sender);
 
+            // #204: bump per-recipient received counter so gift recipients can
+            // call proveIncomeAbove. Also bumps the global aggregate so the
+            // landing-page counter reflects gift volume.
+            _bumpReceiptsAndGlobal(recipient, transferred);
+
             // Track membership and reverse lookups
             isRecipient[envelopeId][recipient] = true;
             _recipients[envelopeId].push(recipient);
@@ -216,6 +237,15 @@ contract GiftMoney is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     function claimGift(uint256 envelopeId) external nonReentrant {
         GiftEnvelope storage env = _envelopes[envelopeId];
         require(env.active, "GiftMoney: envelope not active");
+        // #241 — Enforce expiry on-chain. Advisory-only display isn't enough;
+        // block claims past the deadline. Zero expiry means no expiry (legacy
+        // envelopes + intentional perpetual gifts). Funds are already in the
+        // recipient's vault balance, but the "open the red envelope" social
+        // action itself must respect the sender-specified deadline.
+        require(
+            env.expiryTimestamp == 0 || block.timestamp < env.expiryTimestamp,
+            "GiftMoney: envelope expired"
+        );
         require(isRecipient[envelopeId][msg.sender], "GiftMoney: not a recipient");
         require(!opened[envelopeId][msg.sender], "GiftMoney: already opened");
 
@@ -256,7 +286,25 @@ contract GiftMoney is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
     /// @notice Deactivate an envelope. Only the sender can call this.
     ///         Marks the envelope as inactive so recipients see it as closed.
-    ///         Funds are NOT moved — they remain in recipients' vault balances.
+    ///
+    ///         IMPORTANT — IRREVOCABILITY (issue #184 resolution, Path B doc-only):
+    ///         Funds are NOT refunded. In this contract's design, `createEnvelope`
+    ///         transfers encrypted shares from the sender directly into each
+    ///         recipient's vault balance at creation time. Once transferred, the
+    ///         funds are the recipients' property — the sender has no standing
+    ///         to claw them back, and the contract never held them.
+    ///
+    ///         Deactivation is therefore intentionally a SOCIAL / UX action only:
+    ///         - Flips `active` to false so the envelope shows as "closed" in UI
+    ///         - Prevents further `claimGift` calls (activity-feed events)
+    ///         - Emits an EnvelopeDeactivated event for notifications
+    ///
+    ///         It does NOT move any tokens. A full refund-on-deactivate flow
+    ///         would require a major redesign (hold shares in the contract,
+    ///         defer transfers to claim-time, track per-recipient claimed state).
+    ///         That redesign is deferred — gifts are irrevocable once sent, as
+    ///         is traditional for the "red envelope" social pattern this models.
+    ///
     /// @param envelopeId The envelope to deactivate
     function deactivateEnvelope(uint256 envelopeId) external {
         GiftEnvelope storage env = _envelopes[envelopeId];
@@ -334,6 +382,30 @@ contract GiftMoney is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
     function setEventHub(address _eventHub) external onlyOwner {
         eventHub = IEventHub(_eventHub);
+    }
+
+    /// @notice #204: Set the PaymentReceipts contract address. When non-zero,
+    ///         createEnvelope forwards each recipient's transferred share to
+    ///         paymentReceipts.bumpUserReceived so they can later prove their
+    ///         encrypted total received income, and bumps the global
+    ///         aggregate so the landing-page counter reflects gift volume.
+    function setPaymentReceipts(address _paymentReceipts) external onlyOwner {
+        paymentReceipts = _paymentReceipts;
+    }
+
+    /// @dev Internal: forward a pre-verified euint64 to PaymentReceipts for
+    ///      both per-user bump and global aggregate bump. Wrapped in
+    ///      try/catch so a misconfigured (non-authorized) PaymentReceipts can
+    ///      never block a gift creation. Mirrors BusinessHub._bumpReceipts.
+    ///
+    ///      Note: allowTransient is scoped to a single external call frame, so
+    ///      we re-authorize the amount handle before each cross-contract call.
+    function _bumpReceiptsAndGlobal(address recipient, euint64 amount) internal {
+        if (paymentReceipts == address(0)) return;
+        FHE.allowTransient(amount, paymentReceipts);
+        try IPaymentReceipts(paymentReceipts).bumpUserReceived(recipient, amount) {} catch {}
+        FHE.allowTransient(amount, paymentReceipts);
+        try IPaymentReceipts(paymentReceipts).bumpGlobal(amount) {} catch {}
     }
 
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}

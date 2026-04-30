@@ -2,6 +2,7 @@ import { useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAccount, useDisconnect } from "wagmi";
 import { useEffectiveAddress } from "@/hooks/useEffectiveAddress";
+import { useChain } from "@/providers/ChainProvider";
 import {
   Copy,
   Check,
@@ -41,6 +42,7 @@ export default function Profile() {
   useAccount();
   const { disconnect } = useDisconnect();
   const { formatted: realBalance, isDecrypted, hasBalance } = useEncryptedBalance();
+  const { activeChain } = useChain();
   const [copied, setCopied] = useState(false);
   const [balanceRevealed, setBalanceRevealed] = useState(false);
 
@@ -145,14 +147,31 @@ export default function Profile() {
                   )}
                 </button>
               </div>
-              <p
-                className={cn(
-                  "text-3xl font-heading font-medium",
-                  balanceRevealed ? "decrypted-text" : "encrypted-text",
-                )}
-              >
-                ${balanceRevealed && isDecrypted && realBalance ? realBalance : balanceRevealed && hasBalance ? "Decrypting..." : balanceRevealed ? "0.00" : "••••••.••"}
-              </p>
+              {/* Audit Top-28 #23: when balance has a handle but isn't
+                  decrypted (permit missing/expired), show a CTA to fix it
+                  rather than leaving the user staring at "Decrypting…" forever. */}
+              {balanceRevealed && hasBalance && !isDecrypted ? (
+                <button
+                  onClick={() => navigate("/app/privacy")}
+                  className="text-base font-medium text-emerald-600 hover:text-emerald-500 transition-colors flex items-center gap-1.5"
+                >
+                  <KeyRound size={16} />
+                  Create a permit to view your balance
+                </button>
+              ) : (
+                <p
+                  className={cn(
+                    "text-3xl font-heading font-medium",
+                    balanceRevealed ? "decrypted-text" : "encrypted-text",
+                  )}
+                >
+                  ${balanceRevealed && isDecrypted && realBalance
+                    ? realBalance
+                    : balanceRevealed
+                      ? "0.00"
+                      : "••••••.••"}
+                </p>
+              )}
               <div className="flex items-center gap-2 mt-3">
                 <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-100">
                   <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
@@ -161,7 +180,7 @@ export default function Profile() {
                   </span>
                 </div>
                 <span className="text-xs text-[var(--text-primary)]/50">
-                  Ethereum Sepolia
+                  {activeChain?.name ?? "Unknown chain"}
                 </span>
               </div>
             </div>
@@ -252,7 +271,7 @@ export default function Profile() {
               </div>
               <div className="flex items-center justify-between p-4 rounded-2xl bg-white/50 border border-black/5">
                 <p className="text-sm text-[var(--text-primary)]/70">Network</p>
-                <p className="text-sm font-medium text-[var(--text-primary)]">Ethereum Sepolia</p>
+                <p className="text-sm font-medium text-[var(--text-primary)]">{activeChain?.name ?? "—"}</p>
               </div>
               <div className="flex items-center justify-between p-4 rounded-2xl bg-white/50 border border-black/5">
                 <p className="text-sm text-[var(--text-primary)]/70">Encryption</p>

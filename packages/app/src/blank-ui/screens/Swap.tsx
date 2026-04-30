@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useMemo } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   ArrowDownUp,
   Lock,
@@ -12,18 +13,125 @@ import {
   Clock,
   ShieldCheck,
   Info,
+  Users,
+  Repeat,
+  Workflow,
 } from "lucide-react";
 import { useExchange } from "@/hooks/useExchange";
 import { useShield } from "@/hooks/useShield";
 import { useEffectiveAddress } from "@/hooks/useEffectiveAddress";
 import { useChain } from "@/providers/ChainProvider";
 import toast from "react-hot-toast";
+import DexSwapTab from "./DexSwapTab";
+import Bridge from "./Bridge";
+import { cn } from "@/lib/cn";
+
+// Phase 5.3 — Exchange screen restructure: P2P (existing) | DEX (new) | Bridge.
+// `?tab=` is the source of truth so deeplinks like /app/swap?tab=dex work, and
+// so the existing /app/bridge route stays alive as a standalone alias. See
+// the "Bridge" tab — it embeds the same Bridge.tsx that mounts at /app/bridge.
+
+type ExchangeTab = "p2p" | "dex" | "bridge";
+
+const VALID_TABS: ReadonlySet<ExchangeTab> = new Set(["p2p", "dex", "bridge"]);
+
+const TAB_DEFS: Array<{ id: ExchangeTab; label: string; Icon: typeof Users; sublabel: string }> = [
+  { id: "p2p", label: "P2P", Icon: Users, sublabel: "Encrypted offers" },
+  { id: "dex", label: "DEX", Icon: Repeat, sublabel: "Uniswap v3" },
+  { id: "bridge", label: "Bridge", Icon: Workflow, sublabel: "CCTP V2" },
+];
+
+function parseTab(raw: string | null): ExchangeTab {
+  return raw && VALID_TABS.has(raw as ExchangeTab) ? (raw as ExchangeTab) : "p2p";
+}
 
 // ---------------------------------------------------------------
 //  MAIN SCREEN
 // ---------------------------------------------------------------
 
+// Outer Swap component — handles tab routing. The existing P2P logic moved
+// down into `P2PTab` verbatim so this refactor is a pure additive wrap.
 export default function Swap() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tab = parseTab(searchParams.get("tab"));
+
+  const setTab = useCallback(
+    (next: ExchangeTab) => {
+      const sp = new URLSearchParams(searchParams);
+      if (next === "p2p") {
+        sp.delete("tab"); // clean URL for the default tab
+      } else {
+        sp.set("tab", next);
+      }
+      setSearchParams(sp, { replace: true });
+    },
+    [searchParams, setSearchParams],
+  );
+
+  return (
+    <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <div className="max-w-5xl mx-auto">
+        {/* Page header */}
+        <div className="mb-8">
+          <h1 className="text-4xl sm:text-5xl font-heading font-semibold text-[var(--text-primary)] tracking-tight mb-2">
+            Exchange
+          </h1>
+          <p className="text-base text-[var(--text-primary)]/50 leading-relaxed">
+            Trade tokens privately — peer-to-peer offers, on-chain DEX routing,
+            or bridge USDC across chains.
+          </p>
+        </div>
+
+        {/* Tab nav */}
+        <div
+          role="tablist"
+          aria-label="Exchange surface"
+          data-testid="exchange-tabs"
+          className="mb-8 inline-flex p-1 rounded-2xl bg-black/5 dark:bg-white/5 border border-black/5 dark:border-white/10"
+        >
+          {TAB_DEFS.map(({ id, label, Icon, sublabel }) => (
+            <button
+              key={id}
+              role="tab"
+              aria-selected={tab === id}
+              data-testid={`exchange-tab-${id}`}
+              onClick={() => setTab(id)}
+              className={cn(
+                "h-12 px-5 rounded-xl text-sm font-medium transition-all flex items-center gap-2.5 group",
+                tab === id
+                  ? "bg-white dark:bg-white/10 text-[var(--text-primary)] shadow-sm"
+                  : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]",
+              )}
+            >
+              <Icon size={16} />
+              <span className="flex flex-col items-start leading-tight">
+                <span>{label}</span>
+                <span
+                  className={cn(
+                    "text-[10px] font-normal",
+                    tab === id ? "text-[var(--text-secondary)]" : "text-[var(--text-tertiary)]",
+                  )}
+                >
+                  {sublabel}
+                </span>
+              </span>
+            </button>
+          ))}
+        </div>
+
+        {/* Tab content. P2P keeps the existing 549-line UI intact; DEX is
+            the new Phase 5.4 surface; Bridge embeds the same Bridge.tsx
+            mounted standalone at /app/bridge so email/extension deeplinks
+            keep working. */}
+        {tab === "p2p" && <P2PTab />}
+        {tab === "dex" && <DexSwapTab />}
+        {tab === "bridge" && <Bridge embedded />}
+      </div>
+    </div>
+  );
+}
+
+function P2PTab() {
   const { effectiveAddress: address } = useEffectiveAddress();
   const { contracts, activeChain } = useChain();
   // P2P requires a second token + vault to trade against. Ethereum Sepolia
@@ -112,21 +220,13 @@ export default function Swap() {
   const myOffers = useMemo(() => sortOffers(nonExpiredOffers.filter((o) => o.maker_address === address?.toLowerCase())), [sortOffers, nonExpiredOffers, address]);
   const otherOffers = useMemo(() => sortOffers(nonExpiredOffers.filter((o) => o.maker_address !== address?.toLowerCase())), [sortOffers, nonExpiredOffers, address]);
 
+  // Outer Swap component renders the page header + tab nav, so P2PTab
+  // skips its own header and the outer animate-in wrapper. All existing
+  // P2P-specific JSX below is verbatim from the original Swap component.
   return (
-    <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <div className="max-w-5xl mx-auto">
-        {/* Page Title */}
-        <div className="mb-8">
-          <h1 className="text-4xl sm:text-5xl font-heading font-semibold text-[var(--text-primary)] tracking-tight mb-2">
-            P2P Exchange
-          </h1>
-          <p className="text-base text-[var(--text-primary)]/50 leading-relaxed">
-            Create and fill swap offers with private amounts
-          </p>
-        </div>
-
-        {!hasUsdt && (
-          <div className="mb-6 rounded-2xl p-5 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 flex items-start gap-3">
+    <>
+      {!hasUsdt && (
+        <div className="mb-6 rounded-2xl p-5 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 flex items-start gap-3">
             <Info size={20} className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
             <div>
               <p className="font-medium text-amber-900 dark:text-amber-200 mb-1">
@@ -534,16 +634,15 @@ export default function Swap() {
           </div>
         )}
 
-        {/* Loading State */}
-        {isLoadingOffers && (
-          <div className="rounded-[2rem] glass-card p-8">
-            <div className="flex items-center justify-center py-8 gap-3">
-              <Loader2 size={24} className="animate-spin text-[var(--text-primary)]/40" />
-              <span className="text-[var(--text-primary)]/50">Loading offers...</span>
-            </div>
+      {/* Loading State */}
+      {isLoadingOffers && (
+        <div className="rounded-[2rem] glass-card p-8">
+          <div className="flex items-center justify-center py-8 gap-3">
+            <Loader2 size={24} className="animate-spin text-[var(--text-primary)]/40" />
+            <span className="text-[var(--text-primary)]/50">Loading offers...</span>
           </div>
-        )}
-      </div>
-    </div>
+        </div>
+      )}
+    </>
   );
 }

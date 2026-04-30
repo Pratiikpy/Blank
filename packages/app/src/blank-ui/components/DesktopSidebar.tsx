@@ -1,56 +1,17 @@
 import { useState, useCallback, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import {
-  Wallet,
-  Send,
-  Users,
-  Heart,
-  Briefcase,
-  ArrowLeftRight,
-  EyeOff,
-  Gift,
-  Timer,
-  ShieldCheck,
-  Sparkles,
-  Fingerprint,
-  Settings,
-  HelpCircle,
-  Sun,
-  Moon,
-} from "lucide-react";
-import type { LucideIcon } from "lucide-react";
+import { Sun, Moon } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { BlankLogo } from "@/blank-ui/landing/BlankLogo";
 import { ChainSelector } from "./ChainSelector";
 import { usePrivacyMode } from "@/providers/PrivacyModeProvider";
+import { useWorkspaceMode } from "@/providers/WorkspaceModeProvider";
+import { desktopSidebarItems } from "@/lib/nav-registry";
 import "@/blank-ui/landing/landing.css"; // pulls in .bl-wordmark + .bl-lockup styles
 
-// ═══════════════════════════════════════════════════════════════════
-//  NAV ITEMS — 10 items matching the reference design
-// ═══════════════════════════════════════════════════════════════════
-
-interface NavItem {
-  icon: LucideIcon;
-  label: string;
-  path: string;
-}
-
-const NAV_ITEMS: NavItem[] = [
-  { icon: Wallet, label: "Dashboard", path: "/app" },
-  { icon: Send, label: "Send & Receive", path: "/app/send" },
-  { icon: Users, label: "Group Expenses", path: "/app/groups" },
-  { icon: Heart, label: "Creator Support", path: "/app/creators" },
-  { icon: Briefcase, label: "Business Tools", path: "/app/business" },
-  { icon: ArrowLeftRight, label: "P2P Exchange", path: "/app/swap" },
-  { icon: EyeOff, label: "Stealth Payments", path: "/app/stealth" },
-  { icon: Gift, label: "Gift Envelopes", path: "/app/gifts" },
-  { icon: Timer, label: "Inheritance", path: "/app/inheritance" },
-  { icon: ShieldCheck, label: "Encrypted Proofs", path: "/app/proofs" },
-  { icon: Sparkles, label: "AI Agents", path: "/app/agents" },
-  { icon: Fingerprint, label: "Smart Wallet", path: "/app/wallet" },
-  { icon: Settings, label: "Settings", path: "/app/settings" },
-  { icon: HelpCircle, label: "Help & FAQ", path: "/app/help" },
-];
+// Sidebar pulls its items from `lib/nav-registry.ts` filtered by the
+// current workspace mode. To add or rename a route, edit the registry —
+// not this component.
 
 // ═══════════════════════════════════════════════════════════════════
 //  SIDEBAR
@@ -62,6 +23,8 @@ export function DesktopSidebar() {
   // Shared global privacy mode — toggling here propagates to Dashboard's
   // BalanceCard, ActivityList masks, etc.
   const { privacyMode, toggle: togglePrivacy } = usePrivacyMode();
+  const { mode } = useWorkspaceMode();
+  const navItems = desktopSidebarItems(mode);
   const [darkMode, setDarkMode] = useState(() => {
     if (typeof window === "undefined") return false;
     return localStorage.getItem("blank_dark_mode") === "true";
@@ -131,7 +94,7 @@ export function DesktopSidebar() {
 
       {/* ── Navigation ───────────────────────────────────── */}
       <nav className="flex-1 py-3 px-3 space-y-0.5 overflow-y-auto">
-        {NAV_ITEMS.map((item) => {
+        {navItems.map((item) => {
           const active = isActive(item.path);
 
           return (

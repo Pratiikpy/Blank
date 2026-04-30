@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useContacts } from "@/hooks/useContacts";
 import { ChevronLeft, Plus, Trash2, Search, User } from "lucide-react";
@@ -12,6 +12,12 @@ export default function Contacts() {
   const [newName, setNewName] = useState("");
   const [newAddress, setNewAddress] = useState("");
   const [showAdd, setShowAdd] = useState(false);
+  // Audit Top-28 #16: Enter-key fires the handler synchronously while the
+  // setIsAdding state update is async, so two Enters within ~30ms can
+  // both pass the gate. A ref flips synchronously and reliably blocks the
+  // second submission.
+  const submittingRef = useRef(false);
+  const [isAdding, setIsAdding] = useState(false);
 
   const filtered = search
     ? contacts.filter(
@@ -22,15 +28,23 @@ export default function Contacts() {
     : contacts;
 
   const handleAdd = async () => {
+    if (submittingRef.current) return;
     if (!newName.trim() || !newAddress.trim()) { toast.error(!newName.trim() ? "Enter a name" : "Enter a wallet address"); return; }
     if (!/^0x[a-fA-F0-9]{40}$/.test(newAddress.trim())) {
       toast.error("Invalid Ethereum address");
       return;
     }
-    await addContact(newAddress.trim(), newName.trim());
-    setNewName("");
-    setNewAddress("");
-    setShowAdd(false);
+    submittingRef.current = true;
+    setIsAdding(true);
+    try {
+      await addContact(newAddress.trim(), newName.trim());
+      setNewName("");
+      setNewAddress("");
+      setShowAdd(false);
+    } finally {
+      submittingRef.current = false;
+      setIsAdding(false);
+    }
   };
 
   return (
@@ -69,23 +83,24 @@ export default function Contacts() {
             <input
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") handleAdd(); }}
+              onKeyDown={(e) => { if (e.key === "Enter" && !isAdding) handleAdd(); }}
               placeholder="Nickname"
               className="h-12 w-full px-4 rounded-xl bg-white/60 border border-black/5 outline-none"
             />
             <input
               value={newAddress}
               onChange={(e) => setNewAddress(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") handleAdd(); }}
+              onKeyDown={(e) => { if (e.key === "Enter" && !isAdding) handleAdd(); }}
               placeholder="0x... wallet address"
               className="h-12 w-full px-4 rounded-xl bg-white/60 border border-black/5 outline-none font-mono text-sm"
             />
             <div className="flex gap-2">
               <button
                 onClick={handleAdd}
-                className="h-12 flex-1 rounded-xl bg-[#1D1D1F] text-white font-medium"
+                disabled={isAdding}
+                className="h-12 flex-1 rounded-xl bg-[#1D1D1F] text-white font-medium disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                Save Contact
+                {isAdding ? "Saving…" : "Save Contact"}
               </button>
               <button
                 onClick={() => setShowAdd(false)}

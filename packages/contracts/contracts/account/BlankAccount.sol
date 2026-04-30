@@ -22,8 +22,31 @@ import "../lib/P256Verifier.sol";
  *      decryptForTx/decryptForView is called from a smart-account context.
  *      Without it, encrypted balance reveals fail silently.
  */
+/// @dev Phase 4.1 — minimal validator interface BlankAccount dispatches to
+///      when userOp.signature carries the non-legacy format. The validator
+///      verifies its own signature scheme + scope and returns packed
+///      validationData (per ERC-4337 v0.8 BaseAccount semantics).
+interface IBlankValidator {
+    function validateUserOp(
+        PackedUserOperation calldata userOp,
+        bytes32 userOpHash
+    ) external returns (uint256);
+}
+
 contract BlankAccount is BaseAccount, Initializable, UUPSUpgradeable {
     IEntryPoint private immutable _entryPoint;
+
+    // ─── Storage layout (DO NOT REORDER) ──────────────────────────────────
+    // slot 0: ownerX
+    // slot 1: ownerY
+    // slot 2: recoveryModule
+    // slot 3: enabledValidators                       ← Phase 4.1 append
+    //
+    // Append-only storage layout per UUPS upgrade rules. The
+    // `check-storage-layout` hardhat task verifies this on every CI run.
+    // Existing user proxies preserve slots 0-2 verbatim through the
+    // upgradeToAndCall(newImpl) flow; slot 3 starts as default-zero
+    // (no validators enabled) which is the correct fresh state.
 
     /// @notice P-256 public key X coordinate (one half of the WebAuthn pubkey)
     uint256 public ownerX;
@@ -33,9 +56,20 @@ contract BlankAccount is BaseAccount, Initializable, UUPSUpgradeable {
     /// @notice Recovery module address (zero = no recovery configured)
     address public recoveryModule;
 
+    /// @notice Phase 4.1 — set of authorized IValidator modules. The
+    ///         session-key dispatch in `_validateSignature` calls one of
+    ///         these when userOp.signature uses the validator format
+    ///         (anything non-64-byte). Toggled via `enableValidator` /
+    ///         `disableValidator`, both `onlySelfOrEntryPoint` so only the
+    ///         account itself can authorize validators (no external EOA
+    ///         can sneak in a malicious one).
+    mapping(address validator => bool enabled) public enabledValidators;
+
     event Initialized(uint256 ownerX, uint256 ownerY, address recoveryModule);
     event OwnerChanged(uint256 newX, uint256 newY);
     event Executed(address indexed target, uint256 value, bytes data);
+    event ValidatorEnabled(address indexed validator);
+    event ValidatorDisabled(address indexed validator);
 
     modifier onlySelfOrEntryPoint() {
         require(
@@ -73,15 +107,83 @@ contract BlankAccount is BaseAccount, Initializable, UUPSUpgradeable {
     }
 
     /// @inheritdoc BaseAccount
+    /// @dev Phase 4.1 — length-discriminated dispatch:
+    ///        • 64 bytes  → legacy P-256 path: `abi.encode(r, s)` from the
+    ///                      WebAuthn flow. Backwards-compatible with every
+    ///                      pre-upgrade client.
+    ///        • else      → validator dispatch: `abi.encode(address validator,
+    ///                      bytes innerSig)`. The account checks the validator
+    ///                      is enabled, then forwards the userOp (with sig
+    ///                      replaced by `innerSig`) to the validator's
+    ///                      `validateUserOp`. The validator returns packed
+    ///                      validationData that the EntryPoint enforces
+    ///                      natively (validUntil / validAfter for frequency
+    ///                      caps, etc).
+    ///
+    /// @dev `abi.encode(r, s)` is exactly 64 bytes (two uint256 values), and
+    ///      `abi.encode(address, bytes)` is at minimum 96 bytes (32 address
+    ///      + 32 offset + 32 length, plus the bytes payload). The two
+    ///      formats are unambiguously discriminated by length.
     function _validateSignature(
         PackedUserOperation calldata userOp,
         bytes32 userOpHash
     ) internal virtual override returns (uint256 validationData) {
-        // userOp.signature = abi.encode(uint256 r, uint256 s) — produced by
-        // the WebAuthn flow on the client (P-256 returns r, s pairs).
-        (uint256 r, uint256 s) = abi.decode(userOp.signature, (uint256, uint256));
-        bool valid = P256.verify(userOpHash, r, s, ownerX, ownerY);
-        validationData = valid ? 0 : 1; // 0 = valid; 1 = SIG_VALIDATION_FAILED
+        if (userOp.signature.length == 64) {
+            // Legacy P-256 path — unchanged behavior, preserves
+            // backwards compat with pre-upgrade client signatures.
+            (uint256 r, uint256 s) = abi.decode(userOp.signature, (uint256, uint256));
+            return P256.verify(userOpHash, r, s, ownerX, ownerY) ? 0 : 1;
+        }
+
+        // Validator-dispatch path. We decode the outer wrapper and forward
+        // the inner-sig-bearing userOp to the validator. Decode reverts on
+        // malformed input — that lands in BaseAccount.validateUserOp's outer
+        // try/catch as SIG_VALIDATION_FAILED, which is the right behavior:
+        // a malformed sig should never authorize anything.
+        (address validator, bytes memory innerSig) = abi.decode(
+            userOp.signature,
+            (address, bytes)
+        );
+        if (validator == address(0) || !enabledValidators[validator]) {
+            return 1; // SIG_VALIDATION_FAILED — validator not authorized
+        }
+
+        // Build a shim userOp with sig replaced by innerSig so the
+        // validator decodes its own format from `userOp.signature`. We
+        // copy each field — bytes calldata fields auto-convert to bytes
+        // memory at the assignment boundary. Cost is bounded by userOp
+        // size (typical ~500 bytes).
+        PackedUserOperation memory shim = PackedUserOperation({
+            sender: userOp.sender,
+            nonce: userOp.nonce,
+            initCode: userOp.initCode,
+            callData: userOp.callData,
+            accountGasLimits: userOp.accountGasLimits,
+            preVerificationGas: userOp.preVerificationGas,
+            gasFees: userOp.gasFees,
+            paymasterAndData: userOp.paymasterAndData,
+            signature: innerSig
+        });
+        return IBlankValidator(validator).validateUserOp(shim, userOpHash);
+    }
+
+    /// @notice Phase 4.1 — authorize a validator module. The session-key
+    ///         dispatch in `_validateSignature` consults this map.
+    ///         `onlySelfOrEntryPoint` means the user must sign a UserOp
+    ///         (with their P-256 passkey) calling this — no external EOA
+    ///         can install a validator.
+    function enableValidator(address validator) external onlySelfOrEntryPoint {
+        require(validator != address(0), "BlankAccount: zero validator");
+        enabledValidators[validator] = true;
+        emit ValidatorEnabled(validator);
+    }
+
+    /// @notice Phase 4.1 — revoke a previously-authorized validator. After
+    ///         this, any UserOp using the validator-dispatch format with
+    ///         this validator address fails with SIG_VALIDATION_FAILED.
+    function disableValidator(address validator) external onlySelfOrEntryPoint {
+        enabledValidators[validator] = false;
+        emit ValidatorDisabled(validator);
     }
 
     /// @dev Allow execute from EntryPoint AND self-calls (for batched internal ops).
@@ -129,12 +231,27 @@ contract BlankAccount is BaseAccount, Initializable, UUPSUpgradeable {
     /// @notice ERC-1271 signature verification hook.
     ///         The cofhe Threshold Network uses this to verify decrypt requests
     ///         when a smart account is the signer (instead of an EOA).
-    /// @return magicValue 0x1626ba7e if valid, 0xffffffff otherwise. Never reverts.
+    /// @return magicValue 0x1626ba7e if valid, 0xffffffff otherwise.
+    ///         Never reverts — ERC-1271 requires consumers to be able to
+    ///         distinguish "invalid" from "errored" by inspecting the
+    ///         return value, so we fail closed (return 0xffffffff) on
+    ///         every malformed-input case rather than letting abi.decode
+    ///         bubble a revert.
     function isValidSignature(
         bytes32 hash,
         bytes calldata signature
     ) external view returns (bytes4 magicValue) {
-        (uint256 r, uint256 s) = abi.decode(signature, (uint256, uint256));
+        // P-256 (r, s) is two uint256 fields packed via abi.encode = exactly
+        // 64 bytes. Any other length is malformed.
+        if (signature.length != 64) return 0xffffffff;
+        // bytes-level read is safe at this length; sidesteps abi.decode's
+        // own implicit revert on truncated/oversized input.
+        uint256 r;
+        uint256 s;
+        assembly {
+            r := calldataload(signature.offset)
+            s := calldataload(add(signature.offset, 32))
+        }
         if (P256.verify(hash, r, s, ownerX, ownerY)) {
             return 0x1626ba7e; // EIP-1271 magic value
         }

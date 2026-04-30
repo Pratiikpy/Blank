@@ -17,10 +17,13 @@ const ACTIVE_WINDOW_HOURS = 24;
 const MAX_ADDRESSES_PER_TICK = 50;
 
 export default async function handler(req: any, res: any) {
-  // Vercel Cron sends Authorization: Bearer <CRON_SECRET>
+  // Vercel Cron sends Authorization: Bearer <CRON_SECRET>.
+  // Fail closed: missing CRON_SECRET in env = reject all requests. The
+  // earlier `if (expected && ...)` form skipped the check when the env
+  // var was unset, leaving the endpoint publicly callable.
   const expected = process.env.CRON_SECRET;
   const provided = req.headers["authorization"];
-  if (expected && provided !== `Bearer ${expected}`) {
+  if (!expected || provided !== `Bearer ${expected}`) {
     res.status(401).json({ error: "unauthorized" });
     return;
   }

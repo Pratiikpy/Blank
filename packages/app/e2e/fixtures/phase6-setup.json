@@ -1,0 +1,38 @@
+{
+  "chainId": 84532,
+  "sender": {
+    "address": "0x021a0F005E16e7c3ae98E4F28F278DeBC7A3573f",
+    "passkey": {
+      "pubX": "0xcb95c03c21bd16e22f34d0a253c35a5bd53ad5a9fc0e4ef9f3dd61ced364573a",
+      "pubY": "0xe969d62fbbffa077bcc2ec6ea520bac95d62388d8edcf40f795c20e607e62dc4",
+      "privKey": "7068617365322d746573742d706173736b65792d736565642d311b1c1d1e1f20"
+    },
+    "seed": "phase2-test-passkey-seed-1"
+  },
+  "recipient": {
+    "address": "0x135694d9578e6f355B80C3D259e4F7D5e2c76DE3",
+    "passkey": {
+      "pubX": "0xffb061c11edb0d9f46e5d95fabf5f2b4d433d1d5422bec3088fbe9ed2e658dda",
+      "pubY": "0x1093d4f4e035a22ea229cb1ad6c965858669e21ad33ea1fd8dad20f1eea71b31",
+      "privKey": "7068617365362d726563697069656e742d736565642d4118191a1b1c1d1e1f20"
+    },
+    "seed": "phase6-recipient-seed-A"
+  },
+  "contracts": {
+    "TestUSDC": "0x6377eF23B3464019EcF35528be6Eb6d6D57d0b1a",
+    "FHERC20Vault_USDC": "0x789f0bC466E172eD737493e9796a6d0a3aB0ff23",
+    "PaymentHub": "0xF420102Dea1acf437bfc49ded5F4E2f5ed32e831",
+    "GiftMoney": "0x37374487A6575780A6DE3C83440441C7aB03cDDf",
+    "StealthPayments": "0x76aDF6D800D34B9Ee42AeAEC87dC7C8824132F1C",
+    "GroupManager": "0x1749E0E08f86211D8239F40BdEcb9497704f9D3d",
+    "CreatorHub": "0x5dc36868c89F38F56856DDD55096E3F115cC12ea",
+    "BusinessHub": "0xEfD67E33f12a7b3A221d25f965f70d1BE6721EFD",
+    "P2PExchange": "0xDa606096d5C2bdE73ccB418771e12630030Ff116",
+    "InheritanceManager": "0x289714c46F3c47B2E610191d924dC9bDf22973d5",
+    "BlankAccountFactory": "0xd19Bfd90907c943Eee129a2066BCbC350F4a16fb",
+    "BlankPaymaster": "0xB1CbBD59E63d7aB0BbF0406CCF1016c1Dd8e63de",
+    "EntryPoint": "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
+    "TestUSDT": "0x2870D040D7964aDdbbD592D96573d0f26adf0066",
+    "FHERC20Vault_USDT": "0x7Af02f6e1759a7b6219fCc69a8dd430ACb453861"
+  }
+}

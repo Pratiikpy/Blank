@@ -41,3 +41,12 @@ memory/
 /tasks/
 test_reports/
 ~$*
+*.stackdump
+packages/app/test-results/
+packages/app/playwright-report/
+
+# Internal planning notes — kept local, not pushed
+WAVE*_*.md
+.claude/
+packages/app/TESTING_PLAN.md
+packages/app/TESTING_STATUS.md

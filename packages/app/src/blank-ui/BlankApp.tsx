@@ -2,28 +2,7 @@ import { lazy, Suspense, useState, useEffect } from "react";
 import { Routes, Route, useLocation, useNavigate } from "react-router-dom";
 import { useAccount } from "wagmi";
 import { useSwitchChain } from "wagmi";
-import {
-  Home,
-  Send,
-  Clock,
-  Compass,
-  User,
-  AlertTriangle,
-  MoreHorizontal,
-  X,
-  Briefcase,
-  Heart,
-  ArrowLeftRight,
-  EyeOff,
-  Gift,
-  Timer,
-  ShieldCheck,
-  Sparkles,
-  Fingerprint,
-  Settings as SettingsIcon,
-  HelpCircle,
-  Bell,
-} from "lucide-react";
+import { AlertTriangle, MoreHorizontal, X, Bell } from "lucide-react";
 import { cn } from "@/lib/cn";
 import type { SupportedChainId } from "@/lib/constants";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
@@ -47,10 +26,16 @@ const Explore = lazy(() => import("./screens/Explore"));
 const Profile = lazy(() => import("./screens/Profile"));
 const Groups = lazy(() => import("./screens/Groups"));
 const Stealth = lazy(() => import("./screens/Stealth"));
+const StealthInbox = lazy(() => import("./screens/StealthInbox"));
+const StealthMetaSetup = lazy(() => import("./screens/StealthMetaSetup"));
+const Burners = lazy(() => import("./screens/Burners"));
+const ScheduledSends = lazy(() => import("./screens/ScheduledSends"));
 const Gifts = lazy(() => import("./screens/Gifts"));
 const Swap = lazy(() => import("./screens/Swap"));
+const Bridge = lazy(() => import("./screens/Bridge"));
 const Analytics = lazy(() => import("./screens/Analytics"));
 const BusinessTools = lazy(() => import("./screens/BusinessTools"));
+const InvoicePage = lazy(() => import("./screens/InvoicePage"));
 const CreatorSupport = lazy(() => import("./screens/CreatorSupport"));
 const InheritancePlanning = lazy(() => import("./screens/InheritancePlanning"));
 const Requests = lazy(() => import("./screens/Requests"));
@@ -65,6 +50,9 @@ const TransactionDetail = lazy(() => import("./screens/TransactionDetail"));
 
 // Desktop sidebar
 import { DesktopSidebar } from "./components/DesktopSidebar";
+import { useWorkspaceMode } from "@/providers/WorkspaceModeProvider";
+import { mobileBottomItems, mobileMoreItems } from "@/lib/nav-registry";
+import { ConnectionHealthBanner } from "./components/ConnectionHealthBanner";
 
 // Global search
 import { GlobalSearch } from "./components/GlobalSearch";
@@ -80,36 +68,16 @@ function LoadingSpinner() {
 
 // ─── Bottom navigation (mobile only) ──────────────────────────────
 //
-// Five tabs visible on mobile. The fifth ("More") opens a sheet with
-// every desktop sidebar item that isn't in the bottom 5 — so mobile
-// users have access to everything (Proofs, AI Agents, Smart Wallet,
-// Business, Creators, Stealth, Gifts, Inheritance, Swap, Settings, Help).
-const navItems = [
-  { path: "/app", label: "Home", icon: Home },
-  { path: "/app/send", label: "Send", icon: Send },
-  { path: "/app/history", label: "History", icon: Clock },
-  { path: "/app/explore", label: "Explore", icon: Compass },
-];
-
-const moreItems = [
-  { path: "/app/profile",     label: "Profile",          icon: User },
-  { path: "/app/wallet",      label: "Smart Wallet",     icon: Fingerprint },
-  { path: "/app/proofs",      label: "Encrypted Proofs", icon: ShieldCheck },
-  { path: "/app/agents",      label: "AI Agents",        icon: Sparkles },
-  { path: "/app/business",    label: "Business Tools",   icon: Briefcase },
-  { path: "/app/creators",    label: "Creator Support",  icon: Heart },
-  { path: "/app/swap",        label: "P2P Exchange",     icon: ArrowLeftRight },
-  { path: "/app/stealth",     label: "Stealth Payments", icon: EyeOff },
-  { path: "/app/gifts",       label: "Gift Envelopes",   icon: Gift },
-  { path: "/app/inheritance", label: "Inheritance",      icon: Timer },
-  { path: "/app/settings",    label: "Settings",         icon: SettingsIcon },
-  { path: "/app/help",        label: "Help & FAQ",       icon: HelpCircle },
-];
-
+// Bottom-nav items + the "More" sheet are derived from the shared nav
+// registry, filtered by the current workspace mode. Editing routes
+// happens in `lib/nav-registry.ts`, not here.
 function BottomNav() {
   const location = useLocation();
   const navigate = useNavigate();
   const [moreOpen, setMoreOpen] = useState(false);
+  const { mode } = useWorkspaceMode();
+  const navItems = mobileBottomItems(mode);
+  const moreItems = mobileMoreItems(mode);
 
   const activePath = navItems.find((item) => {
     if (item.path === "/app") return location.pathname === "/app";
@@ -336,6 +304,19 @@ export function BlankApp() {
     }
   }, [isConnected, chain?.id, activeChainId, setActiveChain]);
 
+  // PR-C step 3: invoice deep-links MUST work for unauthenticated
+  // visitors. The whole point of "send your client a link" is that the
+  // client doesn't need a Blank account to view the invoice — only to
+  // pay. The InvoicePage handles its own auth states (bystander view
+  // when no role, "connect to pay" when role matches but unauth, etc.)
+  // so we render it BEFORE the onboarding gate. Other routes still
+  // require auth.
+  // Match any /app/invoice/... path — including malformed ones — so the
+  // InvoicePage's own error frame ("Invalid link", "Unsupported chain")
+  // is what users see instead of the onboarding screen. The regex stays
+  // strict on the prefix to avoid bypassing auth for unrelated routes.
+  const isPublicInvoiceRoute = /^\/app\/invoice(\/|$)/.test(location.pathname);
+
   // #322: wagmi auto-reconnect from storage is async. During that window
   // `isConnected=false` but `isReconnecting=true` — show a brief spinner
   // instead of flashing Onboarding, which is jarring on every reload.
@@ -347,12 +328,29 @@ export function BlankApp() {
     );
   }
 
-  // Show onboarding when neither auth path is satisfied
-  if (!isConnected && !hasPasskeyAccount) {
+  // Show onboarding when neither auth path is satisfied — except for
+  // public deep-links like the invoice page.
+  if (!isConnected && !hasPasskeyAccount && !isPublicInvoiceRoute) {
     return (
       <div className="blank-app">
         <Suspense fallback={<LoadingSpinner />}>
           <Onboarding />
+        </Suspense>
+      </div>
+    );
+  }
+
+  // Public invoice page for unauthenticated visitors — minimal layout
+  // (no sidebar / nav chrome). The page itself decides what to show:
+  // bystander view, "connect to pay" CTA, etc.
+  if (!isConnected && !hasPasskeyAccount && isPublicInvoiceRoute) {
+    return (
+      <div className="blank-app min-h-dvh">
+        <Suspense fallback={<LoadingSpinner />}>
+          <Routes>
+            <Route path="invoice/:chainId/:invoiceId" element={<InvoicePage />} />
+            <Route path="*" element={<InvoicePage />} />
+          </Routes>
         </Suspense>
       </div>
     );
@@ -421,6 +419,10 @@ export function BlankApp() {
                 <RolesBell />
               </div>
             )}
+            {/* Audit Top-28 #21 + #22: persistent banner shown when RPC or
+                Supabase realtime is degraded. Self-hides when connections
+                recover. */}
+            <ConnectionHealthBanner />
             {/* BlankApp is mounted at `/app/*` in App.tsx. React-router v6
                 strips the parent match, so paths here are RELATIVE to /app.
                 The index route matches the bare /app URL; all others use
@@ -437,10 +439,19 @@ export function BlankApp() {
               <Route path="profile" element={<Profile />} />
               <Route path="groups" element={<Groups />} />
               <Route path="stealth" element={<Stealth />} />
+              <Route path="stealth/inbox" element={<StealthInbox />} />
+              <Route path="stealth/setup" element={<StealthMetaSetup />} />
+              <Route path="burners" element={<Burners />} />
+              <Route path="scheduled" element={<ScheduledSends />} />
               <Route path="gifts" element={<Gifts />} />
               <Route path="swap" element={<Swap />} />
+              <Route path="bridge" element={<Bridge />} />
               <Route path="analytics" element={<Analytics />} />
               <Route path="business" element={<BusinessTools />} />
+              {/* PR-C step 3: deep-link invoice escrow page. Not in nav
+                  registry (it's a per-invoice URL, not a primary surface).
+                  Direct links from "Copy invoice link" land here. */}
+              <Route path="invoice/:chainId/:invoiceId" element={<InvoicePage />} />
               <Route path="creators" element={<CreatorSupport />} />
               <Route path="inheritance" element={<InheritancePlanning />} />
               <Route path="requests" element={<Requests />} />

@@ -18,6 +18,16 @@ export interface ServerContractMap {
   PaymentHub: string;
   GiftMoney: string;
   FHERC20Vault_USDC: string;
+  /** TestUSDC — permissionless mint() so anyone can faucet 100 USDC.
+   *  Used by `/api/faucet/usdc.ts` and the auto-drip on first AA deploy
+   *  inside `/api/relay.ts`. Testnet only. */
+  TestUSDC: string;
+  /** ERC-4337 v0.8 EntryPoint — same address on every chain. Server reads
+   *  `balanceOf(paymaster)` from here in `/api/cron/paymaster-monitor.ts`. */
+  EntryPoint: string;
+  /** BlankPaymaster — sponsors gas for AA UserOps. Cron alerts when its
+   *  EntryPoint deposit drops below `PAYMASTER_ALERT_THRESHOLD_WEI`. */
+  BlankPaymaster: string;
 }
 
 type ContractKey = keyof ServerContractMap;
@@ -28,16 +38,24 @@ function readAddr(envKey: string, fallback: string): string {
   return fallback;
 }
 
+const ENTRY_POINT_V08 = "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108";
+
 const DEFAULTS: Record<number, ServerContractMap> = {
   [ETH_SEPOLIA_ID]: {
     PaymentHub: "0xB628719994C21A5CcAb190019b42750f092Fb5eB",
     GiftMoney: "0x845A25c4d4d0Acfc9AfDd3016A1D55b986Bad4F9",
     FHERC20Vault_USDC: "0x3a587f224CC3e1745565cfca8500e5934485AB51",
+    TestUSDC: "0x16369CD4B9533795dCdc0D67DB3E4c621ef97D68",
+    EntryPoint: ENTRY_POINT_V08,
+    BlankPaymaster: "0x68890C23C94e25706F064f8C1d07e04462B9Ec2E",
   },
   [BASE_SEPOLIA_ID]: {
     PaymentHub: "0xF420102Dea1acf437bfc49ded5F4E2f5ed32e831",
     GiftMoney: "0x37374487A6575780A6DE3C83440441C7aB03cDDf",
     FHERC20Vault_USDC: "0x789f0bC466E172eD737493e9796a6d0a3aB0ff23",
+    TestUSDC: "0x6377eF23B3464019EcF35528be6Eb6d6D57d0b1a",
+    EntryPoint: ENTRY_POINT_V08,
+    BlankPaymaster: "0xB1CbBD59E63d7aB0BbF0406CCF1016c1Dd8e63de",
   },
 };
 
@@ -53,6 +71,9 @@ function buildMap(chainId: number): ServerContractMap {
     PaymentHub: readAddr(`${prefix}PAYMENT_HUB`, defaults.PaymentHub),
     GiftMoney: readAddr(`${prefix}GIFT_MONEY`, defaults.GiftMoney),
     FHERC20Vault_USDC: readAddr(`${prefix}FHERC20_VAULT_USDC`, defaults.FHERC20Vault_USDC),
+    TestUSDC: readAddr(`${prefix}TEST_USDC`, defaults.TestUSDC),
+    EntryPoint: readAddr(`${prefix}ENTRYPOINT`, defaults.EntryPoint),
+    BlankPaymaster: readAddr(`${prefix}BLANK_PAYMASTER`, defaults.BlankPaymaster),
   };
 }
 

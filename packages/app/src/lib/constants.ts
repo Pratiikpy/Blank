@@ -56,6 +56,23 @@ export const CHAINS: Record<SupportedChainId, ChainInfo> = {
   },
 };
 
+/** Per-chain free testnet ETH faucets surfaced in `FundAccountModal` (Phase 7.6).
+ *  Order matters — list the most reliable / fastest first. Updated as faucets
+ *  come and go; verify quarterly that each link still works. */
+export const FAUCET_LINKS: Record<SupportedChainId, Array<{ label: string; url: string }>> = {
+  [ETH_SEPOLIA_ID]: [
+    { label: "Google Cloud", url: "https://cloud.google.com/application/web3/faucet/ethereum/sepolia" },
+    { label: "Alchemy", url: "https://www.alchemy.com/faucets/ethereum-sepolia" },
+    { label: "QuickNode", url: "https://faucet.quicknode.com/ethereum/sepolia" },
+    { label: "PoW (no signup)", url: "https://sepolia-faucet.pk910.de/" },
+  ],
+  [BASE_SEPOLIA_ID]: [
+    { label: "Coinbase Portal", url: "https://portal.cdp.coinbase.com/products/faucet" },
+    { label: "QuickNode", url: "https://faucet.quicknode.com/base/sepolia" },
+    { label: "Alchemy", url: "https://www.alchemy.com/faucets/base-sepolia" },
+  ],
+};
+
 const ACTIVE_CHAIN_KEY = "blank_active_chain_id";
 
 function readActiveChainId(): SupportedChainId {
@@ -113,6 +130,34 @@ export type ContractMap = {
   EntryPoint: `0x${string}`;
   BlankAccountFactory: `0x${string}`;
   BlankPaymaster: `0x${string}`;
+  /** Phase 6.2 — durable backup for burner-wallet metadata. address(0)
+   *  on chains where the registry hasn't been deployed yet (frontend
+   *  gracefully no-ops the "Back up to chain" button in that case). */
+  BurnerRegistry: `0x${string}`;
+  /** Phase 4.1 — canonical BlankAccount implementation address with
+   *  validator-dispatch support. The factory's `accountImplementation`
+   *  is immutable and points at the OLD impl, so each user proxy must
+   *  self-upgrade via UUPS to gain the new logic. The frontend reads
+   *  the proxy's EIP-1967 _IMPLEMENTATION_SLOT and prompts an upgrade
+   *  when it doesn't match this address. address(0) means upgrades are
+   *  unavailable on this chain (impl not deployed yet). */
+  BlankAccount_Impl_v041: `0x${string}`;
+  /** Phase 4.1 — SessionKeyValidator address. The user authorizes this
+   *  via `BlankAccount.enableValidator(SessionKeyValidator)` and then
+   *  uses `setScope` / `revokeScope` to manage server-held session
+   *  keys. address(0) means scheduled sends aren't available on this
+   *  chain yet. */
+  SessionKeyValidator: `0x${string}`;
+  /** Phase 9 — ERC-5564 stealth-payment Announcer. The canonical EIP
+   *  singleton at `0x55649E…45564` is deployed on every chain via the
+   *  Arachnid CREATE2 deployer with the canonical salt; recipients that
+   *  hardcode this address will discover our announcements without
+   *  per-chain config. */
+  ERC5564Announcer: `0x${string}`;
+  /** Phase 9 — ERC-6538 stealth meta-address registry. The canonical
+   *  Umbra/Fluidkey singleton at `0x6538…6538` is deployed on every
+   *  major chain (mainnet, sepolia, base, base-sepolia, etc.). */
+  ERC6538Registry: `0x${string}`;
 };
 
 export const CONTRACTS_BY_CHAIN: Record<SupportedChainId, ContractMap> = {
@@ -136,6 +181,21 @@ export const CONTRACTS_BY_CHAIN: Record<SupportedChainId, ContractMap> = {
     EntryPoint: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
     BlankAccountFactory: "0x9be54Ef62271C028350e70C5A4305314Ba7CAFcD",
     BlankPaymaster: "0x68890C23C94e25706F064f8C1d07e04462B9Ec2E",
+    // Address(0) until operator runs `pnpm hardhat deploy-burner-registry
+    // --network eth-sepolia`, which will write the deployed address to
+    // packages/contracts/deployments/eth-sepolia.json. Update here after.
+    BurnerRegistry: "0x0000000000000000000000000000000000000000",
+    // Address(0) until operator runs `pnpm hardhat deploy-upgrade-blankaccount-validator
+    // --network eth-sepolia`. Frontend treats address(0) as "upgrade
+    // unavailable" so the UpgradeBanner gracefully hides.
+    BlankAccount_Impl_v041: "0x0000000000000000000000000000000000000000",
+    // Address(0) until operator runs `pnpm hardhat deploy-session-key-validator
+    // --network eth-sepolia`. ScheduledSends gracefully hides when unset.
+    SessionKeyValidator: "0x0000000000000000000000000000000000000000",
+    // Canonical EIP-5564 singleton. Same on every chain.
+    ERC5564Announcer: "0x55649E01B5Df198D18D95b5cc5051630cfD45564",
+    // Canonical Umbra/Fluidkey ERC-6538 singleton. Same on every chain.
+    ERC6538Registry: "0x6538E6bf4B0eBd30A8Ea093027Ac2422ce5d6538",
   },
   [BASE_SEPOLIA_ID]: {
     // Base Sepolia: full v0.1.3 stack. FHERC20Vault + BusinessHub +
@@ -164,6 +224,14 @@ export const CONTRACTS_BY_CHAIN: Record<SupportedChainId, ContractMap> = {
     EntryPoint: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
     BlankAccountFactory: "0xd19Bfd90907c943Eee129a2066BCbC350F4a16fb",
     BlankPaymaster: "0xB1CbBD59E63d7aB0BbF0406CCF1016c1Dd8e63de",
+    // See note on Sepolia entry above. Same TODO.
+    BurnerRegistry: "0x0000000000000000000000000000000000000000",
+    BlankAccount_Impl_v041: "0x0000000000000000000000000000000000000000",
+    SessionKeyValidator: "0x0000000000000000000000000000000000000000",
+    // Canonical EIP-5564 singleton. Same on every chain.
+    ERC5564Announcer: "0x55649E01B5Df198D18D95b5cc5051630cfD45564",
+    // Canonical Umbra/Fluidkey ERC-6538 singleton. Same on every chain.
+    ERC6538Registry: "0x6538E6bf4B0eBd30A8Ea093027Ac2422ce5d6538",
   },
 };
 

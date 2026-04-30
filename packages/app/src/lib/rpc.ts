@@ -30,6 +30,12 @@ import { ETH_SEPOLIA_ID, BASE_SEPOLIA_ID, type SupportedChainId } from "./consta
 // behind the new-bytecode state for some period after deploy. Dropping
 // Tenderly until they converge; publicnode + the official public RPC are
 // enough for failover.
+// Verified working from a browser (CORS-permissive) without API keys
+// as of 2026-04-29. NOTE: drpc.org and a few other public providers
+// reject browser requests due to missing Access-Control-Allow-Origin
+// headers — those are kept ONLY in api/relay.ts (server-side, where CORS
+// doesn't apply) and excluded here. When one provider rate-limits, viem's
+// fallback() rotates to the next within ~1.5s.
 const PUBLIC_RPCS: Record<SupportedChainId, string[]> = {
   [ETH_SEPOLIA_ID]: [
     "https://ethereum-sepolia-rpc.publicnode.com",
@@ -38,6 +44,7 @@ const PUBLIC_RPCS: Record<SupportedChainId, string[]> = {
   ],
   [BASE_SEPOLIA_ID]: [
     "https://base-sepolia-rpc.publicnode.com",
+    "https://base-sepolia.gateway.tenderly.co",
     "https://sepolia.base.org",
   ],
 };
@@ -49,7 +56,14 @@ function envRpc(chainId: SupportedChainId): string | undefined {
     ? env.VITE_SEPOLIA_RPC_URL
     : env.VITE_BASE_SEPOLIA_RPC_URL;
   const trimmed = raw?.trim();
-  return trimmed && trimmed.length > 0 ? trimmed : undefined;
+  if (!trimmed || trimmed.length === 0) return undefined;
+  // Alchemy doesn't allow browser CORS — skip in browser context. The
+  // server-side relay can still use Alchemy via /api/relay (Node fetch
+  // bypasses CORS). Browser falls through to public RPCs.
+  if (typeof window !== "undefined" && /alchemy\.com/i.test(trimmed)) {
+    return undefined;
+  }
+  return trimmed;
 }
 
 /**

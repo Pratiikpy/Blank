@@ -3,9 +3,10 @@ import react from "@vitejs/plugin-react";
 import wasm from "vite-plugin-wasm";
 import topLevelAwait from "vite-plugin-top-level-await";
 import path from "path";
+import { apiRoutesPlugin } from "./vite-plugin-api";
 
 export default defineConfig({
-  plugins: [react(), wasm(), topLevelAwait()],
+  plugins: [react(), wasm(), topLevelAwait(), apiRoutesPlugin()],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
@@ -15,7 +16,12 @@ export default defineConfig({
   server: {
     port: 3000,
     fs: {
-      allow: [".."],
+      // Allow access to the monorepo root (one level above packages/app)
+      // AND the user's home node_modules where pnpm symlinks live.
+      // Without this, Vite returns "403 Restricted" HTML when tfhe tries
+      // to fetch its WASM from .pnpm/tfhe@x.y.z/node_modules/tfhe/.
+      allow: ["..", "../..", path.resolve(__dirname, "..", "..")],
+      strict: false,
     },
     headers: {
       // Required for TFHE WASM SharedArrayBuffer
@@ -58,6 +64,21 @@ export default defineConfig({
   },
   optimizeDeps: {
     exclude: ["tfhe"],
+    // Scan lazy-loaded screens at startup so Vite discovers their deps
+    // upfront. Without this, navigating to a lazy route makes Vite
+    // discover a new dep mid-flight and bump the optimizer's ?v= hash —
+    // any in-flight request for the OLD hash returns 504 Outdated Optimize
+    // Dep. We only scan screens (not lib/hooks/everything) to avoid
+    // pulling in worker files (e.g. @cofhe/sdk's zkProve.worker) that
+    // the dep optimizer can't handle.
+    entries: ["index.html", "src/blank-ui/screens/*.tsx"],
+    include: [
+      "date-fns",
+      "date-fns/format",
+      "date-fns/formatDistanceToNow",
+      "date-fns/formatDistanceToNowStrict",
+      "date-fns/parseISO",
+    ],
     esbuildOptions: {
       target: "esnext",
     },

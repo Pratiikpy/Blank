@@ -10,7 +10,9 @@ import {
   Gift,
   Ghost,
 } from "lucide-react";
+import { useEffectiveAddress } from "@/hooks/useEffectiveAddress";
 import { useActivityFeed } from "@/hooks/useActivityFeed";
+import { ACTIVITY_TYPES } from "@/lib/activity-types";
 
 // ---------------------------------------------------------------
 //  STAT COMPUTATION
@@ -25,7 +27,40 @@ interface ActivityStats {
   giftCount: number;
 }
 
-function computeStats(activities: { activity_type: string }[]): ActivityStats {
+// Direction is determined by address position (matches History.tsx semantics).
+// Activity rows have user_from + user_to; the row lands in your feed when either matches you.
+type StatActivity = {
+  activity_type: string;
+  user_from?: string | null;
+  user_to?: string | null;
+};
+
+const SWAP_TYPES = new Set<string>([
+  ACTIVITY_TYPES.OFFER_CREATED,
+  ACTIVITY_TYPES.OFFER_FILLED,
+  ACTIVITY_TYPES.SWAP_INITIATED,
+  ACTIVITY_TYPES.SWAP_SETTLED,
+  ACTIVITY_TYPES.EXCHANGE_VERIFIED,
+]);
+
+const STEALTH_TYPES = new Set<string>([
+  ACTIVITY_TYPES.STEALTH_SENT,
+  ACTIVITY_TYPES.STEALTH_CLAIM_STARTED,
+  ACTIVITY_TYPES.STEALTH_CLAIMED,
+]);
+
+const GROUP_SPLIT_TYPES = new Set<string>([
+  ACTIVITY_TYPES.GROUP_EXPENSE,
+  ACTIVITY_TYPES.GROUP_SETTLEMENT,
+  ACTIVITY_TYPES.DEBT_SETTLED,
+]);
+
+const GIFT_TYPES = new Set<string>([
+  ACTIVITY_TYPES.GIFT_CREATED,
+  ACTIVITY_TYPES.GIFT_CLAIMED,
+]);
+
+function computeStats(activities: StatActivity[], myAddress: string | undefined): ActivityStats {
   let sentCount = 0;
   let receivedCount = 0;
   let swapCount = 0;
@@ -33,14 +68,22 @@ function computeStats(activities: { activity_type: string }[]): ActivityStats {
   let stealthCount = 0;
   let giftCount = 0;
 
+  const me = myAddress?.toLowerCase();
+
   for (const a of activities) {
     const type = a.activity_type;
-    if (type === "payment" || type === "tip" || type === "group_settle") sentCount++;
-    else if (type === "request_fulfilled" || type === "gift_claimed") receivedCount++;
-    else if (type === "exchange_created" || type === "exchange_filled") swapCount++;
-    else if (type.startsWith("stealth")) stealthCount++;
-    else if (type === "group_expense") groupSplitCount++;
-    else if (type === "gift_created") giftCount++;
+    const isSent = me ? a.user_from?.toLowerCase() === me : false;
+    const isReceived = me ? a.user_to?.toLowerCase() === me : false;
+
+    // Direction-based sent/received counts (works for all types)
+    if (isSent) sentCount++;
+    else if (isReceived) receivedCount++;
+
+    // Category buckets independent of direction
+    if (SWAP_TYPES.has(type)) swapCount++;
+    if (STEALTH_TYPES.has(type)) stealthCount++;
+    if (GROUP_SPLIT_TYPES.has(type)) groupSplitCount++;
+    if (GIFT_TYPES.has(type)) giftCount++;
   }
 
   return { sentCount, receivedCount, swapCount, groupSplitCount, stealthCount, giftCount };
@@ -52,11 +95,13 @@ function computeStats(activities: { activity_type: string }[]): ActivityStats {
 
 function StatCard({
   label,
+  count,
   icon: Icon,
   iconBg,
   iconColor,
 }: {
   label: string;
+  count: number;
   icon: typeof Send;
   iconBg: string;
   iconColor: string;
@@ -70,10 +115,10 @@ function StatCard({
         <Icon size={22} color={iconColor} strokeWidth={2} />
       </div>
       <p
-        className="text-2xl font-heading font-medium encrypted-text mb-1"
+        className="text-2xl font-heading font-medium text-[var(--text-primary)] mb-1"
         style={{ fontFamily: "'JetBrains Mono', monospace" }}
       >
-        ${"\u2022\u2022\u2022\u2022\u2022.\u2022\u2022"}
+        {count}
       </p>
       <p className="text-sm text-[var(--text-primary)]/50">{label}</p>
     </div>
@@ -86,13 +131,16 @@ function StatCard({
 
 function MonthlyChart({
   activities,
+  myAddress,
 }: {
-  activities: { created_at: string; activity_type: string }[];
+  activities: { created_at: string; activity_type: string; user_from?: string | null; user_to?: string | null }[];
+  myAddress: string | undefined;
 }) {
   const monthlyData = useMemo(() => {
     const now = new Date();
     const sentByMonth: Record<string, number> = {};
     const receivedByMonth: Record<string, number> = {};
+    const me = myAddress?.toLowerCase();
 
     for (let i = 5; i >= 0; i--) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
@@ -104,22 +152,13 @@ function MonthlyChart({
     for (const a of activities) {
       const d = new Date(a.created_at);
       const key = d.toLocaleDateString("en-US", { month: "short" });
-      if (key in sentByMonth) {
-        if (
-          a.activity_type === "send" ||
-          a.activity_type === "tip" ||
-          a.activity_type === "stealth_sent" ||
-          a.activity_type === "gift_created"
-        ) {
-          sentByMonth[key]++;
-        } else if (
-          a.activity_type === "receive" ||
-          a.activity_type === "request_fulfilled" ||
-          a.activity_type === "stealth_claimed" ||
-          a.activity_type === "gift_claimed"
-        ) {
-          receivedByMonth[key]++;
-        }
+      if (!(key in sentByMonth)) continue;
+      // Direction by address position — same semantics as History.tsx
+      // (an activity with user_from === me is outgoing, user_to === me is incoming).
+      if (me && a.user_from?.toLowerCase() === me) {
+        sentByMonth[key]++;
+      } else if (me && a.user_to?.toLowerCase() === me) {
+        receivedByMonth[key]++;
       }
     }
 
@@ -160,49 +199,58 @@ function MonthlyChart({
         </div>
       </div>
 
-      <div className="flex items-end justify-between gap-3" style={{ height: 160 }}>
-        {monthlyData.map((bar) => (
-          <div key={bar.month} className="flex-1 flex flex-col items-center gap-2">
-            <div
-              className="w-full flex flex-col items-center gap-1"
-              style={{ height: 130, justifyContent: "flex-end" }}
-            >
-              {bar.received > 0 && (
-                <div
-                  className="w-full max-w-[28px] rounded-t-lg transition-all duration-300"
-                  style={{
-                    height: `${bar.receivedPct}%`,
-                    minHeight: 4,
-                    background: "#10B981",
-                  }}
-                />
-              )}
-              {bar.sent > 0 && (
-                <div
-                  className="w-full max-w-[28px] rounded-b-lg transition-all duration-300"
-                  style={{
-                    height: `${bar.sentPct}%`,
-                    minHeight: 4,
-                    background: "#007AFF",
-                  }}
-                />
-              )}
-              {bar.sent === 0 && bar.received === 0 && (
-                <div
-                  className="w-full max-w-[28px] rounded-lg"
-                  style={{ height: 4, background: "rgba(0,0,0,0.04)" }}
-                />
-              )}
+      {monthlyData.every((b) => b.sent === 0 && b.received === 0) ? (
+        <div className="flex items-center justify-center" style={{ height: 160 }}>
+          <p className="text-sm text-[var(--text-primary)]/40 italic text-center">
+            No activity in the last 6 months yet — sent and received counts
+            will plot here as you transact.
+          </p>
+        </div>
+      ) : (
+        <div className="flex items-end justify-between gap-3" style={{ height: 160 }}>
+          {monthlyData.map((bar) => (
+            <div key={bar.month} className="flex-1 flex flex-col items-center gap-2">
+              <div
+                className="w-full flex flex-col items-center gap-1"
+                style={{ height: 130, justifyContent: "flex-end" }}
+              >
+                {bar.received > 0 && (
+                  <div
+                    className="w-full max-w-[28px] rounded-t-lg transition-all duration-300"
+                    style={{
+                      height: `${bar.receivedPct}%`,
+                      minHeight: 4,
+                      background: "#10B981",
+                    }}
+                  />
+                )}
+                {bar.sent > 0 && (
+                  <div
+                    className="w-full max-w-[28px] rounded-b-lg transition-all duration-300"
+                    style={{
+                      height: `${bar.sentPct}%`,
+                      minHeight: 4,
+                      background: "#007AFF",
+                    }}
+                  />
+                )}
+                {bar.sent === 0 && bar.received === 0 && (
+                  <div
+                    className="w-full max-w-[28px] rounded-lg"
+                    style={{ height: 4, background: "rgba(0,0,0,0.04)" }}
+                  />
+                )}
+              </div>
+              <span className="text-xs text-[var(--text-primary)]/50 font-medium">
+                {bar.month}
+              </span>
             </div>
-            <span className="text-xs text-[var(--text-primary)]/50 font-medium">
-              {bar.month}
-            </span>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
 
       <p className="text-xs text-[var(--text-primary)]/40 text-center mt-4 italic">
-        Amounts hidden -- tap to reveal
+        Amounts encrypted via FHE — only counts shown
       </p>
     </div>
   );
@@ -267,9 +315,13 @@ function BreakdownItem({
 // ---------------------------------------------------------------
 
 export default function Analytics() {
+  // Use effectiveAddress so passkey-only users get a valid sender/receiver
+  // identity. Wagmi's useAccount() returns undefined in that mode, which
+  // silently zero'd the monthly bars while category totals still rendered.
+  const { effectiveAddress: address } = useEffectiveAddress();
   const { activities, isLoading } = useActivityFeed();
 
-  const stats = useMemo(() => computeStats(activities), [activities]);
+  const stats = useMemo(() => computeStats(activities, address), [activities, address]);
 
   const totalActivities = activities.length;
   const maxBreakdown = Math.max(
@@ -321,25 +373,29 @@ export default function Analytics() {
         ) : (
           <div className="grid grid-cols-2 gap-4 mb-6">
             <StatCard
-              label="Total Sent"
+              label="Sent"
+              count={stats.sentCount}
               icon={Send}
               iconBg="rgba(0, 122, 255, 0.08)"
               iconColor="#007AFF"
             />
             <StatCard
-              label="Total Received"
+              label="Received"
+              count={stats.receivedCount}
               icon={ArrowDownRight}
               iconBg="rgba(16, 185, 129, 0.08)"
               iconColor="#10B981"
             />
             <StatCard
-              label="Swapped"
+              label="Swaps"
+              count={stats.swapCount}
               icon={ArrowLeftRight}
               iconBg="rgba(245, 158, 11, 0.08)"
               iconColor="#F59E0B"
             />
             <StatCard
-              label="Net Flow"
+              label="Total"
+              count={totalActivities}
               icon={TrendingUp}
               iconBg="rgba(139, 92, 246, 0.08)"
               iconColor="#8B5CF6"
@@ -349,7 +405,7 @@ export default function Analytics() {
 
         {/* Monthly Chart */}
         <div className="mb-6">
-          <MonthlyChart activities={activities} />
+          <MonthlyChart activities={activities} myAddress={address} />
         </div>
 
         {/* Activity Breakdown */}
