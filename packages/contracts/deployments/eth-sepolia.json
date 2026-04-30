@@ -50,5 +50,8 @@
   "PrivacyRouter_Impl_p1p2": "0xC3E74C7D89a8B3da895CF4e761577d6d02A03C1C",
   "TokenRegistry_Impl_p1p2": "0x1c69A43f494938d9fE2038fE31CFDcFaD4941eBD",
   "EncryptedFlags_Impl_p1p2": "0x416eBa62559C88D99dcB32737B4562943b37b1A5",
-  "EventHub_Impl_p1p2": "0x2F26C255CB34A115D43E67eb789B7f3Cca20409b"
+  "EventHub_Impl_p1p2": "0x2F26C255CB34A115D43E67eb789B7f3Cca20409b",
+  "BusinessHub_Impl_p5": "0xbeC4FD553668f60974EE360EbFdd39226fFdb2a5",
+  "InheritanceManager_Impl_p5": "0x5CB9D792609952927DAE1B2A3bdA5fE45046D7b5",
+  "BusinessHub_RouterApproved_eth-sepolia": "0x3bFA4769FB09eefC5a80d6E87c3B9C650f7Ae48E"
 }
