@@ -39,7 +39,7 @@ import {
   type WalletClient,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { sepolia, baseSepolia } from "viem/chains";
+import { chainIdToViemChain } from "@/lib/viem-chains";
 import { erc20Abi } from "viem";
 import { usePublicClient } from "wagmi";
 
@@ -54,7 +54,6 @@ import {
 } from "@/lib/stealth-keystore";
 import { usePassphrasePrompt } from "@/components/PassphrasePrompt";
 import { useStealthInbox, type StealthInboxEntry } from "./useStealthInbox";
-import { ETH_SEPOLIA_ID, BASE_SEPOLIA_ID } from "@/lib/constants";
 import { BlankAccountAbi } from "@/lib/abis";
 
 /** Gas budget for the stealth EOA's outgoing ERC-20 transfer + a small
@@ -78,11 +77,8 @@ interface UseStealthSweepResult {
   error: string | null;
 }
 
-function getViemChain(chainId: number) {
-  if (chainId === ETH_SEPOLIA_ID) return sepolia;
-  if (chainId === BASE_SEPOLIA_ID) return baseSepolia;
-  throw new Error(`Stealth sweep: unsupported chain ${chainId}`);
-}
+// Use the shared chainIdToViemChain helper from lib/viem-chains.
+const getViemChain = chainIdToViemChain;
 
 /** Build a wallet client signed by the stealth-derived privkey. The
  *  RPC URL comes from the user's wagmi config — we re-use the public

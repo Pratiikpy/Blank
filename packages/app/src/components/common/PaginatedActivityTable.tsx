@@ -3,6 +3,7 @@ import { formatDistanceToNowStrict } from "date-fns";
 import { Copy, Check, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { copyToClipboard } from "@/lib/clipboard";
+import { truncateAddress } from "@/lib/address";
 import type { ActivityRow } from "@/lib/supabase";
 
 // ─── Props ──────────────────────────────────────────────────────────
@@ -70,10 +71,6 @@ function getTypeLabel(activityType: string): string {
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
-function truncateAddress(addr: string): string {
-  if (addr.length <= 10) return addr;
-  return `${addr.slice(0, 6)}\u2026${addr.slice(-4)}`;
-}
 
 function truncateHash(hash: string): string {
   if (hash.length <= 14) return hash;

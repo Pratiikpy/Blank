@@ -1,11 +1,23 @@
 /**
- * CoFHE React Hook Shims — Hybrid Version
+ * CoFHE shim — single import boundary for the Fhenix CoFHE SDK.
  *
- * Replaces @cofhe/react to avoid MUI/emotion dependency crash in production.
- * Attempts to load @cofhe/sdk dynamically for REAL encryption when available.
- * Falls back to pass-through stubs if SDK fails to load (WASM/SharedArrayBuffer issues).
+ * IMPORT BOUNDARY
+ * ---------------
+ * Every consumer that needs to encrypt, decrypt, manage permits, or hold a
+ * cofhe-aware client should import from THIS file (or `@cofhe/react` aliased
+ * here via vite.config.ts). Do not import from `@cofhe/sdk` or `@cofhe/react`
+ * directly anywhere else in src/. The `pnpm check:imports` script enforces
+ * this rule — adding a direct import elsewhere will fail CI once that
+ * script is wired into the ci pipeline (P3 added it as a tool; P4+ will
+ * wire it once existing offenders migrate).
  *
- * What this provides:
+ * Why: a v0.6 SDK release with renamed exports (`useCofheEncrypt` →
+ * `useEncryptInputs` etc.) becomes a one-file change here instead of a
+ * 21-file refactor across hooks/screens. This file also preserves a
+ * pass-through fallback for environments where the WASM init fails
+ * (Cross-Origin-Embedder-Policy mismatches, SharedArrayBuffer disabled).
+ *
+ * What this re-exports:
  * - useCofheConnection: reports connected=true when wallet is on correct chain
  * - useCofheEncrypt: real SDK encryption when available, pass-through fallback
  * - useCofheEncryptAndWriteContract: atomic encrypt + write

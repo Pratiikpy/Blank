@@ -16,6 +16,7 @@ import { formatDistanceToNowStrict } from "date-fns";
 import { cn } from "@/lib/cn";
 import { ENCRYPTED_PLACEHOLDER } from "@/lib/constants";
 import { copyToClipboard } from "@/lib/clipboard";
+import { truncateAddress } from "@/lib/address";
 import { GradientAvatar } from "./GradientAvatar";
 import type { ActivityRow } from "@/lib/supabase";
 
@@ -54,10 +55,6 @@ const fallbackConfig = {
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────
-
-function truncateAddress(addr: string) {
-  return `${addr.slice(0, 6)}\u2026${addr.slice(-4)}`;
-}
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 

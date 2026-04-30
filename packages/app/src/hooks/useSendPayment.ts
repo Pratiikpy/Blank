@@ -3,7 +3,7 @@ import { useAccount, usePublicClient } from "wagmi";
 import { useEffectiveAddress } from "./useEffectiveAddress";
 import { useUnifiedWrite } from "./useUnifiedWrite";
 import { parseUnits } from "viem";
-import { sepolia } from "viem/chains";
+import { chainIdToViemChain } from "@/lib/viem-chains";
 import {
   useCofheEncrypt,
   useCofheConnection,
@@ -345,7 +345,7 @@ export function useSendPayment() {
           address: contracts.PaymentHub,
           abi: PaymentHubAbi,
           functionName: "sendPayment",
-          chain: sepolia,
+          chain: chainIdToViemChain(activeChainId),
           account: address,
         },
         args: [
