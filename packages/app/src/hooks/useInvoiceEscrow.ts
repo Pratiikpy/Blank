@@ -1,9 +1,9 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { usePublicClient } from "wagmi";
 import { parseUnits } from "viem";
-import { useCofheEncrypt } from "@cofhe/react";
+import { useCofheEncrypt } from "@/lib/cofhe-shim";
 import { useCofheDecryptForTx } from "@/lib/cofhe-shim";
-import { Encryptable } from "@cofhe/sdk";
+import { Encryptable } from "@/lib/cofhe-shim";
 import toast from "react-hot-toast";
 import { type EncryptedInput, MAX_UINT64 } from "@/lib/constants";
 import { useEffectiveAddress } from "./useEffectiveAddress";

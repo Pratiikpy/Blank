@@ -1,4 +1,4 @@
-import { createCofheConfig } from "@cofhe/react";
+import { createCofheConfig } from "@/lib/cofhe-shim";
 import { sepolia } from "@cofhe/sdk/chains";
 
 // createCofheConfig now delegates to @cofhe/sdk/web's real config builder.

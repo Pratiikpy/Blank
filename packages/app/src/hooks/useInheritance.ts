@@ -3,7 +3,7 @@ import { useReadContract, usePublicClient } from "wagmi";
 import { useEffectiveAddress } from "./useEffectiveAddress";
 import { useUnifiedWrite } from "./useUnifiedWrite";
 import { chainIdToViemChain } from "@/lib/viem-chains";
-import { useCofheEncryptAndWriteContract } from "@cofhe/react";
+import { useCofheEncryptAndWriteContract } from "@/lib/cofhe-shim";
 import { InheritanceManagerAbi } from "@/lib/abis";
 import { useChain } from "@/providers/ChainProvider";
 import { insertActivity } from "@/lib/supabase";

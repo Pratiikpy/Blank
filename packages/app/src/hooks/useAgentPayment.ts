@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { usePublicClient } from "wagmi";
 import { useEffectiveAddress } from "./useEffectiveAddress";
-import { Encryptable } from "@cofhe/sdk";
+import { Encryptable } from "@/lib/cofhe-shim";
 import toast from "react-hot-toast";
 import { type EncryptedInput } from "@/lib/constants";
 import { useChain } from "@/providers/ChainProvider";

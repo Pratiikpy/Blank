@@ -20,7 +20,7 @@ import {
 import { useCofheConnection, useCofheEncrypt } from "@/lib/cofhe-shim";
 import { usePrivacyMode } from "@/providers/PrivacyModeProvider";
 import { usePrivacy } from "@/hooks/usePrivacy";
-import { Encryptable } from "@cofhe/sdk";
+import { Encryptable } from "@/lib/cofhe-shim";
 import { cn } from "@/lib/cn";
 import toast from "react-hot-toast";
 import { useMediaQuery } from "@/hooks/useMediaQuery";

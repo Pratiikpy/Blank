@@ -4,7 +4,7 @@ import { usePublicClient } from "wagmi";
 import { useUnifiedWrite } from "@/hooks/useUnifiedWrite";
 import { useEffectiveAddress } from "@/hooks/useEffectiveAddress";
 import { useSubmissionGuard } from "@/hooks/useSubmissionGuard";
-import { useCofheEncrypt, useCofheConnection } from "@cofhe/react";
+import { useCofheEncrypt, useCofheConnection } from "@/lib/cofhe-shim";
 import { insertActivity } from "./supabase";
 import { broadcastAction } from "./cross-tab";
 import { invalidateBalanceQueries } from "./query-invalidation";

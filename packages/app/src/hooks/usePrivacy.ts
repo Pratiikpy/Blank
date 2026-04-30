@@ -3,7 +3,7 @@ import { useAccount, useDisconnect } from "wagmi";
 import {
   useCofheActivePermit,
   useCofheNavigateToCreatePermit,
-} from "@cofhe/react";
+} from "@/lib/cofhe-shim";
 import toast from "react-hot-toast";
 import { STORAGE_KEYS, getStoredJson, setStoredJson } from "@/lib/storage";
 

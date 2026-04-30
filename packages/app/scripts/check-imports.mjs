@@ -28,6 +28,10 @@ const RULES = [
     pattern: /from\s+["']@cofhe\//,
     allow: [
       ["lib", "cofhe-shim.ts"].join(sep),
+      // cofhe-config is the SDK init module — same boundary role as the
+      // shim. It legitimately needs `@cofhe/sdk/chains` to register
+      // supported networks at boot.
+      ["lib", "cofhe-config.ts"].join(sep),
     ],
     description:
       "Direct @cofhe/* imports — route through lib/cofhe-shim.ts so a v0.6 SDK bump is one file, not 21.",
@@ -38,6 +42,10 @@ const RULES = [
     allow: [
       ["lib", "rpc.ts"].join(sep),
       ["lib", "viem-chains.ts"].join(sep),
+      // ENS resolution is mainnet-only by design — there's no equivalent
+      // on Base Sepolia or Eth Sepolia for the ENS registry. Hardcoding
+      // mainnet here is correct, not drift.
+      ["lib", "ens-client.ts"].join(sep),
     ],
     description:
       "Direct `viem/chains` imports — chain objects must flow through useChain() so a runtime switch propagates.",
@@ -47,9 +55,13 @@ const RULES = [
     pattern: /\buseWriteContract\b/,
     allow: [
       ["hooks", "useUnifiedWrite.ts"].join(sep),
-      // EOA-only escape hatches. Each one is intentional (sweeping from a
-      // freshly-derived stealth EOA, where the AA path is meaningless).
+      // EOA-only escape hatches. Each one is intentional:
+      //   - useStealthSweep: sweeps from a freshly-derived stealth EOA;
+      //     no AA path applies.
+      //   - SmartWallet.handleFund: moves USDC EOA → smart account; the
+      //     AA path would self-transfer (no-op). Documented inline.
       ["hooks", "useStealthSweep.ts"].join(sep),
+      ["blank-ui", "screens", "SmartWallet.tsx"].join(sep),
     ],
     description:
       "Direct useWriteContract — passkey-AA path requires useUnifiedWrite. Add an entry to the allow list if EOA-only is intentional.",

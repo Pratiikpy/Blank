@@ -4,7 +4,7 @@ import {
   useCofheReadContractAndDecrypt,
   useCofheConnection,
   useCofheActivePermit,
-} from "@cofhe/react";
+} from "@/lib/cofhe-shim";
 import { REVEAL_TIMEOUT_MS } from "@/lib/constants";
 import { useChain } from "@/providers/ChainProvider";
 import { FHERC20VaultAbi } from "@/lib/abis";
@@ -102,13 +102,12 @@ export function useEncryptedBalance(vaultAddress?: string, decimals = 6) {
       readQueryOptions: {
         enabled: canUseRealDecrypt && !!address,
         refetchOnMount: false,
-        // Audit P1.6: collapse the four overlapping intervals (10/10/15/30s)
-        // into a single 30s poll plus realtime invalidation via Supabase
-        // broadcasts (`broadcastAction("balance_changed")` from write hooks).
-        // refetchIntervalInBackground=false stops polling when the tab is
-        // hidden, so background tabs don't burn RPC quota.
+        // Audit P1.6: collapsed the four overlapping intervals
+        // (10/10/15/30s) into a single 30s cadence. The shim's
+        // readQueryOptions type doesn't accept refetchIntervalInBackground;
+        // it's set on the wagmi reads below where the underlying
+        // useReadContract supports it.
         refetchInterval: 30_000,
-        refetchIntervalInBackground: false,
       },
     }
   );
