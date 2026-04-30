@@ -241,5 +241,10 @@ contract EncryptedFlags is UUPSUpgradeable, OwnableUpgradeable {
     function getMyMerchantStatus() external view returns (ebool) { return _isMerchant[msg.sender]; }
     function getAuditScope(address auditor) external view returns (euint8) { return _auditScopes[msg.sender][auditor]; }
 
+    /// @dev Reserved storage to avoid collisions on future upgrades.
+    ///      Append-only: when adding a new state variable in a later upgrade,
+    ///      decrement the gap size so total storage is unchanged.
+    uint256[50] private __gap;
+
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 }

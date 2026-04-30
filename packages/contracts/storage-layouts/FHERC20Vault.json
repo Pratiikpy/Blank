@@ -1,7 +1,7 @@
 {
   "storage": [
     {
-      "astId": 62234,
+      "astId": 62300,
       "contract": "contracts/FHERC20Vault.sol:FHERC20Vault",
       "label": "_status",
       "offset": 0,
@@ -9,7 +9,7 @@
       "type": "t_uint256"
     },
     {
-      "astId": 47594,
+      "astId": 47614,
       "contract": "contracts/FHERC20Vault.sol:FHERC20Vault",
       "label": "underlyingToken",
       "offset": 0,
@@ -17,7 +17,7 @@
       "type": "t_contract(IERC20)33235"
     },
     {
-      "astId": 47596,
+      "astId": 47616,
       "contract": "contracts/FHERC20Vault.sol:FHERC20Vault",
       "label": "name",
       "offset": 0,
@@ -25,7 +25,7 @@
       "type": "t_string_storage"
     },
     {
-      "astId": 47598,
+      "astId": 47618,
       "contract": "contracts/FHERC20Vault.sol:FHERC20Vault",
       "label": "symbol",
       "offset": 0,
@@ -33,7 +33,7 @@
       "type": "t_string_storage"
     },
     {
-      "astId": 47600,
+      "astId": 47620,
       "contract": "contracts/FHERC20Vault.sol:FHERC20Vault",
       "label": "tokenDecimals",
       "offset": 0,
@@ -41,15 +41,15 @@
       "type": "t_uint8"
     },
     {
-      "astId": 47603,
+      "astId": 47623,
       "contract": "contracts/FHERC20Vault.sol:FHERC20Vault",
       "label": "eventHub",
       "offset": 1,
       "slot": "4",
-      "type": "t_contract(IEventHub)47580"
+      "type": "t_contract(IEventHub)47600"
     },
     {
-      "astId": 47609,
+      "astId": 47629,
       "contract": "contracts/FHERC20Vault.sol:FHERC20Vault",
       "label": "_balances",
       "offset": 0,
@@ -57,7 +57,7 @@
       "type": "t_mapping(t_address,t_userDefinedValueType(euint64)11797)"
     },
     {
-      "astId": 47617,
+      "astId": 47637,
       "contract": "contracts/FHERC20Vault.sol:FHERC20Vault",
       "label": "_allowances",
       "offset": 0,
@@ -65,7 +65,7 @@
       "type": "t_mapping(t_address,t_mapping(t_address,t_userDefinedValueType(euint64)11797))"
     },
     {
-      "astId": 47623,
+      "astId": 47643,
       "contract": "contracts/FHERC20Vault.sol:FHERC20Vault",
       "label": "_pendingUnshields",
       "offset": 0,
@@ -73,7 +73,7 @@
       "type": "t_mapping(t_address,t_userDefinedValueType(euint64)11797)"
     },
     {
-      "astId": 47628,
+      "astId": 47648,
       "contract": "contracts/FHERC20Vault.sol:FHERC20Vault",
       "label": "_initialized",
       "offset": 0,
@@ -81,12 +81,20 @@
       "type": "t_mapping(t_address,t_bool)"
     },
     {
-      "astId": 47632,
+      "astId": 47652,
       "contract": "contracts/FHERC20Vault.sol:FHERC20Vault",
       "label": "ZERO",
       "offset": 0,
       "slot": "9",
       "type": "t_userDefinedValueType(euint64)11797"
+    },
+    {
+      "astId": 49016,
+      "contract": "contracts/FHERC20Vault.sol:FHERC20Vault",
+      "label": "__gap",
+      "offset": 0,
+      "slot": "10",
+      "type": "t_array(t_uint256)50_storage"
     }
   ],
   "types": {
@@ -94,6 +102,12 @@
       "encoding": "inplace",
       "label": "address",
       "numberOfBytes": "20"
+    },
+    "t_array(t_uint256)50_storage": {
+      "base": "t_uint256",
+      "encoding": "inplace",
+      "label": "uint256[50]",
+      "numberOfBytes": "1600"
     },
     "t_bool": {
       "encoding": "inplace",
@@ -105,7 +119,7 @@
       "label": "contract IERC20",
       "numberOfBytes": "20"
     },
-    "t_contract(IEventHub)47580": {
+    "t_contract(IEventHub)47600": {
       "encoding": "inplace",
       "label": "contract IEventHub",
       "numberOfBytes": "20"

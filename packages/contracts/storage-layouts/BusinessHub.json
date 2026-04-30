@@ -1,7 +1,7 @@
 {
   "storage": [
     {
-      "astId": 62234,
+      "astId": 62300,
       "contract": "contracts/BusinessHub.sol:BusinessHub",
       "label": "_status",
       "offset": 0,
@@ -135,6 +135,14 @@
       "offset": 0,
       "slot": "16",
       "type": "t_mapping(t_uint256,t_userDefinedValueType(euint64)11797)"
+    },
+    {
+      "astId": 45345,
+      "contract": "contracts/BusinessHub.sol:BusinessHub",
+      "label": "__gap",
+      "offset": 0,
+      "slot": "17",
+      "type": "t_array(t_uint256)50_storage"
     }
   ],
   "types": {
@@ -142,6 +150,12 @@
       "encoding": "inplace",
       "label": "address",
       "numberOfBytes": "20"
+    },
+    "t_array(t_uint256)50_storage": {
+      "base": "t_uint256",
+      "encoding": "inplace",
+      "label": "uint256[50]",
+      "numberOfBytes": "1600"
     },
     "t_array(t_uint256)dyn_storage": {
       "base": "t_uint256",
