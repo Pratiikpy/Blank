@@ -93,9 +93,9 @@ async function postJson(url: string, body: unknown): Promise<EmailSendResult> {
 }
 
 export function sendInvoiceEmail(args: SendInvoiceEmailArgs): Promise<EmailSendResult> {
-  return postJson("/api/invoices/send-email", args);
+  return postJson("/api/email/invoice", args);
 }
 
 export function sendPaymentRequestEmail(args: SendRequestEmailArgs): Promise<EmailSendResult> {
-  return postJson("/api/requests/send-email", args);
+  return postJson("/api/email/request", args);
 }

@@ -150,7 +150,7 @@ async function fireScheduledSend(args: FireParams): Promise<string> {
   // Sign the userOpHash with the session key (decrypt-in-memory, sign,
   // discard). Then wrap in BlankAccount's outer (validator, innerSig)
   // format so the AA's _validateSignature dispatches to our validator.
-  const { signWithSessionKey } = await import("../_lib/session-keys-store.js");
+  const { signWithSessionKey } = await import("../session-keys-store.js");
   const ecdsaSig = await signWithSessionKey({
     encryptedPrivateKey: args.encryptedPrivateKey,
     digest: userOpHash,
@@ -225,7 +225,7 @@ export default async function handler(req: any, res: any) {
     return;
   }
 
-  const { listActiveKeysForChain } = await import("../_lib/session-keys-store.js");
+  const { listActiveKeysForChain } = await import("../session-keys-store.js");
   const snapshots: ChainSnapshot[] = [];
 
   for (const chainId of SUPPORTED_CHAINS) {
@@ -280,7 +280,7 @@ export default async function handler(req: any, res: any) {
           validatorAddr,
         )) as boolean;
         if (!validatorEnabled) {
-          const { markRevoked } = await import("../_lib/session-keys-store.js");
+          const { markRevoked } = await import("../session-keys-store.js");
           await markRevoked({
             account: k.account,
             sessionKey: k.sessionKey,
@@ -304,7 +304,7 @@ export default async function handler(req: any, res: any) {
         };
         if (scope.recipient === ethers.ZeroAddress) {
           // Revoked on chain — soft-mark the row so we stop polling it.
-          const { markRevoked } = await import("../_lib/session-keys-store.js");
+          const { markRevoked } = await import("../session-keys-store.js");
           await markRevoked({
             account: k.account,
             sessionKey: k.sessionKey,

@@ -16,8 +16,8 @@
  * Schema: see sql/push_subscriptions.sql
  */
 
-import { getSupabaseAdmin } from "../_lib/supabase-admin.js";
-import { checkRateLimit, writeRateLimitHeaders } from "../_lib/rate-limit.js";
+import { getSupabaseAdmin } from "../supabase-admin.js";
+import { checkRateLimit, writeRateLimitHeaders } from "../rate-limit.js";
 
 interface SubscribeBody {
   address: string;

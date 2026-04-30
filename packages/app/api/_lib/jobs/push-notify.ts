@@ -23,8 +23,8 @@
  * deleted from Supabase so the table doesn't grow unbounded.
  */
 
-import { getSupabaseAdmin } from "../_lib/supabase-admin.js";
-import { sendPush, webPushConfigured, type PushPayload } from "../_lib/web-push.js";
+import { getSupabaseAdmin } from "../supabase-admin.js";
+import { sendPush, webPushConfigured, type PushPayload } from "../web-push.js";
 
 interface NotifyBody {
   addresses: string[];

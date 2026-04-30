@@ -17,17 +17,17 @@
  * Returns: { ok: true, messageId } | { ok: false, error }
  */
 
-import { getSupabaseAdmin } from "../_lib/supabase-admin.js";
-import { checkRateLimit, writeRateLimitHeaders } from "../_lib/rate-limit.js";
-import { sendEmail, emailEnabled, EmailNotConfiguredError } from "../_lib/resend.js";
-import { renderInvoiceEmail } from "../_lib/email-templates.js";
+import { getSupabaseAdmin } from "../supabase-admin.js";
+import { checkRateLimit, writeRateLimitHeaders } from "../rate-limit.js";
+import { sendEmail, emailEnabled, EmailNotConfiguredError } from "../resend.js";
+import { renderInvoiceEmail } from "../email-templates.js";
 import {
   buildInvoiceEmailMessage,
   checkTimestampWindow,
   strictEmailAuthEnabled,
   verifyOwnerSignature,
-} from "../_lib/sig-auth.js";
-import { ipfsUrl } from "../../src/lib/ipfs.js";
+} from "../sig-auth.js";
+import { ipfsUrl } from "../../../src/lib/ipfs.js";
 
 interface SendInvoiceEmailBody {
   invoiceId: number;

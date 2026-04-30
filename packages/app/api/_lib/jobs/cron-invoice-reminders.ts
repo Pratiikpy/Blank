@@ -18,9 +18,9 @@
  * Auth: Vercel Cron sends Authorization: Bearer <CRON_SECRET>.
  */
 
-import { getSupabaseAdmin } from "../_lib/supabase-admin.js";
-import { sendEmail, emailEnabled } from "../_lib/resend.js";
-import { renderReminderEmail, type ReminderKind } from "../_lib/reminder-email.js";
+import { getSupabaseAdmin } from "../supabase-admin.js";
+import { sendEmail, emailEnabled } from "../resend.js";
+import { renderReminderEmail, type ReminderKind } from "../reminder-email.js";
 
 const REMINDER_DEDUPE_HOURS = 22;
 const ONE_DAY_MS = 86_400_000;
