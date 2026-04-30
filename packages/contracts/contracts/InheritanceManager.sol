@@ -41,6 +41,18 @@ contract InheritanceManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
 
     mapping(address => InheritancePlan) public plans;
 
+    /// @dev Issue #185 — finalizeClaim mutex keyed by principal (plan owner).
+    ///      Prevents a second heir (or replay of the same heir) from
+    ///      finalizing an already-finalized plan. Even though `finalizeClaim`
+    ///      flips `plan.active = false` before transferring, that flag is a
+    ///      general plan-active toggle (also used by `removeHeir`) and gives a
+    ///      generic "no plan" error on re-entry. This dedicated flag yields a
+    ///      specific, auditable "claim already finalized" revert and makes the
+    ///      finalize-once invariant explicit.
+    ///
+    ///      APPEND-ONLY state (UUPS-safe) — added in v0.1.5.
+    mapping(address => bool) public claimFinalized;
+
     event HeirSet(address indexed owner, address indexed heir, uint256 inactivityPeriod, uint256 timestamp);
     event HeirRemoved(address indexed owner, uint256 timestamp);
     event Heartbeat(address indexed owner, uint256 timestamp);
@@ -140,6 +152,11 @@ contract InheritanceManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
     /// @param owner_ The address of the plan owner whose funds are being claimed
     /// @param encAmounts Encrypted amounts to transfer from each vault (one per vault in plan.vaults)
     function finalizeClaim(address owner_, InEuint64[] memory encAmounts) external nonReentrant {
+        // #185 mutex: first heir wins cleanly; any subsequent call (including a
+        // racing second heir or a replay of the original) gets this specific
+        // revert instead of a generic "no plan" error or a silent no-op.
+        require(!claimFinalized[owner_], "InheritanceManager: claim already finalized");
+
         InheritancePlan storage plan = plans[owner_];
         require(plan.active, "InheritanceManager: no plan");
         require(msg.sender == plan.heir, "InheritanceManager: not heir");
@@ -153,7 +170,17 @@ contract InheritanceManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
             "InheritanceManager: amounts/vaults length mismatch"
         );
 
+        // Audit Top-28 #13 (CEI): set BOTH state flags before any external
+        // call. plan.active = false already double-served as a mutex via the
+        // require(plan.active) check above, but claimFinalized was being set
+        // AFTER the transfer loop, leaving it unset during the cross-contract
+        // calls. If any future change weakens the plan.active mutex (or a
+        // bespoke vault implementation bypasses nonReentrant), a reentrant
+        // call could pass the !claimFinalized check at the top and re-enter.
+        // Setting both flags first hardens the mutex independently of the
+        // nonReentrant modifier — strict first-attempt-wins semantics.
         plan.active = false;
+        claimFinalized[owner_] = true;
 
         // Transfer all vault balances from owner to heir
         for (uint256 i = 0; i < plan.vaults.length; i++) {

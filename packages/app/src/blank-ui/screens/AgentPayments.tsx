@@ -134,7 +134,7 @@ export default function AgentPayments() {
     if (!effectiveAddress) return;
     setLoadingReceived(true);
     try {
-      const all = await fetchActivities(effectiveAddress, 100);
+      const all = await fetchActivities(effectiveAddress, 100, undefined, activeChainId);
       const lower = effectiveAddress.toLowerCase();
       const agentOnly = all.filter(
         (a) =>
@@ -158,7 +158,7 @@ export default function AgentPayments() {
       }
       setLoadingReceived(true);
       try {
-        const all = await fetchActivities(effectiveAddress, 100);
+        const all = await fetchActivities(effectiveAddress, 100, undefined, activeChainId);
         if (cancelled) return;
         const lower = effectiveAddress.toLowerCase();
         const agentOnly = all.filter(

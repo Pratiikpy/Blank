@@ -8,11 +8,15 @@
     "clean": "rimraf ./artifacts ./cache ./typechain-types ./coverage",
     "deploy:base-sepolia": "hardhat deploy-all --network base-sepolia",
     "deploy:eth-sepolia": "hardhat deploy-all --network eth-sepolia",
-    "deploy:arb-sepolia": "hardhat deploy-all --network arb-sepolia"
+    "deploy:arb-sepolia": "hardhat deploy-all --network arb-sepolia",
+    "typecheck": "tsc --noEmit",
+    "ci": "hardhat compile && hardhat test",
+    "storage:check": "hardhat check-storage-layout --check",
+    "storage:write": "hardhat check-storage-layout --write"
   },
   "devDependencies": {
-    "@cofhe/hardhat-plugin": "0.4.0",
-    "@cofhe/mock-contracts": "0.4.0",
+    "@cofhe/hardhat-plugin": "0.5.1",
+    "@cofhe/mock-contracts": "0.5.1",
     "@fhenixprotocol/cofhe-contracts": "0.1.3",
     "@nomicfoundation/hardhat-chai-matchers": "^2.0.0",
     "@nomicfoundation/hardhat-ethers": "^3.0.0",
@@ -37,6 +41,9 @@
     "typescript": ">=5.0.0"
   },
   "dependencies": {
-    "@account-abstraction/contracts": "^0.8.0"
+    "@account-abstraction/contracts": "^0.8.0",
+    "@cofhe/sdk": "0.5.1",
+    "@nomicfoundation/hardhat-network-helpers": "^1.0.0",
+    "viem": "^2.21.0"
   }
 }

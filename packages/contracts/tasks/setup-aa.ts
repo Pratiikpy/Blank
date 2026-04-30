@@ -81,8 +81,10 @@ task("setup-aa", "Whitelist Blank hubs in BlankPaymaster + fund paymaster ETH st
     // ─── 1. Whitelist Blank hubs as sponsorable targets ────────────────
     // Order matters — most-used hubs first so common UserOps pass cheapest.
     const targets: Array<{ key: string; label: string }> = [
-      { key: "FHERC20Vault_USDC", label: "FHERC20Vault (shield/unshield)" },
+      { key: "FHERC20Vault_USDC", label: "FHERC20Vault USDC (shield/unshield)" },
+      { key: "FHERC20Vault_USDT", label: "FHERC20Vault USDT (P2P swap)" },
       { key: "TestUSDC",          label: "TestUSDC (faucet/approve)" },
+      { key: "TestUSDT",          label: "TestUSDT (P2P swap)" },
       { key: "PaymentHub",        label: "PaymentHub" },
       { key: "BusinessHub",       label: "BusinessHub" },
       { key: "GroupManager",      label: "GroupManager" },

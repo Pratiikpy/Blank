@@ -419,12 +419,31 @@ export function useCofheEncrypt() {
           console.log("[cofhe-shim] REAL encryption SUCCESS ✓");
           return encrypted;
         } catch (err) {
+          // Audit Top-28 #1 (most dangerous finding): the previous behaviour
+          // logged the failure and fell through to `return items` — i.e. the
+          // raw plaintext encryption requests were handed back as if they
+          // were a successful EncryptedInput[]. Callers then submitted those
+          // to contract calls expecting real signatures. If any contract is
+          // missing the matching `FHE.allowThis()` (audit Top-28 #2 covers
+          // those), the on-chain ops execute against unsigned plaintext —
+          // a privacy leak. Fail-closed instead: throw, let callers surface
+          // a clear error to the user, and never let plaintext masquerade
+          // as ciphertext.
           console.error("[cofhe-shim] REAL encryption FAILED:", err);
+          throw new Error(
+            err instanceof Error
+              ? `Encryption failed: ${err.message}`
+              : "Encryption failed",
+          );
         }
       }
 
-      console.warn("[cofhe-shim] ⚠️ FALLBACK — transaction will revert without real signature");
-      return items;
+      // SDK isn't ready (still loading, or failed to load on this browser).
+      // Refusing here is the only safe option — see the throw above for
+      // why returning plaintext would be a privacy leak.
+      throw new Error(
+        "Encryption service is still starting. Please wait a moment and try again.",
+      );
     } finally {
       setIsEncrypting(false);
     }
@@ -660,18 +679,18 @@ export function useCofheReadContractAndDecrypt(
     return () => { cancelled = true; };
   }, [read.data, publicClient, walletClient, fheType, sdkTick]);
 
-  // #283: `disabledDueToMissingPermit` is the signal consumers use to fall
+  // #283: `disabledDueToMissingValidPermit` is the signal consumers use to fall
   // back to the encrypted placeholder. A missing permit is the common case,
   // but also cover SDK-failed and SDK-not-loaded so the fallback fires
   // correctly under those conditions too.
-  const disabledDueToMissingPermit =
+  const disabledDueToMissingValidPermit =
     config.requiresPermit === true &&
     (!_sdkLoaded || _sdkFailed || !_sdkClient || !_sdkClient.connected);
 
   return {
     encrypted: { data: read.data, isFetching: read.isFetching },
     decrypted: { data: decrypted, isFetching: isDecrypting, error: decryptError },
-    disabledDueToMissingPermit,
+    disabledDueToMissingValidPermit,
   };
 }
 

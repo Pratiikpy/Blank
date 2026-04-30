@@ -55,7 +55,7 @@ export async function insertActivitiesFanout(
 
     if (opts?.userToastOnFailure) {
       toast(
-        `${successes}/${activities.length} activity rows synced — ${errors.length} failed (will retry)`,
+        `${successes}/${activities.length} activity rows synced — ${errors.length} failed for ${errors.slice(0, 2).map((e) => e.tx_hash.split("_").pop()?.slice(0, 6) ?? "?").join(", ")}${errors.length > 2 ? ` +${errors.length - 2} more` : ""} (will retry)`,
         { icon: "\u26A0\uFE0F", duration: 6000 }, // warning sign
       );
     }

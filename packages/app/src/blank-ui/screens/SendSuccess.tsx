@@ -63,8 +63,10 @@ export default function SendSuccess() {
           </div>
         </div>
 
-        {/* Payment Details */}
-        {payment.recipient && (
+        {/* Payment Details — branches on single vs many. Batch sends
+            don't have a single `recipient`/`amount`; they have a
+            recipients[] + per-recipient amounts which we summarise here. */}
+        {payment.mode === "single" && payment.recipient && (
           <div className="w-full max-w-sm space-y-3 mb-10">
             <div className="flex justify-between gap-3 p-3 rounded-xl bg-white/50 border border-black/5">
               <span className="text-sm text-[var(--text-secondary)] shrink-0">To</span>
@@ -75,6 +77,38 @@ export default function SendSuccess() {
             <div className="flex justify-between gap-3 p-3 rounded-xl bg-white/50 border border-black/5">
               <span className="text-sm text-[var(--text-secondary)] shrink-0">Amount</span>
               <span className="text-sm font-mono truncate">${payment.amount} USDC</span>
+            </div>
+            {payment.txHash && (
+              <a
+                href={getExplorerTxUrl(payment.txHash, activeChain.id)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-center gap-2 h-12 rounded-2xl bg-blue-50 text-blue-600 font-medium text-sm hover:bg-blue-100 transition-colors w-full"
+              >
+                View on Explorer <ExternalLink size={16} />
+              </a>
+            )}
+          </div>
+        )}
+
+        {payment.mode === "many" && payment.recipients.length > 0 && (
+          <div className="w-full max-w-sm space-y-3 mb-10">
+            <div className="flex justify-between gap-3 p-3 rounded-xl bg-white/50 border border-black/5">
+              <span className="text-sm text-[var(--text-secondary)] shrink-0">Recipients</span>
+              <span className="text-sm font-mono truncate">
+                {payment.recipients.length}
+              </span>
+            </div>
+            <div className="flex justify-between gap-3 p-3 rounded-xl bg-white/50 border border-black/5">
+              <span className="text-sm text-[var(--text-secondary)] shrink-0">Total</span>
+              <span className="text-sm font-mono truncate">
+                $
+                {(payment.splitMode === "equal"
+                  ? (parseFloat(payment.amount) || 0) * payment.recipients.length
+                  : payment.recipientAmounts.reduce((s, a) => s + (parseFloat(a) || 0), 0)
+                ).toFixed(2)}{" "}
+                USDC
+              </span>
             </div>
             {payment.txHash && (
               <a

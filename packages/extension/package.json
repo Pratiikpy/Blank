@@ -1,0 +1,10 @@
+{
+  "name": "@blankpay/extension",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pay with Blank Chrome extension — inject a one-click pay button next to every address on the web.",
+  "type": "module",
+  "scripts": {
+    "lint:manifest": "node -e \"JSON.parse(require('fs').readFileSync('manifest.json'))\""
+  }
+}

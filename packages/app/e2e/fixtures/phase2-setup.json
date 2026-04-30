@@ -1,0 +1,18 @@
+{
+  "chainId": 84532,
+  "smartAccount": "0x021a0F005E16e7c3ae98E4F28F278DeBC7A3573f",
+  "recipient": "0x19E7E376E7C213B7E7e7e46cc70A5dD086DAff2A",
+  "passkey": {
+    "pubX": "0xcb95c03c21bd16e22f34d0a253c35a5bd53ad5a9fc0e4ef9f3dd61ced364573a",
+    "pubY": "0xe969d62fbbffa077bcc2ec6ea520bac95d62388d8edcf40f795c20e607e62dc4",
+    "privKey": "7068617365322d746573742d706173736b65792d736565642d311b1c1d1e1f20"
+  },
+  "contracts": {
+    "TestUSDC": "0x6377eF23B3464019EcF35528be6Eb6d6D57d0b1a",
+    "FHERC20Vault_USDC": "0x789f0bC466E172eD737493e9796a6d0a3aB0ff23",
+    "PaymentHub": "0xF420102Dea1acf437bfc49ded5F4E2f5ed32e831",
+    "BlankAccountFactory": "0xd19Bfd90907c943Eee129a2066BCbC350F4a16fb",
+    "BlankPaymaster": "0xB1CbBD59E63d7aB0BbF0406CCF1016c1Dd8e63de",
+    "EntryPoint": "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108"
+  }
+}

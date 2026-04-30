@@ -11,6 +11,6 @@
     "outDir": "./dist",
     "declaration": true
   },
-  "include": ["./tasks", "./test", "./hardhat.config.ts"],
+  "include": ["./tasks", "./hardhat.config.ts"],
   "files": ["./hardhat.config.ts"]
 }

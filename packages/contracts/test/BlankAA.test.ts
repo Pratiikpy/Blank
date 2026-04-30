@@ -175,6 +175,60 @@ describe("BlankAccount.isValidSignature (ERC-1271)", () => {
     const result = await account.isValidSignature(hash, sig);
     expect(result).to.equal("0xffffffff");
   });
+
+  // Length-guard tests — every malformed-input case must fail closed
+  // (return 0xffffffff) rather than revert. Pre-fix abi.decode reverted
+  // on truncated/oversized payloads, breaking ERC-1271 consumers that
+  // expect to inspect the return value.
+  it("returns 0xffffffff for empty signature", async () => {
+    const { factory } = await loadFixture(deployAAFixture);
+    await factory.createAccount(1n, 2n, "0x0000000000000000000000000000000000000000", 0n);
+    const accountAddr = await factory["getAddress(uint256,uint256,address,uint256)"](
+      1n, 2n, "0x0000000000000000000000000000000000000000", 0n,
+    );
+    const account = await hre.ethers.getContractAt("BlankAccount", accountAddr);
+    const hash = hre.ethers.keccak256(hre.ethers.toUtf8Bytes("x"));
+    const result = await account.isValidSignature(hash, "0x");
+    expect(result).to.equal("0xffffffff");
+  });
+
+  it("returns 0xffffffff for a 1-byte signature", async () => {
+    const { factory } = await loadFixture(deployAAFixture);
+    await factory.createAccount(3n, 4n, "0x0000000000000000000000000000000000000000", 0n);
+    const accountAddr = await factory["getAddress(uint256,uint256,address,uint256)"](
+      3n, 4n, "0x0000000000000000000000000000000000000000", 0n,
+    );
+    const account = await hre.ethers.getContractAt("BlankAccount", accountAddr);
+    const hash = hre.ethers.keccak256(hre.ethers.toUtf8Bytes("y"));
+    const result = await account.isValidSignature(hash, "0xab");
+    expect(result).to.equal("0xffffffff");
+  });
+
+  it("returns 0xffffffff for a 63-byte signature (one short)", async () => {
+    const { factory } = await loadFixture(deployAAFixture);
+    await factory.createAccount(5n, 6n, "0x0000000000000000000000000000000000000000", 0n);
+    const accountAddr = await factory["getAddress(uint256,uint256,address,uint256)"](
+      5n, 6n, "0x0000000000000000000000000000000000000000", 0n,
+    );
+    const account = await hre.ethers.getContractAt("BlankAccount", accountAddr);
+    const hash = hre.ethers.keccak256(hre.ethers.toUtf8Bytes("z"));
+    const sig = "0x" + "a".repeat(126); // 63 bytes
+    const result = await account.isValidSignature(hash, sig);
+    expect(result).to.equal("0xffffffff");
+  });
+
+  it("returns 0xffffffff for a 65-byte signature (one over, looks like an EOA sig)", async () => {
+    const { factory } = await loadFixture(deployAAFixture);
+    await factory.createAccount(7n, 8n, "0x0000000000000000000000000000000000000000", 0n);
+    const accountAddr = await factory["getAddress(uint256,uint256,address,uint256)"](
+      7n, 8n, "0x0000000000000000000000000000000000000000", 0n,
+    );
+    const account = await hre.ethers.getContractAt("BlankAccount", accountAddr);
+    const hash = hre.ethers.keccak256(hre.ethers.toUtf8Bytes("w"));
+    const sig = "0x" + "b".repeat(130); // 65 bytes — common EOA r/s/v shape
+    const result = await account.isValidSignature(hash, sig);
+    expect(result).to.equal("0xffffffff");
+  });
 });
 
 describe("BlankPaymaster admin", () => {

@@ -19,8 +19,37 @@ import { resolve, relative, join } from "path";
  * The plugin uses Vite's ssrLoadModule so the handlers benefit from HMR
  * and TypeScript compilation on demand (no separate build step).
  */
+// Install a process-level guard so an unhandled rejection from ethers,
+// supabase, or any other library running inside an API handler doesn't
+// take the whole dev server down. In production Vercel's serverless
+// runtime gives each request its own process; here we share one Node
+// instance between the Vite renderer and every /api/* handler. Without
+// this guard a single 502 from a public RPC inside an async fire-and-
+// forget block (e.g. relay's auto-faucet → ethers JsonRpcProvider →
+// 502) crashes Node and every subsequent test sees ECONNREFUSED.
+let _devGuardInstalled = false;
+function installDevProcessGuards() {
+  if (_devGuardInstalled) return;
+  _devGuardInstalled = true;
+  process.on("unhandledRejection", (reason: unknown) => {
+    // eslint-disable-next-line no-console
+    console.warn(
+      "[vite-plugin-api] swallowed unhandledRejection (would have crashed Node):",
+      reason instanceof Error ? `${reason.name}: ${reason.message}` : reason,
+    );
+  });
+  process.on("uncaughtException", (err: Error) => {
+    // eslint-disable-next-line no-console
+    console.warn(
+      "[vite-plugin-api] swallowed uncaughtException (would have crashed Node):",
+      `${err.name}: ${err.message}`,
+    );
+  });
+}
+
 export function apiRoutesPlugin(apiDir = "api"): Plugin {
   const apiRoot = resolve(apiDir);
+  installDevProcessGuards();
 
   function collectRoutes(dir: string): string[] {
     if (!existsSync(dir)) return [];
@@ -30,7 +59,7 @@ export function apiRoutesPlugin(apiDir = "api"): Plugin {
       if (entry.isDirectory()) {
         if (entry.name.startsWith("_")) continue; // skip _lib etc.
         out.push(...collectRoutes(fullPath));
-      } else if (entry.isFile() && /\.(ts|mjs|js)$/.test(entry.name)) {
+      } else if (entry.isFile() && /\.(tsx|ts|mjs|js)$/.test(entry.name)) {
         out.push(fullPath);
       }
     }
@@ -71,7 +100,7 @@ export function apiRoutesPlugin(apiDir = "api"): Plugin {
       // Map URL path → filesystem path
       const routeMap = new Map<string, string>();
       for (const file of routes) {
-        const rel = relative(apiRoot, file).replace(/\\/g, "/").replace(/\.(ts|mjs|js)$/, "");
+        const rel = relative(apiRoot, file).replace(/\\/g, "/").replace(/\.(tsx|ts|mjs|js)$/, "");
         const urlPath = `/api/${rel}`;
         routeMap.set(urlPath, file);
       }

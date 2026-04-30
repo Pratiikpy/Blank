@@ -131,6 +131,34 @@ export default function Stealth() {
   const [message, setMessage] = useState("");
   const [newCode, setNewCode] = useState<GeneratedCode | null>(null);
 
+  // Phase 3.1: pre-fill the Create form when the user arrived via the
+  // "Hide my identity" toggle in the regular Send flow. We honor `?to=`,
+  // `?amount=`, and `?note=` query params (matching the regular Send pay
+  // link shape) and switch to the Create tab. Params are stripped after
+  // ingestion so a manual refresh doesn't re-prefill on top of edits.
+  useEffect(() => {
+    const qs = new URLSearchParams(window.location.search);
+    const to = qs.get("to");
+    const amt = qs.get("amount");
+    const noteParam = qs.get("note");
+    if (!to && !amt && !noteParam) return;
+    if (to) setRecipient(to);
+    if (amt) setAmount(amt);
+    if (noteParam) setMessage(noteParam);
+    setActiveTab("create");
+    qs.delete("to");
+    qs.delete("amount");
+    qs.delete("note");
+    const next = qs.toString();
+    window.history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${next ? `?${next}` : ""}${window.location.hash}`,
+    );
+    // Run once on mount — repeated runs would clobber user edits.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Claim form state
   const [claimTransferId, setClaimTransferId] = useState("");
   const [claimCode, setClaimCode] = useState("");

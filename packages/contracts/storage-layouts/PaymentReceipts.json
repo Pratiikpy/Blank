@@ -1,7 +1,7 @@
 {
   "storage": [
     {
-      "astId": 45425,
+      "astId": 54904,
       "contract": "contracts/PaymentReceipts.sol:PaymentReceipts",
       "label": "authorizedCallers",
       "offset": 0,
@@ -9,7 +9,7 @@
       "type": "t_mapping(t_address,t_bool)"
     },
     {
-      "astId": 45464,
+      "astId": 54943,
       "contract": "contracts/PaymentReceipts.sol:PaymentReceipts",
       "label": "receiptCount",
       "offset": 0,
@@ -17,15 +17,15 @@
       "type": "t_uint256"
     },
     {
-      "astId": 45469,
+      "astId": 54948,
       "contract": "contracts/PaymentReceipts.sol:PaymentReceipts",
       "label": "_receipts",
       "offset": 0,
       "slot": "2",
-      "type": "t_mapping(t_bytes32,t_struct(Receipt)45462_storage)"
+      "type": "t_mapping(t_bytes32,t_struct(Receipt)54941_storage)"
     },
     {
-      "astId": 45474,
+      "astId": 54953,
       "contract": "contracts/PaymentReceipts.sol:PaymentReceipts",
       "label": "_userReceipts",
       "offset": 0,
@@ -33,31 +33,31 @@
       "type": "t_mapping(t_address,t_array(t_bytes32)dyn_storage)"
     },
     {
-      "astId": 45479,
+      "astId": 54958,
       "contract": "contracts/PaymentReceipts.sol:PaymentReceipts",
       "label": "_totalSent",
       "offset": 0,
       "slot": "4",
-      "type": "t_mapping(t_address,t_userDefinedValueType(euint64)4733)"
+      "type": "t_mapping(t_address,t_userDefinedValueType(euint64)11797)"
     },
     {
-      "astId": 45484,
+      "astId": 54963,
       "contract": "contracts/PaymentReceipts.sol:PaymentReceipts",
       "label": "_totalReceived",
       "offset": 0,
       "slot": "5",
-      "type": "t_mapping(t_address,t_userDefinedValueType(euint64)4733)"
+      "type": "t_mapping(t_address,t_userDefinedValueType(euint64)11797)"
     },
     {
-      "astId": 45489,
+      "astId": 54968,
       "contract": "contracts/PaymentReceipts.sol:PaymentReceipts",
       "label": "_transactionCount",
       "offset": 0,
       "slot": "6",
-      "type": "t_mapping(t_address,t_userDefinedValueType(euint64)4733)"
+      "type": "t_mapping(t_address,t_userDefinedValueType(euint64)11797)"
     },
     {
-      "astId": 45493,
+      "astId": 54972,
       "contract": "contracts/PaymentReceipts.sol:PaymentReceipts",
       "label": "_statsInitialized",
       "offset": 0,
@@ -65,23 +65,23 @@
       "type": "t_mapping(t_address,t_bool)"
     },
     {
-      "astId": 45496,
+      "astId": 54975,
       "contract": "contracts/PaymentReceipts.sol:PaymentReceipts",
       "label": "_globalVolume",
       "offset": 0,
       "slot": "8",
-      "type": "t_userDefinedValueType(euint64)4733"
+      "type": "t_userDefinedValueType(euint64)11797"
     },
     {
-      "astId": 45499,
+      "astId": 54978,
       "contract": "contracts/PaymentReceipts.sol:PaymentReceipts",
       "label": "_globalTxCount",
       "offset": 0,
       "slot": "9",
-      "type": "t_userDefinedValueType(euint64)4733"
+      "type": "t_userDefinedValueType(euint64)11797"
     },
     {
-      "astId": 45501,
+      "astId": 54980,
       "contract": "contracts/PaymentReceipts.sol:PaymentReceipts",
       "label": "_globalStatsInitialized",
       "offset": 0,
@@ -89,7 +89,7 @@
       "type": "t_bool"
     },
     {
-      "astId": 45519,
+      "astId": 54998,
       "contract": "contracts/PaymentReceipts.sol:PaymentReceipts",
       "label": "proofCount",
       "offset": 0,
@@ -97,15 +97,15 @@
       "type": "t_uint256"
     },
     {
-      "astId": 45524,
+      "astId": 55003,
       "contract": "contracts/PaymentReceipts.sol:PaymentReceipts",
       "label": "_proofs",
       "offset": 0,
       "slot": "12",
-      "type": "t_mapping(t_uint256,t_struct(QualificationProof)45517_storage)"
+      "type": "t_mapping(t_uint256,t_struct(QualificationProof)54996_storage)"
     },
     {
-      "astId": 45529,
+      "astId": 55008,
       "contract": "contracts/PaymentReceipts.sol:PaymentReceipts",
       "label": "_userProofs",
       "offset": 0,
@@ -162,38 +162,38 @@
       "numberOfBytes": "32",
       "value": "t_bool"
     },
-    "t_mapping(t_address,t_userDefinedValueType(euint64)4733)": {
+    "t_mapping(t_address,t_userDefinedValueType(euint64)11797)": {
       "encoding": "mapping",
       "key": "t_address",
       "label": "mapping(address => euint64)",
       "numberOfBytes": "32",
-      "value": "t_userDefinedValueType(euint64)4733"
+      "value": "t_userDefinedValueType(euint64)11797"
     },
-    "t_mapping(t_bytes32,t_struct(Receipt)45462_storage)": {
+    "t_mapping(t_bytes32,t_struct(Receipt)54941_storage)": {
       "encoding": "mapping",
       "key": "t_bytes32",
       "label": "mapping(bytes32 => struct PaymentReceipts.Receipt)",
       "numberOfBytes": "32",
-      "value": "t_struct(Receipt)45462_storage"
+      "value": "t_struct(Receipt)54941_storage"
     },
-    "t_mapping(t_uint256,t_struct(QualificationProof)45517_storage)": {
+    "t_mapping(t_uint256,t_struct(QualificationProof)54996_storage)": {
       "encoding": "mapping",
       "key": "t_uint256",
       "label": "mapping(uint256 => struct PaymentReceipts.QualificationProof)",
       "numberOfBytes": "32",
-      "value": "t_struct(QualificationProof)45517_storage"
+      "value": "t_struct(QualificationProof)54996_storage"
     },
     "t_string_storage": {
       "encoding": "bytes",
       "label": "string",
       "numberOfBytes": "32"
     },
-    "t_struct(QualificationProof)45517_storage": {
+    "t_struct(QualificationProof)54996_storage": {
       "encoding": "inplace",
       "label": "struct PaymentReceipts.QualificationProof",
       "members": [
         {
-          "astId": 45503,
+          "astId": 54982,
           "contract": "contracts/PaymentReceipts.sol:PaymentReceipts",
           "label": "prover",
           "offset": 0,
@@ -201,7 +201,7 @@
           "type": "t_address"
         },
         {
-          "astId": 45505,
+          "astId": 54984,
           "contract": "contracts/PaymentReceipts.sol:PaymentReceipts",
           "label": "threshold",
           "offset": 20,
@@ -209,7 +209,7 @@
           "type": "t_uint64"
         },
         {
-          "astId": 45507,
+          "astId": 54986,
           "contract": "contracts/PaymentReceipts.sol:PaymentReceipts",
           "label": "blockNumber",
           "offset": 0,
@@ -217,7 +217,7 @@
           "type": "t_uint256"
         },
         {
-          "astId": 45509,
+          "astId": 54988,
           "contract": "contracts/PaymentReceipts.sol:PaymentReceipts",
           "label": "timestamp",
           "offset": 0,
@@ -225,15 +225,15 @@
           "type": "t_uint256"
         },
         {
-          "astId": 45512,
+          "astId": 54991,
           "contract": "contracts/PaymentReceipts.sol:PaymentReceipts",
           "label": "result",
           "offset": 0,
           "slot": "3",
-          "type": "t_userDefinedValueType(ebool)4725"
+          "type": "t_userDefinedValueType(ebool)11789"
         },
         {
-          "astId": 45514,
+          "astId": 54993,
           "contract": "contracts/PaymentReceipts.sol:PaymentReceipts",
           "label": "kind",
           "offset": 0,
@@ -241,7 +241,7 @@
           "type": "t_string_storage"
         },
         {
-          "astId": 45516,
+          "astId": 54995,
           "contract": "contracts/PaymentReceipts.sol:PaymentReceipts",
           "label": "exists",
           "offset": 0,
@@ -251,28 +251,28 @@
       ],
       "numberOfBytes": "192"
     },
-    "t_struct(Receipt)45462_storage": {
+    "t_struct(Receipt)54941_storage": {
       "encoding": "inplace",
       "label": "struct PaymentReceipts.Receipt",
       "members": [
         {
-          "astId": 45446,
+          "astId": 54925,
           "contract": "contracts/PaymentReceipts.sol:PaymentReceipts",
           "label": "paymentId",
           "offset": 0,
           "slot": "0",
-          "type": "t_userDefinedValueType(euint64)4733"
+          "type": "t_userDefinedValueType(euint64)11797"
         },
         {
-          "astId": 45449,
+          "astId": 54928,
           "contract": "contracts/PaymentReceipts.sol:PaymentReceipts",
           "label": "amount",
           "offset": 0,
           "slot": "1",
-          "type": "t_userDefinedValueType(euint64)4733"
+          "type": "t_userDefinedValueType(euint64)11797"
         },
         {
-          "astId": 45451,
+          "astId": 54930,
           "contract": "contracts/PaymentReceipts.sol:PaymentReceipts",
           "label": "payer",
           "offset": 0,
@@ -280,7 +280,7 @@
           "type": "t_address"
         },
         {
-          "astId": 45453,
+          "astId": 54932,
           "contract": "contracts/PaymentReceipts.sol:PaymentReceipts",
           "label": "payee",
           "offset": 0,
@@ -288,7 +288,7 @@
           "type": "t_address"
         },
         {
-          "astId": 45455,
+          "astId": 54934,
           "contract": "contracts/PaymentReceipts.sol:PaymentReceipts",
           "label": "token",
           "offset": 0,
@@ -296,7 +296,7 @@
           "type": "t_address"
         },
         {
-          "astId": 45457,
+          "astId": 54936,
           "contract": "contracts/PaymentReceipts.sol:PaymentReceipts",
           "label": "receiptHash",
           "offset": 0,
@@ -304,7 +304,7 @@
           "type": "t_bytes32"
         },
         {
-          "astId": 45459,
+          "astId": 54938,
           "contract": "contracts/PaymentReceipts.sol:PaymentReceipts",
           "label": "timestamp",
           "offset": 0,
@@ -312,7 +312,7 @@
           "type": "t_uint256"
         },
         {
-          "astId": 45461,
+          "astId": 54940,
           "contract": "contracts/PaymentReceipts.sol:PaymentReceipts",
           "label": "exists",
           "offset": 0,
@@ -332,12 +332,12 @@
       "label": "uint64",
       "numberOfBytes": "8"
     },
-    "t_userDefinedValueType(ebool)4725": {
+    "t_userDefinedValueType(ebool)11789": {
       "encoding": "inplace",
       "label": "ebool",
       "numberOfBytes": "32"
     },
-    "t_userDefinedValueType(euint64)4733": {
+    "t_userDefinedValueType(euint64)11797": {
       "encoding": "inplace",
       "label": "euint64",
       "numberOfBytes": "32"

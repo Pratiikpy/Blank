@@ -234,6 +234,17 @@ export const ENTRYPOINT_ABI = [
     outputs: [{ name: "nonce", type: "uint256" }],
     stateMutability: "view",
   },
+  // EntryPoint StakeManager — `balanceOf` returns the deposit (ETH that
+  // funds gas pre-payment) for an account. Used by:
+  //   • `usePaymasterHealth` to detect when BlankPaymaster is running low
+  //   • Operations alerting cron (server-side) for proactive top-ups
+  {
+    type: "function",
+    name: "balanceOf",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+  },
 ] as const;
 
 /**

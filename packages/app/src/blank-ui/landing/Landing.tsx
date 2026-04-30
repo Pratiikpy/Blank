@@ -22,11 +22,15 @@ const BILL_REVEAL =
 function Hero() {
   return (
     <section className="ll-hero">
-      <p className="ll-eyebrow">Your salary is your business. Not the blockchain's.</p>
+      <p className="ll-eyebrow">For freelancers, teams, and small businesses</p>
+      <h1 className="ll-hero-h1">
+        Send a private invoice.<br />Get paid privately.
+      </h1>
       <DecodeWord />
       <p className="ll-subline">
-        Every transaction amount is invisible on-chain. Social context stays
-        public for accountability. Financial details stay private for safety.
+        Encrypted invoices. Trustless escrow with automatic refund-on-mismatch.
+        Shareable proof-of-payment links. Powered by Fhenix CoFHE — amounts
+        stay private end-to-end.
       </p>
       <div className="ll-hero-ctas">
         <Link to="/app" className="ll-btn ll-btn--hero ll-btn--ink">
@@ -47,33 +51,33 @@ function Hero() {
   );
 }
 
-function Problem() {
+function ProofOfProduct() {
   const stats = [
     {
-      num: "$900M+",
+      num: "Live",
       label:
-        "extracted from users by MEV sandwich bots in 2023 — they exploit visible swap amounts",
+        "Deployed on Base Sepolia and Ethereum Sepolia. Open source, end-to-end testable.",
     },
     {
-      num: "272K",
+      num: "12",
       label:
-        "home addresses leaked from hardware-wallet breaches, enabling physical attacks on holders",
+        "product surfaces — invoices, escrow, payroll, requests, gifts, stealth, inheritance, and more.",
     },
     {
-      num: "0",
+      num: "FHE",
       label:
-        "enterprises deployed treasuries onchain because competitors can map their supply chains",
+        "Built on Fhenix CoFHE. Amounts stay encrypted on-chain; only sender and receiver decrypt.",
     },
   ];
   return (
-    <section className="ll-section" id="problem">
-      <div className="ll-section-kicker">The cost of public money</div>
+    <section className="ll-section" id="proof">
+      <div className="ll-section-kicker">Proof of product</div>
       <h2 className="ll-section-title">
-        Every transaction you make is a postcard. Anyone can read it.
+        Not a roadmap. Working software.
       </h2>
       <p className="ll-section-lead">
-        Public blockchains made trustlessness possible and transparency the
-        default. That default has a cost — and the cost is piling up.
+        Two testnets live today. Twelve features shipped. Every flow tested
+        end-to-end through the real UI — no demo videos, no waitlist.
       </p>
       <div className="ll-stats-grid">
         {stats.map((s) => (
@@ -232,7 +236,7 @@ export default function Landing() {
         <Hero />
         <GlobalCounter />
         <LiveDemo />
-        <Problem />
+        <ProofOfProduct />
         <HowItWorks />
         <ExploreLinks />
         <CTA />

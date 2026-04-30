@@ -79,6 +79,42 @@ export default async function handler(_req: any, res: any) {
       required: false,
       feature: "Base Sepolia RPC (private)",
     },
+    {
+      envVar: "RESEND_API_KEY",
+      set: !!process.env.RESEND_API_KEY,
+      required: false,
+      feature: "Transactional email via Resend (invoices, payment requests, reminders)",
+    },
+    {
+      envVar: "EMAIL_FROM",
+      set: !!process.env.EMAIL_FROM,
+      required: false,
+      feature: "Default From address for outbound email (e.g. \"Blank <invoices@blank.app>\")",
+    },
+    {
+      envVar: "PINATA_JWT",
+      set: !!process.env.PINATA_JWT,
+      required: false,
+      feature: "Pinata IPFS pinning (server-side uploads for invoice PDFs, escrow files)",
+    },
+    {
+      envVar: "VAPID_PUBLIC_KEY",
+      set: !!process.env.VAPID_PUBLIC_KEY,
+      required: false,
+      feature: "Web Push VAPID public key (must match VITE_VAPID_PUBLIC_KEY shipped to client)",
+    },
+    {
+      envVar: "VAPID_PRIVATE_KEY",
+      set: !!process.env.VAPID_PRIVATE_KEY,
+      required: false,
+      feature: "Web Push VAPID private key (signs notifications to push services)",
+    },
+    {
+      envVar: "PUSH_NOTIFY_SECRET",
+      set: !!process.env.PUSH_NOTIFY_SECRET,
+      required: false,
+      feature: "Bearer secret protecting /api/push/notify (set on Supabase webhook + Vercel)",
+    },
   ];
 
   const missingRequired = features.filter((f) => f.required && !f.set);

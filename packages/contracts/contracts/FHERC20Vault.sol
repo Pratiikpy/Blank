@@ -250,6 +250,56 @@ contract FHERC20Vault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
     // ─── Encrypted TransferFrom (for approved contracts) ────────────────
 
+    /// @notice Transfer tokens FROM `msg.sender` TO `to` using a pre-verified
+    ///         encrypted handle. Mirrors `transferFromVerified` but for the
+    ///         common case where the caller already holds the funds (e.g.
+    ///         BusinessHub releasing escrowed payments to the vendor or
+    ///         refunding the client).
+    ///
+    ///         Pre-verified means the handle was previously produced by an
+    ///         `FHE.asEuint64` call in `msg.sender`'s context — typically
+    ///         carried over from an earlier `transferFromVerified` whose
+    ///         result was stored in the caller's state. Skipping a fresh
+    ///         `InEuint64` argument both saves gas (no ZK input verify) and
+    ///         is the only way for a contract to move encrypted funds it
+    ///         already holds — the caller doesn't have a fresh ciphertext
+    ///         to encrypt; it has a handle.
+    /// @param to Recipient
+    /// @param amount Pre-verified euint64 handle held by msg.sender
+    /// @return transferred The encrypted amount actually transferred (zero if balance insufficient)
+    function transferVerified(
+        address to,
+        euint64 amount
+    ) external nonReentrant returns (euint64) {
+        require(to != address(0), "FHERC20Vault: transfer to zero address");
+        require(to != msg.sender, "FHERC20Vault: transfer to self");
+
+        _ensureInitialized(msg.sender);
+        _ensureInitialized(to);
+
+        // Privacy-preserving balance check
+        ebool hasEnough = FHE.gte(_balances[msg.sender], amount);
+        euint64 actualAmount = FHE.select(hasEnough, amount, ZERO);
+
+        // Execute transfer
+        _balances[msg.sender] = FHE.sub(_balances[msg.sender], actualAmount);
+        _balances[to] = FHE.add(_balances[to], actualAmount);
+
+        // Grant permissions — both parties + this contract
+        FHE.allowThis(_balances[msg.sender]);
+        FHE.allow(_balances[msg.sender], msg.sender);
+        FHE.allowThis(_balances[to]);
+        FHE.allow(_balances[to], to);
+
+        // Return handle so caller can check actual amount transferred
+        FHE.allowThis(actualAmount);
+        FHE.allowSender(actualAmount);
+
+        emit EncryptedTransfer(msg.sender, to, block.timestamp);
+
+        return actualAmount;
+    }
+
     /// @notice Transfer tokens on behalf of `from` using encrypted allowance.
     ///         Used by PaymentHub, GroupManager, etc. after user approves them.
     /// @param from Token owner

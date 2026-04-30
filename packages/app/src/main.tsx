@@ -5,6 +5,7 @@ import { ErrorBoundary } from "@/components/common/ErrorBoundary";
 import { AppProviders } from "@/providers/AppProviders";
 import { App } from "@/App";
 import { initSentry } from "@/lib/sentry-adapter";
+import { registerServiceWorker } from "@/lib/register-sw";
 import "@/index.css";
 
 // Dev warning for missing env vars
@@ -17,6 +18,10 @@ if (import.meta.env.DEV) {
 // Wire Sentry BEFORE React mounts so early errors are captured. Bails early
 // if VITE_SENTRY_DSN is unset — zero runtime cost in that case.
 initSentry();
+
+// Register the Web Push service worker. The SW doesn't intercept fetches —
+// it only exists to handle push events when the app is closed.
+registerServiceWorker();
 
 // White-screen-on-refresh fix. When we deploy, the new index.html points at
 // new chunk hashes but browsers may have an old index.html cached. That old

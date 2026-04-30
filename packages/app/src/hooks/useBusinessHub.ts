@@ -2,7 +2,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { usePublicClient } from "wagmi";
 import { useEffectiveAddress } from "./useEffectiveAddress";
 import { useUnifiedWrite } from "./useUnifiedWrite";
-import { parseUnits } from "viem";
+import { parseUnits, keccak256, stringToBytes } from "viem";
 import { useCofheEncrypt, useCofheConnection } from "@cofhe/react";
 import { useCofheDecryptForTx } from "@/lib/cofhe-shim";
 import { Encryptable } from "@cofhe/sdk";
@@ -10,7 +10,15 @@ import toast from "react-hot-toast";
 import { MAX_UINT64, type EncryptedInput } from "@/lib/constants";
 import { useChain } from "@/providers/ChainProvider";
 import { BusinessHubAbi, FHERC20VaultAbi, TestUSDCAbi } from "@/lib/abis";
-import { insertInvoice, insertEscrow, insertActivity, updateEscrowStatus, updateInvoiceStatus } from "@/lib/supabase";
+import { insertInvoice, insertEscrow, insertActivity, updateEscrowStatus, updateInvoiceStatus, setInvoicePdfCid } from "@/lib/supabase";
+import { lookupName } from "@/lib/address-resolver";
+import { renderAndPinInvoicePdf } from "@/lib/invoice-pdf";
+import { truncateAddress } from "@/lib/address";
+import { sendInvoiceEmail, buildInvoiceEmailSignableMessage } from "@/lib/email-client";
+import { buildInvoiceLink } from "@/lib/invoice-links";
+import { useEmailAuthSigner } from "./useEmailAuthSigner";
+import { setEscrowAttachmentCid } from "@/lib/supabase";
+import { pinFile } from "@/lib/ipfs";
 import { insertActivitiesFanout } from "@/lib/activity-fanout";
 import { ACTIVITY_TYPES } from "@/lib/activity-types";
 import { extractEventId } from "@/lib/event-parser";
@@ -54,6 +62,7 @@ export function useBusinessHub() {
   const { encryptInputsAsync } = useCofheEncrypt();
   const { decryptForTx } = useCofheDecryptForTx();
   const { unifiedWrite, unifiedWriteAndWait } = useUnifiedWrite();
+  const { signEmailAuth } = useEmailAuthSigner();
   const [step, setStep] = useState<Step>("idle");
 
   const resetTimerRef = useRef<ReturnType<typeof setTimeout>>();
@@ -69,7 +78,13 @@ export function useBusinessHub() {
   useEffect(() => () => clearTimeout(resetTimerRef.current), []);
 
   const createInvoice = useCallback(
-    async (client: string, amount: string, description: string, dueDate: number) => {
+    async (
+      client: string,
+      amount: string,
+      description: string,
+      dueDate: number,
+      clientEmail?: string,
+    ) => {
       if (!address || !connected) {
         toast.error("Please connect your wallet");
         return;
@@ -141,6 +156,7 @@ export function useBusinessHub() {
           due_date: new Date(dueDate * 1000).toISOString(),
           status: "pending",
           tx_hash: hash,
+          client_email: clientEmail?.trim() || null,
         });
 
         await insertActivity({
@@ -161,6 +177,96 @@ export function useBusinessHub() {
 
         setStepWithReset("success", 6000);
         toast.success("Invoice sent!");
+
+        // Phase 1.1 + 1.3: render an invoice PDF, pin to IPFS, then fire an
+        // email to the client (when an address is on file). Fire-and-forget
+        // — the on-chain invoice and Supabase row are already saved; any
+        // failure here only delays the email/PDF, which we can retry later.
+        // Skipped silently when PINATA_JWT or Resend env vars are missing.
+        const trimmedEmail = clientEmail?.trim();
+        void (async () => {
+          try {
+            const [vendorName, clientName] = await Promise.all([
+              lookupName(address as `0x${string}`),
+              lookupName(client as `0x${string}`),
+            ]);
+            const issueDate = new Date().toISOString();
+            const dueDateIso = new Date(dueDate * 1000).toISOString();
+            const origin =
+              typeof window !== "undefined" && window.location
+                ? window.location.origin
+                : (import.meta.env.VITE_PUBLIC_APP_URL ?? "https://blank.app");
+            // PR-C step 4: link emails directly to the new escrow page so
+            // clients land on the real flow (not a placeholder /pay route
+            // that was never mounted). Amount stays out of the URL — it
+            // lives encrypted on-chain.
+            const payUrl = buildInvoiceLink(activeChainId, invoiceId, origin);
+            const { cid } = await renderAndPinInvoicePdf({
+              invoiceId,
+              vendor: { name: vendorName ?? truncateAddress(address), address },
+              client: { name: clientName ?? truncateAddress(client), address: client },
+              issueDate,
+              dueDate: dueDateIso,
+              description,
+              amount,
+              payUrl,
+            });
+            await setInvoicePdfCid(invoiceId, cid);
+
+            // Phase 3.5: anchor keccak256(cid) on-chain so a third party can
+            // verify the off-chain Pinata file hasn't been swapped. Best
+            // effort — guarded so a missed upgrade or wallet-prompt rejection
+            // doesn't undo the rest of the invoice flow.
+            try {
+              const cidHash = keccak256(stringToBytes(cid));
+              await unifiedWriteAndWait({
+                address: contracts.BusinessHub as `0x${string}`,
+                abi: BusinessHubAbi,
+                functionName: "setInvoicePdfCidHash",
+                args: [BigInt(invoiceId), cidHash],
+                gas: BigInt(150_000),
+              });
+            } catch (anchorErr) {
+              console.warn("On-chain invoice CID anchor failed:", anchorErr);
+            }
+
+            // Email-out (only when we have a client email AND Resend is wired).
+            // Phase 7-followup: sign the canonical message so the server
+            // can verify the call really came from the invoice's vendor.
+            // If signing fails (user dismissed passphrase prompt etc.),
+            // fall through unsigned — server's soft mode accepts those
+            // until STRICT_EMAIL_AUTH=1 flips on in production.
+            if (trimmedEmail) {
+              const signedAt = Math.floor(Date.now() / 1000);
+              const message = buildInvoiceEmailSignableMessage({
+                invoiceId,
+                recipient: trimmedEmail,
+                signedAt,
+                chainId: activeChainId,
+              });
+              let auth: Awaited<ReturnType<typeof signEmailAuth>> = null;
+              try {
+                auth = await signEmailAuth(message, signedAt);
+              } catch (signErr) {
+                console.warn("Invoice email signing skipped:", signErr);
+              }
+              const result = await sendInvoiceEmail({
+                invoiceId,
+                recipientEmail: trimmedEmail,
+                amount,
+                payUrl,
+                vendorName: vendorName ?? truncateAddress(address),
+                ...(auth ?? {}),
+              });
+              if (!result.ok) {
+                console.warn("Invoice email send failed:", result.error);
+              }
+            }
+          } catch (pdfErr) {
+            // PDF / email is best-effort — invoice itself already succeeded.
+            console.warn("Invoice PDF/email pipeline failed:", pdfErr);
+          }
+        })();
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Invoice failed";
         if (msg.includes("allowance") || msg.includes("approve") || msg.includes("insufficient") || msg.includes("transfer amount exceeds")) {
@@ -229,7 +335,15 @@ export function useBusinessHub() {
             // Type assertion: cofhe SDK encrypt returns opaque encrypted input objects
             encSalaries as unknown as EncryptedInput[],
           ],
-          gas: BigInt(5_000_000), // FHE: manual gas limit (precompile can't be estimated)
+          // FHE precompile gas can't be estimated by the EVM. runPayroll
+          // does ~13 FHE ops per recipient (gte + and + select + sub +
+          // add + allow x6) inside transferFromVerified, plus ZK input
+          // verification on each encrypted salary. CoFHE precompiles are
+          // ~200-400K gas each. Empirical: 3M base + 3M per recipient.
+          // Without this an N≥2 batch hits buildUserOp's 2M default
+          // callGasLimit and reverts with empty data; with too-high a
+          // figure the bundler tx exceeds the RPC per-tx gas cap.
+          gas: BigInt(3_000_000) + BigInt(employees.length) * BigInt(3_000_000),
         });
         const hash = payrollResult.hash;
 
@@ -279,7 +393,14 @@ export function useBusinessHub() {
   );
 
   const createEscrow = useCallback(
-    async (beneficiary: string, amount: string, description: string, arbiter: string, deadline: number) => {
+    async (
+      beneficiary: string,
+      amount: string,
+      description: string,
+      arbiter: string,
+      deadline: number,
+      attachmentFile?: File | null,
+    ) => {
       if (!address || !connected) {
         toast.error("Please connect your wallet");
         return;
@@ -405,6 +526,38 @@ export function useBusinessHub() {
 
         setStepWithReset("success", 6000);
         toast.success("Escrow created!", { id: escrowToastId });
+
+        // Phase 3.4: optional IPFS attachment (project brief, contract, etc).
+        // Fire-and-forget — escrow itself already succeeded; an attachment
+        // upload failure only delays the file landing on the row, which can
+        // be retried later. Skipped silently when PINATA_JWT is missing.
+        if (attachmentFile) {
+          void (async () => {
+            try {
+              const { cid } = await pinFile(attachmentFile, {
+                name: `escrow-${escrowId}-${attachmentFile.name}`,
+              });
+              await setEscrowAttachmentCid(escrowId, cid);
+
+              // Phase 3.5: anchor keccak256(cid) on-chain — same rationale
+              // as the invoice flow above.
+              try {
+                const cidHash = keccak256(stringToBytes(cid));
+                await unifiedWriteAndWait({
+                  address: contracts.BusinessHub as `0x${string}`,
+                  abi: BusinessHubAbi,
+                  functionName: "setEscrowAttachmentCidHash",
+                  args: [BigInt(escrowId), cidHash],
+                  gas: BigInt(150_000),
+                });
+              } catch (anchorErr) {
+                console.warn("On-chain escrow CID anchor failed:", anchorErr);
+              }
+            } catch (uploadErr) {
+              console.warn("Escrow attachment upload failed:", uploadErr);
+            }
+          })();
+        }
       } catch (err) {
         setStepWithReset("error", 5000);
         toast.error(err instanceof Error ? err.message : "Escrow failed");
@@ -750,6 +903,282 @@ export function useBusinessHub() {
     [address, connected, step, encryptInputsAsync, unifiedWrite, unifiedWriteAndWait, publicClient, contracts]
   );
 
+  /**
+   * Phase 5.6 — pay an invoice using ANY ERC-20 (USDT, WETH, etc.) by routing
+   * through Uniswap v3 SwapRouter02 to the invoice's underlying token (USDC).
+   * Mirrors `payInvoice` for the FHE encrypted-match flow — caller still
+   * provides `amount` (the invoice's USDC amount, off-chain decrypted) so
+   * the encryption verification gate is identical. Subsequent
+   * `payInvoiceFinalize` flips Paid/Disputed based on the FHE match result.
+   *
+   * Same-token short-circuit: if `payToken == FHERC20Vault_USDC.underlying()`
+   * (i.e. payer is paying USDC for a USDC invoice), the contract skips the
+   * Uniswap call entirely. We mirror that here by passing `payAmountInMax
+   * == expectedUsdcOut` — the contract enforces equality.
+   *
+   * Privacy trade-off: during the swap window the amount is publicly visible
+   * on Uniswap, AND the vendor receives plaintext USDC. Documented in the UI.
+   */
+  const payInvoiceWithSwap = useCallback(
+    async (params: {
+      invoiceId: number;
+      /** Caller's pay-token address (USDT / WETH / etc.). */
+      payToken: `0x${string}`;
+      /** Upper bound on payToken to spend. Sized as
+       *  `expectedUsdcOut * (current rate) * (1 + slippage)`. */
+      payAmountInMax: bigint;
+      /** Off-chain decrypted invoice amount in USDC (6 decimals). */
+      amount: string;
+      /** Uniswap v3 pool fee tier (3000 = 0.3% etc.). Ignored for same-token. */
+      fee: number;
+      /** SwapRouter02 address — caller passes UNISWAP_SWAP_ROUTER_02[chainId]. */
+      swapRouter: `0x${string}`;
+    }) => {
+      if (!address || !connected) {
+        toast.error("Please connect your wallet");
+        return;
+      }
+      if (step === "approving" || step === "encrypting" || step === "sending") return;
+      if (!publicClient) {
+        toast.error("Connection lost. Please refresh.");
+        return;
+      }
+      if (!params.amount || params.amount.trim() === "") {
+        toast.error("Enter the invoice amount");
+        return;
+      }
+
+      try {
+        clearTimeout(resetTimerRef.current);
+        setStep("approving");
+
+        // Approve BusinessHub to pull payToken from the user. Unlike the
+        // standard payInvoice which uses encrypted-vault approval, this path
+        // pulls plaintext payToken directly because the swap is on a public
+        // DEX. ERC-20 approve is exact (not max-uint64) — caller passes the
+        // upper bound that already includes the slippage budget.
+        const erc20Abi = [
+          {
+            type: "function",
+            name: "approve",
+            stateMutability: "nonpayable",
+            inputs: [
+              { name: "spender", type: "address" },
+              { name: "amount", type: "uint256" },
+            ],
+            outputs: [{ name: "", type: "bool" }],
+          },
+        ] as const;
+        const approveTx = await unifiedWrite({
+          address: params.payToken,
+          abi: erc20Abi,
+          functionName: "approve",
+          args: [contracts.BusinessHub as `0x${string}`, params.payAmountInMax],
+          gas: BigInt(120_000),
+        });
+        await publicClient.waitForTransactionReceipt({ hash: approveTx, confirmations: 1 });
+
+        setStep("encrypting");
+        const expectedUsdcOut = parseUnits(params.amount, 6);
+        const [encAmount] = await encryptInputsAsync([Encryptable.uint64(expectedUsdcOut)]);
+
+        setStep("sending");
+        const payResult = await unifiedWriteAndWait({
+          address: contracts.BusinessHub as `0x${string}`,
+          abi: BusinessHubAbi,
+          functionName: "payInvoiceWithSwap",
+          args: [
+            BigInt(params.invoiceId),
+            params.payToken,
+            params.payAmountInMax,
+            expectedUsdcOut,
+            params.fee,
+            params.swapRouter,
+            encAmount as unknown as EncryptedInput,
+          ],
+          // Higher gas budget than payInvoice — adds the Uniswap swap call
+          // plus an extra safeTransfer. 8M is conservative; FHE precompile
+          // can't be estimated so we have to pre-set.
+          gas: BigInt(8_000_000),
+        });
+        const hash = payResult.hash;
+        const receipt = payResult.receipt
+          ? payResult.receipt
+          : await publicClient.waitForTransactionReceipt({
+              hash, confirmations: 1, timeout: 300_000,
+            });
+        if (receipt.status === "reverted") {
+          throw new Error("Transaction reverted on-chain");
+        }
+
+        await updateInvoiceStatus(params.invoiceId, "payment_pending");
+
+        await insertActivity({
+          tx_hash: hash,
+          user_from: address.toLowerCase(),
+          user_to: address.toLowerCase(),
+          activity_type: ACTIVITY_TYPES.INVOICE_PAYMENT,
+          contract_address: contracts.BusinessHub,
+          note: `Paid invoice #${params.invoiceId} via swap`,
+          token_address: params.payToken,
+          block_number: Number(receipt.blockNumber),
+        });
+
+        broadcastAction("balance_changed");
+        broadcastAction("activity_added");
+        invalidateBalanceQueries();
+
+        setStepWithReset("success", 6000);
+        toast.success("Invoice payment submitted via swap!");
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Payment failed";
+        setStepWithReset("error", 5000);
+        toast.error(msg);
+      }
+    },
+    [address, connected, step, encryptInputsAsync, unifiedWrite, unifiedWriteAndWait, publicClient, contracts]
+  );
+
+  /**
+   * Phase 5.7 — pay an invoice using a token Uniswap doesn't have a
+   * pool for, via a backend-signed price quote. Caller fetches the
+   * quote from /api/oracle/quote, then passes the entire quote tuple
+   * + the signed bytes to this hook. Mirrors `payInvoiceWithSwap` in
+   * lifecycle (approve + encrypt + send + payment-pending).
+   */
+  const payInvoiceWithOracleQuote = useCallback(
+    async (params: {
+      invoiceId: number;
+      payToken: `0x${string}`;
+      /** Exact amount the caller is spending in payToken (smallest unit). */
+      payAmountIn: bigint;
+      /** USDC base units (6 decimals) that the contract will deliver to vendor. */
+      expectedUsdcOut: bigint;
+      /** Quote rate × 1e6 — must match what the backend signed. */
+      ratePpm: bigint;
+      /** Unix seconds quote expiry. */
+      expiresAt: number;
+      /** 32-byte hex nonce from the backend. */
+      nonce: `0x${string}`;
+      /** ECDSA signature from the backend (EIP-191 prefixed digest). */
+      signature: `0x${string}`;
+      /** Off-chain decrypted invoice amount in USDC (mirrors `payInvoice.amount`). */
+      amount: string;
+    }) => {
+      if (!address || !connected) {
+        toast.error("Please connect your wallet");
+        return;
+      }
+      if (step === "approving" || step === "encrypting" || step === "sending") return;
+      if (!publicClient) {
+        toast.error("Connection lost. Please refresh.");
+        return;
+      }
+      if (!params.amount || params.amount.trim() === "") {
+        toast.error("Enter the invoice amount");
+        return;
+      }
+
+      try {
+        clearTimeout(resetTimerRef.current);
+        setStep("approving");
+
+        // Approve BusinessHub to pull the EXACT payAmountIn — oracle
+        // path is no-refund (the contract pulls and uses precisely the
+        // signed amount; differential goes to the operator's payToken
+        // float, which is recouped via withdrawAccumulated).
+        const erc20Abi = [
+          {
+            type: "function",
+            name: "approve",
+            stateMutability: "nonpayable",
+            inputs: [
+              { name: "spender", type: "address" },
+              { name: "amount", type: "uint256" },
+            ],
+            outputs: [{ name: "", type: "bool" }],
+          },
+        ] as const;
+        const approveTx = await unifiedWrite({
+          address: params.payToken,
+          abi: erc20Abi,
+          functionName: "approve",
+          args: [contracts.BusinessHub as `0x${string}`, params.payAmountIn],
+          gas: BigInt(120_000),
+        });
+        await publicClient.waitForTransactionReceipt({ hash: approveTx, confirmations: 1 });
+
+        setStep("encrypting");
+        const expectedUsdcOut = parseUnits(params.amount, 6);
+        if (expectedUsdcOut !== params.expectedUsdcOut) {
+          throw new Error(
+            "amount mismatch — UI amount doesn't match the signed quote's expectedUsdcOut",
+          );
+        }
+        const [encAmount] = await encryptInputsAsync([Encryptable.uint64(expectedUsdcOut)]);
+
+        setStep("sending");
+        const payResult = await unifiedWriteAndWait({
+          address: contracts.BusinessHub as `0x${string}`,
+          abi: BusinessHubAbi,
+          functionName: "payInvoiceWithOracleQuote",
+          args: [
+            BigInt(params.invoiceId),
+            params.payToken,
+            params.payAmountIn,
+            params.expectedUsdcOut,
+            params.ratePpm,
+            BigInt(params.expiresAt),
+            params.nonce,
+            params.signature,
+            encAmount as unknown as EncryptedInput,
+          ],
+          // Oracle path: ECDSA recover (~3k) + FHE encrypt (~3M) +
+          // safeTransferFrom + safeTransfer + state writes. 8M is
+          // conservative; the contract has no Uniswap dependency here
+          // so most of the budget is the FHE precompile.
+          gas: BigInt(8_000_000),
+        });
+        const hash = payResult.hash;
+        const receipt = payResult.receipt
+          ? payResult.receipt
+          : await publicClient.waitForTransactionReceipt({
+              hash,
+              confirmations: 1,
+              timeout: 300_000,
+            });
+        if (receipt.status === "reverted") {
+          throw new Error("Transaction reverted on-chain");
+        }
+
+        await updateInvoiceStatus(params.invoiceId, "payment_pending");
+
+        await insertActivity({
+          tx_hash: hash,
+          user_from: address.toLowerCase(),
+          user_to: address.toLowerCase(),
+          activity_type: ACTIVITY_TYPES.INVOICE_PAYMENT,
+          contract_address: contracts.BusinessHub,
+          note: `Paid invoice #${params.invoiceId} via oracle-signed quote`,
+          token_address: params.payToken,
+          block_number: Number(receipt.blockNumber),
+        });
+
+        broadcastAction("balance_changed");
+        broadcastAction("activity_added");
+        invalidateBalanceQueries();
+
+        setStepWithReset("success", 6000);
+        toast.success("Invoice payment submitted via oracle quote!");
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Payment failed";
+        setStepWithReset("error", 5000);
+        toast.error(msg);
+      }
+    },
+    [address, connected, step, encryptInputsAsync, unifiedWrite, unifiedWriteAndWait, publicClient, contracts]
+  );
+
   const cancelInvoice = useCallback(
     async (invoiceId: number) => {
       if (!address || !publicClient) {
@@ -967,5 +1396,5 @@ export function useBusinessHub() {
 
   const reset = useCallback(() => setStep("idle"), []);
 
-  return { step, createInvoice, runPayroll, createEscrow, finalizeInvoice, markDelivered, approveRelease, disputeEscrow, payInvoice, cancelInvoice, arbiterDecide, claimExpiredEscrow, reset };
+  return { step, createInvoice, runPayroll, createEscrow, finalizeInvoice, markDelivered, approveRelease, disputeEscrow, payInvoice, payInvoiceWithSwap, payInvoiceWithOracleQuote, cancelInvoice, arbiterDecide, claimExpiredEscrow, reset };
 }

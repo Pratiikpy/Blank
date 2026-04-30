@@ -55,6 +55,10 @@ const TRACKED_CONTRACTS: string[] = [
   "InheritanceManager",
   "PrivacyRouter",
   "CreatorHub",
+  // Phase 4.1 — BlankAccount became UUPS-upgradeable in v0.4.1 (validator
+  // dispatch). Tracking guards against accidental storage reordering on
+  // future upgrades that would brick existing user proxies.
+  "BlankAccount",
 ];
 
 const SNAPSHOT_DIR = path.join(__dirname, "..", "storage-layouts");
@@ -141,12 +145,56 @@ function stableStringify(v: unknown): string {
   return JSON.stringify(v, Object.keys(v as object).sort(), 2);
 }
 
+/**
+ * Strip every solc AST-id from a storage-layout subtree.
+ *
+ * Why: solc emits storage layouts that embed sequential AST-ids inside
+ * type strings (e.g. `t_contract(IEventHub)45306`,
+ * `t_userDefinedValueType(euint)4733`). AST-ids are NOT stable across
+ * compilations — they're per-run counters that depend on the total set of
+ * source files solc processes. When an external dep (e.g.
+ * @cofhe/mock-contracts) ships a new version with extra files, every
+ * AST-id in our contracts shifts even though the actual storage
+ * (slot + offset + label + type-shape) is unchanged.
+ *
+ * UUPS upgrade safety only depends on slot/offset/label/type-shape — never
+ * on AST-ids — so we strip them before comparing. This lets the check
+ * stay sharp on real layout changes while not false-alarming on every
+ * SDK bump.
+ *
+ * Implementation: top-level `astId` fields are dropped, and any embedded
+ * digit run inside a string field (the type-id suffixes) is removed.
+ */
+function stripAstIds(value: unknown): unknown {
+  if (typeof value === "string") {
+    // Pure-digit strings are slot numbers / offset values — leave alone.
+    // Mixed strings (type expressions like `t_contract(X)45306`) get
+    // their digit runs stripped.
+    return /^[0-9]+$/.test(value) ? value : value.replace(/[0-9]+/g, "");
+  }
+  if (Array.isArray(value)) {
+    return value.map(stripAstIds);
+  }
+  if (value && typeof value === "object") {
+    // The `types` map is keyed by type expressions that themselves
+    // embed AST-ids; we strip digits from keys with the same rule.
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) {
+      if (k === "astId") continue;
+      const normK = /^[0-9]+$/.test(k) ? k : k.replace(/[0-9]+/g, "");
+      out[normK] = stripAstIds(v);
+    }
+    return out;
+  }
+  return value;
+}
+
 function layoutsEqual(a: StorageLayout, b: StorageLayout): boolean {
-  // JSON round-trip with stable key ordering. Storage layouts are shallow
-  // enough that this is fine in practice.
+  // JSON round-trip after AST-id stripping. The stripped form is what
+  // actually matters for UUPS upgrade safety.
   return (
-    JSON.stringify(a.storage) === JSON.stringify(b.storage) &&
-    JSON.stringify(a.types) === JSON.stringify(b.types)
+    JSON.stringify(stripAstIds(a.storage)) === JSON.stringify(stripAstIds(b.storage)) &&
+    JSON.stringify(stripAstIds(a.types)) === JSON.stringify(stripAstIds(b.types))
   );
 }
 

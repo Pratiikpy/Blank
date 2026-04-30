@@ -136,6 +136,12 @@ export const CreatorHubAbi = [
 export const BusinessHubAbi = [
   { type: "function", name: "createInvoice", inputs: [{ name: "client", type: "address" }, { name: "vault", type: "address" }, InEuint64Tuple, { name: "description", type: "string" }, { name: "dueDate", type: "uint256" }], outputs: [{ name: "", type: "uint256" }], stateMutability: "nonpayable" },
   { type: "function", name: "payInvoice", inputs: [{ name: "invoiceId", type: "uint256" }, InEuint64Tuple], outputs: [], stateMutability: "nonpayable" },
+  // PR-C step 2 — trustless escrow path. Funds sit in BusinessHub until
+  // releaseInvoiceEscrow finalizes the encrypted-amount match check.
+  { type: "function", name: "payInvoiceEscrow", inputs: [{ name: "invoiceId", type: "uint256" }, InEuint64Tuple], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "releaseInvoiceEscrow", inputs: [{ name: "invoiceId", type: "uint256" }, { name: "matchPlaintext", type: "bool" }, { name: "signature", type: "bytes" }], outputs: [], stateMutability: "nonpayable" },
+  // PR-A — vendor-cooperative refund for legacy payInvoice mismatches.
+  { type: "function", name: "refundDisputedInvoice", inputs: [{ name: "invoiceId", type: "uint256" }, InEuint64Tuple], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "cancelInvoice", inputs: [{ name: "invoiceId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "runPayroll", inputs: [{ name: "employees", type: "address[]" }, { name: "vault", type: "address" }, { name: "salaries", type: "tuple[]", internalType: "struct InEuint64[]", components: InEuint64Components }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "createEscrow", inputs: [{ name: "beneficiary", type: "address" }, { name: "vault", type: "address" }, { name: "plaintextAmount", type: "uint256" }, { name: "description", type: "string" }, { name: "arbiter", type: "address" }, { name: "deadline", type: "uint256" }], outputs: [{ name: "", type: "uint256" }], stateMutability: "nonpayable" },
@@ -151,6 +157,13 @@ export const BusinessHubAbi = [
   { type: "function", name: "getEscrow", inputs: [{ name: "id", type: "uint256" }], outputs: [{ name: "depositor", type: "address" }, { name: "beneficiary", type: "address" }, { name: "arbiter", type: "address" }, { name: "vault", type: "address" }, { name: "amount", type: "uint256", internalType: "euint64" }, { name: "description", type: "string" }, { name: "deadline", type: "uint256" }, { name: "status", type: "uint8" }], stateMutability: "view" },
   { type: "function", name: "arbiterDecide", inputs: [{ name: "escrowId", type: "uint256" }, { name: "releaseToBeneficiary", type: "bool" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "claimExpiredEscrow", inputs: [{ name: "escrowId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
+  // ─── Phase 3.5 (#225) on-chain CID anchoring ─────────────────────────
+  { type: "function", name: "setInvoicePdfCidHash", inputs: [{ name: "invoiceId", type: "uint256" }, { name: "cidHash", type: "bytes32" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "setEscrowAttachmentCidHash", inputs: [{ name: "escrowId", type: "uint256" }, { name: "cidHash", type: "bytes32" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "invoicePdfCidHash", inputs: [{ name: "invoiceId", type: "uint256" }], outputs: [{ name: "", type: "bytes32" }], stateMutability: "view" },
+  { type: "function", name: "escrowAttachmentCidHash", inputs: [{ name: "escrowId", type: "uint256" }], outputs: [{ name: "", type: "bytes32" }], stateMutability: "view" },
+  { type: "event", name: "InvoicePdfCidSet", inputs: [{ name: "id", type: "uint256", indexed: true }, { name: "cidHash", type: "bytes32", indexed: false }, { name: "timestamp", type: "uint256", indexed: false }] },
+  { type: "event", name: "EscrowAttachmentCidSet", inputs: [{ name: "id", type: "uint256", indexed: true }, { name: "cidHash", type: "bytes32", indexed: false }, { name: "timestamp", type: "uint256", indexed: false }] },
   { type: "event", name: "InvoiceCreated", inputs: [{ name: "id", type: "uint256", indexed: true }, { name: "vendor", type: "address", indexed: true }, { name: "client", type: "address", indexed: true }, { name: "description", type: "string", indexed: false }, { name: "dueDate", type: "uint256", indexed: false }, { name: "timestamp", type: "uint256", indexed: false }] },
   { type: "event", name: "InvoicePaymentInitiated", inputs: [{ name: "id", type: "uint256", indexed: true }, { name: "timestamp", type: "uint256", indexed: false }] },
   { type: "event", name: "InvoicePaid", inputs: [{ name: "id", type: "uint256", indexed: true }, { name: "timestamp", type: "uint256", indexed: false }] },
@@ -360,4 +373,58 @@ export const PaymentReceiptsAbi = [
   // #91: emitted by publishProof so indexers and live subscribers learn when a
   // verdict flips (was previously a silent state change).
   { type: "event", name: "ProofPublished", inputs: [{ name: "proofId", type: "uint256", indexed: true }, { name: "publisher", type: "address", indexed: true }, { name: "result", type: "bool", indexed: false }, { name: "timestamp", type: "uint256", indexed: false }] },
+] as const;
+
+// ─── Phase 9 — ERC-5564 stealth payment Announcer ────────────────────
+//
+// Singleton at 0x55649E01B5Df198D18D95b5cc5051630cfD45564 (every chain).
+// Stateless — only emits events. Recipients with the matching viewing
+// key scan the Announcement event log and short-circuit on view-tag.
+export const ERC5564AnnouncerAbi = [
+  { type: "function", name: "announce", inputs: [
+    { name: "schemeId", type: "uint256" },
+    { name: "stealthAddress", type: "address" },
+    { name: "ephemeralPubKey", type: "bytes" },
+    { name: "metadata", type: "bytes" },
+  ], outputs: [], stateMutability: "nonpayable" },
+  { type: "event", name: "Announcement", inputs: [
+    { name: "schemeId", type: "uint256", indexed: true },
+    { name: "stealthAddress", type: "address", indexed: true },
+    { name: "caller", type: "address", indexed: true },
+    { name: "ephemeralPubKey", type: "bytes", indexed: false },
+    { name: "metadata", type: "bytes", indexed: false },
+  ] },
+] as const;
+
+// ─── Phase 9 — ERC-6538 stealth meta-address registry ────────────────
+//
+// Singleton at 0x6538E6bf4B0eBd30A8Ea093027Ac2422ce5d6538 (every chain).
+// Read `stealthMetaAddressOf(addr, schemeId)` to detect whether a
+// recipient publishes a stealth meta-address.
+export const ERC6538RegistryAbi = [
+  { type: "function", name: "stealthMetaAddressOf", inputs: [
+    { name: "registrant", type: "address" },
+    { name: "schemeId", type: "uint256" },
+  ], outputs: [{ name: "", type: "bytes" }], stateMutability: "view" },
+  { type: "function", name: "registerKeys", inputs: [
+    { name: "schemeId", type: "uint256" },
+    { name: "stealthMetaAddress", type: "bytes" },
+  ], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "registerKeysOnBehalf", inputs: [
+    { name: "registrant", type: "address" },
+    { name: "schemeId", type: "uint256" },
+    { name: "signature", type: "bytes" },
+    { name: "stealthMetaAddress", type: "bytes" },
+  ], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "incrementNonce", inputs: [], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "nonceOf", inputs: [{ name: "registrant", type: "address" }], outputs: [{ name: "", type: "uint256" }], stateMutability: "view" },
+  { type: "event", name: "StealthMetaAddressSet", inputs: [
+    { name: "registrant", type: "address", indexed: true },
+    { name: "schemeId", type: "uint256", indexed: true },
+    { name: "stealthMetaAddress", type: "bytes", indexed: false },
+  ] },
+  { type: "event", name: "NonceIncremented", inputs: [
+    { name: "registrant", type: "address", indexed: true },
+    { name: "newNonce", type: "uint256", indexed: false },
+  ] },
 ] as const;

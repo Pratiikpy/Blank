@@ -97,6 +97,17 @@ contract PaymentReceipts is UUPSUpgradeable, OwnableUpgradeable {
         uint256 timestamp
     );
 
+    // #91: publishProof previously emitted no event, so frontend had no
+    // subscription path to learn when a verdict flipped. Now publisher +
+    // result are indexed so indexers can answer "who published this proof
+    // and what did it say?" in a single log read.
+    event ProofPublished(
+        uint256 indexed proofId,
+        address indexed publisher,
+        bool result,
+        uint256 timestamp
+    );
+
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() { _disableInitializers(); }
 
@@ -384,6 +395,7 @@ contract PaymentReceipts is UUPSUpgradeable, OwnableUpgradeable {
         QualificationProof storage p = _proofs[proofId];
         require(p.exists, "PaymentReceipts: proof not found");
         FHE.publishDecryptResult(p.result, plaintext, signature);
+        emit ProofPublished(proofId, msg.sender, plaintext, block.timestamp);
     }
 
     /// @notice Read a proof's metadata + verification result. `isReady` is
@@ -425,7 +437,54 @@ contract PaymentReceipts is UUPSUpgradeable, OwnableUpgradeable {
     // Authorized callers only — PaymentHub, BusinessHub, etc. must be
     // explicitly setAuthorizedCaller'd by the owner.
 
+    /// @dev #236 IDEMPOTENCY CONTRACT: callers must NOT replay this on the
+    ///      same logical event (e.g. MEV bots resubmitting a tx, or off-chain
+    ///      retry loops that don't dedupe by tx hash). The on-chain double-
+    ///      bump is benign from a correctness POV — the encrypted counter
+    ///      just goes higher — but it bloats the landing-page "encrypted
+    ///      volume" display and overstates platform activity.
+    ///
+    ///      Today's callers (PaymentHub, BusinessHub, GiftMoney,
+    ///      StealthPayments) always invoke this from inside the SAME atomic
+    ///      tx as the underlying encrypted transfer. EVM atomicity means
+    ///      double-bump is impossible by construction: if the bump runs,
+    ///      the transfer ran exactly once; if the transfer reverts, the
+    ///      bump reverts with it.
+    ///
+    ///      Keep this invariant when adding new callers. If a caller ever
+    ///      bumps from a different tx than the underlying transfer (e.g. a
+    ///      lazy-flush batch model), it MUST track its own idempotency
+    ///      ledger so the same logical event can't bump twice.
     function bumpGlobalVolume(euint64 amount) external onlyAuthorized {
+        _bumpGlobalInternal(amount);
+    }
+
+    /// @notice Alias of bumpGlobalVolume — matches the (newer) `bumpGlobal`
+    ///         naming used by BusinessHub. Both names route to the same
+    ///         internal implementation; kept separate so existing callers
+    ///         (PaymentHub) don't need to be re-wired.
+    function bumpGlobal(euint64 amount) external onlyAuthorized {
+        _bumpGlobalInternal(amount);
+    }
+
+    /// @notice #92: Add an encrypted amount to a user's total-received counter.
+    /// @dev Called by hubs (PaymentHub, BusinessHub) after each payment so
+    ///      `proveIncomeAbove` can verify claims about a user's income. Without
+    ///      this, payroll recipients can't prove their salary history because
+    ///      runPayroll bypassed issueReceipt entirely and never touched
+    ///      `_totalReceived`. Caller must be in `authorizedCallers`. Amount
+    ///      must be a euint64 the caller already holds (allowTransient or
+    ///      allow-chain) so this contract can operate on it.
+    function bumpUserReceived(address user, euint64 amount) external onlyAuthorized {
+        _initUserStats(user);
+        _totalReceived[user] = FHE.add(_totalReceived[user], amount);
+        FHE.allowThis(_totalReceived[user]);
+        FHE.allow(_totalReceived[user], user);
+    }
+
+    /// @dev Internal path shared by bumpGlobalVolume and bumpGlobal — bumps
+    ///      both the encrypted volume and tx count, re-grants global access.
+    function _bumpGlobalInternal(euint64 amount) internal {
         _ensureGlobalStatsInit();
         _globalVolume = FHE.add(_globalVolume, amount);
         FHE.allowThis(_globalVolume);
@@ -433,6 +492,26 @@ contract PaymentReceipts is UUPSUpgradeable, OwnableUpgradeable {
         _globalTxCount = FHE.add(_globalTxCount, FHE.asEuint64(1));
         FHE.allowThis(_globalTxCount);
         FHE.allowGlobal(_globalTxCount);
+    }
+
+    /// @notice #199: Decrement the encrypted global volume aggregate. Called
+    ///         by hubs (StealthPayments) after refunding an unclaimed payment
+    ///         that previously bumped the volume on send. Without this the
+    ///         landing-page counter would over-count refunded volume forever.
+    /// @dev    Clamped at zero via FHE.select so a refund larger than the
+    ///         current volume (impossible in practice, but the type allows it)
+    ///         can never cause an encrypted underflow that wraps to 2^64-1.
+    ///         Does NOT decrement the tx count — refunds are a separate event;
+    ///         the original send was a real transaction that legitimately
+    ///         counted, and decrementing would undercount the platform's
+    ///         actual lifetime activity.
+    function decrementGlobalVolume(euint64 amount) external onlyAuthorized {
+        _ensureGlobalStatsInit();
+        ebool canSub = FHE.gte(_globalVolume, amount);
+        euint64 newVal = FHE.select(canSub, FHE.sub(_globalVolume, amount), FHE.asEuint64(0));
+        _globalVolume = newVal;
+        FHE.allowThis(_globalVolume);
+        FHE.allowGlobal(_globalVolume);
     }
 
     // ─── Public encrypted aggregates ────────────────────────────────────

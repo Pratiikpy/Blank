@@ -335,10 +335,17 @@ contract PrivacyRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         if (ready && plainAmount > 0) {
             uint256 routerBalance = IERC20(swap.tokenIn).balanceOf(address(this));
             if (routerBalance >= plainAmount) {
-                // Immediate refund — mark as Refunded (terminal state)
+                // Safe ordering: (a) transfer first, (b) state update,
+                // (c) events last — so a revert in any later step can't leave
+                // status=Refunded without the token movement having happened.
+                // Note: safeTransfer on an audited ERC20 can't reenter this
+                // function under ReentrancyGuard, but the order is still
+                // important if the token is ever replaced with something
+                // that calls back into here.
+                IERC20(swap.tokenIn).safeTransfer(swap.user, plainAmount);
+
                 swap.status = SwapStatus.Refunded;
                 swap.plaintextAmountIn = plainAmount;
-                IERC20(swap.tokenIn).safeTransfer(swap.user, plainAmount);
 
                 emit SwapCancelled(swapId, swap.user, block.timestamp);
                 emit SwapRefunded(swapId, swap.user, plainAmount);

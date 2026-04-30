@@ -27,6 +27,30 @@ import { broadcastAction, onCrossTabAction } from "@/lib/cross-tab";
 // Result shape returned from submitCallData / sendUserOp. The optional
 // blockNumber/blockHash/status/logs are forwarded from /api/relay which
 // already waited for receipt server-side (skips client-side RPC polling).
+/** Optional behaviour overrides for `sendUserOp` / `sendBatchUserOp`. */
+export interface SubmitOptions {
+  /** Gas-payment mode (Phase 7.5):
+   *   • `"sponsored"` (default) — `BlankPaymaster` covers gas. Free for the
+   *     user but requires the paymaster's EntryPoint deposit to be funded.
+   *   • `"self"` — AA pays gas from its own ETH balance via
+   *     `BaseAccount._payPrefund`. Requires the AA to hold ETH on the
+   *     active chain (see `FundAccountModal` in Phase 7.6 for the
+   *     funding walkthrough).
+   *
+   * Auto-resolution between the two modes happens at the call site: a
+   * caller (typically `SendConfirm.tsx`) checks `usePaymasterHealth()`
+   * and passes the right value to `unifiedWrite`. We deliberately do NOT
+   * read the health hook inside this hook so the decision is explicit
+   * at the call site. */
+  paymaster?: "sponsored" | "self";
+  /** Override the UserOp's `callGasLimit`. FHE precompiles can't be
+   *  estimated by the EVM and the buildUserOp default (2M) is too low
+   *  for batch FHE ops (e.g. runPayroll with multiple recipients).
+   *  Callers that touch FHE.* should set this explicitly — recommended
+   *  formula: `3_000_000n + recipients * 2_500_000n`. */
+  callGasLimit?: bigint;
+}
+
 export interface UserOpResult {
   txHash: Hex;
   userOpHash: Hex;
@@ -260,6 +284,7 @@ export function useSmartAccount() {
     async (
       callData: Hex,
       passphrase: string,
+      options?: SubmitOptions,
     ): Promise<UserOpResult | null> => {
       if (!publicClient || !account) {
         setError("No smart account ready");
@@ -307,9 +332,20 @@ export function useSmartAccount() {
           // validation (gasUsed ≈ 44k, no event emitted). Setting the
           // paymaster makes BlankPaymaster sponsor gas in exchange for
           // a USDC fee (0 for testnet) out of the smart account's USDC.
-          const paymasterAndData = contracts.BlankPaymaster
-            ? encodeBlankPaymasterData(contracts.BlankPaymaster, 0n)
-            : ("0x" as Hex);
+          //
+          // Phase 7.5 — when caller passes `paymaster: "self"`, omit the
+          // paymasterAndData field entirely so the AA pays its own gas
+          // via BaseAccount._payPrefund (transfers ETH from the AA's
+          // own balance to EntryPoint during validateUserOp). Used as
+          // the resilience fallback when BlankPaymaster's deposit is
+          // depleted; caller is expected to have already verified the
+          // AA has sufficient ETH on the active chain (see
+          // FundAccountModal in Phase 7.6).
+          const useSponsored = (options?.paymaster ?? "sponsored") === "sponsored";
+          const paymasterAndData =
+            useSponsored && contracts.BlankPaymaster
+              ? encodeBlankPaymasterData(contracts.BlankPaymaster, 0n)
+              : ("0x" as Hex);
 
           // First UserOp must include initCode + creates the account via
           // the factory's createAccount call. Factory + UUPS proxy + init
@@ -326,6 +362,7 @@ export function useSmartAccount() {
             callData,
             paymasterAndData,
             verificationGasLimit,
+            callGasLimit: options?.callGasLimit,
           });
 
           // Authoritative hash via on-chain EntryPoint view call
@@ -408,8 +445,13 @@ export function useSmartAccount() {
   );
 
   const sendUserOp = useCallback(
-    (target: Address, value: bigint, data: Hex, passphrase: string) =>
-      submitCallData(encodeExecuteCall(target, value, data), passphrase),
+    (
+      target: Address,
+      value: bigint,
+      data: Hex,
+      passphrase: string,
+      options?: SubmitOptions,
+    ) => submitCallData(encodeExecuteCall(target, value, data), passphrase, options),
     [submitCallData],
   );
 
@@ -419,7 +461,13 @@ export function useSmartAccount() {
       values: readonly bigint[],
       datas: readonly Hex[],
       passphrase: string,
-    ) => submitCallData(encodeExecuteBatchCall(targets, values, datas), passphrase),
+      options?: SubmitOptions,
+    ) =>
+      submitCallData(
+        encodeExecuteBatchCall(targets, values, datas),
+        passphrase,
+        options,
+      ),
     [submitCallData],
   );
 

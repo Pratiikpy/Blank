@@ -111,7 +111,7 @@ export function useMyRoles(): UseMyRolesResult {
 
       // Kick all fetches off in parallel — one mount-time sweep.
       const [heirActs, escrows, groups, invoices, reqs] = await Promise.all([
-        fetchActivities(addr, 50),
+        fetchActivities(addr, 50, undefined, activeChainId),
         fetchUserEscrows(addr),
         fetchUserGroups(addr),
         fetchClientInvoices(addr),

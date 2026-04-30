@@ -70,6 +70,19 @@ contract GroupManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     event AdminAdded(uint256 indexed groupId, address indexed admin, uint256 timestamp);
     event ExpenseAdded(uint256 indexed groupId, uint256 expenseId, address indexed payer, string description, uint256 timestamp);
     event DebtSettled(uint256 indexed groupId, address indexed from, address indexed to, uint256 timestamp);
+    /// @notice Encrypted actual-transferred amount for a settlement.
+    ///         The vault may have transferred less than requested if balance/allowance
+    ///         was insufficient (FHE.select clamps silently). Frontend decrypts
+    ///         `encryptedActual` off-chain (payer + payee both have ACL) to detect
+    ///         partial settlement and warn the user.
+    /// @dev ABI-additive event, emitted alongside DebtSettled for every settleDebt call.
+    event DebtSettledEncrypted(
+        uint256 indexed groupId,
+        address indexed payer,
+        address indexed payee,
+        euint64 encryptedActual,
+        uint256 timestamp
+    );
     event GroupArchived(uint256 indexed groupId, uint256 timestamp);
     event ExpenseArchived(uint256 indexed groupId, uint256 expenseId, uint256 timestamp);
 
@@ -250,7 +263,12 @@ contract GroupManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     // ─── Settle Debts ───────────────────────────────────────────────────
 
     /// @notice Settle a debt with another group member by transferring FHERC20 tokens.
-    ///         Updates both parties' encrypted debt balances.
+    ///         Updates both parties' encrypted debt balances using the ACTUAL
+    ///         transferred amount (not the requested amount) — the vault's
+    ///         FHE.select may silently transfer 0 or less than requested when
+    ///         balance/allowance is insufficient.
+    /// @dev Fix for flow-blocker #87: previously subtracted `requested` which
+    ///      silently corrupted debt accounting when the vault transferred less.
     function settleDebt(
         uint256 groupId,
         address with_,
@@ -260,23 +278,55 @@ contract GroupManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         require(isMember[groupId][msg.sender], "GroupManager: not a member");
         require(isMember[groupId][with_], "GroupManager: counterparty not a member");
 
+        // #187 per-edge mutex: prevent two callers from settling the SAME
+        // (groupId, payer, payee) edge in the SAME block. Without this, the
+        // second call rides stale encrypted-state assumptions and either (a)
+        // double-decrements the debt or (b) reverts cryptically from the
+        // vault's "insufficient balance" clamp after the first drained funds.
+        // Next-block settles are allowed — this is a race guard, not a lock.
+        require(
+            lastSettleBlock[groupId][msg.sender][with_] < block.number,
+            "GroupManager: already settling this debt this block"
+        );
+        lastSettleBlock[groupId][msg.sender][with_] = block.number;
+
         // Verify encrypted input here (msg.sender = user) before cross-contract call
         euint64 amount = FHE.asEuint64(encAmount);
         FHE.allowTransient(amount, vault);
 
-        // Transfer tokens from sender to counterparty using pre-verified handle
-        IFHERC20Vault(vault).transferFromVerified(msg.sender, with_, amount);
+        // Transfer tokens from sender to counterparty using pre-verified handle.
+        // `actual` == min(balance, allowance, requested) — FHE.select in the vault
+        // clamps silently. We MUST update debts using `actual`, not `amount`.
+        euint64 actual = IFHERC20Vault(vault).transferFromVerified(msg.sender, with_, amount);
 
-        // Update debts: sender's debt decreases, counterparty's debt increases
-        _debts[groupId][msg.sender] = FHE.sub(_debts[groupId][msg.sender], amount);
-        _debts[groupId][with_] = FHE.add(_debts[groupId][with_], amount);
+        // Retain ACL for this contract — needed for the debt-update math and
+        // because `transferFromVerified` only granted transient allowance.
+        FHE.allowThis(actual);
+
+        // Clamp payer's debt subtraction at zero: if payer owed less than
+        // `actual` (possible if over-paying), don't underflow their debt.
+        // debtDelta = min(actual, _debts[payer])
+        ebool owesAtLeastActual = FHE.gte(_debts[groupId][msg.sender], actual);
+        euint64 payerDebtDelta = FHE.select(owesAtLeastActual, actual, _debts[groupId][msg.sender]);
+        _debts[groupId][msg.sender] = FHE.sub(_debts[groupId][msg.sender], payerDebtDelta);
+
+        // Counterparty's debt increases by the actual transferred amount
+        // (debt is "owed by" — negative for creditors, via underflow; matches addExpense pattern).
+        _debts[groupId][with_] = FHE.add(_debts[groupId][with_], actual);
 
         FHE.allowThis(_debts[groupId][msg.sender]);
         FHE.allow(_debts[groupId][msg.sender], msg.sender);
         FHE.allowThis(_debts[groupId][with_]);
         FHE.allow(_debts[groupId][with_], with_);
 
+        // Grant payer + payee off-chain decrypt access on the actual amount
+        // so the frontend can compare against the requested amount and warn
+        // the payer about partial settlement (the "silent failure" fix).
+        FHE.allowSender(actual);
+        FHE.allow(actual, with_);
+
         emit DebtSettled(groupId, msg.sender, with_, block.timestamp);
+        emit DebtSettledEncrypted(groupId, msg.sender, with_, actual, block.timestamp);
         try eventHub.emitActivity(msg.sender, with_, "group_settle", "", groupId) {} catch {}
     }
 
@@ -285,6 +335,18 @@ contract GroupManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
     mapping(uint256 => mapping(uint256 => euint64)) private _expenseVotes; // groupId → expenseId → encrypted vote total
     mapping(uint256 => mapping(uint256 => bool)) private _votesInitialized; // groupId → expenseId → whether vote tally is initialized
+
+    /// @dev Issue #187 — per-edge same-block settlement mutex.
+    ///      groupId → payer → payee → block number of last settleDebt attempt.
+    ///      Blocks two callers (or the same caller racing themselves) from
+    ///      settling the same debt-edge twice in one block. Two SEQUENTIAL
+    ///      settles in different blocks still work — this is an anti-race
+    ///      guard, not a permanent lock. Cheaper than a forever-locked edge
+    ///      flag and self-expiring (each new block clears the effective lock).
+    ///
+    ///      APPEND-ONLY state (UUPS-safe) — added in v0.1.5 at the end of the
+    ///      declared storage to preserve all prior slot indices.
+    mapping(uint256 => mapping(address => mapping(address => uint256))) public lastSettleBlock;
 
     /// @notice Vote on whether to approve a group expense.
     ///         Quadratic voting: casting N votes costs N² from your influence.

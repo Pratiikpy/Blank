@@ -15,6 +15,10 @@ import { extractEventId } from "@/lib/event-parser";
 import { broadcastAction } from "@/lib/cross-tab";
 import { invalidateBalanceQueries } from "@/lib/query-invalidation";
 import { isVaultApproved, markVaultApproved, clearVaultApproval } from "@/lib/approval";
+import { lookupName } from "@/lib/address-resolver";
+import { truncateAddress } from "@/lib/address";
+import { sendPaymentRequestEmail, buildRequestEmailSignableMessage } from "@/lib/email-client";
+import { useEmailAuthSigner } from "./useEmailAuthSigner";
 
 async function ensureVaultApproval(
   unifiedWriteAndWait: ReturnType<typeof useUnifiedWrite>["unifiedWriteAndWait"],
@@ -51,12 +55,13 @@ export function useRequestPayment() {
 
   const { encryptInputsAsync } = useCofheEncrypt();
   const { unifiedWrite, unifiedWriteAndWait } = useUnifiedWrite();
+  const { signEmailAuth } = useEmailAuthSigner();
 
   // Semantics: `from` = the PAYER (person being asked to pay).
   // `address` (current user) = the REQUESTER who wants money.
   // Supabase stores: from_address = payer, to_address = requester.
   const createRequest = useCallback(
-    async (from: string, amount: string, note: string) => {
+    async (from: string, amount: string, note: string, payerEmail?: string) => {
       if (!address || !connected) return;
       if (step === "encrypting" || step === "sending") return; // Already submitting
 
@@ -104,6 +109,7 @@ export function useRequestPayment() {
         const requestId = extractEventId(createReceipt.logs, contracts.PaymentHub);
 
         // Write to Supabase for real-time notification
+        const trimmedEmail = payerEmail?.trim();
         await insertPaymentRequest({
           request_id: requestId,
           from_address: from.toLowerCase(),
@@ -112,6 +118,7 @@ export function useRequestPayment() {
           note,
           status: "pending",
           tx_hash: hash,
+          payer_email: trimmedEmail || null,
         });
 
         await insertActivity({
@@ -134,6 +141,45 @@ export function useRequestPayment() {
 
         setStep("success");
         toast.success("Payment request sent!");
+
+        // Phase 1.3: email the payer when they're known. Fire-and-forget —
+        // the on-chain request is already recorded, so an email failure is
+        // non-fatal. Skipped silently when Resend env vars are missing.
+        // Phase 7-followup: sign the canonical message so the server
+        // can verify the call really came from the request's requester
+        // (the current user creating the row). Signing failure falls
+        // through unsigned per server soft-mode.
+        if (trimmedEmail) {
+          void (async () => {
+            try {
+              const requesterName = await lookupName(address as `0x${string}`);
+              const signedAt = Math.floor(Date.now() / 1000);
+              const message = buildRequestEmailSignableMessage({
+                requestId,
+                recipient: trimmedEmail,
+                signedAt,
+                chainId: activeChainId,
+              });
+              let auth: Awaited<ReturnType<typeof signEmailAuth>> = null;
+              try {
+                auth = await signEmailAuth(message, signedAt);
+              } catch (signErr) {
+                console.warn("Payment-request email signing skipped:", signErr);
+              }
+              const result = await sendPaymentRequestEmail({
+                requestId,
+                payerEmail: trimmedEmail,
+                requesterName: requesterName ?? truncateAddress(address),
+                ...(auth ?? {}),
+              });
+              if (!result.ok) {
+                console.warn("Payment-request email send failed:", result.error);
+              }
+            } catch (mailErr) {
+              console.warn("Payment-request email pipeline failed:", mailErr);
+            }
+          })();
+        }
       } catch (err) {
         setStep("error");
         setError(err instanceof Error ? err.message : "Failed to create request");

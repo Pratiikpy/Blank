@@ -8,6 +8,7 @@ import { cleanupOldStorage } from "@/lib/storage";
 import { setQueryClient, invalidateAllQueries, invalidateBalanceQueries } from "@/lib/query-invalidation";
 import { PassphrasePromptProvider } from "@/components/PassphrasePrompt";
 import { PrivacyModeProvider } from "./PrivacyModeProvider";
+import { WorkspaceModeProvider } from "./WorkspaceModeProvider";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { ServiceHealthBanner } from "@/components/ServiceHealthBanner";
 import { setApprovalContext } from "@/lib/approval";
@@ -70,6 +71,7 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
           <QueryClientProvider client={queryClient}>
             <PassphrasePromptProvider>
               <PrivacyModeProvider>
+              <WorkspaceModeProvider>
               <RealtimeProvider>
                 <WalletDesyncGuard />
                 {/* R5-D: binds cofhe SDK to the passkey smart wallet when
@@ -81,6 +83,7 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
                   {children}
                 </ErrorBoundary>
               </RealtimeProvider>
+              </WorkspaceModeProvider>
               </PrivacyModeProvider>
             </PassphrasePromptProvider>
             <Toaster

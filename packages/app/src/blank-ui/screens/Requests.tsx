@@ -16,7 +16,8 @@ import {
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { useRequestPayment } from "@/hooks/useRequestPayment";
-import { fetchIncomingRequests, fetchOutgoingRequests, type PaymentRequestRow } from "@/lib/supabase";
+import { fetchIncomingRequests, fetchOutgoingRequests, supabase, type PaymentRequestRow } from "@/lib/supabase";
+import { onCrossTabAction } from "@/lib/cross-tab";
 
 // ---------------------------------------------------------------
 //  CREATE REQUEST MODAL
@@ -31,6 +32,7 @@ function CreateRequestModal({
 }) {
   const { createRequest, step, error, reset } = useRequestPayment();
   const [payerAddress, setPayerAddress] = useState("");
+  const [payerEmail, setPayerEmail] = useState("");
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
 
@@ -49,9 +51,19 @@ function CreateRequestModal({
       toast.error("Enter a valid amount");
       return;
     }
+    const trimmedEmail = payerEmail.trim();
+    if (trimmedEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      toast.error("Payer email looks invalid");
+      return;
+    }
 
-    await createRequest(payerAddress.trim().toLowerCase(), amount, note);
-  }, [payerAddress, amount, note, createRequest]);
+    await createRequest(
+      payerAddress.trim().toLowerCase(),
+      amount,
+      note,
+      trimmedEmail || undefined,
+    );
+  }, [payerAddress, payerEmail, amount, note, createRequest]);
 
   // Close on success
   useEffect(() => {
@@ -96,6 +108,22 @@ function CreateRequestModal({
             onChange={(e) => setPayerAddress(e.target.value)}
             className="h-14 w-full px-5 rounded-2xl bg-white/60 border border-black/10 focus:border-black/20 focus:ring-4 focus:ring-black/5 outline-none transition-all placeholder:text-black/30 font-mono text-sm"
           />
+        </div>
+
+        <div>
+          <label className="text-xs text-[var(--text-primary)]/50 font-medium tracking-wide uppercase mb-2 block">
+            Payer Email (optional)
+          </label>
+          <input
+            type="email"
+            placeholder="payer@company.com"
+            value={payerEmail}
+            onChange={(e) => setPayerEmail(e.target.value)}
+            className="h-14 w-full px-5 rounded-2xl bg-white/60 border border-black/10 focus:border-black/20 focus:ring-4 focus:ring-black/5 outline-none transition-all placeholder:text-black/30 text-sm"
+          />
+          <p className="text-xs text-[var(--text-primary)]/40 mt-2">
+            We'll email them a deep link to review the request.
+          </p>
         </div>
 
         <div>
@@ -376,6 +404,45 @@ export default function Requests() {
   useEffect(() => {
     loadRequests();
   }, [loadRequests]);
+
+  // Audit Top-28 #25: subscribe to payment_requests UPDATE events so the
+  // requester sees their list update the moment a payer fulfills, without a
+  // manual refresh. We also listen on the address as either from_address
+  // (payer side: incoming list) or to_address (requester side: outgoing list)
+  // so both tabs stay live. Cross-tab broadcasts cover the same-user-multi-tab
+  // case (e.g., user fulfills in Tab A → Tab B's list refreshes).
+  useEffect(() => {
+    if (!address || !supabase) return;
+    const lower = address.toLowerCase();
+
+    const channel = supabase
+      .channel(`requests_${lower}`)
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "payment_requests", filter: `from_address=eq.${lower}` },
+        () => loadRequests(),
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "payment_requests", filter: `to_address=eq.${lower}` },
+        () => loadRequests(),
+      )
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "payment_requests", filter: `from_address=eq.${lower}` },
+        () => loadRequests(),
+      )
+      .subscribe();
+
+    const unsubCrossTab = onCrossTabAction((action) => {
+      if (action === "activity_added") loadRequests();
+    });
+
+    return () => {
+      void supabase!.removeChannel(channel);
+      unsubCrossTab();
+    };
+  }, [address, loadRequests]);
 
   const handleCancel = useCallback(
     async (req: PaymentRequestRow) => {

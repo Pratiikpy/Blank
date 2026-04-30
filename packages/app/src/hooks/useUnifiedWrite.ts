@@ -39,6 +39,15 @@ export interface UnifiedWriteParams {
   args?: readonly unknown[];
   value?: bigint;
   gas?: bigint;
+  /** Gas-payment mode for the AA path (Phase 7.5). Ignored for EOA path.
+   *   • `"sponsored"` (default) — BlankPaymaster covers gas
+   *   • `"self"` — AA pays gas from its own ETH balance
+   *
+   * Pass `"self"` when `usePaymasterHealth().status` is `"degraded"` or
+   * `"unavailable"` AND the AA has ETH on the active chain. The
+   * `FundAccountModal` (Phase 7.6) is the standard UX for getting ETH
+   * onto the AA when that's not yet true. */
+  paymaster?: "sponsored" | "self";
 }
 
 export interface UnifiedBatchCall {
@@ -173,18 +182,28 @@ export function useUnifiedWrite(): UseUnifiedWriteReturn {
 
       const passphrase = await passphrasePrompt.request({
         title: `Sign ${params.functionName}`,
-        subtitle: `Submit via your smart wallet — gas sponsored.`,
+        subtitle:
+          params.paymaster === "self"
+            ? `Submit via your smart wallet — paid from your wallet's ETH.`
+            : `Submit via your smart wallet — gas sponsored.`,
       });
       console.log("[unifiedWrite] passphrase obtained, calling sendUserOp...");
       if (!passphrase) throw new Error("Cancelled");
 
       let result;
       try {
+        // Plumb the caller's `gas` into the UserOp's callGasLimit. Without
+        // this the AA path silently uses buildUserOp's 2M default, which is
+        // too low for batch FHE ops (e.g. runPayroll multi-recipient).
+        const submitOpts: { paymaster?: "sponsored" | "self"; callGasLimit?: bigint } = {};
+        if (params.paymaster) submitOpts.paymaster = params.paymaster;
+        if (params.gas) submitOpts.callGasLimit = params.gas;
         result = await smartAccount.sendUserOp(
           params.address,
           params.value ?? 0n,
           data,
           passphrase,
+          Object.keys(submitOpts).length > 0 ? submitOpts : undefined,
         );
       } catch (err) {
         throw new Error(humanizeWriteError(err));
@@ -221,17 +240,24 @@ export function useUnifiedWrite(): UseUnifiedWriteReturn {
 
       const passphrase = await passphrasePrompt.request({
         title: `Sign ${params.functionName}`,
-        subtitle: `Submit via your smart wallet — gas sponsored.`,
+        subtitle:
+          params.paymaster === "self"
+            ? `Submit via your smart wallet — paid from your wallet's ETH.`
+            : `Submit via your smart wallet — gas sponsored.`,
       });
       if (!passphrase) throw new Error("Cancelled");
 
       let result;
       try {
+        const submitOpts: { paymaster?: "sponsored" | "self"; callGasLimit?: bigint } = {};
+        if (params.paymaster) submitOpts.paymaster = params.paymaster;
+        if (params.gas) submitOpts.callGasLimit = params.gas;
         result = await smartAccount.sendUserOp(
           params.address,
           params.value ?? 0n,
           data,
           passphrase,
+          Object.keys(submitOpts).length > 0 ? submitOpts : undefined,
         );
       } catch (err) {
         throw new Error(humanizeWriteError(err));
@@ -248,6 +274,19 @@ export function useUnifiedWrite(): UseUnifiedWriteReturn {
               logs: result.logs ?? [],
             }
           : undefined;
+
+      // Post-confirm settlement delay: the on-chain UserOp committed, but
+      // the public RPC nodes (publicnode, sepolia.base.org) we use for
+      // EntryPoint.getNonce() reads can lag a block or two behind. Without
+      // this brief wait, the NEXT unifiedWriteAndWait call reads the
+      // pre-mine nonce and fires a UserOp that EntryPoint then rejects
+      // with AA25 (invalid account nonce). The local nonce hint in
+      // useSmartAccount handles most cases, but a 2.5s settlement window
+      // is defence-in-depth for hooks that fire approve → write back-to-
+      // back (useExchange, useSendPayment, useBusinessHub, etc.).
+      if (isSmartAccount && receipt?.status === "success") {
+        await new Promise((r) => setTimeout(r, 2_500));
+      }
 
       return { hash: result.txHash, receipt };
     },

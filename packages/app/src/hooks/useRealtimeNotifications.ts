@@ -61,7 +61,7 @@ export function useRealtimeNotifications() {
     // Fetch recent activities and toast any from the last 5 minutes
     (async () => {
       try {
-        const recent = await fetchActivities(addresses, 10);
+        const recent = await fetchActivities(addresses, 10, undefined, activeChainId);
         const fiveMinAgo = Date.now() - 5 * 60 * 1000;
 
         for (const row of recent) {

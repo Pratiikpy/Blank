@@ -1,7 +1,8 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { useAccount, useDisconnect } from "wagmi";
+import { useDisconnect } from "wagmi";
 import { useEffectiveAddress } from "@/hooks/useEffectiveAddress";
+import { useLookupName } from "@/hooks/useAddressResolver";
 import {
   ChevronLeft,
   Copy,
@@ -14,22 +15,138 @@ import {
   LogOut,
   Info,
   Github,
+  Link2,
+  Coins,
+  Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import toast from "react-hot-toast";
 import { clearAllAddressScopes } from "@/lib/storage";
+import { faucetUsdc } from "@/lib/faucet-client";
+import { useChain } from "@/providers/ChainProvider";
+import { useWorkspaceMode } from "@/providers/WorkspaceModeProvider";
+import {
+  WORKSPACE_MODES,
+  WORKSPACE_MODE_LABELS,
+  WORKSPACE_MODE_DESCRIPTIONS,
+} from "@/lib/workspace-mode";
 
 function truncateAddress(addr: string): string {
   return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
+}
+
+// Workspace mode picker — local to Settings since this is the only
+// surface that should let the user pick. Reads/writes the global
+// WorkspaceModeProvider so the sidebar re-renders live.
+function WorkspaceModePicker() {
+  const { mode, setMode } = useWorkspaceMode();
+  return (
+    <div className="p-4 rounded-xl bg-white/50 dark:bg-white/5 border border-black/5 dark:border-white/5 space-y-3">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-sm text-[var(--text-secondary)]">Workspace mode</p>
+          <p className="text-xs text-[var(--text-primary)]/40 mt-0.5">
+            Choose which screens appear in the sidebar. Hidden ones still
+            work via direct URL.
+          </p>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        {WORKSPACE_MODES.map((m) => {
+          const active = m === mode;
+          return (
+            <button
+              key={m}
+              onClick={() => setMode(m)}
+              className={
+                active
+                  ? "h-10 rounded-lg bg-[var(--text-primary)] text-white text-sm font-medium transition-colors"
+                  : "h-10 rounded-lg bg-black/5 dark:bg-white/10 text-[var(--text-primary)] text-sm font-medium transition-colors hover:bg-black/10 dark:hover:bg-white/15"
+              }
+              aria-pressed={active}
+            >
+              {WORKSPACE_MODE_LABELS[m]}
+            </button>
+          );
+        })}
+      </div>
+      <p className="text-xs text-[var(--text-primary)]/50 italic">
+        {WORKSPACE_MODE_DESCRIPTIONS[mode]}
+      </p>
+    </div>
+  );
 }
 
 export default function Settings() {
   const navigate = useNavigate();
   // Passkey-aware address — fixes blank Settings page for passkey-only users.
   const { effectiveAddress: address } = useEffectiveAddress();
-  const { chain } = useAccount();
   const { disconnect } = useDisconnect();
   const [copied, setCopied] = useState(false);
+  const [copiedShare, setCopiedShare] = useState<"link" | "html" | null>(null);
+
+  // Phase 7.3: manual USDC faucet. Drips 100 testnet USDC to the user's
+  // smart-account address via `/api/faucet/usdc`. Rate-limited server-side
+  // so we don't need additional client-side throttling — just show a
+  // pending state on the button.
+  const { activeChainId, activeChain } = useChain();
+  const [faucetLoading, setFaucetLoading] = useState(false);
+  const handleFaucet = useCallback(async () => {
+    if (!address) {
+      toast.error("Connect a wallet first");
+      return;
+    }
+    setFaucetLoading(true);
+    const id = toast.loading("Minting 100 testnet USDC…");
+    try {
+      const result = await faucetUsdc({ address, chainId: activeChainId });
+      if (result.ok) {
+        toast.success("100 testnet USDC minted to your wallet", { id });
+      } else if (result.error === "rate_limited") {
+        const scope = result.rateLimitScope === "address" ? "this address" : "your network";
+        toast.error(`Faucet rate-limited for ${scope} — try again in a bit.`, { id });
+      } else {
+        toast.error(`Faucet failed: ${result.error ?? "unknown"}`, { id });
+      }
+    } finally {
+      setFaucetLoading(false);
+    }
+  }, [address, activeChainId]);
+
+  // ENS reverse lookup — when the user has set a primary name, we use it
+  // for the pay link instead of their raw address. Prettier and stable.
+  const lookup = useLookupName(address as `0x${string}` | null);
+  const payIdentifier = lookup.data ?? address ?? "";
+
+  const origin = typeof window !== "undefined" ? window.location.origin : "https://blank.app";
+  const payUrl = useMemo(
+    () => (payIdentifier ? `${origin}/pay/${payIdentifier}` : ""),
+    [origin, payIdentifier],
+  );
+  const badgeUrl = useMemo(
+    () => (payIdentifier ? `${origin}/api/badge?for=${encodeURIComponent(payIdentifier)}` : ""),
+    [origin, payIdentifier],
+  );
+  const signatureHtml = useMemo(() => {
+    if (!payUrl || !badgeUrl) return "";
+    return `<a href="${payUrl}?utm_source=email_sig"><img src="${badgeUrl}" alt="Pay me on Blank" width="240" height="60" style="border:0" /></a>`;
+  }, [payUrl, badgeUrl]);
+
+  const copyShare = useCallback(
+    async (kind: "link" | "html") => {
+      const value = kind === "link" ? payUrl : signatureHtml;
+      if (!value) return;
+      try {
+        await navigator.clipboard.writeText(value);
+        setCopiedShare(kind);
+        toast.success(kind === "link" ? "Pay link copied" : "Signature HTML copied");
+        setTimeout(() => setCopiedShare(null), 2000);
+      } catch {
+        toast.error("Failed to copy");
+      }
+    },
+    [payUrl, signatureHtml],
+  );
 
   const [darkMode, setDarkMode] = useState(() => {
     if (typeof window === "undefined") return false;
@@ -149,10 +266,29 @@ export default function Settings() {
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 rounded-full bg-emerald-500" />
                 <span className="text-sm font-medium text-[var(--text-primary)]">
-                  {chain?.name ?? "Ethereum Sepolia"}
+                  {activeChain?.name ?? "Unknown chain"}
                 </span>
               </div>
             </div>
+
+            {/* Workspace mode — controls which screens appear in nav.
+                Direct routes still work for any hidden screen. */}
+            <WorkspaceModePicker />
+
+
+            {/* Phase 7.3: testnet USDC faucet. Hidden in production via
+                the `import.meta.env.PROD` toggle — only useful while
+                Blank runs on Sepolia/Base Sepolia. */}
+            {!import.meta.env.PROD && (
+              <button
+                onClick={handleFaucet}
+                disabled={faucetLoading}
+                className="w-full flex items-center justify-center gap-2 p-4 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-100 dark:border-emerald-500/20 text-emerald-700 dark:text-emerald-400 font-medium hover:bg-emerald-100 dark:hover:bg-emerald-500/20 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {faucetLoading ? <Loader2 size={18} className="animate-spin" /> : <Coins size={18} />}
+                {faucetLoading ? "Minting…" : "Get 100 testnet USDC"}
+              </button>
+            )}
 
             {/* Disconnect */}
             <button
@@ -162,6 +298,101 @@ export default function Settings() {
               <LogOut size={18} />
               Disconnect Wallet
             </button>
+          </div>
+        </div>
+
+        {/* Pay-Me Link Section — Phase 2.1 distribution wedge */}
+        <div className="glass-card-static rounded-[2rem] p-6 mb-6">
+          <div className="flex items-center gap-3 mb-5">
+            <div className="w-12 h-12 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
+              <Link2 size={24} />
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold text-[var(--text-primary)]">
+                Pay-Me Link
+              </h3>
+              <p className="text-sm text-[var(--text-secondary)]">
+                Drop this anywhere — email signature, Twitter bio, Discord profile
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            {/* Live badge preview */}
+            <div className="rounded-xl border border-black/5 dark:border-white/5 bg-white/40 dark:bg-white/5 p-4 flex items-center justify-center">
+              {badgeUrl ? (
+                <a
+                  href={payUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block"
+                  aria-label="Open your pay page"
+                >
+                  <img
+                    src={badgeUrl}
+                    alt="Pay me on Blank"
+                    width={240}
+                    height={60}
+                    style={{ borderRadius: 8 }}
+                  />
+                </a>
+              ) : (
+                <p className="text-sm text-[var(--text-tertiary)]">No address connected</p>
+              )}
+            </div>
+
+            {/* Pay URL row */}
+            <div className="flex items-center justify-between p-4 rounded-xl bg-white/50 dark:bg-white/5 border border-black/5 dark:border-white/5 gap-3">
+              <div className="min-w-0 flex-1">
+                <p className="text-xs text-[var(--text-secondary)] font-medium tracking-wide uppercase mb-1">
+                  Pay URL
+                </p>
+                <p className="text-sm text-[var(--text-primary)] font-mono truncate">
+                  {payUrl || "—"}
+                </p>
+              </div>
+              <button
+                onClick={() => copyShare("link")}
+                disabled={!payUrl}
+                className="h-9 px-4 rounded-lg bg-black/5 dark:bg-white/5 text-[var(--text-primary)] font-medium hover:bg-black/10 dark:hover:bg-white/10 disabled:opacity-40 flex items-center gap-2 shrink-0 text-sm"
+                aria-label="Copy pay link"
+              >
+                {copiedShare === "link" ? (
+                  <Check size={14} className="text-emerald-600" />
+                ) : (
+                  <Copy size={14} />
+                )}
+                {copiedShare === "link" ? "Copied" : "Copy"}
+              </button>
+            </div>
+
+            {/* Email signature HTML row */}
+            <div className="p-4 rounded-xl bg-white/50 dark:bg-white/5 border border-black/5 dark:border-white/5">
+              <div className="flex items-center justify-between mb-2 gap-3">
+                <p className="text-xs text-[var(--text-secondary)] font-medium tracking-wide uppercase">
+                  Email Signature HTML
+                </p>
+                <button
+                  onClick={() => copyShare("html")}
+                  disabled={!signatureHtml}
+                  className="h-8 px-3 rounded-lg bg-black/5 dark:bg-white/5 text-[var(--text-primary)] font-medium hover:bg-black/10 dark:hover:bg-white/10 disabled:opacity-40 flex items-center gap-2 text-xs"
+                  aria-label="Copy signature HTML"
+                >
+                  {copiedShare === "html" ? (
+                    <Check size={14} className="text-emerald-600" />
+                  ) : (
+                    <Copy size={14} />
+                  )}
+                  {copiedShare === "html" ? "Copied" : "Copy HTML"}
+                </button>
+              </div>
+              <code className="block text-xs font-mono text-[var(--text-secondary)] whitespace-pre-wrap break-all">
+                {signatureHtml || "—"}
+              </code>
+              <p className="mt-3 text-xs text-[var(--text-tertiary)]">
+                Paste into Gmail / Outlook / Apple Mail signature settings. Anyone you email can pay you in one click.
+              </p>
+            </div>
           </div>
         </div>
 
@@ -183,7 +414,7 @@ export default function Settings() {
 
           <button
             onClick={() => navigate("/app/privacy")}
-            className="w-full flex items-center justify-between p-4 rounded-xl bg-white/50 dark:bg-white/5 border border-black/5 dark:border-white/5 hover:bg-white/70 dark:hover:bg-white/10 transition-all text-left"
+            className="w-full flex items-center justify-between p-4 rounded-xl bg-white/50 dark:bg-white/5 border border-black/5 dark:border-white/5 hover:bg-white/70 dark:hover:bg-white/10 transition-all text-left mb-3"
           >
             <div>
               <p className="font-medium text-[var(--text-primary)]">
@@ -191,6 +422,23 @@ export default function Settings() {
               </p>
               <p className="text-sm text-[var(--text-secondary)] mt-0.5">
                 Manage FHE permits, shared access, and encryption keys
+              </p>
+            </div>
+            <ExternalLink size={16} className="text-[var(--text-secondary)] shrink-0 ml-3" />
+          </button>
+
+          {/* Phase 9.6 — stealth meta-address setup. Independent of FHE
+              permits; lives in this section for discoverability. */}
+          <button
+            onClick={() => navigate("/app/stealth/setup")}
+            className="w-full flex items-center justify-between p-4 rounded-xl bg-white/50 dark:bg-white/5 border border-black/5 dark:border-white/5 hover:bg-white/70 dark:hover:bg-white/10 transition-all text-left"
+          >
+            <div>
+              <p className="font-medium text-[var(--text-primary)]">
+                Stealth meta-address
+              </p>
+              <p className="text-sm text-[var(--text-secondary)] mt-0.5">
+                Publish a permanent meta-address; receive unlinkable stealth payments
               </p>
             </div>
             <ExternalLink size={16} className="text-[var(--text-secondary)] shrink-0 ml-3" />
@@ -269,7 +517,7 @@ export default function Settings() {
               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-100 dark:border-emerald-500/20">
                 <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                 <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
-                  Ethereum Sepolia Testnet
+                  {activeChain?.name ?? "Unknown chain"}
                 </span>
               </span>
             </div>

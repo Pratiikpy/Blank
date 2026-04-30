@@ -60,13 +60,25 @@ async function main() {
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   const page = await ctx.newPage();
   const consoleErrors: string[] = [];
+  const relayResponses: Array<{ status: number; body: string }> = [];
   page.on("console", (m) => {
     if (m.type() === "error") consoleErrors.push(m.text().slice(0, 200));
+  });
+  page.on("response", async (res) => {
+    const url = res.url();
+    if (!/\/api\/relay/.test(url)) return;
+    try {
+      const body = await res.text();
+      relayResponses.push({ status: res.status(), body: body.slice(0, 500) });
+    } catch {}
   });
 
   console.log(`[session9] ${BASE} passphrase=${PASSPHRASE.slice(0, 8)}...`);
 
-  // Step 1: Land on /app
+  // Step 1: Force Base Sepolia (84532) via localStorage BEFORE first load.
+  // Default is ETH Sepolia (11155111); session6 on Base worked end-to-end.
+  await page.goto(`${BASE}/`, { waitUntil: "domcontentloaded" });
+  await page.evaluate(() => localStorage.setItem("blank_active_chain_id", "84532"));
   await page.goto(`${BASE}/app`, { waitUntil: "domcontentloaded" });
   await page.waitForTimeout(5000);
   await snap(page, "landed");
@@ -155,6 +167,13 @@ async function main() {
 
   const success = /minted/i.test(toastText);
   console.log(`  passkey-transaction-works: ${success ? "YES" : "NO"}`);
+
+  if (relayResponses.length > 0) {
+    console.log(`\n  /api/relay responses:`);
+    for (const r of relayResponses) {
+      console.log(`    [${r.status}] ${r.body}`);
+    }
+  }
 
   if (consoleErrors.length > 0) {
     console.log(`\n  console errors (top 5):`);

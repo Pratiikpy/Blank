@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useEffectiveAddress } from "@/hooks/useEffectiveAddress";
 import {
@@ -28,6 +28,10 @@ import { useActivityFeed } from "@/hooks/useActivityFeed";
 import { useEncryptedBalance } from "@/hooks/useEncryptedBalance";
 import { useShield } from "@/hooks/useShield";
 import { useChain } from "@/providers/ChainProvider";
+import { usePaymasterHealth } from "@/hooks/usePaymasterHealth";
+import { faucetUsdc } from "@/lib/faucet-client";
+import { Coins } from "lucide-react";
+import { IosPwaCoachMark, UpgradeBanner } from "@/blank-ui/components";
 
 function getGreeting(): string {
   const hour = new Date().getHours();
@@ -74,6 +78,11 @@ const activityLabels: Record<string, string> = {
 export default function Dashboard() {
   const navigate = useNavigate();
   const { effectiveAddress: address, isSmartAccount, smartAccount } = useEffectiveAddress();
+  // Phase 7.4: surface paymaster degraded state on the Dashboard so users
+  // see it BEFORE landing on Send. Banner only renders for AA users —
+  // EOA users pay their own gas regardless and don't benefit from this
+  // signal.
+  const paymasterHealth = usePaymasterHealth();
   const { activities, isLoading: feedLoading } = useActivityFeed();
   const balance = useEncryptedBalance();
   const {
@@ -92,7 +101,28 @@ export default function Dashboard() {
     hasPendingUnshield,
     retryUnshieldClaim,
   } = useShield();
-  const { activeChain, contracts } = useChain();
+  const { activeChain, activeChainId, contracts } = useChain();
+  // Phase 7.3: low-balance banner. Surfaces a single inline "Get test USDC"
+  // CTA when the user's encrypted balance is decryptable AND under 10 USDC.
+  // We deliberately skip rendering the banner when the balance hasn't been
+  // decrypted yet (no permit) — that path has its own "tap to reveal" UX
+  // already and we don't want to suggest faucet to someone whose balance
+  // might be perfectly fine but just hidden.
+  const [faucetPending, setFaucetPending] = useState(false);
+  const handleFaucetFromDashboard = useCallback(async () => {
+    if (!address) return;
+    setFaucetPending(true);
+    const id = toast.loading("Minting 100 testnet USDC…");
+    try {
+      const r = await faucetUsdc({ address, chainId: activeChainId });
+      if (r.ok) toast.success("100 testnet USDC minted", { id });
+      else if (r.error === "rate_limited") {
+        toast.error("Faucet rate-limited — try again in an hour.", { id });
+      } else toast.error(`Faucet failed: ${r.error ?? "unknown"}`, { id });
+    } finally {
+      setFaucetPending(false);
+    }
+  }, [address, activeChainId]);
   const isMobile = useMediaQuery("(max-width: 768px)");
   const { connected: cofheConnected } = useCofheConnection();
   // Shared global privacy state — set by sidebar toggle, consumed by
@@ -175,6 +205,16 @@ export default function Dashboard() {
   const displayAddress = address ? truncateAddress(address) : "";
   const recentActivities = activities.slice(0, 5);
 
+  // #224 (audit Top-28 #9): "This Month" stat counts only activities in the
+  // current calendar month. Without this filter the card was showing all-time
+  // activity, which is misleading for a label that says "This Month".
+  const monthActivityCount = useMemo(() => {
+    if (activities.length === 0) return 0;
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+    return activities.filter((a) => new Date(a.created_at).getTime() >= startOfMonth).length;
+  }, [activities]);
+
   // #258: memoize so downstream effects/props that depend on `hasUnread`
   // (header pulse, nav badge) don't see a fresh reference every render.
   // Date.now() is refreshed on each memo-recompute trigger — not per render —
@@ -246,6 +286,16 @@ export default function Dashboard() {
               )}
             </button>
           </div>
+
+          {/* iOS PWA install coach-mark — iOS Safari hits this mobile
+              branch, so the coach-mark MUST live here (the desktop copy
+              below would never render for iPhone users). The component
+              self-gates: returns null on non-iOS or already-standalone. */}
+          <IosPwaCoachMark />
+          {/* Phase 4.1 — surface a one-click UUPS upgrade when the user's
+              proxy is on the pre-validator-dispatch impl. Self-hides
+              when not applicable. */}
+          <UpgradeBanner />
 
           {/* Getting Started Card (new users only) */}
           {activities.length === 0 && publicBalance === 0 && (
@@ -497,6 +547,66 @@ export default function Dashboard() {
   return (
     <div data-testid="dashboard-root" className="animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="max-w-7xl mx-auto">
+        {/* iOS PWA install coach-mark — only renders on iPhone/iPad
+            Safari before the user has added Blank to their Home Screen.
+            Web Push on iOS 16.4+ requires the standalone-PWA install. */}
+        <IosPwaCoachMark />
+        {/* Phase 4.1 upgrade prompt — desktop iPad-with-desktop-mode
+            users hit this branch; component self-gates on iOS check. */}
+        <UpgradeBanner />
+
+        {/* Phase 7.4: paymaster degraded banner. Renders only for AA users
+            when sponsored gas is at risk. EOA users pay their own gas and
+            don't see this. We deliberately don't link to a "fund my AA"
+            screen here — the FundAccountModal opens automatically from
+            SendConfirm when needed, so the banner is informational. */}
+        {isSmartAccount &&
+          (paymasterHealth.status === "degraded" ||
+            paymasterHealth.status === "unavailable") && (
+            <div
+              role="status"
+              className={cn(
+                "mb-6 rounded-2xl border p-4 flex items-start gap-3",
+                paymasterHealth.status === "unavailable"
+                  ? "bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/30"
+                  : "bg-amber-50 dark:bg-amber-500/10 border-amber-200 dark:border-amber-500/30",
+              )}
+            >
+              <div
+                className={cn(
+                  "w-2 h-2 rounded-full mt-2 shrink-0",
+                  paymasterHealth.status === "unavailable" ? "bg-rose-500" : "bg-amber-500",
+                )}
+              />
+              <div className="flex-1 min-w-0">
+                <p
+                  className={cn(
+                    "text-sm font-semibold mb-0.5",
+                    paymasterHealth.status === "unavailable"
+                      ? "text-rose-900 dark:text-rose-300"
+                      : "text-amber-900 dark:text-amber-300",
+                  )}
+                >
+                  {paymasterHealth.status === "unavailable"
+                    ? "Sponsored gas is unavailable"
+                    : "Sponsored gas is running low"}
+                </p>
+                <p
+                  className={cn(
+                    "text-sm leading-snug",
+                    paymasterHealth.status === "unavailable"
+                      ? "text-rose-700 dark:text-rose-400/80"
+                      : "text-amber-700 dark:text-amber-400/80",
+                  )}
+                >
+                  {paymasterHealth.status === "unavailable"
+                    ? "When you send, we'll walk you through funding your wallet so you can pay your own gas as a one-time fallback."
+                    : "Sends should still succeed. If one fails, we'll walk you through a fallback."}
+                </p>
+              </div>
+            </div>
+          )}
+
         {/* Header */}
         <div className="mb-8 flex items-start justify-between">
           <div>
@@ -521,6 +631,36 @@ export default function Dashboard() {
             )}
           </button>
         </div>
+
+        {/* Phase 7.3: low-balance banner. Shown to active users (some
+            history) whose public USDC has run dry. Hidden in production
+            and during onboarding (the Getting Started card covers that
+            case). One-tap top-up via the same `/api/faucet/usdc` endpoint
+            Settings uses. */}
+        {!import.meta.env.PROD &&
+          activities.length > 0 &&
+          publicBalance === 0 && (
+            <div className="mb-6 rounded-2xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 p-4 flex items-center gap-4">
+              <div className="w-10 h-10 rounded-xl bg-emerald-500/15 flex items-center justify-center text-emerald-700 dark:text-emerald-300 shrink-0">
+                <Coins size={20} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-emerald-900 dark:text-emerald-300">
+                  Out of testnet USDC?
+                </p>
+                <p className="text-sm text-emerald-700 dark:text-emerald-400/80 leading-snug">
+                  Tap to mint another 100 USDC. Free, testnet only.
+                </p>
+              </div>
+              <button
+                onClick={handleFaucetFromDashboard}
+                disabled={faucetPending}
+                className="shrink-0 h-10 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-medium transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {faucetPending ? "Minting…" : "Get USDC"}
+              </button>
+            </div>
+          )}
 
         {/* Getting Started Card (new users only) */}
         {activities.length === 0 && publicBalance === 0 && (
@@ -564,7 +704,8 @@ export default function Dashboard() {
               hasPermit={hasPermit}
               onCreatePermit={createPermit}
               isCreatingPermit={isCreatingPermit}
-              activityCount={activities.length}
+              activityCount={monthActivityCount}
+              totalActivityCount={activities.length}
               chainName={activeChain.name}
               large
             />
@@ -886,10 +1027,11 @@ interface BalanceCardProps {
   isCreatingPermit: boolean;
   large?: boolean;
   activityCount?: number;
+  totalActivityCount?: number;
   chainName?: string;
 }
 
-function BalanceCard({ balance, privacyMode, onTogglePrivacy, hasPermit, onCreatePermit, isCreatingPermit, large, activityCount = 0, chainName = "Ethereum Sepolia" }: BalanceCardProps) {
+function BalanceCard({ balance, privacyMode, onTogglePrivacy, hasPermit, onCreatePermit, isCreatingPermit, large, activityCount = 0, totalActivityCount = 0, chainName = "Ethereum Sepolia" }: BalanceCardProps) {
   // Use balance.formatted from the hook — it handles decrypted values correctly.
   // balance.raw is the encrypted ciphertext handle (NOT the actual amount).
   // balance.isDecrypted tells us if the SDK successfully decrypted the value.
@@ -1013,14 +1155,14 @@ function BalanceCard({ balance, privacyMode, onTogglePrivacy, hasPermit, onCreat
               <div className="flex items-center gap-2 mb-2">
                 <CheckCircle size={20} className="text-blue-500" strokeWidth={2.2} />
                 <p className="text-sm text-[var(--text-secondary)] font-medium">
-                  Transactions
+                  All-time
                 </p>
               </div>
               <p
                 className="text-2xl font-medium text-[var(--text-primary)]"
                 style={{ fontFamily: "'Outfit', 'Inter', sans-serif" }}
               >
-                {activityCount}
+                {totalActivityCount}
               </p>
             </div>
           </div>

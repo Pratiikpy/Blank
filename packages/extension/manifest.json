@@ -1,0 +1,30 @@
+{
+  "manifest_version": 3,
+  "name": "Pay with Blank",
+  "version": "0.1.0",
+  "description": "Inject a one-click 'Pay with Blank' button next to every Ethereum address and ENS / Basenames name on the web.",
+  "action": {
+    "default_title": "Pay with Blank",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "css": ["content.css"],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": ["storage"],
+  "host_permissions": [],
+  "web_accessible_resources": [
+    {
+      "resources": ["icons/*.png"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}

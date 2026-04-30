@@ -30,16 +30,16 @@ export default function Manifesto() {
           </p>
 
           <p>
-            I spent months building a payment app where that's not true
-            anymore. This isn't a feature. It's a correction.
+            Blank is a payment workspace where that's not true anymore.
+            This isn't a feature. It's a correction.
           </p>
 
           <h2>The bill is coming due for public money</h2>
 
           <p>
-            When I started Blank, I thought on-chain privacy was a
+            When we started Blank, on-chain privacy looked like a
             nice-to-have — something enterprise might care about eventually.
-            Then I looked at what transparency had actually cost in 2023 alone:
+            Then we looked at what transparency had actually cost in 2023 alone:
           </p>
 
           <ul>
@@ -94,10 +94,10 @@ export default function Manifesto() {
           <h2>Private payments aren't a feature</h2>
 
           <p>
-            I built twelve features in Blank — P2P send, requests, group
-            bills, creator tips, invoicing, batch payroll, escrow with
-            arbiter, stealth transfers, gift envelopes, inheritance, atomic
-            swaps, and a privacy router for existing DEXs.
+            Blank ships twelve features — P2P send, requests, group bills,
+            creator tips, invoicing, batch payroll, escrow with arbiter,
+            stealth transfers, gift envelopes, inheritance, atomic swaps,
+            and a privacy router for existing DEXs.
           </p>
 
           <p>
@@ -135,11 +135,11 @@ export default function Manifesto() {
             The next generation of financial apps won't be
             transparent-by-default with a privacy mode bolted on. They'll be
             private-by-default with transparency opt-in, selective, and
-            provable. Blank is my attempt at proving that's not only
+            provable. Blank is our attempt at proving that's not only
             possible — it's shippable today.
           </p>
 
-          <p className="ll-signature">— Pratik, the builder</p>
+          <p className="ll-signature">— The Blank team</p>
 
           <div className="ll-manifesto-ctas">
             <Link to="/app" className="ll-btn ll-btn--hero ll-btn--ink">

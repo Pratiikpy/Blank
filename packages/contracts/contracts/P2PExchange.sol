@@ -102,7 +102,13 @@ contract P2PExchange is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     ) external nonReentrant {
         Offer storage o = offers[offerId];
         require(o.active && !o.filled, "P2PExchange: not available");
-        require(block.timestamp <= o.expiry, "P2PExchange: expired");
+        // #242 — Enforce offer expiry strictly (<, not <=). A taker who lands in
+        // the exact expiry second previously slipped through; tighten the check
+        // so the expiry timestamp itself is already too late. Zero expiry is not
+        // accepted on this path because createOffer requires expiry > block.timestamp,
+        // so all persisted offers have a concrete expiry; keep the zero-guard for
+        // forward compatibility in case the invariant is ever relaxed.
+        require(o.expiry == 0 || block.timestamp < o.expiry, "P2PExchange: offer expired");
         require(msg.sender != o.maker, "P2PExchange: self-fill");
 
         // Verify encrypted inputs here (msg.sender = taker) before cross-contract calls
