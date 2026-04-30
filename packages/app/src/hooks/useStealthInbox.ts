@@ -40,7 +40,13 @@ import { useChain } from "@/providers/ChainProvider";
 import { useEffectiveAddress } from "./useEffectiveAddress";
 import { ERC5564AnnouncerAbi } from "@/lib/abis";
 import { checkStealthAddress } from "@/lib/stealth";
-import { loadStealthKeys, pubKeysFromRecord } from "@/lib/stealth-keystore";
+import {
+  loadStealthKeys,
+  pubKeysFromRecord,
+  unlockStealthKeys,
+  hasStealthKeysStored,
+} from "@/lib/stealth-keystore";
+import { usePassphrasePrompt } from "@/components/PassphrasePrompt";
 import {
   STORAGE_KEYS,
   getStoredJson,
@@ -89,7 +95,12 @@ interface UseStealthInboxResult {
   isScanning: boolean;
   scanProgress: { from: bigint; to: bigint; current: bigint } | null;
   hasKeys: boolean;
+  /** True if encrypted keys exist on disk but the in-memory cache hasn't
+   *  been unlocked yet. The UI can prompt the user to unlock. */
+  locked: boolean;
   scan: () => Promise<void>;
+  /** Trigger the passphrase prompt to unlock the stored keys. */
+  unlock: () => Promise<void>;
   /** Mark an entry as swept. Phase 9.5 calls this after a successful sweep. */
   markSwept: (txHash: Hex, stealthAddress: Address) => void;
 }
@@ -103,15 +114,33 @@ export function useStealthInbox(): UseStealthInboxResult {
   // but treat as chain-scoped for consistency + future override).
   const announcerAddress = contracts.ERC5564Announcer as Address;
 
-  // Memoize the keystore read so the object identity is stable across
-  // renders. Without this, every render rebuilt `scan` (which has
-  // keysRecord in its dep array), and the interval-installed scan
-  // closure went stale.
+  const passphrasePrompt = usePassphrasePrompt();
+  // `unlockTick` bumps when the in-memory keystore cache is populated so
+  // dependent memos re-read. The keystore itself caches in module scope;
+  // this state forces a re-render after a successful unlock.
+  const [unlockTick, setUnlockTick] = useState(0);
   const keysRecord = useMemo(
     () => (effectiveAddress ? loadStealthKeys(effectiveAddress) : null),
-    [effectiveAddress],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [effectiveAddress, unlockTick],
   );
   const hasKeys = !!keysRecord;
+  const locked = !!effectiveAddress && !keysRecord && hasStealthKeysStored(effectiveAddress);
+
+  const unlock = useCallback(async () => {
+    if (!effectiveAddress) return;
+    const pass = await passphrasePrompt.request({
+      title: "Unlock stealth keys",
+      subtitle: "Enter the passphrase you set when generating your stealth keys.",
+    });
+    if (!pass) return;
+    try {
+      const rec = await unlockStealthKeys(effectiveAddress, pass);
+      if (rec) setUnlockTick((n) => n + 1);
+    } catch {
+      // wrong passphrase — caller can retry
+    }
+  }, [effectiveAddress, passphrasePrompt]);
   // Guard against re-entrant scans: auto-scan, manual rescan, and
   // 60s-interval can all fire concurrently and race on the watermark.
   const scanInFlight = useRef(false);
@@ -329,7 +358,9 @@ export function useStealthInbox(): UseStealthInboxResult {
     isScanning,
     scanProgress,
     hasKeys,
+    locked,
     scan,
+    unlock,
     markSwept,
   };
 }

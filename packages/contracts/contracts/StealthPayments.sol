@@ -117,10 +117,13 @@ contract StealthPayments is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
         uint256 timestamp
     );
 
+    // Audit fix: do NOT emit the decrypted amount. The earlier shape leaked
+    // the transfer value publicly the moment finalize succeeded — defeating
+    // the stealth amount-privacy goal. The recipient learns the amount via
+    // the ERC-20 Transfer event on their own wallet; bystanders should not.
     event StealthFinalized(
         uint256 indexed transferId,
         address indexed claimer,
-        uint256 plaintextAmount,
         uint256 timestamp
     );
 
@@ -324,7 +327,7 @@ contract StealthPayments is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
             IERC20(st.underlyingToken).safeTransfer(msg.sender, decryptedAmount);
         }
 
-        emit StealthFinalized(transferId, msg.sender, decryptedAmount, block.timestamp);
+        emit StealthFinalized(transferId, msg.sender, block.timestamp);
         try eventHub.emitActivity(st.sender, msg.sender, "stealth_claimed", st.note, transferId) {} catch {}
     }
 
