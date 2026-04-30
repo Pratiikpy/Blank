@@ -53,8 +53,6 @@ const ENTRYPOINT_ABI = [
   "function getUserOpHash((address sender, uint256 nonce, bytes initCode, bytes callData, bytes32 accountGasLimits, uint256 preVerificationGas, bytes32 gasFees, bytes paymasterAndData, bytes signature) userOp) view returns (bytes32)",
 ];
 
-const ERC20_TRANSFER_SELECTOR = "0xa9059cbb";
-
 interface ChainSnapshot {
   chainId: number;
   scanned: number;

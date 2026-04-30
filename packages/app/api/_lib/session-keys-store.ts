@@ -209,7 +209,7 @@ export async function listActiveKeysForChain(chainId: number): Promise<
   if (error) {
     throw new Error(`session_keys list failed: ${error.message}`);
   }
-  return (data ?? []).map((row) => ({
+  return (data ?? []).map((row: Record<string, unknown>) => ({
     account: row.account as string,
     sessionKey: row.session_key as string,
     label: (row.label as string) ?? "",

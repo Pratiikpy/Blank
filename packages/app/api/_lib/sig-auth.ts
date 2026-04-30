@@ -49,13 +49,13 @@ function getPublicClient(chainId: number): PublicClient | null {
     client = createPublicClient({
       chain: sepolia,
       transport: rpc ? http(rpc) : http(),
-    });
+    }) as unknown as PublicClient;
   } else if (chainId === BASE_SEPOLIA_ID) {
     const rpc = process.env.BASE_SEPOLIA_RPC_URL;
     client = createPublicClient({
       chain: baseSepolia,
       transport: rpc ? http(rpc) : http(),
-    });
+    }) as unknown as PublicClient;
   }
   if (client) cachedClients.set(chainId, client);
   return client;

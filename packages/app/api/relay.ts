@@ -402,7 +402,7 @@ async function handleImpl(req: any, res: any) {
     // routinely time out at viem's 180s default — even though the tx is
     // already mined (we just confirmed it via tx.wait() above). Pre-serialize
     // the logs because ethers' Log objects don't survive JSON.
-    const serializedLogs = (receipt.logs ?? []).map((l) => ({
+    const serializedLogs = (receipt.logs ?? []).map((l: ethers.Log) => ({
       address: l.address,
       topics: [...l.topics],
       data: l.data,
