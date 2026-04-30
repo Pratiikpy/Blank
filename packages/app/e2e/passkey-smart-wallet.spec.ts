@@ -184,12 +184,28 @@ test.describe("passkey architecture verification", () => {
     // Submit
     await page.getByTestId("passkey-create-submit").click();
 
-    // Success state: smart account address visible, counterfactual status shown
-    await expect(page.getByTestId("smart-account-address")).toBeVisible({ timeout: 15_000 });
-    const addr = await page.getByTestId("smart-account-address").textContent();
-    expect(addr).toMatch(/^0x[0-9a-fA-F]/);
+    // Success state: smart account address visible, counterfactual status shown.
+    // Use expect.poll for both reads — the modal can re-render after the
+    // initial mount (CofheBinder initialization, balance fetches), and a
+    // separate `toBeVisible` + `textContent` two-step occasionally races
+    // with re-render and returns a detached node. Polling re-resolves the
+    // locator each tick.
+    await expect
+      .poll(async () => {
+        const el = page.getByTestId("smart-account-address");
+        if ((await el.count()) === 0) return null;
+        const text = await el.textContent().catch(() => null);
+        return text;
+      }, { timeout: 20_000 })
+      .toMatch(/^0x[0-9a-fA-F]/);
 
-    await expect(page.getByTestId("smart-account-status")).toHaveText(/counterfactual|deploys/i);
+    await expect
+      .poll(async () => {
+        const el = page.getByTestId("smart-account-status");
+        if ((await el.count()) === 0) return null;
+        return await el.textContent().catch(() => null);
+      }, { timeout: 10_000 })
+      .toMatch(/counterfactual|deploys/i);
 
     // Cleanup: remove the passkey so subsequent runs start fresh.
     await page.evaluate(async () => {
