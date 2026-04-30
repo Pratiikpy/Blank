@@ -8,16 +8,24 @@
  * grants Notification permission. We persist to Supabase so /api/push/notify
  * can later look up subscriptions by address.
  *
- * No auth required — the worst an attacker can do is register their own
- * browser to receive notifications meant for an address they don't own
- * (which is harmless because no decrypted payload is included), but we
- * rate-limit per IP to prevent flood.
+ * Audit P2.11: requires a wallet-signed challenge so an attacker can't
+ * register their browser as the recipient of notifications for someone
+ * else's address (which would surface every counterparty + activity type
+ * the victim sees — a deanonymization channel even without payload bodies).
+ * The signature binds (address, chainId, signedAt) and is checked via the
+ * shared `verifyOwnerSignature` helper that already handles EOA + ERC-1271.
  *
  * Schema: see sql/push_subscriptions.sql
  */
 
 import { getSupabaseAdmin } from "../supabase-admin.js";
 import { checkRateLimit, writeRateLimitHeaders } from "../rate-limit.js";
+import {
+  checkTimestampWindow,
+  verifyOwnerSignature,
+  strictEmailAuthEnabled,
+} from "../sig-auth.js";
+import type { Address, Hex } from "viem";
 
 interface SubscribeBody {
   address: string;
@@ -26,6 +34,24 @@ interface SubscribeBody {
     endpoint: string;
     keys: { p256dh: string; auth: string };
   };
+  /** Wallet signature over `pushSubscribeMessage(address, chainId, signedAt)`.
+   *  Required when STRICT_EMAIL_AUTH defaults are on (production). */
+  signature?: Hex;
+  signedAt?: number;
+  signerChainId?: number;
+}
+
+function buildPushSubscribeMessage(args: {
+  address: string;
+  chainId: number;
+  signedAt: number;
+}): string {
+  return [
+    "Blank: register push subscription",
+    `address: ${args.address.toLowerCase()}`,
+    `chainId: ${args.chainId}`,
+    `signedAt: ${args.signedAt}`,
+  ].join("\n");
 }
 
 interface UnsubscribeBody {
@@ -84,6 +110,46 @@ export default async function handler(req: any, res: any) {
       ) {
         res.status(400).json({ error: "Invalid subscription payload" });
         return;
+      }
+
+      // Audit P2.11: require a wallet-signed challenge so the registrant
+      // proves they own `body.address`. Default fail-closed; opt out only
+      // for local dev with STRICT_EMAIL_AUTH=0 (the same flag gates email
+      // signature verification — same threat model: prevent unauthorized
+      // address registration).
+      if (strictEmailAuthEnabled()) {
+        const signedAt = body.signedAt;
+        const signature = body.signature;
+        const signerChainId = body.signerChainId ?? body.chainId;
+        if (typeof signedAt !== "number" || !signature || !signerChainId) {
+          res.status(401).json({
+            error:
+              "push-subscribe requires a wallet signature: signature, signedAt, signerChainId",
+          });
+          return;
+        }
+        const tsErr = checkTimestampWindow(signedAt);
+        if (tsErr) {
+          res.status(401).json({ error: tsErr });
+          return;
+        }
+        const message = buildPushSubscribeMessage({
+          address: body.address,
+          chainId: signerChainId,
+          signedAt,
+        });
+        const verify = await verifyOwnerSignature({
+          chainId: signerChainId,
+          signer: body.address as Address,
+          message,
+          signature,
+        });
+        if (!verify.ok) {
+          res.status(401).json({
+            error: `signature verification failed: ${verify.reason ?? "unknown"}`,
+          });
+          return;
+        }
       }
 
       const { error } = await admin
