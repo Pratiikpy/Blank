@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { formatDistanceToNowStrict } from "date-fns";
 import { cn } from "@/lib/cn";
+import { truncateAddress } from "@/lib/address";
 import toast from "react-hot-toast";
 import { useInheritance } from "@/hooks/useInheritance";
 import { useEffectiveAddress } from "@/hooks/useEffectiveAddress";
@@ -23,7 +24,6 @@ import { InheritanceManagerAbi } from "@/lib/abis";
 import { useChain } from "@/providers/ChainProvider";
 import { fetchHeirAssignments, type ActivityRow } from "@/lib/supabase";
 import type { ContractMap } from "@/lib/constants";
-import { truncateAddress } from "@/lib/address";
 
 // ---------------------------------------------------------------
 //  AVAILABLE VAULTS (the user can protect these in their plan)
@@ -273,8 +273,7 @@ function HeirAssignmentCard({
     status = { label: "Active", className: "bg-blue-50 border-blue-100 text-blue-600" };
   }
 
-  const truncateAddr = (addr: string) =>
-    addr.length > 10 ? `${addr.slice(0, 6)}...${addr.slice(-4)}` : addr;
+  const truncateAddr = truncateAddress;
 
   return (
     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-5 rounded-2xl glass-card-static bg-white/50 dark:bg-white/5 border border-black/5 dark:border-white/10">
@@ -440,8 +439,7 @@ export default function InheritancePlanning() {
     await removeHeir();
   };
 
-  const truncateAddr = (addr: string) =>
-    addr.length > 10 ? `${addr.slice(0, 6)}...${addr.slice(-4)}` : addr;
+  const truncateAddr = truncateAddress;
 
   return (
     <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">

@@ -11,6 +11,7 @@ import { useMyRoles } from "@/hooks/useMyRoles";
 import { MyRolesPanel } from "@/components/MyRolesPanel";
 import { ChainSelector } from "./components/ChainSelector";
 import { useSmartAccount } from "@/hooks/useSmartAccount";
+import { useRealtimeNotifications } from "@/hooks/useRealtimeNotifications";
 import "./theme.css";
 
 // Lazy load all screens
@@ -291,6 +292,12 @@ export function BlankApp() {
   // connected via wagmi. Onboarding still renders if neither path is
   // satisfied; once they pick one, the app shell takes over.
   const { status: smartAccountStatus, account: smartAccount } = useSmartAccount();
+  // Realtime notifications scoped to the auth-gated app shell. The hook
+  // internally short-circuits when there's no effectiveAddress, but
+  // mounting it inside BlankApp (rather than App.tsx) means landing
+  // visitors at `/`, `/features`, etc. never even instantiate the hook.
+  // Saves up to 8 Supabase Realtime sockets per anon page load.
+  useRealtimeNotifications();
   const hasPasskeyAccount = smartAccountStatus === "ready" && smartAccount !== null;
 
   // Auto-switch app chain to match wallet — MUST be before all early returns

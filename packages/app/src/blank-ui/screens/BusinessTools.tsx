@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { formatDistanceToNowStrict } from "date-fns";
 import { cn } from "@/lib/cn";
+import { truncateAddress } from "@/lib/address";
 import toast from "react-hot-toast";
 import { isAddress, parseUnits, formatUnits } from "viem";
 import { usePublicClient } from "wagmi";
@@ -633,8 +634,7 @@ export default function BusinessTools() {
     return `${relative} (${utc} UTC)`;
   };
 
-  const truncateAddr = (addr: string) =>
-    addr.length > 10 ? `${addr.slice(0, 6)}...${addr.slice(-4)}` : addr;
+  const truncateAddr = truncateAddress;
 
   return (
     <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">

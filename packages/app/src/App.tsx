@@ -1,6 +1,5 @@
 import { Suspense, lazy } from "react";
 import { Routes, Route, Link } from "react-router-dom";
-import { useRealtimeNotifications } from "@/hooks/useRealtimeNotifications";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 // Landing-level pages — each is its own bundle chunk (lazy-loaded)
@@ -65,9 +64,12 @@ function NotFoundLanding() {
 }
 
 export function App() {
-  // Global real-time notifications. The hook guards internally on connected
-  // wallet, so it's safe to mount here even for landing visitors.
-  useRealtimeNotifications();
+  // useRealtimeNotifications mount intentionally moved into BlankApp so
+  // landing visitors don't open Supabase Realtime channels. The hook
+  // opens up to 4 channels × 2 addresses = 8 sockets per page load; for
+  // an unauth visitor on `/` those are wasted Supabase quota and main-
+  // thread setup. BlankApp is the auth-gated shell, so mounting it
+  // there scopes realtime to authenticated sessions only.
 
   return (
     // Audit Top-28 #19: top-level ErrorBoundary so a render error in any

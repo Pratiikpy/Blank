@@ -15,6 +15,7 @@ import { isAddress } from "viem";
 import toast from "react-hot-toast";
 import { formatDistanceToNowStrict } from "date-fns";
 import { cn } from "@/lib/cn";
+import { truncateAddress } from "@/lib/address";
 import { useAgentPayment, type AgentTemplate, type AgentAttestation } from "@/hooks/useAgentPayment";
 import { useChain } from "@/providers/ChainProvider";
 import { getExplorerTxUrl } from "@/lib/constants";
@@ -65,8 +66,8 @@ const TEMPLATES: TemplateDef[] = [
 ];
 
 function shortAddr(a: string): string {
-  if (!a || a.length < 10) return a;
-  return `${a.slice(0, 6)}…${a.slice(-4)}`;
+  if (!a) return a;
+  return truncateAddress(a);
 }
 
 function relativeTime(iso: string): string {

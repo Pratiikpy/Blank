@@ -5,6 +5,7 @@ import { LandingNav } from "./LandingNav";
 import { LandingFooter } from "./LandingFooter";
 import { useLiveActivities, type LiveActivity } from "@/hooks/useLiveActivities";
 import { getExplorerTxUrl } from "@/lib/constants";
+import { truncateAddress } from "@/lib/address";
 import "./landing.css";
 
 // ══════════════════════════════════════════════════════════════════
@@ -15,8 +16,8 @@ import "./landing.css";
 //  ══════════════════════════════════════════════════════════════════
 
 function shortAddr(a: string): string {
-  if (!a || a.length < 10) return a || "—";
-  return `${a.slice(0, 6)}…${a.slice(-4)}`;
+  if (!a) return "—";
+  return truncateAddress(a);
 }
 
 function humanType(activityType: string): string {

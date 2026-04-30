@@ -102,7 +102,13 @@ export function useEncryptedBalance(vaultAddress?: string, decimals = 6) {
       readQueryOptions: {
         enabled: canUseRealDecrypt && !!address,
         refetchOnMount: false,
-        refetchInterval: 10_000, // Poll every 10s for balance updates
+        // Audit P1.6: collapse the four overlapping intervals (10/10/15/30s)
+        // into a single 30s poll plus realtime invalidation via Supabase
+        // broadcasts (`broadcastAction("balance_changed")` from write hooks).
+        // refetchIntervalInBackground=false stops polling when the tab is
+        // hidden, so background tabs don't burn RPC quota.
+        refetchInterval: 30_000,
+        refetchIntervalInBackground: false,
       },
     }
   );
@@ -117,7 +123,8 @@ export function useEncryptedBalance(vaultAddress?: string, decimals = 6) {
     args: address ? [address] : undefined,
     query: {
       enabled: !!address && !canUseRealDecrypt,
-      refetchInterval: 10_000,
+      refetchInterval: 30_000,
+      refetchIntervalInBackground: false,
     },
   });
 
@@ -127,7 +134,11 @@ export function useEncryptedBalance(vaultAddress?: string, decimals = 6) {
     address: vault,
     abi: FHERC20VaultAbi,
     functionName: "totalDeposited",
-    query: { enabled: !!address, refetchInterval: 15_000 },
+    query: {
+      enabled: !!address,
+      refetchInterval: 30_000,
+      refetchIntervalInBackground: false,
+    },
   });
 
   // Check if user has initialized their encrypted account
@@ -136,7 +147,11 @@ export function useEncryptedBalance(vaultAddress?: string, decimals = 6) {
     abi: FHERC20VaultAbi,
     functionName: "isInitialized",
     args: address ? [address] : undefined,
-    query: { enabled: !!address, refetchInterval: 30_000 },
+    query: {
+      enabled: !!address,
+      refetchInterval: 60_000,
+      refetchIntervalInBackground: false,
+    },
   });
 
   // ─── Sync state from SDK decrypt result ──────────────────────────────
