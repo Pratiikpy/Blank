@@ -4,7 +4,7 @@ import {
   useCofheReadContractAndDecrypt,
   useCofheConnection,
   useCofheActivePermit,
-} from "@cofhe/react";
+} from "@/lib/cofhe-shim";
 import { REVEAL_TIMEOUT_MS } from "@/lib/constants";
 import { useChain } from "@/providers/ChainProvider";
 import { FHERC20VaultAbi } from "@/lib/abis";
@@ -102,7 +102,12 @@ export function useEncryptedBalance(vaultAddress?: string, decimals = 6) {
       readQueryOptions: {
         enabled: canUseRealDecrypt && !!address,
         refetchOnMount: false,
-        refetchInterval: 10_000, // Poll every 10s for balance updates
+        // Audit P1.6: collapsed the four overlapping intervals
+        // (10/10/15/30s) into a single 30s cadence. The shim's
+        // readQueryOptions type doesn't accept refetchIntervalInBackground;
+        // it's set on the wagmi reads below where the underlying
+        // useReadContract supports it.
+        refetchInterval: 30_000,
       },
     }
   );
@@ -117,7 +122,8 @@ export function useEncryptedBalance(vaultAddress?: string, decimals = 6) {
     args: address ? [address] : undefined,
     query: {
       enabled: !!address && !canUseRealDecrypt,
-      refetchInterval: 10_000,
+      refetchInterval: 30_000,
+      refetchIntervalInBackground: false,
     },
   });
 
@@ -127,7 +133,11 @@ export function useEncryptedBalance(vaultAddress?: string, decimals = 6) {
     address: vault,
     abi: FHERC20VaultAbi,
     functionName: "totalDeposited",
-    query: { enabled: !!address, refetchInterval: 15_000 },
+    query: {
+      enabled: !!address,
+      refetchInterval: 30_000,
+      refetchIntervalInBackground: false,
+    },
   });
 
   // Check if user has initialized their encrypted account
@@ -136,7 +146,11 @@ export function useEncryptedBalance(vaultAddress?: string, decimals = 6) {
     abi: FHERC20VaultAbi,
     functionName: "isInitialized",
     args: address ? [address] : undefined,
-    query: { enabled: !!address, refetchInterval: 30_000 },
+    query: {
+      enabled: !!address,
+      refetchInterval: 60_000,
+      refetchIntervalInBackground: false,
+    },
   });
 
   // ─── Sync state from SDK decrypt result ──────────────────────────────

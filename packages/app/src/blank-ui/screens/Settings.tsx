@@ -20,6 +20,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { truncateAddress } from "@/lib/address";
 import toast from "react-hot-toast";
 import { clearAllAddressScopes } from "@/lib/storage";
 import { faucetUsdc } from "@/lib/faucet-client";
@@ -30,10 +31,6 @@ import {
   WORKSPACE_MODE_LABELS,
   WORKSPACE_MODE_DESCRIPTIONS,
 } from "@/lib/workspace-mode";
-
-function truncateAddress(addr: string): string {
-  return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
-}
 
 // Workspace mode picker — local to Settings since this is the only
 // surface that should let the user pick. Reads/writes the global

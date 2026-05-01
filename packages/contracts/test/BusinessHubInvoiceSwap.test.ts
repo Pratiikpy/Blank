@@ -76,6 +76,10 @@ async function fixture() {
   // Pre-fund the router with USDC so its swaps can deliver tokenOut.
   await usdcToken.mint(await router.getAddress(), usdc(10_000));
 
+  // Audit P2.10: payInvoiceWithSwap now enforces an owner-curated
+  // allowlist of swap routers. Approve the mock for tests.
+  await businessHub.connect(owner).setSwapRouterApproved(await router.getAddress(), true);
+
   // Pre-fund the payer with USDT (their pay-token).
   await usdtToken.mint(payer.address, usdt(1_000));
   // And pre-fund the payer with some USDC for same-token tests.

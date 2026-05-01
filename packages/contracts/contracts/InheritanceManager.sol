@@ -101,6 +101,13 @@ contract InheritanceManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
     function setVaults(address[] calldata _vaults) external nonReentrant {
         InheritancePlan storage plan = plans[msg.sender];
         require(plan.active, "InheritanceManager: no plan");
+        // Audit P2.14: cap the vaults array to prevent finalizeClaim's
+        // unbounded loop from exceeding the block gas limit. 20 vaults is
+        // generous (Blank only ships 2 today, but USDT + ETH + WBTC + etc.
+        // is the realistic upper bound for any user). Without this cap an
+        // owner could push hundreds of vaults and permanently lock the
+        // claim by making finalizeClaim revert with out-of-gas every time.
+        require(_vaults.length <= 20, "InheritanceManager: too many vaults");
         plan.vaults = _vaults;
         emit VaultsUpdated(msg.sender, _vaults, block.timestamp);
     }

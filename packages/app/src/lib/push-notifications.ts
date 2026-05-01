@@ -24,6 +24,13 @@ export interface SubscribeArgs {
   address: string;
   /** Optional chain ID — useful for routing notifications later. */
   chainId?: number;
+  /** Optional wallet-signed challenge proving ownership of `address`.
+   *  When the server runs in fail-closed mode (default in production)
+   *  the request is rejected without these. The frontend caller should
+   *  build them via useEmailAuthSigner or similar wallet-signing path. */
+  signature?: `0x${string}`;
+  signedAt?: number;
+  signerChainId?: number;
 }
 
 export interface SubscribeResult {
@@ -137,6 +144,12 @@ export async function subscribeToPush(args: SubscribeArgs): Promise<SubscribeOut
         address: args.address.toLowerCase(),
         chainId: args.chainId,
         subscription: subscription.toJSON(),
+        // Audit P2.11 — wallet-signed challenge so an attacker can't
+        // register their browser as the recipient of someone else's
+        // notifications. Server may reject without these in production.
+        signature: args.signature,
+        signedAt: args.signedAt,
+        signerChainId: args.signerChainId,
       }),
     });
 

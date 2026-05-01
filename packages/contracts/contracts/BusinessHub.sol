@@ -240,6 +240,10 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         uint256 dueDate
     ) external nonReentrant returns (uint256) {
         require(client != address(0) && client != msg.sender, "BusinessHub: invalid client");
+        // Audit P2.15: cap description bytes so an attacker can't grief
+        // the contract with multi-KB on-chain strings (cheap storage-bloat
+        // griefing). 512 bytes is generous for any real invoice memo.
+        require(bytes(description).length <= 512, "BusinessHub: description too long");
 
         euint64 amount = FHE.asEuint64(encAmount);
         FHE.allowThis(amount);
@@ -573,6 +577,7 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         require(msg.sender == inv.client, "BusinessHub: not the client");
         require(payToken != address(0), "BusinessHub: zero payToken");
         require(swapRouter != address(0), "BusinessHub: zero swapRouter");
+        require(approvedSwapRouters[swapRouter], "BusinessHub: router not approved");
         require(payAmountInMax > 0, "BusinessHub: zero payAmountInMax");
         require(expectedUsdcOut > 0, "BusinessHub: zero expectedUsdcOut");
 
@@ -770,15 +775,16 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         // signed-quote bug, not a real market quote.
         require(ratePpm >= 1 && ratePpm <= 100_000_000, "BusinessHub: rate out of bounds");
 
-        // Verify expectedUsdcOut matches the rate. Accept ±1 wei tolerance
-        // to absorb integer-division rounding from the backend's quote
-        // computation. Without this check a malicious payer could pass a
-        // valid signed quote but override expectedUsdcOut to under-pay.
+        // Verify expectedUsdcOut matches the rate exactly.
+        //
+        // Audit P2.16: the previous shape allowed `expectedUsdcOut = derivedOut - 1`
+        // (the +1 tolerance was applied to the upper bound), letting a payer
+        // submit a valid signed quote but underpay the vendor by 1 unit per
+        // settlement. Tolerance for division rounding is the backend's job —
+        // if the off-chain quote computation produces non-integer results,
+        // round there with deterministic rules. The on-chain check is exact.
         uint256 derivedOut = (payAmountIn * ratePpm) / 1_000_000;
-        require(
-            derivedOut >= expectedUsdcOut && derivedOut <= expectedUsdcOut + 1,
-            "BusinessHub: expectedUsdcOut mismatch"
-        );
+        require(derivedOut == expectedUsdcOut, "BusinessHub: expectedUsdcOut mismatch");
 
         // Verify oracle signature. EIP-191 prefix prevents the same digest
         // being reused as a regular tx (off-chain → on-chain replay).
@@ -900,6 +906,7 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         require(beneficiary != address(0) && beneficiary != msg.sender, "BusinessHub: invalid beneficiary");
         require(deadline >= block.timestamp + 1 days, "BusinessHub: deadline must be at least 1 day");
         require(plaintextAmount > 0, "BusinessHub: zero amount");
+        require(bytes(description).length <= 512, "BusinessHub: description too long");
 
         // Lock plaintext amount in the underlying ERC20 (not encrypted — escrow needs release)
         // The user shields tokens first, then this function takes from their PUBLIC balance
@@ -1080,10 +1087,30 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         try IPaymentReceipts(paymentReceipts).bumpGlobal(amount) {} catch {}
     }
 
+    /// @dev Owner-managed allowlist of swap routers permitted by
+    ///      `payInvoiceWithSwap`. Audit P2.10: a caller-supplied router was
+    ///      already bounded (only the just-pulled payToken can be lost), but
+    ///      curating an explicit allowlist prevents novice users from being
+    ///      tricked into specifying a malicious router that immediately
+    ///      drains the per-tx amount via a custom `exactOutputSingle`. Owner
+    ///      seeds with Uniswap v3 SwapRouter02 per chain (lib/uniswap.ts).
+    ///
+    ///      v0.2.1 storage append: decrements the gap from 50 → 49.
+    mapping(address => bool) public approvedSwapRouters;
+
     /// @dev Reserved storage to avoid collisions on future upgrades.
     ///      Append-only: when adding a new state variable in a later upgrade,
     ///      decrement the gap size so total storage is unchanged.
-    uint256[50] private __gap;
+    uint256[49] private __gap;
+
+    event SwapRouterApprovalChanged(address indexed router, bool approved);
+
+    /// @notice Approve or unapprove a swap router for `payInvoiceWithSwap`.
+    function setSwapRouterApproved(address router, bool approved) external onlyOwner {
+        require(router != address(0), "BusinessHub: zero router");
+        approvedSwapRouters[router] = approved;
+        emit SwapRouterApprovalChanged(router, approved);
+    }
 
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 

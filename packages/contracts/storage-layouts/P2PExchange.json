@@ -1,7 +1,7 @@
 {
   "storage": [
     {
-      "astId": 62300,
+      "astId": 62374,
       "contract": "contracts/P2PExchange.sol:P2PExchange",
       "label": "_status",
       "offset": 0,
@@ -9,15 +9,15 @@
       "type": "t_uint256"
     },
     {
-      "astId": 52944,
+      "astId": 53018,
       "contract": "contracts/P2PExchange.sol:P2PExchange",
       "label": "eventHub",
       "offset": 0,
       "slot": "1",
-      "type": "t_contract(IEventHub)52917"
+      "type": "t_contract(IEventHub)52991"
     },
     {
-      "astId": 52946,
+      "astId": 53020,
       "contract": "contracts/P2PExchange.sol:P2PExchange",
       "label": "nextOfferId",
       "offset": 0,
@@ -25,15 +25,15 @@
       "type": "t_uint256"
     },
     {
-      "astId": 52951,
+      "astId": 53025,
       "contract": "contracts/P2PExchange.sol:P2PExchange",
       "label": "offers",
       "offset": 0,
       "slot": "3",
-      "type": "t_mapping(t_uint256,t_struct(Offer)52941_storage)"
+      "type": "t_mapping(t_uint256,t_struct(Offer)53015_storage)"
     },
     {
-      "astId": 52956,
+      "astId": 53030,
       "contract": "contracts/P2PExchange.sol:P2PExchange",
       "label": "_userOffers",
       "offset": 0,
@@ -41,7 +41,7 @@
       "type": "t_mapping(t_address,t_array(t_uint256)dyn_storage)"
     },
     {
-      "astId": 52962,
+      "astId": 53036,
       "contract": "contracts/P2PExchange.sol:P2PExchange",
       "label": "_offerValidation",
       "offset": 0,
@@ -49,7 +49,7 @@
       "type": "t_mapping(t_uint256,t_userDefinedValueType(ebool)11789)"
     },
     {
-      "astId": 53651,
+      "astId": 53725,
       "contract": "contracts/P2PExchange.sol:P2PExchange",
       "label": "__gap",
       "offset": 0,
@@ -80,7 +80,7 @@
       "label": "bool",
       "numberOfBytes": "1"
     },
-    "t_contract(IEventHub)52917": {
+    "t_contract(IEventHub)52991": {
       "encoding": "inplace",
       "label": "contract IEventHub",
       "numberOfBytes": "20"
@@ -92,12 +92,12 @@
       "numberOfBytes": "32",
       "value": "t_array(t_uint256)dyn_storage"
     },
-    "t_mapping(t_uint256,t_struct(Offer)52941_storage)": {
+    "t_mapping(t_uint256,t_struct(Offer)53015_storage)": {
       "encoding": "mapping",
       "key": "t_uint256",
       "label": "mapping(uint256 => struct P2PExchange.Offer)",
       "numberOfBytes": "32",
-      "value": "t_struct(Offer)52941_storage"
+      "value": "t_struct(Offer)53015_storage"
     },
     "t_mapping(t_uint256,t_userDefinedValueType(ebool)11789)": {
       "encoding": "mapping",
@@ -106,12 +106,12 @@
       "numberOfBytes": "32",
       "value": "t_userDefinedValueType(ebool)11789"
     },
-    "t_struct(Offer)52941_storage": {
+    "t_struct(Offer)53015_storage": {
       "encoding": "inplace",
       "label": "struct P2PExchange.Offer",
       "members": [
         {
-          "astId": 52926,
+          "astId": 53000,
           "contract": "contracts/P2PExchange.sol:P2PExchange",
           "label": "maker",
           "offset": 0,
@@ -119,7 +119,7 @@
           "type": "t_address"
         },
         {
-          "astId": 52928,
+          "astId": 53002,
           "contract": "contracts/P2PExchange.sol:P2PExchange",
           "label": "tokenGive",
           "offset": 0,
@@ -127,7 +127,7 @@
           "type": "t_address"
         },
         {
-          "astId": 52930,
+          "astId": 53004,
           "contract": "contracts/P2PExchange.sol:P2PExchange",
           "label": "tokenWant",
           "offset": 0,
@@ -135,7 +135,7 @@
           "type": "t_address"
         },
         {
-          "astId": 52932,
+          "astId": 53006,
           "contract": "contracts/P2PExchange.sol:P2PExchange",
           "label": "amountGive",
           "offset": 0,
@@ -143,7 +143,7 @@
           "type": "t_uint256"
         },
         {
-          "astId": 52934,
+          "astId": 53008,
           "contract": "contracts/P2PExchange.sol:P2PExchange",
           "label": "amountWant",
           "offset": 0,
@@ -151,7 +151,7 @@
           "type": "t_uint256"
         },
         {
-          "astId": 52936,
+          "astId": 53010,
           "contract": "contracts/P2PExchange.sol:P2PExchange",
           "label": "expiry",
           "offset": 0,
@@ -159,7 +159,7 @@
           "type": "t_uint256"
         },
         {
-          "astId": 52938,
+          "astId": 53012,
           "contract": "contracts/P2PExchange.sol:P2PExchange",
           "label": "active",
           "offset": 0,
@@ -167,7 +167,7 @@
           "type": "t_bool"
         },
         {
-          "astId": 52940,
+          "astId": 53014,
           "contract": "contracts/P2PExchange.sol:P2PExchange",
           "label": "filled",
           "offset": 1,

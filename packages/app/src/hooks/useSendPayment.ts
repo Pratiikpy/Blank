@@ -8,8 +8,8 @@ import {
   useCofheEncrypt,
   useCofheConnection,
   useCofheEncryptAndWriteContract,
-} from "@cofhe/react";
-import { Encryptable } from "@cofhe/sdk";
+} from "@/lib/cofhe-shim";
+import { Encryptable } from "@/lib/cofhe-shim";
 import toast from "react-hot-toast";
 import { useChain } from "@/providers/ChainProvider";
 import { BusinessHubAbi, FHERC20VaultAbi, PaymentHubAbi } from "@/lib/abis";

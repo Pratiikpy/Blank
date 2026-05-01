@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "clean": "rimraf dist",
     "typecheck": "tsc --noEmit",
-    "ci": "tsc --noEmit && vite build",
+    "ci": "tsc --noEmit && pnpm check:imports && vite build",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
