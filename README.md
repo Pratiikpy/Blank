@@ -31,11 +31,9 @@ sender and receiver decrypt with their own keys. Everyone else sees ████
 
 <br />
 
-<a href="docs/screenshots/demo.mp4">
-  <img src="docs/screenshots/demo.gif" alt="Blank demo — same chain, different visibility" width="800" />
-</a>
+<img src="docs/screenshots/hero-loop.gif" alt="X-Ray slider — public dollar bill resolves into FHE ciphertext" width="800" />
 
-<sub>20-second walkthrough · <a href="docs/screenshots/demo.mp4">download MP4</a></sub>
+<sub>See it in motion: <a href="docs/screenshots/demo.mp4">24-second product walkthrough →</a></sub>
 
 </div>
 
