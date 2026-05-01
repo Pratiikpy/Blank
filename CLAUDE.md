@@ -47,6 +47,10 @@ Read these directly when investigating FHE / cofhe / Privara behaviour
 - `references/cofhesdk/` — `@cofhe/sdk` source (encrypt + ZK proof workers)
 - `references/cofhejs/` — older `cofhe-js` (legacy reference)
 - `references/fhenix-developer-docs/`, `references/fhenix-docs/` — Fhenix docs
+- `references/fhenix-neo/` — `marronjo/fhe-assistant` clone. The `core.md`
+  here is Fhenix's canonical FHE reference for AI assistants — every type,
+  operation, ACL pattern, FHE.select usage, and common pitfall. Read this
+  FIRST for any FHE / cofhe Solidity question.
 - `references/awesome-fhenix/` — example repos catalog (stays in sync via `git pull`)
 - `references/reineira-code/` — Privara dev toolkit (Solidity + scripts)
 - `references/aa-reference/` — ERC-4337 reference impls
