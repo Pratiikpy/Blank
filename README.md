@@ -31,7 +31,11 @@ sender and receiver decrypt with their own keys. Everyone else sees ████
 
 <br />
 
-<img src="docs/screenshots/landing.gif" alt="Blank — same chain, different visibility" width="800" />
+<a href="docs/screenshots/demo.mp4">
+  <img src="docs/screenshots/demo.gif" alt="Blank demo — same chain, different visibility" width="800" />
+</a>
+
+<sub>20-second walkthrough · <a href="docs/screenshots/demo.mp4">download MP4</a></sub>
 
 </div>
 
