@@ -12,11 +12,12 @@ const post: BlogPost = {
   content: () => (
     <>
       <p>
-        Six months before Wave 1 we had to make the most consequential
-        technical decision of the project: which FHE stack to build on.
-        It wasn't between FHE and ZK — that's a different post. It was
-        between several FHE projects, all serious, all well-funded,
-        all with real engineers shipping real code.
+        Before we wrote a line of code we had to make the most
+        consequential technical decision of the project: which FHE
+        stack to build on. It wasn't between FHE and ZK — that's a
+        different post. It was between several FHE projects, all
+        serious, all well-funded, all with real engineers shipping
+        real code.
       </p>
       <p>
         We picked <strong>Fhenix CoFHE</strong>. This post is about why,
@@ -115,9 +116,9 @@ FHE.allowSender(balance);`}
         &gt;= amount)</code>. That revert leaks one bit of information
         per attempt — enough reverts and an attacker reconstructs your
         balance. Fhenix bakes <code>FHE.select(condition, ifTrue,
-        ifFalse)</code> directly into the API, with the explicit guidance
-        of "use this instead of revert when the condition is on
-        encrypted data." It's a small thing. Across our codebase it
+        ifFalse)</code> directly into the API as a first-class
+        primitive — branching on encrypted data without leaking which
+        branch was taken. It's a small thing. Across our codebase it
         eliminated a class of bugs we would have written on autopilot
         if the primitive hadn't been right there.
       </p>
@@ -184,13 +185,12 @@ FHE.allowSender(balance);`}
         this (and because of audits — see the roadmap).
       </p>
       <p>
-        <strong>Decryption latency.</strong> On Sepolia today,
-        threshold decryption takes 60–180 seconds. That's a deliberate
-        budget for safety, but it's slow enough that we had to design
-        the UX around it (showing last-known plaintext optimistically,
-        treating decrypt as async, etc.). On mainnet performance
-        targets will tighten; on testnet today it's the single biggest
-        UX constraint we work against.
+        <strong>Decryption latency.</strong> Threshold decryption on
+        testnet takes long enough that we had to design the UX around
+        it — showing last-known plaintext optimistically, treating
+        decrypt as async, never blocking the screen on it. On mainnet
+        performance targets will tighten; on testnet today it's the
+        single biggest UX constraint we work against.
       </p>
       <p>
         <strong>Maturity of the broader ecosystem.</strong> Fhenix's
@@ -211,17 +211,17 @@ FHE.allowSender(balance);`}
           <strong>Co-processor architecture is the right shape.</strong>{" "}
           Application builders who want to ship privacy on top of
           Ethereum (not <em>instead of</em> it) have one architectural
-          path that doesn't require porting their users to a new
-          chain. Fhenix is the most mature implementation of that path
-          today.
+          path that doesn't require porting users to a new chain.
+          Fhenix is shipping that path on a public testnet today,
+          which is what we needed.
         </li>
         <li>
-          <strong>The API design is correct.</strong>{" "}
+          <strong>The API design holds up under real use.</strong>{" "}
           <code>FHE.select</code>-over-revert, the four-tier ACL,
-          context-bound input verification, TFHE in the browser — these
-          are the design choices a team that knows what they're doing
-          makes. We bet the team that gets the small things right
-          will get the big things right too.
+          context-bound input verification, TFHE in the browser — each
+          of these is a deliberate, security-aware choice, and the way
+          they compose across a real codebase is what convinced us the
+          bigger architectural calls were equally considered.
         </li>
         <li>
           <strong>The trust gap closes from where it is.</strong>{" "}
@@ -245,19 +245,15 @@ FHE.allowSender(balance);`}
           composability — all untouched.
         </li>
         <li>
-          Twelve product surfaces sharing one encrypted vault, all
-          built on the same primitive. We didn't have to invent the
-          encryption layer; we got to focus on what to do with it.
+          A shared encrypted vault that every product surface plugs
+          into via the same primitives. We didn't have to invent the
+          encryption layer; we got to spend our engineering on what
+          to do with it.
         </li>
         <li>
-          A thread of credibility we couldn't have manufactured —
-          "built on Fhenix CoFHE" means something to people who know
-          what FHE is, and increasingly to people who don't.
-        </li>
-        <li>
-          A path forward. As Fhenix matures, every feature we've
-          shipped gets faster, cheaper, and more decentralised
-          automatically. We don't have to migrate.
+          A path forward. As the threshold network decentralises and
+          decryption gets faster, every feature we've already shipped
+          benefits — we don't have to migrate.
         </li>
       </ul>
 
@@ -295,7 +291,7 @@ FHE.allowSender(balance);`}
         knowingly accept.
       </p>
       <p>
-        Six months in, we still think we picked right.
+        Every wave we ship, we think we picked right.
       </p>
     </>
   ),
