@@ -48,11 +48,21 @@ export default defineConfig({
           if (id.includes("node_modules/react/") || id.includes("node_modules/react-dom/") || id.includes("react-router-dom") || id.includes("react-is")) {
             return "vendor-react";
           }
-          if (id.includes("viem") || id.includes("@tanstack/react-query")) {
-            return "vendor-viem";
-          }
-          if (id.includes("wagmi") || id.includes("@wagmi/") || id.includes("@walletconnect/") || id.includes("@coinbase/")) {
-            return "vendor-wallet";
+          // wagmi internally references viem at module scope. Splitting
+          // them into two chunks creates a circular dep at the chunk
+          // level — Rollup's emitted bootstrap reads `viem` symbols
+          // before the viem chunk is initialised, causing
+          // "Cannot access 'X' before initialization" at runtime in
+          // production. Keep wagmi + viem + react-query in one chunk.
+          if (
+            id.includes("wagmi") ||
+            id.includes("@wagmi/") ||
+            id.includes("viem") ||
+            id.includes("@tanstack/react-query") ||
+            id.includes("@walletconnect/") ||
+            id.includes("@coinbase/")
+          ) {
+            return "vendor-web3";
           }
           if (id.includes("lucide-react")) {
             return "vendor-icons";
