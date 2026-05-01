@@ -75,8 +75,8 @@ async function diagnose() {
     console.log(`[diagnose] navigation error: ${loadErr.message}`);
   }
 
-  // Wait an extra beat for any deferred errors to fire.
-  await page.waitForTimeout(3_000);
+  // Wait an extra beat for lazy-loaded chunks + deferred errors.
+  await page.waitForTimeout(6_000);
 
   // Capture root visibility — empty body = white screen.
   const rootInfo = await page.evaluate(() => {
