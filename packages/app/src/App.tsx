@@ -14,6 +14,10 @@ const ForIndividuals = lazy(() => import("@/blank-ui/landing/AudiencePage").then
 const ForCreators   = lazy(() => import("@/blank-ui/landing/AudiencePage").then((m) => ({ default: m.ForCreators })));
 const ForBusinesses = lazy(() => import("@/blank-ui/landing/AudiencePage").then((m) => ({ default: m.ForBusinesses })));
 const ForDaos       = lazy(() => import("@/blank-ui/landing/AudiencePage").then((m) => ({ default: m.ForDaos })));
+const Pricing      = lazy(() => import("@/blank-ui/landing/Pricing"));
+const Roadmap      = lazy(() => import("@/blank-ui/landing/Roadmap"));
+const Blog         = lazy(() => import("@/blank-ui/landing/Blog"));
+const BlogPost     = lazy(() => import("@/blank-ui/landing/BlogPost"));
 
 // The app itself — separate bundle, wallet-gated internally
 const BlankApp  = lazy(() =>
@@ -93,6 +97,10 @@ export function App() {
           <Route path="/for/creators"        element={<ForCreators />} />
           <Route path="/for/businesses"      element={<ForBusinesses />} />
           <Route path="/for/daos"            element={<ForDaos />} />
+          <Route path="/pricing"             element={<Pricing />} />
+          <Route path="/roadmap"             element={<Roadmap />} />
+          <Route path="/blog"                element={<Blog />} />
+          <Route path="/blog/:slug"          element={<BlogPost />} />
           {/*
             The product lives under /app/*. BlankApp has its own internal <Routes>
             with absolute paths prefixed /app (e.g., /app/send, /app/groups, etc.).
