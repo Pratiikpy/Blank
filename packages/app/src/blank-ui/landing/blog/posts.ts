@@ -16,9 +16,10 @@ export interface BlogPost extends BlogPostMeta {
 
 import whyNoToken from "./why-no-token-ever";
 import wave3Shipped from "./wave-3-shipped";
+import fheVsZk from "./fhe-vs-zk";
 
 // Order matters: newest first. The blog index renders in this order.
-export const POSTS: BlogPost[] = [wave3Shipped, whyNoToken];
+export const POSTS: BlogPost[] = [fheVsZk, wave3Shipped, whyNoToken];
 
 export const POSTS_BY_SLUG: Record<string, BlogPost> = Object.fromEntries(
   POSTS.map((p) => [p.slug, p]),
