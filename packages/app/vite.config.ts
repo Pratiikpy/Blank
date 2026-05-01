@@ -36,49 +36,23 @@ export default defineConfig({
     outDir: "dist",
     target: "esnext",
     chunkSizeWarningLimit: 800,
-    rollupOptions: {
-      output: {
-        manualChunks(id) {
-          // Cofhe runtime. MUI / Emotion were dropped in the P3 cleanup —
-          // they were unused in src/, and the previous group existed only
-          // to avoid an isValidElementType error from a half-imported MUI.
-          if (id.includes("@cofhe/")) {
-            return "vendor-cofhe";
-          }
-          if (id.includes("node_modules/react/") || id.includes("node_modules/react-dom/") || id.includes("react-router-dom") || id.includes("react-is")) {
-            return "vendor-react";
-          }
-          // wagmi internally references viem at module scope. Splitting
-          // them into two chunks creates a circular dep at the chunk
-          // level — Rollup's emitted bootstrap reads `viem` symbols
-          // before the viem chunk is initialised, causing
-          // "Cannot access 'X' before initialization" at runtime in
-          // production. Keep wagmi + viem + react-query in one chunk.
-          if (
-            id.includes("wagmi") ||
-            id.includes("@wagmi/") ||
-            id.includes("viem") ||
-            id.includes("@tanstack/react-query") ||
-            id.includes("@walletconnect/") ||
-            id.includes("@coinbase/")
-          ) {
-            return "vendor-web3";
-          }
-          if (id.includes("lucide-react")) {
-            return "vendor-icons";
-          }
-          if (id.includes("framer-motion")) {
-            return "vendor-motion";
-          }
-          if (id.includes("recharts")) {
-            return "vendor-charts";
-          }
-          if (id.includes("date-fns")) {
-            return "vendor-date";
-          }
-        },
-      },
-    },
+    // Manual chunking removed.
+    //
+    // Why: splitting React + web3 (wagmi/viem/react-query) into separate
+    // chunks repeatedly produced "Cannot access 'X' before initialization"
+    // TDZ errors in production. The web3 stack imports React internals at
+    // module scope; whichever chunk loaded second would attempt to read a
+    // symbol from the other chunk before its module body finished
+    // initialising, freezing the app on a white screen.
+    //
+    // Vite's default chunking (one chunk per entry + one chunk per
+    // dynamic-import boundary) is robust against this — it lets Rollup
+    // figure out a safe topological order rather than fighting it.
+    //
+    // Trade-off: the main bundle is bigger than the hand-tuned split, but
+    // it works. Re-introducing chunk splits should only happen if we
+    // verify production load on Vercel after each change — local
+    // `pnpm preview` does NOT reproduce this class of error reliably.
   },
   optimizeDeps: {
     exclude: ["tfhe"],
