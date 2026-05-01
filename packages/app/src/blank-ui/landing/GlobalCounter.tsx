@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { useAccount, usePublicClient } from "wagmi";
+import { useAccount, useChainId, usePublicClient, useSwitchChain } from "wagmi";
 import { Lock, Loader2 } from "lucide-react";
 import { useChain } from "@/providers/ChainProvider";
 import { PaymentReceiptsAbi } from "@/lib/abis";
@@ -22,11 +22,19 @@ const POLL_MS = 30_000;
 const TOKEN_DECIMALS = 6;
 
 export function GlobalCounter() {
-  const publicClient = usePublicClient();
   const { isConnected } = useAccount();
+  const walletChainId = useChainId();
+  const { switchChain } = useSwitchChain();
   const { activeChain, activeChainId, contracts, availableChains, setActiveChain } = useChain();
   const { connected: cofheReady } = useCofheConnection();
   const { decryptForView } = useCofheDecryptForView();
+
+  // Force the public client onto the *active* chain (the tab the user
+  // selected), not whatever the wallet happens to be on. Otherwise we
+  // call Base Sepolia's contract address against Eth Sepolia's RPC.
+  const publicClient = usePublicClient({ chainId: activeChainId });
+
+  const chainMismatch = isConnected && walletChainId !== activeChainId;
 
   const [volume, setVolume] = useState<bigint | null>(null);
   const [txCount, setTxCount] = useState<bigint | null>(null);
@@ -34,6 +42,13 @@ export function GlobalCounter() {
 
   const refresh = useCallback(async () => {
     if (!publicClient) return;
+    // Decryption goes through the cofhe SDK, which is bound to the
+    // wallet's chain. If the wallet is on the wrong chain, skip the
+    // decrypt entirely — the UI will render the "switch wallet" CTA.
+    if (chainMismatch) {
+      setLoading(false);
+      return;
+    }
     try {
       const [volHandle, cntHandle] = await Promise.all([
         publicClient.readContract({
@@ -68,7 +83,7 @@ export function GlobalCounter() {
     } finally {
       setLoading(false);
     }
-  }, [publicClient, decryptForView, contracts]);
+  }, [publicClient, decryptForView, contracts, chainMismatch]);
 
   // Reset displayed values on chain switch so stale numbers from the
   // previous chain don't briefly show before the new chain's read lands.
@@ -122,6 +137,8 @@ export function GlobalCounter() {
           <div className="gc-stat-value">
             {!isConnected ? (
               <span className="gc-hint">Connect to view live counter</span>
+            ) : chainMismatch ? (
+              <span className="gc-hint">Switch wallet to {activeChain.name}</span>
             ) : loading && volumeUSD === null ? (
               <Loader2 size={28} className="animate-spin opacity-30" />
             ) : volumeUSD !== null ? (
@@ -145,6 +162,8 @@ export function GlobalCounter() {
           <div className="gc-stat-value">
             {!isConnected ? (
               <span className="gc-hint">Connect to view live counter</span>
+            ) : chainMismatch ? (
+              <span className="gc-hint">Switch wallet to {activeChain.name}</span>
             ) : loading && txCount === null ? (
               <Loader2 size={28} className="animate-spin opacity-30" />
             ) : txCount !== null ? (
@@ -155,6 +174,16 @@ export function GlobalCounter() {
           </div>
         </div>
       </div>
+
+      {chainMismatch && (
+        <button
+          type="button"
+          className="gc-switch-cta"
+          onClick={() => switchChain({ chainId: activeChainId })}
+        >
+          Switch wallet to {activeChain.name}
+        </button>
+      )}
 
       <p className="gc-caption">
         <Lock size={13} className="inline-block -mt-0.5 mr-1 opacity-60" />
