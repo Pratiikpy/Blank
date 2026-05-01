@@ -72,6 +72,18 @@ export function LandingNav() {
           )}
         </div>
 
+        <NavLink to="/pricing" className={({ isActive }) => isActive ? "active" : ""}>
+          Pricing
+        </NavLink>
+        <NavLink to="/roadmap" className={({ isActive }) => isActive ? "active" : ""}>
+          Roadmap
+        </NavLink>
+        <NavLink
+          to="/blog"
+          className={({ isActive }) => (isActive || location.pathname.startsWith("/blog/") ? "active" : "")}
+        >
+          Blog
+        </NavLink>
         <NavLink to="/live" className={({ isActive }) => isActive ? "active" : ""}>
           Live
         </NavLink>
