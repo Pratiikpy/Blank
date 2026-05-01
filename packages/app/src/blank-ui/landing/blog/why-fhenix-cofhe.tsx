@@ -52,8 +52,8 @@ const post: BlogPost = {
         verify. This is what Fhenix CoFHE is — explicitly a <em>co-
         processor</em>, not a chain. Their FHE compute happens off the
         main chain; the EVM contract code references handles
-        (<code>euint64</code>, <code>ebool</code>) and calls a thin
-        precompile that talks to the co-processor.
+        (<code>euint64</code>, <code>ebool</code>) and dispatches work
+        to an on-chain TaskManager that the co-processor reads from.
       </p>
       <p>
         The trade-off is real. The co-processor model adds a trust
@@ -88,11 +88,12 @@ FHE.allowSender(balance);`}
         The on-chain code stores a 32-byte handle — a reference to
         ciphertext that lives in the co-processor network's storage,
         not in the EVM. <code>FHE.add</code> doesn't actually compute
-        anything on-chain. It's a precompile call that submits a task
-        to the co-processor; the co-processor performs the homomorphic
-        addition off-chain; a result handle gets stored. <code>FHE.allowSender
-        </code> records permits — a list of addresses authorised to
-        ask the threshold network for decryption permits later.
+        anything on-chain. It dispatches a task to the on-chain
+        TaskManager; the co-processor picks it up, performs the
+        homomorphic addition off-chain, and writes a result handle
+        back. <code>FHE.allowSender</code> records permits — a list
+        of addresses authorised to ask the threshold network for
+        decryption permits later.
       </p>
       <p>
         This split — handles on-chain, ciphertext off-chain, threshold
@@ -108,7 +109,7 @@ FHE.allowSender(balance);`}
         Architecture chose the category. The thing that made us pick
         Fhenix specifically over alternatives in the same category was
         the API. A few choices that look small on paper but compound
-        across a 12-feature codebase:
+        across a real production codebase:
       </p>
       <p>
         <strong>FHE.select() instead of branching.</strong> A normal
@@ -167,8 +168,8 @@ FHE.allowSender(balance);`}
         mock of the threshold network that runs locally — in tests, in
         dev, anywhere. We have 154 contract tests that exercise real
         FHE flows without touching a real threshold operator. That
-        completeness is what let us actually ship 12 features instead
-        of one well-tested feature.
+        completeness is what let us actually ship a full product
+        surface instead of one well-tested feature.
       </p>
 
       <h2>Where Fhenix is still maturing — honestly</h2>
