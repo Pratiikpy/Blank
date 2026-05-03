@@ -191,6 +191,27 @@ The honest weaknesses (sender privacy is *intentionally absent*; threshold decry
 
 ---
 
+## How we got here
+
+We ship in batches rather than a continuous trickle — each block lands together with a real freeze before the next starts. Every claim below points to a real commit on `main`.
+
+**Initial release.** Encrypted vault primitive, shield / unshield, P2P send, plus the breadth of product surfaces (gifts, stealth, groups, inheritance, creator support). Landed in [`fb11f42`](https://github.com/Pratiikpy/Blank/commit/fb11f42) — *"full production release — all features functional, contracts deployed, real FHE SDK."*
+
+**Account abstraction sub-sprint.** Four-week phase that ended in [`8897baf`](https://github.com/Pratiikpy/Blank/commit/8897baf) — *"AA foundation: BlankAccount + Factory + Paymaster contracts (W4 of 4)"* — followed by [`cca2c42`](https://github.com/Pratiikpy/Blank/commit/cca2c42) wiring P-256 passkeys end-to-end through UserOp + relayer + smart-wallet UI.
+
+**Hardening passes (P1 → P5).** Five sequential phases, each a distinct commit on `main`:
+- [`34b1e8a P1`](https://github.com/Pratiikpy/Blank/commit/34b1e8a) — security hardening pass
+- [`741ffa0 P2`](https://github.com/Pratiikpy/Blank/commit/741ffa0) — `uint256[50] private __gap` on every UUPS contract
+- [`0ccd6f8 P3`](https://github.com/Pratiikpy/Blank/commit/0ccd6f8) — cleanup + bundle splits
+- [`107fa41 P4`](https://github.com/Pratiikpy/Blank/commit/107fa41) — architecture enforcement (chain helper, `useUnifiedWrite`)
+- [`P5`](https://github.com/Pratiikpy/Blank/commits/main?author=Pratiikpy) — four batches: mechanical fixes, frontend/API hardening, contract hardening + upgrade rollout, cofhe-shim migration with CI boundary check
+
+**Wave 3 — business + ship-readiness.** [`2c03451`](https://github.com/Pratiikpy/Blank/commit/2c03451) — workspace modes (Freelancer / Business / Privacy / Full focus), private invoice escrow with automatic refund-on-mismatch via `FHE.eq` + `FHE.select`, proof-of-payment cards with real explorer links. Plus a perf pass landing today: [`015701e`](https://github.com/Pratiikpy/Blank/commit/015701e) — every `FHE.allow(x, msg.sender)` rewritten to `FHE.allowSender(x)` after Fhenix's own canonical AI training material flagged it as the slow form.
+
+**What's next** lives at [`/roadmap`](https://blank-omega-jade.vercel.app/roadmap) — explicit gates, no dates we can't keep.
+
+---
+
 ## Live deployments
 
 UUPS-upgradeable proxies, deployed on **Base Sepolia** (84532) and **Ethereum Sepolia** (11155111). Top contracts:
