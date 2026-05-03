@@ -202,7 +202,7 @@ contract GiftMoney is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
             // Grant permissions: contract can reference it, recipient can unseal it, creator can verify
             FHE.allowThis(transferred);
             FHE.allow(transferred, recipient);
-            FHE.allow(transferred, msg.sender);
+            FHE.allowSender(transferred);
 
             // #204: bump per-recipient received counter so gift recipients can
             // call proveIncomeAbove. Also bumps the global aggregate so the

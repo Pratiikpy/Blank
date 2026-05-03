@@ -209,7 +209,7 @@ contract EncryptedFlags is UUPSUpgradeable, OwnableUpgradeable {
         euint8 scope = FHE.asEuint8(encScope);
         _auditScopes[msg.sender][auditor] = scope;
         FHE.allowThis(scope);
-        FHE.allow(scope, msg.sender);
+        FHE.allowSender(scope);
         FHE.allow(scope, auditor);
         emit AuditScopeSet(msg.sender, auditor, block.timestamp);
     }

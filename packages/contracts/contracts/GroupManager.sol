@@ -230,7 +230,7 @@ contract GroupManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         euint64 total = FHE.asEuint64(totalPaid);
         _debts[groupId][msg.sender] = FHE.sub(_debts[groupId][msg.sender], total);
         FHE.allowThis(_debts[groupId][msg.sender]);
-        FHE.allow(_debts[groupId][msg.sender], msg.sender);
+        FHE.allowSender(_debts[groupId][msg.sender]);
 
         // Debit each person's share (increase their debt)
         for (uint256 i = 0; i < splitWith.length; i++) {
@@ -315,7 +315,7 @@ contract GroupManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         _debts[groupId][with_] = FHE.add(_debts[groupId][with_], actual);
 
         FHE.allowThis(_debts[groupId][msg.sender]);
-        FHE.allow(_debts[groupId][msg.sender], msg.sender);
+        FHE.allowSender(_debts[groupId][msg.sender]);
         FHE.allowThis(_debts[groupId][with_]);
         FHE.allow(_debts[groupId][with_], with_);
 

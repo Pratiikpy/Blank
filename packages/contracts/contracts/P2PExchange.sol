@@ -125,7 +125,6 @@ contract P2PExchange is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         // Maker sends tokenGive to taker (maker must have pre-approved this contract)
         euint64 actualReceive = IFHERC20Vault(o.tokenGive).transferFromVerified(o.maker, msg.sender, verifiedMakerPayment);
         FHE.allowSender(actualReceive);
-        FHE.allow(actualReceive, msg.sender);
 
         // ── Amount Verification ──────────────────────────────────────────
         // Verify taker paid at least amountWant and maker sent at most amountGive.

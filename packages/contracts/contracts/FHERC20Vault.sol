@@ -124,7 +124,7 @@ contract FHERC20Vault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
         // Grant permissions
         FHE.allowThis(_balances[msg.sender]);
-        FHE.allow(_balances[msg.sender], msg.sender);
+        FHE.allowSender(_balances[msg.sender]);
 
         emit Shielded(msg.sender, address(underlyingToken), block.timestamp);
 
@@ -158,9 +158,9 @@ contract FHERC20Vault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
         // Grant permissions
         FHE.allowThis(_balances[msg.sender]);
-        FHE.allow(_balances[msg.sender], msg.sender);
+        FHE.allowSender(_balances[msg.sender]);
         FHE.allowThis(_pendingUnshields[msg.sender]);
-        FHE.allow(_pendingUnshields[msg.sender], msg.sender);
+        FHE.allowSender(_pendingUnshields[msg.sender]);
 
         // v0.1.3 migration: FHE.decrypt removed. Mark publicly decryptable.
         // Caller decrypts off-chain via the cofhe-sdk client client.decryptForTx,
@@ -235,7 +235,7 @@ contract FHERC20Vault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
         // Grant permissions — CRITICAL for both parties
         FHE.allowThis(_balances[msg.sender]);
-        FHE.allow(_balances[msg.sender], msg.sender);
+        FHE.allowSender(_balances[msg.sender]);
         FHE.allowThis(_balances[to]);
         FHE.allow(_balances[to], to);
 
@@ -287,7 +287,7 @@ contract FHERC20Vault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
         // Grant permissions — both parties + this contract
         FHE.allowThis(_balances[msg.sender]);
-        FHE.allow(_balances[msg.sender], msg.sender);
+        FHE.allowSender(_balances[msg.sender]);
         FHE.allowThis(_balances[to]);
         FHE.allow(_balances[to], to);
 
@@ -391,7 +391,7 @@ contract FHERC20Vault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         _allowances[msg.sender][spender] = amount;
 
         FHE.allowThis(_allowances[msg.sender][spender]);
-        FHE.allow(_allowances[msg.sender][spender], msg.sender);
+        FHE.allowSender(_allowances[msg.sender][spender]);
         FHE.allow(_allowances[msg.sender][spender], spender);
 
         emit EncryptedApproval(msg.sender, spender, block.timestamp);
@@ -408,7 +408,7 @@ contract FHERC20Vault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         _allowances[msg.sender][spender] = encAmount;
 
         FHE.allowThis(_allowances[msg.sender][spender]);
-        FHE.allow(_allowances[msg.sender][spender], msg.sender);
+        FHE.allowSender(_allowances[msg.sender][spender]);
         FHE.allow(_allowances[msg.sender][spender], spender);
 
         emit EncryptedApproval(msg.sender, spender, block.timestamp);

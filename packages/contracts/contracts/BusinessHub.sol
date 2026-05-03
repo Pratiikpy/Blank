@@ -248,7 +248,7 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         euint64 amount = FHE.asEuint64(encAmount);
         FHE.allowThis(amount);
         FHE.allow(amount, client);
-        FHE.allow(amount, msg.sender);
+        FHE.allowSender(amount);
 
         uint256 id = nextInvoiceId++;
         _invoices[id] = Invoice({
@@ -918,7 +918,7 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
         euint64 amount = FHE.asEuint64(plaintextAmount);
         FHE.allowThis(amount);
-        FHE.allow(amount, msg.sender);
+        FHE.allowSender(amount);
         FHE.allow(amount, beneficiary);
 
         uint256 id = nextEscrowId++;

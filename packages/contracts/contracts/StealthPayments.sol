@@ -185,12 +185,12 @@ contract StealthPayments is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
         // Encrypt the amount on-chain for later FHE conditional check
         euint64 encAmount = FHE.asEuint64(plaintextAmount);
         FHE.allowThis(encAmount);
-        FHE.allow(encAmount, msg.sender);
+        FHE.allowSender(encAmount);
 
         // Process the encrypted recipient address
         eaddress recipient = FHE.asEaddress(encRecipient);
         FHE.allowThis(recipient);
-        FHE.allow(recipient, msg.sender);
+        FHE.allowSender(recipient);
 
         uint256 id = nextTransferId++;
         _transfers[id] = StealthTransfer({
@@ -269,7 +269,7 @@ contract StealthPayments is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
 
         // Store pending claim
         FHE.allowThis(conditionalAmount);
-        FHE.allow(conditionalAmount, msg.sender);
+        FHE.allowSender(conditionalAmount);
 
         _pendingClaims[transferId] = PendingClaim({
             claimer: msg.sender,

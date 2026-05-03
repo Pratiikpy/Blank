@@ -188,7 +188,7 @@ contract PaymentHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         euint64 amount = FHE.asEuint64(encAmount);
         FHE.allowThis(amount);
         FHE.allow(amount, from);      // Payer can see the amount
-        FHE.allow(amount, msg.sender); // Creator can see the amount
+        FHE.allowSender(amount); // Creator can see the amount
 
         uint256 id = nextRequestId++;
         _requests[id] = PaymentRequest({

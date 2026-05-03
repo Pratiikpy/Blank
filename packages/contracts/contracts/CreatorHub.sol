@@ -93,7 +93,7 @@ contract CreatorHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         if (isNew) {
             _profiles[msg.sender].totalEarnings = FHE.asEuint64(0);
             FHE.allowThis(_profiles[msg.sender].totalEarnings);
-            FHE.allow(_profiles[msg.sender].totalEarnings, msg.sender);
+            FHE.allowSender(_profiles[msg.sender].totalEarnings);
             hasProfile[msg.sender] = true;
         }
 
@@ -153,7 +153,7 @@ contract CreatorHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         // Update supporter's encrypted cumulative contribution
         _contributions[creator][msg.sender] = FHE.add(_contributions[creator][msg.sender], amount);
         FHE.allowThis(_contributions[creator][msg.sender]);
-        FHE.allow(_contributions[creator][msg.sender], msg.sender);
+        FHE.allowSender(_contributions[creator][msg.sender]);
 
         emit Supported(msg.sender, creator, message, block.timestamp);
         try eventHub.emitActivity(msg.sender, creator, "tip", message, 0) {} catch {}
