@@ -34,3 +34,4 @@ import "./deploy-erc5564-announcer";
 import "./deploy-erc6538-registry";
 import "./deploy-upgrade-p1-p2";
 import "./deploy-upgrade-p5";
+import "./deploy-upgrade-allowsender";
