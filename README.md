@@ -193,15 +193,118 @@ The honest weaknesses (sender privacy is *intentionally absent*; threshold decry
 
 ## How we got here
 
-We ship in waves rather than a continuous trickle. Each wave has a real date range, real commits on `main`, and a measurable jump in product maturity. Every number below is verifiable — click a hash to see the diff, or `git log` it locally.
+Three waves, three different stages of the same product getting built. Each section below was the wave-end milestone we wrote at the time. Anchor commits at the bottom of each section — every claim is verifiable on `main`.
 
-| Wave | Dates | Theme | What got better, measurably | Anchor commits |
-|------|-------|-------|----------------------------|----------------|
-| **Wave 1 — Build** | Mar 29 – Apr 16 | Foundation: get the encrypted-amount primitive working end-to-end across the full product surface | • Encrypted vault primitive (shield / unshield / P2P send)  <br>• **12 product surfaces** live (gifts, stealth, groups, inheritance, creator support, salary proofs, AI agents, batch payroll, …)  <br>• Full **ERC-4337 + P-256 passkey** stack: BlankAccount + Factory + Paymaster + relayer + UserOp signing  <br>• **17 initial contract tests** added | [`a4c320f`](https://github.com/Pratiikpy/Blank/commit/a4c320f) initial · [`fb11f42`](https://github.com/Pratiikpy/Blank/commit/fb11f42) full release · [`8897baf`](https://github.com/Pratiikpy/Blank/commit/8897baf) AA contracts · [`cca2c42`](https://github.com/Pratiikpy/Blank/commit/cca2c42) passkey wiring · [`321f6c3`](https://github.com/Pratiikpy/Blank/commit/321f6c3) tests |
-| **Wave 2 — Harden** | Apr 17 – Apr 30 | Five sequential hardening passes + the business surface that turns the primitive into a workflow | • **P1–P5** dedicated hardening sweep: security audit fix, `uint256[50] private __gap` on every UUPS contract, bundle/cleanup, architecture enforcement (`useUnifiedWrite`, chain helper), and a four-batch contract + frontend + cofhe-shim CI migration  <br>• **Zero storage drift** across all 12 UUPS contracts (snapshot-checked in CI)  <br>• **Workspace modes** (Freelancer / Business / Privacy / Full) — same product, four lenses  <br>• **Private invoice escrow** with auto-refund via `FHE.eq` + `FHE.select` — no arbiter, no manual dispute  <br>• **Proof-of-payment cards** with real explorer links | [`34b1e8a`](https://github.com/Pratiikpy/Blank/commit/34b1e8a) P1 · [`741ffa0`](https://github.com/Pratiikpy/Blank/commit/741ffa0) P2 · [`0ccd6f8`](https://github.com/Pratiikpy/Blank/commit/0ccd6f8) P3 · [`107fa41`](https://github.com/Pratiikpy/Blank/commit/107fa41) P4 · [`7bfa6ca`](https://github.com/Pratiikpy/Blank/commit/7bfa6ca) P5 · [`2c03451`](https://github.com/Pratiikpy/Blank/commit/2c03451) workspace modes + invoice escrow |
-| **Wave 3 — Open** | May 1 – present | Production stability + partner-facing public surface + a perf pass shipped onchain on both chains | • Production **white-screen recovered** (CSP relax, manualChunks TDZ, wagmi+viem chunk re-merge)  <br>• **`/pricing`, `/roadmap`, `/blog`** launched with **4 long-form posts** — including [Why we built Blank on Fhenix CoFHE](https://blank-omega-jade.vercel.app/blog/why-fhenix-cofhe) and [Choosing FHE over ZK](https://blank-omega-jade.vercel.app/blog/fhe-vs-zk)  <br>• **Multichain GlobalCounter bug fixed** — Base Sepolia tab now reads its own chain  <br>• **`FHE.allow(x, msg.sender)` → `FHE.allowSender(x)`** across **20 sites**, sourced from Fhenix's own canonical AI training material  <br>• **UUPS-upgraded on both chains** in one shot: 9 proxies on Eth Sepolia + 9 + USDT alias on Base Sepolia, verified via EIP-1967 storage-slot reads  <br>• **154 contract tests** passing today (up from 17 at end of Wave 1) | [`925d5e4`](https://github.com/Pratiikpy/Blank/commit/925d5e4) CSP · [`ab4eaf4`](https://github.com/Pratiikpy/Blank/commit/ab4eaf4) /pricing+/roadmap+/blog · [`968b00a`](https://github.com/Pratiikpy/Blank/commit/968b00a) Fhenix post · [`bdf9415`](https://github.com/Pratiikpy/Blank/commit/bdf9415) multichain fix · [`015701e`](https://github.com/Pratiikpy/Blank/commit/015701e) allowSender · [`c1ffa7e`](https://github.com/Pratiikpy/Blank/commit/c1ffa7e) UUPS rollout |
+### Wave 1 — Foundation (Mar 29 – Apr 16)
 
-The pattern across waves: **build → harden → open**. We added 12 product surfaces, then disciplined the codebase that runs them, then made the rationale public and shipped a perf optimization onchain in the same week. Test count grew **9×** (17 → 154). Storage drift held at **zero** through every UUPS upgrade. Public surface went from one landing page to four documented pages plus four long-form posts.
+Blank is a fully functional encrypted payment super-app with 16 deployed smart contracts on Base Sepolia, 28 unique FHE operations, and a production-grade React frontend with 23 screens.
+
+**WHAT'S LIVE** ([blank-omega-jade.vercel.app](https://blank-omega-jade.vercel.app)):
+
+*Core payments:*
+- Encrypted wallet with shield/unshield (public USDC → encrypted eUSDC)
+- P2P send with real CoFHE SDK encryption — ZK proofs generated client-side via TFHE WASM Web Workers, verified on-chain by TaskManager
+- Payment requests with create/fulfill/cancel flow
+- QR code receive with payment links
+
+*Social features:*
+- Group expense splitting with equal AND custom per-member splits, quadratic encrypted voting, debt settlement
+- Creator tipping with dynamic tier thresholds, supporter dashboard, tier badges from on-chain `checkMyTier()`
+- Gift envelopes with encrypted shares (equal/random split), expiry dates, auto-claim via embedded envelope IDs
+- Stealth payments with anti-frontrunning claim codes (`keccak256(code, claimer)`), 30-day refund mechanism, auto-decryption polling
+
+*Business tools:*
+- Encrypted invoicing with two-phase payment (`payInvoice` → `payInvoiceFinalize` with async FHE match verification)
+- Batch payroll for up to 30 employees with individual encrypted salaries
+- 2-of-2 escrow with arbiter dispute resolution, delivery confirmation, expiry claims
+- P2P exchange with real-time Supabase subscriptions, offer sorting, expiry filtering
+
+*Advanced:*
+- Inheritance dead man's switch with vault specification, 7-day challenge period, encrypted fund transfer on `finalizeClaim`
+- Privacy permit management with honest local access tracking
+- Global search, transaction detail deep links, Settings, Help/FAQ
+
+**TECHNICAL DEPTH:**
+
+*Smart contracts (Solidity 0.8.25):*
+- All 16 contracts use UUPS upgradeable proxy pattern
+- `FHE.select()` replaces `require()` everywhere — reverts would leak "balance insufficient"
+- Cross-contract encrypted transfers via `FHE.allowTransient()`
+- Redeployed with `@fhenixprotocol/cofhe-contracts` v0.1.3
+
+*Frontend architecture:*
+- `@cofhe/sdk` loaded dynamically to avoid MUI/emotion production crash from `@cofhe/react`
+- Real TFHE WASM encryption with ZK proof generation in Web Workers
+- CoFHE ZK verifier integration (`POST /verify`) returns signed ciphertext with ECDSA proof
+- Manual 5M gas limits on all FHE transactions (precompile not available in `eth_estimateGas` simulation)
+- Module-level singleton state for cross-route persistence in send flow
+- 99 aria-labels, WCAG AA contrast, 44px touch targets, keyboard focus indicators
+
+*Data layer:*
+- Supabase as notification/cache layer — blockchain is always source of truth
+- Real-time subscriptions on 8 tables
+- Activity logging AFTER on-chain confirmation (never before)
+- Input validation guards (`parseUnits` / `parseFloat`) on all 18 FHE contract calls
+
+**Anchor commits:** [`a4c320f`](https://github.com/Pratiikpy/Blank/commit/a4c320f) initial · [`fb11f42`](https://github.com/Pratiikpy/Blank/commit/fb11f42) full release · [`321f6c3`](https://github.com/Pratiikpy/Blank/commit/321f6c3) 17 core contract tests
+
+---
+
+### Wave 2 — Hardening + business (Apr 17 – Apr 30)
+
+Blank is a payments app where the amount you send is encrypted on chain. The ledger shows who paid who, not how much. This wave we took it from an early skeleton to something you can actually use — end to end on testnet at [blank-omega-jade.vercel.app](https://blank-omega-jade.vercel.app).
+
+**PASSKEY WALLETS (BIGGEST CHANGE THIS WAVE)**  
+You sign up with a passphrase. No extension, no MetaMask. The app creates an ERC-4337 smart account, signs with P-256, and our paymaster pays the gas. MetaMask still works for people who want it. Both paths go through one hook so we are not maintaining two versions of the app.
+
+**WHAT YOU CAN DO**  
+Send encrypted payments. Request money. Invoice clients. Run payroll where no employee sees another's pay. Split group expenses. Tip creators. Send gifts. Plan inheritance as a dead man's switch. Claim stealth payments with one-time codes. Generate proofs that your balance is above some number without revealing the actual number.
+
+**DUAL-CHAIN ON ONE CODEBASE**  
+Runs on Base Sepolia and Ethereum Sepolia. Explorer links point at the right chain. Activity feeds show each transaction on the chain it actually happened on, not the viewer's active chain. Most of the bugs we caught came from using the app as a real user with two wallets in two windows.
+
+**AI AGENT PAYMENTS**  
+The server runs Kimi K2 (Claude as backup) to derive an amount from plain English, then signs that amount with an agent private key. On chain, PaymentHub does `ecrecover` and ties every submission back to the agent that authored it. The private key never leaves the server. Signatures expire in ten minutes — replays cannot work.
+
+**VERIFIABLE PROOFS, NO TRUSTED SERVER**  
+A user generates a proof their balance is above some number and gets a shareable URL. Anyone without a wallet can open it, click verify, and the Threshold Network's decrypted answer gets published on chain with a signature check. Nobody has to trust our server. The contract does the math.
+
+**UNDER THE HOOD**  
+Sixteen UUPS-upgradeable contracts, twenty-eight FHE operations, migrated from Fhenix's older testnet to the CoFHE v0.4 API. The pattern we are most proud of is `transferFromVerified` — Hub contracts verify an encrypted input in their own context where `msg.sender` is the user, then pass the verified handle to the vault. Without this, cross-contract FHE signature checks fail silently. That one took a long time to figure out.
+
+**WHERE WE ARE**  
+The migration is done. Every feature that existed before still works, and everything new this wave sits on the v0.4 foundation. The product is usable on testnet today. That does not mean it is a real product yet — that gap will close in future waves.
+
+PaymentHub on Base Sepolia: [`0xF420102Dea1acf437bfc49ded5F4E2f5ed32e831`](https://sepolia.basescan.org/address/0xF420102Dea1acf437bfc49ded5F4E2f5ed32e831)
+
+**Anchor commits:** [`34b1e8a`](https://github.com/Pratiikpy/Blank/commit/34b1e8a) P1 security · [`741ffa0`](https://github.com/Pratiikpy/Blank/commit/741ffa0) P2 `__gap` · [`0ccd6f8`](https://github.com/Pratiikpy/Blank/commit/0ccd6f8) P3 cleanup · [`107fa41`](https://github.com/Pratiikpy/Blank/commit/107fa41) P4 architecture · [`7bfa6ca`](https://github.com/Pratiikpy/Blank/commit/7bfa6ca) P5 cofhe-shim CI · [`2c03451`](https://github.com/Pratiikpy/Blank/commit/2c03451) workspace modes + invoice escrow · [`8897baf`](https://github.com/Pratiikpy/Blank/commit/8897baf) AA contracts · [`cca2c42`](https://github.com/Pratiikpy/Blank/commit/cca2c42) passkey wiring
+
+---
+
+### Wave 3 — Partner-grade ship-readiness (May 1 – present)
+
+Wave 3 is the wave where the product starts talking about itself. The features were already in. This wave we built the parts of the product that are not code: a pricing page that admits we don't know what we'll charge yet, a roadmap with explicit gates instead of dates, a blog with four long-form posts including one that names every architectural call we made on Fhenix CoFHE and why.
+
+**PUBLIC SURFACE — THE PARTS THAT AREN'T CODE**  
+[`/pricing`](https://blank-omega-jade.vercel.app/pricing), [`/roadmap`](https://blank-omega-jade.vercel.app/roadmap), [`/blog`](https://blank-omega-jade.vercel.app/blog) all shipped this wave. Pricing says we charge nothing today and we'll figure mainnet pricing later, with the reasoning visible. Roadmap groups everything as Shipped / Next / Blocked, with the Blocked rows naming their actual gates: Fhenix CoFHE mainnet readiness, third-party audit, threshold operator decentralization. Blog has four posts: a deep dive on [why we picked FHE over zero-knowledge for our specific problem](https://blank-omega-jade.vercel.app/blog/fhe-vs-zk), an even deeper one on [why we picked Fhenix CoFHE over the FHE Layer 1 alternatives](https://blank-omega-jade.vercel.app/blog/why-fhenix-cofhe), the Wave 3 changelog, and a writeup on why we will never issue a token. None of them are marketing. All of them link to real commits.
+
+**THE WHITE-SCREEN INCIDENT**  
+The live site went pure white-screen on Vercel mid-wave. We chased it for two passes. First diagnosis: too-strict CSP blocking Web3 libraries from `eval`. Relaxed CSP — still white. Second diagnosis: a Vite `manualChunks` config that split viem and wagmi into separate chunks, creating a TDZ error at runtime when one loaded before the other. Removed the manual chunking entirely (Vite's default chunk-splitting is fine), pushed the fix, watched the dashboard load on a real browser. We wrote a Playwright diagnostic script during the chase that captures console errors + page errors + CSP violations on a real Vercel URL — kept it in the repo so the next time something white-screens, the first move is *run the diagnostic*, not *guess*.
+
+**MULTICHAIN BUG FIX**  
+The "Encrypted USDC moved" counter on the landing was returning a dash on the Base Sepolia tab when the wallet was on Eth Sepolia. The bug was subtle: `usePublicClient()` from wagmi defaults to the wallet's chain, not whatever tab the user clicked. So clicking *Base Sepolia* while connected to Eth Sepolia tried to read Base Sepolia's contract address against Eth Sepolia's RPC — silent failure, dash. Fix is one line: pass `chainId: activeChainId` to usePublicClient. Plus a friendlier UX — instead of a confusing dash, the page now says *Switch wallet to Base Sepolia* and offers a button that calls wagmi's `switchChain`.
+
+**PERF PASS GROUNDED IN FHENIX'S OWN DOCS**  
+We pulled the Fhenix canonical AI training material — `marronjo/fhe-assistant`, the `core.md` file Fhenix points its own AI assistants at — into our local references and read it cover to cover. One thing jumped out: every `FHE.allow(x, msg.sender)` should be `FHE.allowSender(x)`. Same semantics, smaller bytecode, cheaper hot paths. Fhenix flags it explicitly as the slow form. We had 20 sites across nine contracts using the slow form. Twenty surgical edits, ran the full 154-test suite (still 154 passing, zero regression), and rolled the new bytecode out via UUPS upgrade on both chains the same day. Nine proxies upgraded on Eth Sepolia, nine plus the USDT alias proxy on Base Sepolia, every impl pointer verified via direct EIP-1967 storage-slot reads. Wrote a `verify-upgrade.js` script that any future upgrade can use to prove correctness without trusting console output.
+
+**WHERE WE ARE**  
+Wave 3 is the wave where Blank stops being a thing we shipped and starts being a thing we explain. Test count up to 154 (was 17 at end of Wave 1 — about a 9× growth). Storage drift across every UUPS upgrade: zero. UUPS upgrades shipped this session: eighteen, across two chains. Blog posts live: four. Multichain bugs in landing-page widgets: zero.
+
+**Anchor commits:** [`925d5e4`](https://github.com/Pratiikpy/Blank/commit/925d5e4) CSP relax · [`ab4eaf4`](https://github.com/Pratiikpy/Blank/commit/ab4eaf4) /pricing + /roadmap + /blog · [`968b00a`](https://github.com/Pratiikpy/Blank/commit/968b00a) Why-Fhenix-CoFHE post · [`bdf9415`](https://github.com/Pratiikpy/Blank/commit/bdf9415) multichain GlobalCounter fix · [`015701e`](https://github.com/Pratiikpy/Blank/commit/015701e) allowSender refactor · [`c1ffa7e`](https://github.com/Pratiikpy/Blank/commit/c1ffa7e) UUPS rollout
+
+---
+
+The pattern across waves: **build → harden → open**. Wave 1 added the surface area; Wave 2 disciplined the codebase that runs it; Wave 3 made the rationale public and shipped a perf optimization onchain in the same week.
 
 **What's next** lives at [`/roadmap`](https://blank-omega-jade.vercel.app/roadmap) — explicit gates, no dates we can't keep.
 
