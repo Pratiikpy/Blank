@@ -100,6 +100,29 @@ export function useEncryptedEscrow() {
       const ready = guardReady();
       if (!ready) return null;
       const { ee } = ready;
+
+      // §3.15 of BEST_VERSION_FULL_PLAN: fail-fast pre-encryption validation.
+      // Mirrors the contract's require statements so users don't lose 30s
+      // of FHE work on a guaranteed-revert input.
+      const ZERO = "0x0000000000000000000000000000000000000000";
+      if (params.beneficiary === ZERO || params.beneficiary.toLowerCase() === address?.toLowerCase()) {
+        toast.error("Beneficiary must be a different address from yours.");
+        return null;
+      }
+      if (params.vault === ZERO) {
+        toast.error("Vault address required.");
+        return null;
+      }
+      const minDeadline = Math.floor(Date.now() / 1000) + 86400;
+      if (params.deadlineSeconds < minDeadline) {
+        toast.error("Escrow deadline must be at least 1 day from now.");
+        return null;
+      }
+      if (params.description.length > 512) {
+        toast.error("Description must be 512 characters or fewer.");
+        return null;
+      }
+
       try {
         pipeline.start();
         setState({ ...initial, step: "approving", isProcessing: true });
