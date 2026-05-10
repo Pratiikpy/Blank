@@ -1939,3 +1939,81 @@ describe("StealthPayments refund decrement (#199)", () => {
     expect(volAfter).to.equal(volBefore);
   });
 });
+
+// ══════════════════════════════════════════════════════════════════
+//  §2.7 + §15.3.1: PaymentReceiptsSet event coverage on pre-Wave-4
+//  hubs. Mirrors the same 3-test pattern the 4 Wave 4 contracts got.
+//  Hubs covered here: PaymentHub, BusinessHub. GiftMoney +
+//  StealthPayments use describe-block-local fixtures elsewhere; add
+//  there in a follow-up if the pattern needs to extend.
+// ══════════════════════════════════════════════════════════════════
+
+describe("PaymentReceiptsSet event (PaymentHub + BusinessHub)", () => {
+  it("PaymentHub: emits PaymentReceiptsSet on first set", async () => {
+    const ctx = await loadFixture(deployBlankFixture);
+    const fake = "0x000000000000000000000000000000000000bEEF";
+
+    // Deploy fresh PaymentHub so paymentReceipts starts at zero.
+    const PaymentHub = await hre.ethers.getContractFactory("PaymentHub");
+    const ph = await PaymentHub.deploy();
+    await ph.waitForDeployment();
+    const ProxyFactory = await hre.ethers.getContractFactory(
+      "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol:ERC1967Proxy",
+    );
+    const proxy = await ProxyFactory.deploy(
+      await ph.getAddress(),
+      PaymentHub.interface.encodeFunctionData("initialize", [await ctx.eventHub.getAddress()]),
+    );
+    await proxy.waitForDeployment();
+    const fresh = PaymentHub.attach(await proxy.getAddress()) as any;
+
+    await expect(fresh.connect(ctx.owner).setPaymentReceipts(fake))
+      .to.emit(fresh, "PaymentReceiptsSet")
+      .withArgs(hre.ethers.ZeroAddress, fake);
+
+    expect(await fresh.paymentReceipts()).to.equal(fake);
+  });
+
+  it("PaymentHub: emits PaymentReceiptsSet with prior address on subsequent set", async () => {
+    const ctx = await loadFixture(deployBlankFixture);
+    const first = "0x000000000000000000000000000000000000dEaD";
+    const second = "0x000000000000000000000000000000000000bEEF";
+
+    // Reset from the fixture default (which is the deployed PaymentReceipts).
+    await ctx.paymentHub.connect(ctx.owner).setPaymentReceipts(first);
+
+    await expect(ctx.paymentHub.connect(ctx.owner).setPaymentReceipts(second))
+      .to.emit(ctx.paymentHub, "PaymentReceiptsSet")
+      .withArgs(first, second);
+  });
+
+  it("PaymentHub: only owner can call setPaymentReceipts", async () => {
+    const ctx = await loadFixture(deployBlankFixture);
+    const fake = "0x000000000000000000000000000000000000bEEF";
+
+    await expect(
+      ctx.paymentHub.connect(ctx.alice).setPaymentReceipts(fake),
+    ).to.be.reverted;
+  });
+
+  it("BusinessHub: emits PaymentReceiptsSet with prior address on subsequent set", async () => {
+    const ctx = await loadFixture(deployBlankFixture);
+    const first = "0x000000000000000000000000000000000000dEaD";
+    const second = "0x000000000000000000000000000000000000bEEF";
+
+    await ctx.businessHub.connect(ctx.owner).setPaymentReceipts(first);
+
+    await expect(ctx.businessHub.connect(ctx.owner).setPaymentReceipts(second))
+      .to.emit(ctx.businessHub, "PaymentReceiptsSet")
+      .withArgs(first, second);
+  });
+
+  it("BusinessHub: only owner can call setPaymentReceipts", async () => {
+    const ctx = await loadFixture(deployBlankFixture);
+    const fake = "0x000000000000000000000000000000000000bEEF";
+
+    await expect(
+      ctx.businessHub.connect(ctx.alice).setPaymentReceipts(fake),
+    ).to.be.reverted;
+  });
+});
