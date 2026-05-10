@@ -566,7 +566,9 @@ contract Storefront is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 
-    /// @dev Append-only storage. Decrement when adding a new state variable.
+    /// @dev Append-only storage. Used: 8. Gap: 49.
     /// 50 -> 49 after §1.4 phase B added _winnerIdxHandle (BEST_VERSION_FULL_PLAN).
+    /// Decrement gap by 1 when adding a new state variable; total slots
+    /// (used + gap) must stay constant across UUPS upgrades.
     uint256[49] private __gap;
 }

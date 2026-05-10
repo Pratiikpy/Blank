@@ -1101,6 +1101,7 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     /// @dev Reserved storage to avoid collisions on future upgrades.
     ///      Append-only: when adding a new state variable in a later upgrade,
     ///      decrement the gap size so total storage is unchanged.
+    /// @dev Used: 18. Gap: 49.
     uint256[49] private __gap;
 
     event SwapRouterApprovalChanged(address indexed router, bool approved);

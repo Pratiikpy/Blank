@@ -230,6 +230,7 @@ contract P2PExchange is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     /// @dev Reserved storage to avoid collisions on future upgrades.
     ///      Append-only: when adding a new state variable in a later upgrade,
     ///      decrement the gap size so total storage is unchanged.
+    /// @dev Used: 6. Gap: 50.
     uint256[50] private __gap;
 
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}

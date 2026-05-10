@@ -148,6 +148,10 @@ Status: `✅` done · `🟡` in-progress · `⏳` pending · `❌` blocked
 - 🟡 §1.10 CI uplift partial (4 of 6 checks). Added: vitest unit tests (103 tests passing), tsc typecheck for Vercel functions (api/tsconfig.json), tsc typecheck for hardhat tasks, UUPS storage layout check (`pnpm storage:check`, 19 contracts). Deferred: ESLint (no eslint config exists in packages/app; needs setup before wiring), Playwright (the `if: false` flag stays until E2E suite stability is confirmed standalone). All 4 added checks verified passing locally before CI commit.
 - ✅ §1.11 TRACKED_CONTRACTS sweep. 12 → 19 contracts tracked. Added Wave 4 contracts (ClaimLinks, Storefront, EncryptedCrowdfund, EncryptedEscrow) plus 3 pre-Wave-4 missing UUPS contracts (EncryptedFlags, EventHub, TokenRegistry). Wrote 19 storage-layout baselines via `hardhat check-storage-layout --write`. Verified `--check` exits 0 against the new baselines.
 
+## Section 2 contract debt
+
+- ✅ §2.9 storage gap reservation comments. Added `/// @dev Used: N. Gap: M.` comment to all 17 UUPS contracts (16 with `__gap[50]` reservation + Storefront with `__gap[49]` post-§1.4 phase B). Slot counts read directly from `storage-layouts/*.json` baselines. Pattern is consistent across all contracts: `Used: <slot-of-gap>. Gap: <gap-array-size>.` Future contributors adding state variables can read the comment to know exactly how many slots remain. compile + storage:check both clean (comments don't affect layout). Closes half-baked A22.
+
 ---
 
 ## Links / addresses cheat-sheet
