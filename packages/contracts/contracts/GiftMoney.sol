@@ -118,6 +118,7 @@ contract GiftMoney is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         uint256 indexed envelopeId,
         uint256 expiryTimestamp
     );
+    event ReceiptsBumpFailed(string kind, bytes reason);
 
     // ─── Initializer ────────────────────────────────────────────────────
 
@@ -403,9 +404,13 @@ contract GiftMoney is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     function _bumpReceiptsAndGlobal(address recipient, euint64 amount) internal {
         if (paymentReceipts == address(0)) return;
         FHE.allowTransient(amount, paymentReceipts);
-        try IPaymentReceipts(paymentReceipts).bumpUserReceived(recipient, amount) {} catch {}
+        try IPaymentReceipts(paymentReceipts).bumpUserReceived(recipient, amount) {} catch (bytes memory reason) {
+            emit ReceiptsBumpFailed("user", reason);
+        }
         FHE.allowTransient(amount, paymentReceipts);
-        try IPaymentReceipts(paymentReceipts).bumpGlobal(amount) {} catch {}
+        try IPaymentReceipts(paymentReceipts).bumpGlobal(amount) {} catch (bytes memory reason) {
+            emit ReceiptsBumpFailed("global", reason);
+        }
     }
 
     /// @dev Reserved storage to avoid collisions on future upgrades.

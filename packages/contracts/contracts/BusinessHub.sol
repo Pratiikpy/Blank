@@ -217,6 +217,7 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     event EscrowArbiterDecided(uint256 indexed id, bool releasedToBeneficiary, uint256 timestamp);
     event InvoicePdfCidSet(uint256 indexed id, bytes32 cidHash, uint256 timestamp);
     event EscrowAttachmentCidSet(uint256 indexed id, bytes32 cidHash, uint256 timestamp);
+    event ReceiptsBumpFailed(string kind, bytes reason);
 
     // ─── Initializer ────────────────────────────────────────────────────
 
@@ -1080,11 +1081,15 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         // Transient-allow the PaymentReceipts contract to read the amount
         // handle for the duration of this call frame.
         FHE.allowTransient(amount, paymentReceipts);
-        try IPaymentReceipts(paymentReceipts).bumpUserReceived(recipient, amount) {} catch {}
+        try IPaymentReceipts(paymentReceipts).bumpUserReceived(recipient, amount) {} catch (bytes memory reason) {
+            emit ReceiptsBumpFailed("user", reason);
+        }
         // allowTransient is scoped to each external call, so re-authorize
         // for the global bump.
         FHE.allowTransient(amount, paymentReceipts);
-        try IPaymentReceipts(paymentReceipts).bumpGlobal(amount) {} catch {}
+        try IPaymentReceipts(paymentReceipts).bumpGlobal(amount) {} catch (bytes memory reason) {
+            emit ReceiptsBumpFailed("global", reason);
+        }
     }
 
     /// @dev Owner-managed allowlist of swap routers permitted by

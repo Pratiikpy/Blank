@@ -126,6 +126,7 @@ contract StealthPayments is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
         address indexed claimer,
         uint256 timestamp
     );
+    event ReceiptsBumpFailed(string kind, bytes reason);
 
     // ─── Initializer ────────────────────────────────────────────────────
 
@@ -471,7 +472,9 @@ contract StealthPayments is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
     function _bumpGlobal(euint64 amount) internal {
         if (paymentReceipts == address(0)) return;
         FHE.allowTransient(amount, paymentReceipts);
-        try IPaymentReceipts(paymentReceipts).bumpGlobal(amount) {} catch {}
+        try IPaymentReceipts(paymentReceipts).bumpGlobal(amount) {} catch (bytes memory reason) {
+            emit ReceiptsBumpFailed("global", reason);
+        }
     }
 
     /// @dev Internal: decrement global volume on refund. Same defensive
@@ -480,7 +483,9 @@ contract StealthPayments is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
     function _decrementGlobal(euint64 amount) internal {
         if (paymentReceipts == address(0)) return;
         FHE.allowTransient(amount, paymentReceipts);
-        try IPaymentReceipts(paymentReceipts).decrementGlobalVolume(amount) {} catch {}
+        try IPaymentReceipts(paymentReceipts).decrementGlobalVolume(amount) {} catch (bytes memory reason) {
+            emit ReceiptsBumpFailed("decrementGlobal", reason);
+        }
     }
 
     /// @dev Reserved storage to avoid collisions on future upgrades.

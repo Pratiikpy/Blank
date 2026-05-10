@@ -122,6 +122,7 @@ contract PaymentHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         uint256 expiry,
         uint256 timestamp
     );
+    event ReceiptsBumpFailed(string kind, bytes reason);
 
     // ─── Initializer ────────────────────────────────────────────────────
 
@@ -430,13 +431,17 @@ contract PaymentHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         if (paymentReceipts == address(0)) return;
         // Global aggregate (landing-page counter).
         FHE.allowTransient(amount, paymentReceipts);
-        try IPaymentReceipts(paymentReceipts).bumpGlobalVolume(amount) {} catch {}
+        try IPaymentReceipts(paymentReceipts).bumpGlobalVolume(amount) {} catch (bytes memory reason) {
+            emit ReceiptsBumpFailed("global", reason);
+        }
         // Per-recipient income counter — enables proveIncomeAbove for anyone
         // who only ever receives via PaymentHub (sendPayment / batchSend /
         // fulfillRequest / sendPaymentAsAgent). Per #207.
         if (recipient == address(0)) return;
         FHE.allowTransient(amount, paymentReceipts);
-        try IPaymentReceipts(paymentReceipts).bumpUserReceived(recipient, amount) {} catch {}
+        try IPaymentReceipts(paymentReceipts).bumpUserReceived(recipient, amount) {} catch (bytes memory reason) {
+            emit ReceiptsBumpFailed("user", reason);
+        }
     }
 
     /// @dev Reserved storage to avoid collisions on future upgrades.
