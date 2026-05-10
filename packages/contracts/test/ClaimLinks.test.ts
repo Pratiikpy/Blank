@@ -555,4 +555,66 @@ describe("ClaimLinks", () => {
       ).to.be.reverted;
     });
   });
+
+  // §15.3.1: state-change events on each lifecycle transition.
+  // LinkCreated, LinkClaimed, LinkRefunded must each fire with the
+  // expected linkId so indexers can mirror state without polling.
+  describe("State-change events", () => {
+    it("emits LinkCreated on createLink with the assigned linkId", async () => {
+      const ctx = await loadFixture(deployFixture);
+      const secret = newSecret();
+      const enc = await encAmount(ctx.client, ctx.alice, usdc(11));
+
+      await expect(
+        ctx.claimLinks.connect(ctx.alice).createLink(
+          await ctx.vault.getAddress(),
+          enc,
+          bearerHash(secret),
+          MODE_BEARER,
+          hre.ethers.ZeroAddress,
+          0,
+          "with note",
+        ),
+      ).to.emit(ctx.claimLinks, "LinkCreated");
+    });
+
+    it("emits LinkClaimed on claim with linkId + claimer", async () => {
+      const ctx = await loadFixture(deployFixture);
+      const secret = newSecret();
+      const enc = await encAmount(ctx.client, ctx.alice, usdc(12));
+
+      await ctx.claimLinks.connect(ctx.alice).createLink(
+        await ctx.vault.getAddress(),
+        enc,
+        bearerHash(secret),
+        MODE_BEARER,
+        hre.ethers.ZeroAddress,
+        0,
+        "",
+      );
+
+      const tx = ctx.claimLinks.connect(ctx.bob).claimBearer(0, secret);
+      await expect(tx).to.emit(ctx.claimLinks, "LinkClaimed");
+    });
+
+    it("emits LinkRefunded on refund with linkId + sender", async () => {
+      const ctx = await loadFixture(deployFixture);
+      const secret = newSecret();
+      const enc = await encAmount(ctx.client, ctx.alice, usdc(13));
+
+      await ctx.claimLinks.connect(ctx.alice).createLink(
+        await ctx.vault.getAddress(),
+        enc,
+        bearerHash(secret),
+        MODE_BEARER,
+        hre.ethers.ZeroAddress,
+        100,
+        "",
+      );
+
+      await time.increase(101);
+      const tx = ctx.claimLinks.connect(ctx.alice).refundLink(0);
+      await expect(tx).to.emit(ctx.claimLinks, "LinkRefunded");
+    });
+  });
 });
