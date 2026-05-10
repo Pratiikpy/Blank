@@ -68,6 +68,15 @@ describe("useFhePipeline", () => {
     expect(result.current.state.error).toBe("zk proof failed");
   });
 
+  // §3.6 B9 of BEST_VERSION_FULL_PLAN: stable object identity across renders.
+  it("returns the same pipeline object identity when state unchanged", () => {
+    const { result, rerender } = renderHook(() => useFhePipeline());
+    const first = result.current;
+    rerender();
+    const second = result.current;
+    expect(second).toBe(first);
+  });
+
   // §3.6 B8 of BEST_VERSION_FULL_PLAN: pre-step failure marks first step.
   it("marks first step as failed when markFailed fires before any step started", () => {
     const { result } = renderHook(() => useFhePipeline());

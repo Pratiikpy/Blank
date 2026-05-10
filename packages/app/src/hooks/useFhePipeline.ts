@@ -222,15 +222,24 @@ export function useFhePipeline() {
     return { label: STEP_LABEL[id], hint: STEP_HINT[id] };
   }, [state]);
 
-  return {
-    state,
-    headline,
-    onEncryptStep,
-    start,
-    markSubmitting,
-    markConfirming,
-    markDone,
-    markFailed,
-    reset,
-  };
+  // §3.6 B9 of BEST_VERSION_FULL_PLAN: stable object identity. Pre-fix the
+  // returned object literal was fresh on every render, busting memoization
+  // for any consumer that compared `pipeline === prev`. Now identity changes
+  // only when state or headline actually change. The action callbacks are
+  // stable (each wrapped in useCallback above) and don't need to be in deps.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- callbacks are stable
+  return useMemo(
+    () => ({
+      state,
+      headline,
+      onEncryptStep,
+      start,
+      markSubmitting,
+      markConfirming,
+      markDone,
+      markFailed,
+      reset,
+    }),
+    [state, headline],
+  );
 }
