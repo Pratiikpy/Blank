@@ -112,7 +112,10 @@ contract EncryptedEscrow is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
         FHE.allowThis(locked);
         FHE.allowSender(locked);
         FHE.allow(locked, beneficiary);
-        if (arbiter != address(0)) FHE.allow(locked, arbiter);
+        // §2.4 of BEST_VERSION_FULL_PLAN: arbiter decrypt-rights deferred to
+        // disputeEscrow time. Pre-dispute the arbiter has no business reading
+        // the encrypted amount; granting at create leaks ongoing visibility
+        // into a contract the arbiter is not yet involved in. Half-baked A12.
 
         escrowId = nextEscrowId++;
         _escrows[escrowId] = Escrow({
@@ -165,6 +168,10 @@ contract EncryptedEscrow is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
         require(msg.sender == e.depositor || msg.sender == e.beneficiary, "EncryptedEscrow: not a party");
         require(e.arbiter != address(0), "EncryptedEscrow: no arbiter, use claimExpiredEscrow at deadline");
         e.status = EscrowStatus.Disputed;
+        // §2.4: grant arbiter decrypt rights only when dispute opens.
+        // arbiterDecide will need the encrypted amount to make an informed
+        // call. Pre-dispute, the grant was unnecessary leakage.
+        FHE.allow(e.encAmount, e.arbiter);
         emit EscrowDisputed(escrowId, msg.sender);
         try eventHub.emitActivity(msg.sender, address(0), "escrow_disputed", e.description, escrowId) {} catch {}
     }
