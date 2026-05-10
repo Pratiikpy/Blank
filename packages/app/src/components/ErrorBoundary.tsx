@@ -1,5 +1,6 @@
 import { Component, type ReactNode } from "react";
 import { AlertCircle } from "lucide-react";
+import { log } from "@/lib/log";
 
 interface Props {
   children: ReactNode;
@@ -26,9 +27,10 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: { componentStack: string }) {
-    // eslint-disable-next-line no-console
-    console.error("[ErrorBoundary]", error, info.componentStack);
-    // Optional: dispatch to lib/log when it exists
+    // §3.21: route through structured logger; the global window hook below
+    // is preserved for any runtime that subscribes to it independently.
+    log.error("errorBoundary.caught", error);
+    log.warn("errorBoundary.componentStack", { stack: info.componentStack });
     if (typeof window !== "undefined") {
       // @ts-expect-error — set by lib/log runtime wiring
       window.__blankLogError?.(error, { componentStack: info.componentStack });

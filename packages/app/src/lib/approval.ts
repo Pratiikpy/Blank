@@ -1,3 +1,5 @@
+import { log } from "./log";
+
 const APPROVED_KEY = "blank_vault_approved_v2";
 
 // #102: approvals used to be keyed only by spender → leaked across wallet
@@ -99,7 +101,7 @@ export async function verifyVaultApproved(
       return true;
     }
   } catch (e) {
-    console.warn("[approval] on-chain event scan failed", e);
+    log.warn("approval.eventScan.failed", e instanceof Error ? e : new Error(String(e)));
   }
   return false;
 }

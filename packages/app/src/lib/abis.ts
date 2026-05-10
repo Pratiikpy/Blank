@@ -428,3 +428,314 @@ export const ERC6538RegistryAbi = [
     { name: "newNonce", type: "uint256", indexed: false },
   ] },
 ] as const;
+
+// ─── ClaimLinks — Wave 4 magic claim links ─────────────────────────────────
+// Source: contracts/ClaimLinks.sol
+// Modes: 0 = Bearer, 1 = EmailBound, 2 = AddressBound
+export const ClaimLinksAbi = [
+  { type: "function", name: "createLink", inputs: [
+    { name: "vault", type: "address" },
+    { name: "encAmount", type: "tuple", internalType: "struct InEuint64", components: InEuint64Components },
+    { name: "secretHash", type: "bytes32" },
+    { name: "mode", type: "uint8" },
+    { name: "boundAddress", type: "address" },
+    { name: "expirySeconds", type: "uint256" },
+    { name: "note", type: "string" },
+  ], outputs: [{ name: "linkId", type: "uint256" }], stateMutability: "nonpayable" },
+  { type: "function", name: "claimBearer", inputs: [
+    { name: "linkId", type: "uint256" },
+    { name: "secret", type: "bytes32" },
+  ], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "claimEmailBound", inputs: [
+    { name: "linkId", type: "uint256" },
+    { name: "secret", type: "bytes32" },
+    { name: "emailHash", type: "bytes32" },
+  ], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "claimAddressBound", inputs: [
+    { name: "linkId", type: "uint256" },
+    { name: "secret", type: "bytes32" },
+  ], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "refundLink", inputs: [{ name: "linkId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "getLink", inputs: [{ name: "linkId", type: "uint256" }], outputs: [
+    { name: "sender", type: "address" },
+    { name: "vault", type: "address" },
+    { name: "mode", type: "uint8" },
+    { name: "boundAddress", type: "address" },
+    { name: "createdAt", type: "uint256" },
+    { name: "expiryTimestamp", type: "uint256" },
+    { name: "claimed", type: "bool" },
+    { name: "refunded", type: "bool" },
+    { name: "note", type: "string" },
+    { name: "claimer", type: "address" },
+    { name: "claimedAt", type: "uint256" },
+  ], stateMutability: "view" },
+  { type: "function", name: "getEncryptedAmount", inputs: [{ name: "linkId", type: "uint256" }], outputs: [{ name: "", type: "uint256", internalType: "euint64" }], stateMutability: "view" },
+  { type: "function", name: "getSentLinks", inputs: [{ name: "user", type: "address" }], outputs: [{ name: "", type: "uint256[]" }], stateMutability: "view" },
+  { type: "function", name: "getReceivedLinks", inputs: [{ name: "user", type: "address" }], outputs: [{ name: "", type: "uint256[]" }], stateMutability: "view" },
+  { type: "function", name: "defaultExpirySeconds", inputs: [], outputs: [{ name: "", type: "uint256" }], stateMutability: "view" },
+  { type: "event", name: "LinkCreated", inputs: [
+    { name: "linkId", type: "uint256", indexed: true },
+    { name: "sender", type: "address", indexed: true },
+    { name: "vault", type: "address", indexed: false },
+    { name: "mode", type: "uint8", indexed: false },
+    { name: "boundAddress", type: "address", indexed: true },
+    { name: "expiryTimestamp", type: "uint256", indexed: false },
+    { name: "note", type: "string", indexed: false },
+  ] },
+  { type: "event", name: "LinkClaimed", inputs: [
+    { name: "linkId", type: "uint256", indexed: true },
+    { name: "claimer", type: "address", indexed: true },
+    { name: "timestamp", type: "uint256", indexed: false },
+  ] },
+  { type: "event", name: "LinkRefunded", inputs: [
+    { name: "linkId", type: "uint256", indexed: true },
+    { name: "sender", type: "address", indexed: true },
+    { name: "timestamp", type: "uint256", indexed: false },
+  ] },
+] as const;
+
+// ─── Storefront — Wave 4 task #254 ─────────────────────────────────────────
+// Source: contracts/Storefront.sol
+// Modes: 0=FixedPrice, 1=Auction, 2=PayWhatYouWant
+export const StorefrontAbi = [
+  { type: "function", name: "createListing", inputs: [
+    { name: "mode", type: "uint8" },
+    { name: "vault", type: "address" },
+    { name: "encPrice", type: "tuple", internalType: "struct InEuint64", components: InEuint64Components },
+    { name: "auctionSeconds", type: "uint256" },
+    { name: "title", type: "string" },
+    { name: "descriptionCidHash", type: "bytes32" },
+    { name: "deliveryChannel", type: "string" },
+  ], outputs: [{ name: "listingId", type: "uint256" }], stateMutability: "nonpayable" },
+  { type: "function", name: "buyFixed", inputs: [
+    { name: "listingId", type: "uint256" },
+    { name: "encAmount", type: "tuple", internalType: "struct InEuint64", components: InEuint64Components },
+    { name: "deliveryNoteHash", type: "bytes32" },
+  ], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "placeBid", inputs: [
+    { name: "listingId", type: "uint256" },
+    { name: "encAmount", type: "tuple", internalType: "struct InEuint64", components: InEuint64Components },
+  ], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "closeAuction", inputs: [{ name: "listingId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "claimAuctionWin", inputs: [
+    { name: "listingId", type: "uint256" },
+    { name: "deliveryNoteHash", type: "bytes32" },
+  ], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "refundLoserBid", inputs: [
+    { name: "listingId", type: "uint256" },
+    { name: "bidIndex", type: "uint256" },
+  ], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "payPWYW", inputs: [
+    { name: "listingId", type: "uint256" },
+    { name: "encAmount", type: "tuple", internalType: "struct InEuint64", components: InEuint64Components },
+    { name: "deliveryNoteHash", type: "bytes32" },
+  ], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "deactivateListing", inputs: [{ name: "listingId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "getListing", inputs: [{ name: "listingId", type: "uint256" }], outputs: [
+    { name: "seller", type: "address" },
+    { name: "vault", type: "address" },
+    { name: "mode", type: "uint8" },
+    { name: "closesAt", type: "uint256" },
+    { name: "winner", type: "address" },
+    { name: "active", type: "bool" },
+    { name: "closed", type: "bool" },
+    { name: "title", type: "string" },
+    { name: "descriptionCidHash", type: "bytes32" },
+    { name: "deliveryChannel", type: "string" },
+    { name: "createdAt", type: "uint256" },
+  ], stateMutability: "view" },
+  { type: "function", name: "getEncryptedPrice", inputs: [{ name: "listingId", type: "uint256" }], outputs: [{ name: "", type: "uint256", internalType: "euint64" }], stateMutability: "view" },
+  { type: "function", name: "getBidCount", inputs: [{ name: "listingId", type: "uint256" }], outputs: [{ name: "", type: "uint256" }], stateMutability: "view" },
+  { type: "function", name: "getBid", inputs: [
+    { name: "listingId", type: "uint256" },
+    { name: "bidIndex", type: "uint256" },
+  ], outputs: [
+    { name: "bidder", type: "address" },
+    { name: "refunded", type: "bool" },
+  ], stateMutability: "view" },
+  { type: "function", name: "getSellerListings", inputs: [{ name: "seller", type: "address" }], outputs: [{ name: "", type: "uint256[]" }], stateMutability: "view" },
+  { type: "event", name: "ListingCreated", inputs: [
+    { name: "listingId", type: "uint256", indexed: true },
+    { name: "seller", type: "address", indexed: true },
+    { name: "mode", type: "uint8", indexed: false },
+    { name: "vault", type: "address", indexed: false },
+    { name: "closesAt", type: "uint256", indexed: false },
+    { name: "title", type: "string", indexed: false },
+  ] },
+  { type: "event", name: "FixedPriceBuy", inputs: [
+    { name: "listingId", type: "uint256", indexed: true },
+    { name: "buyer", type: "address", indexed: true },
+    { name: "seller", type: "address", indexed: true },
+    { name: "deliveryNoteHash", type: "bytes32", indexed: false },
+  ] },
+  { type: "event", name: "BidPlaced", inputs: [
+    { name: "listingId", type: "uint256", indexed: true },
+    { name: "bidder", type: "address", indexed: true },
+    { name: "bidIndex", type: "uint256", indexed: false },
+    { name: "timestamp", type: "uint256", indexed: false },
+  ] },
+  { type: "event", name: "AuctionClosed", inputs: [
+    { name: "listingId", type: "uint256", indexed: true },
+    { name: "winner", type: "address", indexed: true },
+    { name: "totalBids", type: "uint256", indexed: false },
+  ] },
+  { type: "event", name: "AuctionWinnerClaimed", inputs: [
+    { name: "listingId", type: "uint256", indexed: true },
+    { name: "winner", type: "address", indexed: true },
+    { name: "deliveryNoteHash", type: "bytes32", indexed: false },
+  ] },
+  { type: "event", name: "BidRefunded", inputs: [
+    { name: "listingId", type: "uint256", indexed: true },
+    { name: "bidder", type: "address", indexed: true },
+    { name: "bidIndex", type: "uint256", indexed: false },
+  ] },
+  { type: "event", name: "PWYWPayment", inputs: [
+    { name: "listingId", type: "uint256", indexed: true },
+    { name: "payer", type: "address", indexed: true },
+    { name: "seller", type: "address", indexed: true },
+    { name: "deliveryNoteHash", type: "bytes32", indexed: false },
+  ] },
+] as const;
+
+// ─── EncryptedCrowdfund — Wave 4 task #257 ─────────────────────────────────
+// Source: contracts/EncryptedCrowdfund.sol
+// Status: 0=Open, 1=Closed, 2=Released, 3=Refunding
+export const EncryptedCrowdfundAbi = [
+  { type: "function", name: "createCampaign", inputs: [
+    { name: "vault", type: "address" },
+    { name: "encGoal", type: "tuple", internalType: "struct InEuint64", components: InEuint64Components },
+    { name: "durationSeconds", type: "uint256" },
+    { name: "title", type: "string" },
+    { name: "descriptionCidHash", type: "bytes32" },
+  ], outputs: [{ name: "campaignId", type: "uint256" }], stateMutability: "nonpayable" },
+  { type: "function", name: "contribute", inputs: [
+    { name: "campaignId", type: "uint256" },
+    { name: "encAmount", type: "tuple", internalType: "struct InEuint64", components: InEuint64Components },
+  ], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "closeCampaign", inputs: [{ name: "campaignId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "publishCloseResult", inputs: [
+    { name: "campaignId", type: "uint256" },
+    { name: "plaintext", type: "bool" },
+    { name: "signature", type: "bytes" },
+  ], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "claimRelease", inputs: [{ name: "campaignId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "claimRefund", inputs: [
+    { name: "campaignId", type: "uint256" },
+    { name: "contributionIndex", type: "uint256" },
+  ], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "getCampaign", inputs: [{ name: "campaignId", type: "uint256" }], outputs: [
+    { name: "creator", type: "address" },
+    { name: "vault", type: "address" },
+    { name: "deadline", type: "uint256" },
+    { name: "status", type: "uint8" },
+    { name: "goalMet", type: "bool" },
+    { name: "resultPublished", type: "bool" },
+    { name: "title", type: "string" },
+    { name: "descriptionCidHash", type: "bytes32" },
+    { name: "createdAt", type: "uint256" },
+  ], stateMutability: "view" },
+  { type: "function", name: "getEncryptedGoal", inputs: [{ name: "campaignId", type: "uint256" }], outputs: [{ name: "", type: "uint256", internalType: "euint64" }], stateMutability: "view" },
+  { type: "function", name: "getEncryptedRaised", inputs: [{ name: "campaignId", type: "uint256" }], outputs: [{ name: "", type: "uint256", internalType: "euint64" }], stateMutability: "view" },
+  { type: "function", name: "getGoalCheckHandle", inputs: [{ name: "campaignId", type: "uint256" }], outputs: [{ name: "", type: "uint256", internalType: "ebool" }], stateMutability: "view" },
+  { type: "function", name: "getContributionCount", inputs: [{ name: "campaignId", type: "uint256" }], outputs: [{ name: "", type: "uint256" }], stateMutability: "view" },
+  { type: "function", name: "getContribution", inputs: [
+    { name: "campaignId", type: "uint256" },
+    { name: "contributionIndex", type: "uint256" },
+  ], outputs: [
+    { name: "contributor", type: "address" },
+    { name: "refunded", type: "bool" },
+  ], stateMutability: "view" },
+  { type: "event", name: "CampaignCreated", inputs: [
+    { name: "campaignId", type: "uint256", indexed: true },
+    { name: "creator", type: "address", indexed: true },
+    { name: "vault", type: "address", indexed: false },
+    { name: "deadline", type: "uint256", indexed: false },
+    { name: "title", type: "string", indexed: false },
+  ] },
+  { type: "event", name: "Contributed", inputs: [
+    { name: "campaignId", type: "uint256", indexed: true },
+    { name: "contributor", type: "address", indexed: true },
+    { name: "contributionIndex", type: "uint256", indexed: false },
+    { name: "timestamp", type: "uint256", indexed: false },
+  ] },
+  { type: "event", name: "CampaignClosed", inputs: [
+    { name: "campaignId", type: "uint256", indexed: true },
+    { name: "totalContributions", type: "uint256", indexed: false },
+  ] },
+  { type: "event", name: "CloseResultPublished", inputs: [
+    { name: "campaignId", type: "uint256", indexed: true },
+    { name: "goalMet", type: "bool", indexed: false },
+  ] },
+  { type: "event", name: "CampaignReleased", inputs: [
+    { name: "campaignId", type: "uint256", indexed: true },
+    { name: "creator", type: "address", indexed: true },
+  ] },
+] as const;
+
+// ─── EncryptedEscrow — Wave 4 task #249 ────────────────────────────────────
+// Source: contracts/EncryptedEscrow.sol
+// Status: 0=Active, 1=Disputed, 2=Released, 3=Refunded
+export const EncryptedEscrowAbi = [
+  { type: "function", name: "createEscrow", inputs: [
+    { name: "beneficiary", type: "address" },
+    { name: "vault", type: "address" },
+    { name: "encAmount", type: "tuple", internalType: "struct InEuint64", components: InEuint64Components },
+    { name: "description", type: "string" },
+    { name: "arbiter", type: "address" },
+    { name: "deadline", type: "uint256" },
+  ], outputs: [{ name: "escrowId", type: "uint256" }], stateMutability: "nonpayable" },
+  { type: "function", name: "markDelivered", inputs: [{ name: "escrowId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "approveRelease", inputs: [{ name: "escrowId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "disputeEscrow", inputs: [{ name: "escrowId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "arbiterDecide", inputs: [
+    { name: "escrowId", type: "uint256" },
+    { name: "releaseToBeneficiary", type: "bool" },
+  ], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "claimExpiredEscrow", inputs: [{ name: "escrowId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "getEscrow", inputs: [{ name: "escrowId", type: "uint256" }], outputs: [
+    { name: "depositor", type: "address" },
+    { name: "beneficiary", type: "address" },
+    { name: "arbiter", type: "address" },
+    { name: "vault", type: "address" },
+    { name: "deadline", type: "uint256" },
+    { name: "depositorApproved", type: "bool" },
+    { name: "beneficiaryMarkedDelivered", type: "bool" },
+    { name: "status", type: "uint8" },
+    { name: "description", type: "string" },
+    { name: "createdAt", type: "uint256" },
+  ], stateMutability: "view" },
+  { type: "function", name: "getEncryptedAmount", inputs: [{ name: "escrowId", type: "uint256" }], outputs: [{ name: "", type: "uint256", internalType: "euint64" }], stateMutability: "view" },
+  { type: "function", name: "getUserEscrows", inputs: [{ name: "user", type: "address" }], outputs: [{ name: "", type: "uint256[]" }], stateMutability: "view" },
+  { type: "event", name: "EscrowCreated", inputs: [
+    { name: "escrowId", type: "uint256", indexed: true },
+    { name: "depositor", type: "address", indexed: true },
+    { name: "beneficiary", type: "address", indexed: true },
+    { name: "arbiter", type: "address", indexed: false },
+    { name: "deadline", type: "uint256", indexed: false },
+  ] },
+  { type: "event", name: "EscrowDelivered", inputs: [
+    { name: "escrowId", type: "uint256", indexed: true },
+    { name: "beneficiary", type: "address", indexed: true },
+  ] },
+  { type: "event", name: "EscrowApproved", inputs: [
+    { name: "escrowId", type: "uint256", indexed: true },
+    { name: "depositor", type: "address", indexed: true },
+  ] },
+  { type: "event", name: "EscrowReleased", inputs: [
+    { name: "escrowId", type: "uint256", indexed: true },
+    { name: "to", type: "address", indexed: true },
+  ] },
+  { type: "event", name: "EscrowDisputed", inputs: [
+    { name: "escrowId", type: "uint256", indexed: true },
+    { name: "by", type: "address", indexed: true },
+  ] },
+  { type: "event", name: "EscrowArbiterDecided", inputs: [
+    { name: "escrowId", type: "uint256", indexed: true },
+    { name: "arbiter", type: "address", indexed: true },
+    { name: "toBeneficiary", type: "bool", indexed: false },
+  ] },
+  { type: "event", name: "EscrowExpiryClaimed", inputs: [
+    { name: "escrowId", type: "uint256", indexed: true },
+    { name: "depositor", type: "address", indexed: true },
+  ] },
+] as const;

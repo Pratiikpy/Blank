@@ -22,7 +22,9 @@ import {
   ArrowDown,
   KeyRound,
   ChevronLeft,
+  Ghost,
 } from "lucide-react";
+import { EmptyState } from "@/components/common/EmptyState";
 import { formatUnits } from "viem";
 
 import { useStealthInbox, type StealthInboxEntry } from "@/hooks/useStealthInbox";
@@ -32,6 +34,7 @@ import { cn } from "@/lib/cn";
 import { truncateAddress } from "@/lib/address";
 import { useState } from "react";
 import toast from "react-hot-toast";
+import { log } from "@/lib/log";
 
 const ERC20_TRANSFER_SELECTOR = "0xa9059cbb";
 
@@ -65,7 +68,7 @@ export default function StealthInbox() {
     try {
       const result = await sweeper.sweep(entry);
       toast.success(`Swept ${entry.amount} units → your wallet`);
-      console.log("[stealth-sweep] success", result);
+      log.debug("stealthInbox.sweep.success", { result });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       toast.error(`Sweep failed: ${msg}`);
@@ -158,10 +161,15 @@ export default function StealthInbox() {
             </div>
 
             {sortedEntries.length === 0 && !isScanning && (
-              <div className="rounded-3xl glass-card-static p-8 text-center">
-                <p className="text-sm text-[var(--text-secondary)]">
-                  No stealth payments to your meta-address yet. They&apos;ll appear here automatically when received.
-                </p>
+              <div className="rounded-3xl glass-card-static">
+                <EmptyState
+                  icon={Ghost}
+                  tone="slate"
+                  title="No stealth payments yet"
+                  body="Share your stealth meta-address. Senders will derive a one-time address that nobody can link back to your main wallet — payments will appear here automatically."
+                  cta={{ label: "Copy meta-address", onClick: () => navigate("/app/stealth/setup") }}
+                  secondary={{ label: "How stealth works", href: "/blog/why-fhenix-cofhe" }}
+                />
               </div>
             )}
 

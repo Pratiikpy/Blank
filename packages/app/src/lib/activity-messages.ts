@@ -1,4 +1,5 @@
 import { ACTIVITY_TYPES, type ActivityType } from "./activity-types";
+import { log } from "./log";
 
 /**
  * Registry mapping each activity type to a toast-message formatter.
@@ -146,6 +147,14 @@ export const MESSAGE_FORMATTERS: Record<ActivityType, Formatter> = {
     `${from} created a qualification proof`,
   [ACTIVITY_TYPES.PROOF_PUBLISHED]: ({ from }) =>
     `${from} published a proof verdict`,
+
+  // Wave 4 — magic claim links.
+  [ACTIVITY_TYPES.CLAIM_LINK_CREATED]: ({ from, note }) =>
+    `${from} sent you a claim link${note ? ` "${note}"` : ""}`,
+  [ACTIVITY_TYPES.CLAIM_LINK_CLAIMED]: ({ from }) =>
+    `${from} claimed your link`,
+  [ACTIVITY_TYPES.CLAIM_LINK_REFUNDED]: ({ from }) =>
+    `${from} refunded an unclaimed link`,
 };
 
 export function formatActivityMessage(
@@ -156,10 +165,7 @@ export function formatActivityMessage(
   const formatter = (MESSAGE_FORMATTERS as Record<string, Formatter | undefined>)[type];
   if (!formatter) {
     if (import.meta.env.DEV) {
-      // Fail loud in dev so missing formatters surface before shipping.
-      console.warn(
-        `[activity-messages] no formatter for type "${type}" — add one to MESSAGE_FORMATTERS`,
-      );
+      log.warn("activityMessages.missingFormatter", { type, action: "Add one to MESSAGE_FORMATTERS" });
     }
     return defaults({ from, note });
   }

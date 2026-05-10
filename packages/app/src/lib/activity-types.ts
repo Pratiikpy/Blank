@@ -95,6 +95,12 @@ export const ACTIVITY_TYPES = {
   // Proofs
   PROOF_CREATED: "proof_created",
   PROOF_PUBLISHED: "proof_published",
+
+  // Wave 4 — magic claim links. Strings match the on-chain activity types
+  // emitted by ClaimLinks.sol via EventHub.
+  CLAIM_LINK_CREATED: "claim_link_created",
+  CLAIM_LINK_CLAIMED: "claim_link_claimed",
+  CLAIM_LINK_REFUNDED: "claim_link_refunded",
 } as const;
 
 export type ActivityType = typeof ACTIVITY_TYPES[keyof typeof ACTIVITY_TYPES];

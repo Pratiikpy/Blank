@@ -38,6 +38,7 @@ import { STORAGE_KEYS, getStoredJson, setStoredJson } from "@/lib/storage";
 import { copyToClipboard } from "@/lib/clipboard";
 import { onCrossTabAction } from "@/lib/cross-tab";
 import { formatUsdcInput } from "@/lib/format";
+import { log } from "@/lib/log";
 
 // ---------------------------------------------------------------
 //  TYPES
@@ -421,7 +422,7 @@ export default function Stealth() {
       infos.sort((a, b) => b.timestamp - a.timestamp);
       setSentTransfers(infos);
     } catch (err) {
-      console.warn("Failed to load sent transfers:", err);
+      log.warn("stealth.loadSentTransfers.failed", err instanceof Error ? err : new Error(String(err)));
       toast.error("Failed to load sent payments");
     } finally {
       setLoadingSent(false);
@@ -518,7 +519,7 @@ export default function Stealth() {
         toast.success(`Found ${pending.length} pending claim(s)!`);
       }
     } catch (err) {
-      console.warn("Check pending claims failed:", err);
+      log.warn("stealth.checkPendingClaims.failed", err instanceof Error ? err : new Error(String(err)));
       toast.error("Failed to check pending claims");
     } finally {
       setCheckingClaims(false);

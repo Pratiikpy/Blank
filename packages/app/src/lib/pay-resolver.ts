@@ -13,6 +13,7 @@
 import { isAddress, type Address } from "viem";
 import { resolveName, looksLikeEnsName } from "./address-resolver";
 import { supabase, type InvoiceRow } from "./supabase";
+import { log } from "./log";
 
 export type PayTarget =
   | { kind: "address"; address: Address; ensName?: string }
@@ -47,7 +48,7 @@ async function fetchInvoice(invoiceId: number): Promise<InvoiceRow | null> {
     .limit(1)
     .maybeSingle();
   if (error) {
-    console.warn("fetchInvoice:", error.message);
+    log.warn("payResolver.fetchInvoice.failed", { error: error.message });
     return null;
   }
   return (data as InvoiceRow | null) ?? null;

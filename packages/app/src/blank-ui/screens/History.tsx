@@ -2,11 +2,6 @@ import { useState, useMemo, useCallback } from "react";
 import { useAccount } from "wagmi";
 import { useNavigate } from "react-router-dom";
 import {
-  Send,
-  ArrowDownLeft,
-  ArrowLeftRight,
-  Ghost,
-  KeyRound,
   Inbox,
   Download,
   UserPlus,
@@ -19,6 +14,10 @@ import { cn } from "@/lib/cn";
 import { getExplorerTxUrl } from "@/lib/constants";
 import { useActivityFeed } from "@/hooks/useActivityFeed";
 import { useContacts } from "@/hooks/useContacts";
+import { useCounterpartyName } from "@/hooks/useCounterpartyName";
+import { getHistoryLabel, getHistoryIcon, hasCounterparty } from "@/lib/history-labels";
+import type { ActivityRow } from "@/lib/supabase";
+import { EmptyState } from "@/components/common/EmptyState";
 
 type FilterTab = "all" | "received" | "sent" | "swap" | "stealth";
 
@@ -30,32 +29,10 @@ const filterTabs: { key: FilterTab; label: string }[] = [
   { key: "stealth", label: "Stealth" },
 ];
 
-const typeIconMap: Record<
-  string,
-  { icon: React.ReactNode; bg: string }
-> = {
-  payment: {
-    icon: <Send size={20} />,
-    bg: "bg-[#007AFF]/10 text-[#007AFF]",
-  },
-  receive: {
-    icon: <ArrowDownLeft size={20} />,
-    bg: "bg-emerald-50 text-emerald-600",
-  },
-  shield: {
-    icon: <KeyRound size={20} />,
-    bg: "bg-amber-50 text-amber-600",
-  },
-  swap: {
-    icon: <ArrowLeftRight size={20} />,
-    bg: "bg-purple-50 text-purple-600",
-  },
-  stealth: {
-    icon: <Ghost size={20} />,
-    bg: "bg-gray-100 text-gray-600",
-  },
-};
-
+// Wave 4 #246: typeIconMap moved to lib/history-labels.ts (getHistoryIcon).
+// activityLabels kept temporarily for the legacy CSV export + detail panel
+// usages — those paths still index it directly. New row rendering uses
+// getHistoryLabel from history-labels.ts.
 const activityLabels: Record<string, string> = {
   payment: "Sent payment",
   request: "Payment request",
@@ -273,20 +250,34 @@ export default function History() {
             </div>
           </div>
         ) : searchedActivities.length === 0 ? (
-          <div className="rounded-[2rem] glass-card p-16 flex flex-col items-center justify-center">
-            <div className="w-16 h-16 rounded-2xl bg-gray-50 flex items-center justify-center mb-4">
-              <Inbox size={32} className="text-gray-400" />
-            </div>
-            <p className="text-xl font-heading font-medium text-[var(--text-primary)] mb-1">
-              {searchQuery ? "No matching transactions" : "No activity yet"}
-            </p>
-            <p className="text-sm text-[var(--text-primary)]/50">
-              {searchQuery
-                ? "Try a different search term"
-                : activeFilter === "all"
-                  ? "Your transactions will appear here"
-                  : `No ${activeFilter} transactions found`}
-            </p>
+          <div className="rounded-[2rem] glass-card">
+            {searchQuery ? (
+              <EmptyState
+                icon={Search}
+                tone="neutral"
+                title="No matching transactions"
+                body="Try a different search term, or clear the filter to see everything."
+                cta={{ label: "Clear search", onClick: () => setSearchQuery("") }}
+              />
+            ) : activeFilter !== "all" ? (
+              <EmptyState
+                icon={Inbox}
+                tone="neutral"
+                title={`No ${activeFilter} transactions yet`}
+                body="Switch filters or send a payment to start your history."
+                cta={{ label: "Show all", onClick: () => setActiveFilter("all") }}
+                secondary={{ label: "Send your first payment", onClick: () => navigate("/app/send") }}
+              />
+            ) : (
+              <EmptyState
+                icon={Inbox}
+                tone="blue"
+                title="No activity yet"
+                body="Your encrypted payments will show up here. Send a private payment or share a claim link to get started."
+                cta={{ label: "Send a payment", onClick: () => navigate("/app/send") }}
+                secondary={{ label: "Or create a claim link", onClick: () => navigate("/app/claim-link") }}
+              />
+            )}
           </div>
         ) : (
           <div className="rounded-[2rem] glass-card p-4 sm:p-8">
@@ -296,80 +287,14 @@ export default function History() {
                   {group.label}
                 </p>
                 <div className="space-y-3">
-                  {group.items.map((activity) => {
-                const isIncoming =
-                  activity.user_to.toLowerCase() === address?.toLowerCase();
-                const typeInfo = typeIconMap[activity.activity_type] || {
-                  icon: <Send size={20} />,
-                  bg: "bg-gray-50 text-gray-400",
-                };
-                const otherAddress = isIncoming
-                  ? activity.user_from
-                  : activity.user_to;
-                const isPending =
-                  activity.id.startsWith("local_") ||
-                  activity.block_number === 0;
-
-                return (
-                  <div
-                    key={activity.id}
-                    onClick={() => navigate(`/app/tx/${activity.id}`)}
-                    role="link"
-                    tabIndex={0}
-                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") navigate(`/app/tx/${activity.id}`); }}
-                    className="flex items-center justify-between gap-3 p-4 sm:p-6 rounded-2xl bg-white/50 border border-black/5 hover:bg-white/70 transition-all cursor-pointer"
-                  >
-                    <div className="flex items-center gap-3 sm:gap-4 min-w-0 flex-1">
-                      <div
-                        className={cn(
-                          "w-10 h-10 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center shrink-0",
-                          typeInfo.bg,
-                        )}
-                      >
-                        {typeInfo.icon}
-                      </div>
-                      <div className="min-w-0">
-                        <p className="font-medium text-[var(--text-primary)] truncate">
-                          {activity.note || truncateAddress(otherAddress)}
-                        </p>
-                        <p className="text-sm text-[var(--text-primary)]/50">
-                          <span className="text-xs text-[var(--text-tertiary)]">
-                            {activity.user_from.toLowerCase() === address?.toLowerCase() ? "\u2191 Sent" : "\u2193 Received"} &middot; {formatRelativeTime(activity.created_at)}
-                          </span>
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-4 shrink-0">
-                      <div className="text-right">
-                        <p
-                          className={cn(
-                            "text-sm sm:text-lg font-heading font-medium font-mono whitespace-nowrap",
-                            isIncoming
-                              ? "text-emerald-600"
-                              : "text-[var(--text-primary)]",
-                          )}
-                        >
-                          {isIncoming ? "+" : "-"}$
-                          <span aria-hidden="true" className="encrypted-text">
-                            {"\u2022\u2022\u2022\u2022\u2022.\u2022\u2022"}
-                          </span>
-                          <span className="sr-only">Amount hidden</span>
-                        </p>
-                        <div
-                          className={cn(
-                            "inline-flex px-2 py-1 rounded-full text-xs font-medium border",
-                            isPending
-                              ? "bg-amber-50 text-amber-700 border-amber-100"
-                              : "bg-emerald-50 text-emerald-700 border-emerald-100",
-                          )}
-                        >
-                          {isPending ? "pending" : "confirmed"}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  );
-                })}
+                  {group.items.map((activity) => (
+                    <HistoryRow
+                      key={activity.id}
+                      activity={activity}
+                      myAddress={address ?? null}
+                      onClick={() => navigate(`/app/tx/${activity.id}`)}
+                    />
+                  ))}
                 </div>
               </div>
             ))}
@@ -463,6 +388,105 @@ export default function History() {
             </div>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ─── HistoryRow ──────────────────────────────────────────────────────
+//
+// Wave 4 task #246. Renders one activity row with type-aware label,
+// counterparty name (contact → ENS → truncated hex), and pending badge.
+// Lifted out of the .map() so we can use the useCounterpartyName hook
+// per row (hooks rules disallow calling them inside callback bodies).
+
+function HistoryRow({
+  activity,
+  myAddress,
+  onClick,
+}: {
+  activity: ActivityRow;
+  myAddress: string | null;
+  onClick: () => void;
+}) {
+  const isIncoming =
+    activity.user_to.toLowerCase() === myAddress?.toLowerCase();
+  const isOutgoing =
+    activity.user_from.toLowerCase() === myAddress?.toLowerCase();
+  const otherAddress = isIncoming ? activity.user_from : activity.user_to;
+
+  const label = getHistoryLabel(activity.activity_type, isIncoming);
+  const { icon: Icon, bg: iconBg } = getHistoryIcon(activity.activity_type);
+  const showCounterparty = hasCounterparty(activity.activity_type);
+  const { label: counterpartyName } = useCounterpartyName(showCounterparty ? otherAddress : null);
+
+  const isPending =
+    activity.id.startsWith("local_") || activity.block_number === 0;
+
+  // Subtitle structure: [counterparty? · ] [direction · ] relative-time
+  // "alice.eth · sent · 2h ago"   or   "Deposited · 2h ago"
+  const directionWord = isOutgoing ? "sent" : isIncoming ? "received" : null;
+  const subtitleParts: string[] = [];
+  if (showCounterparty && counterpartyName) subtitleParts.push(counterpartyName);
+  if (directionWord) subtitleParts.push(directionWord);
+  if (activity.note) subtitleParts.push(`"${activity.note}"`);
+  subtitleParts.push(formatRelativeTime(activity.created_at));
+
+  return (
+    <div
+      onClick={onClick}
+      role="link"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") onClick();
+      }}
+      className="flex items-center justify-between gap-3 p-4 sm:p-6 rounded-2xl bg-white/50 border border-black/5 hover:bg-white/70 transition-all cursor-pointer"
+    >
+      <div className="flex items-center gap-3 sm:gap-4 min-w-0 flex-1">
+        <div
+          className={cn(
+            "w-10 h-10 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center shrink-0",
+            iconBg,
+          )}
+        >
+          <Icon size={20} />
+        </div>
+        <div className="min-w-0">
+          <p className="font-medium text-[var(--text-primary)] truncate">
+            {label}
+          </p>
+          <p className="text-xs text-[var(--text-tertiary)] truncate">
+            {subtitleParts.join(" · ")}
+          </p>
+        </div>
+      </div>
+      <div className="flex items-center gap-4 shrink-0">
+        <div className="text-right">
+          <p
+            className={cn(
+              "text-sm sm:text-lg font-heading font-medium font-mono whitespace-nowrap",
+              isIncoming
+                ? "text-emerald-600"
+                : "text-[var(--text-primary)]",
+            )}
+          >
+            {isIncoming ? "+" : "-"}$
+            <span aria-hidden="true" className="encrypted-text">
+              {"•••••.••"}
+            </span>
+            <span className="sr-only">Amount hidden</span>
+          </p>
+          <div
+            className={cn(
+              "inline-flex px-2 py-1 rounded-full text-xs font-medium border",
+              isPending
+                ? "bg-amber-50 text-amber-700 border-amber-100"
+                : "bg-emerald-50 text-emerald-700 border-emerald-100",
+            )}
+          >
+            {isPending ? "pending" : "confirmed"}
+          </div>
+        </div>
       </div>
     </div>
   );

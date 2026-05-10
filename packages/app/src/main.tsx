@@ -6,12 +6,13 @@ import { AppProviders } from "@/providers/AppProviders";
 import { App } from "@/App";
 import { initSentry } from "@/lib/sentry-adapter";
 import { registerServiceWorker } from "@/lib/register-sw";
+import { log } from "@/lib/log";
 import "@/index.css";
 
 // Dev warning for missing env vars
 if (import.meta.env.DEV) {
   if (!import.meta.env.VITE_SUPABASE_URL || !import.meta.env.VITE_SUPABASE_ANON_KEY) {
-    console.warn("[Blank] Supabase env vars missing — real-time features disabled. See .env.example");
+    log.warn("main.envVarsMissing", { hint: "Supabase env vars missing. Real-time features disabled. See .env.example" });
   }
 }
 
@@ -40,10 +41,10 @@ if (typeof window !== "undefined") {
     const last = Number(sessionStorage.getItem(RELOAD_KEY) || "0");
     if (now - last < 10_000) {
       // Already reloaded recently — don't loop. Let the ErrorBoundary take over.
-      console.error("[preloadError] reload loop suppressed:", evt);
+      log.error("main.preloadError.reloadLoopSuppressed", new Error(String((evt as Event)?.type ?? "vite:preloadError")));
       return;
     }
-    console.warn("[preloadError] chunk load failed, reloading for fresh index.html");
+    log.warn("main.preloadError.reloadingForFreshIndex");
     sessionStorage.setItem(RELOAD_KEY, String(now));
     evt.preventDefault();
     window.location.reload();

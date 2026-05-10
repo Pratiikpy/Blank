@@ -158,6 +158,20 @@ export type ContractMap = {
    *  Umbra/Fluidkey singleton at `0x6538…6538` is deployed on every
    *  major chain (mainnet, sepolia, base, base-sepolia, etc.). */
   ERC6538Registry: `0x${string}`;
+  /** Wave 4 — magic claim links. Encrypted send-by-link with three modes
+   *  (bearer / email-bound / address-bound). address(0) until the deploy
+   *  task runs and writes the address back into deployments/<chain>.json. */
+  ClaimLinks: `0x${string}`;
+  /** Wave 4 — storefront. One-product page with three sale modes
+   *  (FixedPrice / Auction / PayWhatYouWant). address(0) until deploy. */
+  Storefront: `0x${string}`;
+  /** Wave 4 — encrypted crowdfunding. Encrypted goal + contributions.
+   *  Refund-on-failure semantics. address(0) until deploy. */
+  EncryptedCrowdfund: `0x${string}`;
+  /** Wave 4 — fully-encrypted escrow (Wave 4 #249). Successor to BusinessHub
+   *  escrow which stored amounts in plaintext. New contract holds funds in
+   *  the encrypted vault balance — amount never observable on-chain. */
+  EncryptedEscrow: `0x${string}`;
 };
 
 export const CONTRACTS_BY_CHAIN: Record<SupportedChainId, ContractMap> = {
@@ -196,6 +210,14 @@ export const CONTRACTS_BY_CHAIN: Record<SupportedChainId, ContractMap> = {
     ERC5564Announcer: "0x55649E01B5Df198D18D95b5cc5051630cfD45564",
     // Canonical Umbra/Fluidkey ERC-6538 singleton. Same on every chain.
     ERC6538Registry: "0x6538E6bf4B0eBd30A8Ea093027Ac2422ce5d6538",
+    // Wave 4 — magic claim links (Eth Sepolia).
+    ClaimLinks: "0x9E2189149deec5e78cB2976d8DF64CAec40B12Be",
+    // Wave 4 — storefront (Eth Sepolia).
+    Storefront: "0x786C85880e0FCF123D726600D9784ee88B84695b",
+    // Wave 4 — encrypted crowdfunding (Eth Sepolia).
+    EncryptedCrowdfund: "0x383B58973f7e8DC3E47D1C2f55393E2ac48b24e1",
+    // Wave 4 — encrypted escrow (Eth Sepolia).
+    EncryptedEscrow: "0x4253163CfCd0cf9885333E0a7B7476d61F010feC",
   },
   [BASE_SEPOLIA_ID]: {
     // Base Sepolia: full v0.1.3 stack. FHERC20Vault + BusinessHub +
@@ -232,6 +254,14 @@ export const CONTRACTS_BY_CHAIN: Record<SupportedChainId, ContractMap> = {
     ERC5564Announcer: "0x55649E01B5Df198D18D95b5cc5051630cfD45564",
     // Canonical Umbra/Fluidkey ERC-6538 singleton. Same on every chain.
     ERC6538Registry: "0x6538E6bf4B0eBd30A8Ea093027Ac2422ce5d6538",
+    // Wave 4 — magic claim links (Base Sepolia).
+    ClaimLinks: "0x2eD78815299C2B1F2cBd2313CF763B56A0654665",
+    // Wave 4 — storefront (Base Sepolia).
+    Storefront: "0xeA8a38f25ECF9Cc8C9240aafb35b561D14Dfd419",
+    // Wave 4 — encrypted crowdfunding (Base Sepolia).
+    EncryptedCrowdfund: "0x0F21705575e2CC83dC410AE2af6973B150a4183C",
+    // Wave 4 — encrypted escrow (Base Sepolia).
+    EncryptedEscrow: "0x6414742D2da28eCEf06D79b82F406B6b8ab3e421",
   },
 };
 

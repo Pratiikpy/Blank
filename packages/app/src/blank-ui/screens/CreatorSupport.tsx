@@ -21,6 +21,7 @@ import { useEffectiveAddress } from "@/hooks/useEffectiveAddress";
 import { CreatorHubAbi } from "@/lib/abis";
 import { useChain } from "@/providers/ChainProvider";
 import { useRealtime } from "@/providers/RealtimeProvider";
+import { log } from "@/lib/log";
 import {
   fetchCreatorProfiles,
   fetchCreatorSupporters,
@@ -173,7 +174,7 @@ export default function CreatorSupport() {
       setCreatorBio("");
       toast.success(isEditMode ? "Profile updated!" : "Profile created!");
     } catch (err) {
-      console.error("Failed to create profile:", err);
+      log.error("creatorSupport.createProfile.failed", err instanceof Error ? err : new Error(String(err)));
       toast.error(err instanceof Error ? err.message : "Failed to save profile");
     } finally {
       setIsCreatingProfile(false);

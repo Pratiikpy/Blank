@@ -12,6 +12,8 @@
 // serviceWorker.register("/sw.js")` is idempotent. The browser only fetches
 // the SW file again, then applies a new version if the bytes differ.
 
+import { log } from "./log";
+
 export function registerServiceWorker(): void {
   if (typeof window === "undefined") return;
   if (!("serviceWorker" in navigator)) return;
@@ -27,7 +29,7 @@ export function registerServiceWorker(): void {
     navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch((err) => {
       // Registration failures are non-fatal — push notifications won't work
       // but the app still loads. Surface to console for debugging.
-      console.warn("[sw] registration failed:", err);
+      log.warn("sw.registration.failed", err instanceof Error ? err : new Error(String(err)));
     });
   });
 }

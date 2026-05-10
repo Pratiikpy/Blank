@@ -16,7 +16,9 @@ import {
   Bell,
   Loader2,
   AlertCircle,
+  Inbox,
 } from "lucide-react";
+import { EmptyState } from "@/components/common/EmptyState";
 import { useCofheConnection, useCofheEncrypt } from "@/lib/cofhe-shim";
 import { usePrivacyMode } from "@/providers/PrivacyModeProvider";
 import { usePrivacy } from "@/hooks/usePrivacy";
@@ -1185,6 +1187,7 @@ interface ActivityListProps {
 }
 
 function ActivityList({ activities, isLoading, address, privacyMode, onViewAll }: ActivityListProps) {
+  const navigate = useNavigate();
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
@@ -1222,11 +1225,14 @@ function ActivityList({ activities, isLoading, address, privacyMode, onViewAll }
           ))}
         </div>
       ) : activities.length === 0 ? (
-        <div className="p-8 text-center rounded-2xl bg-black/[0.02] dark:bg-white/[0.02]">
-          <p className="text-[var(--text-tertiary)]">
-            No activity yet. Send or receive to get started.
-          </p>
-        </div>
+        <EmptyState
+          icon={Inbox}
+          tone="blue"
+          title="No activity yet"
+          body="Send a private payment or share a claim link to see your encrypted history here."
+          cta={{ label: "Send a payment", onClick: () => navigate("/app/send") }}
+          secondary={{ label: "Or create a claim link", onClick: () => navigate("/app/claim-link") }}
+        />
       ) : (
         <div className="flex flex-col gap-3">
           {activities.map((activity) => {

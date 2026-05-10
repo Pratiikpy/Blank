@@ -18,6 +18,12 @@ const Pricing      = lazy(() => import("@/blank-ui/landing/Pricing"));
 const Roadmap      = lazy(() => import("@/blank-ui/landing/Roadmap"));
 const Blog         = lazy(() => import("@/blank-ui/landing/Blog"));
 const BlogPost     = lazy(() => import("@/blank-ui/landing/BlogPost"));
+// Wave 4 — magic claim links: public recipient flow.
+const ClaimLinkPage = lazy(() => import("@/blank-ui/screens/ClaimLinkPage"));
+// Wave 4 — storefront: public buyer flow.
+const StorefrontPage = lazy(() => import("@/blank-ui/screens/StorefrontPage"));
+// Wave 4 — encrypted crowdfund: public contributor flow.
+const CrowdfundPage = lazy(() => import("@/blank-ui/screens/CrowdfundPage"));
 
 // The app itself — separate bundle, wallet-gated internally
 const BlankApp  = lazy(() =>
@@ -101,6 +107,14 @@ export function App() {
           <Route path="/roadmap"             element={<Roadmap />} />
           <Route path="/blog"                element={<Blog />} />
           <Route path="/blog/:slug"          element={<BlogPost />} />
+          {/* Wave 4 — encrypted claim links. Public so a recipient with no
+              prior Blank wallet can open the URL, create a passkey, and claim. */}
+          <Route path="/claim/:chainId/:linkId" element={<ClaimLinkPage />} />
+          {/* Wave 4 — storefront. Public so a buyer with no Blank wallet can
+              open the URL, create a passkey, and pay/bid. */}
+          <Route path="/shop/:chainId/:listingId" element={<StorefrontPage />} />
+          {/* Wave 4 — public crowdfund contributor page. */}
+          <Route path="/fund/:chainId/:campaignId" element={<CrowdfundPage />} />
           {/*
             The product lives under /app/*. BlankApp has its own internal <Routes>
             with absolute paths prefixed /app (e.g., /app/send, /app/groups, etc.).

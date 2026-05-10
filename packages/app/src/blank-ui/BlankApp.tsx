@@ -48,6 +48,12 @@ const SmartWallet = lazy(() => import("./screens/SmartWallet"));
 const Settings = lazy(() => import("./screens/Settings"));
 const Help = lazy(() => import("./screens/Help"));
 const TransactionDetail = lazy(() => import("./screens/TransactionDetail"));
+// Wave 4 — magic claim links create flow (recipient flow is at /claim/* in App.tsx)
+const CreateClaimLink = lazy(() => import("./screens/CreateClaimLink"));
+// Wave 4 — storefront seller flow.
+const CreateListing = lazy(() => import("./screens/CreateListing"));
+// Wave 4 — crowdfund creator flow.
+const CreateCampaign = lazy(() => import("./screens/CreateCampaign"));
 
 // Desktop sidebar
 import { DesktopSidebar } from "./components/DesktopSidebar";
@@ -451,6 +457,9 @@ export function BlankApp() {
               <Route path="burners" element={<Burners />} />
               <Route path="scheduled" element={<ScheduledSends />} />
               <Route path="gifts" element={<Gifts />} />
+              <Route path="claim-link" element={<CreateClaimLink />} />
+              <Route path="sell" element={<CreateListing />} />
+              <Route path="fundraise" element={<CreateCampaign />} />
               <Route path="swap" element={<Swap />} />
               <Route path="bridge" element={<Bridge />} />
               <Route path="analytics" element={<Analytics />} />

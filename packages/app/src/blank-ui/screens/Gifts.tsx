@@ -20,6 +20,7 @@ import { useActivityFeed } from "@/hooks/useActivityFeed";
 import { useChain } from "@/providers/ChainProvider";
 import { GiftMoneyAbi } from "@/lib/abis";
 import { formatUsdcInput } from "@/lib/format";
+import { EmptyState } from "@/components/common/EmptyState";
 
 // ---------------------------------------------------------------
 //  THEME OPTIONS
@@ -333,6 +334,7 @@ export default function Gifts() {
         </div>
 
         {/* Create Gift Section */}
+        <div id="create-gift-section" />
         {sentGift ? (
           <div className="rounded-[2rem] glass-card p-12 text-center mb-6">
             <div className="w-20 h-20 rounded-full bg-emerald-50 flex items-center justify-center mx-auto mb-4">
@@ -699,19 +701,27 @@ export default function Gifts() {
           </div>
 
           {filteredGifts.length === 0 ? (
-            <div className="py-16 text-center">
-              <div className="w-16 h-16 rounded-2xl bg-pink-50 flex items-center justify-center mx-auto mb-4">
-                <Gift size={32} className="text-pink-400" />
-              </div>
-              <p className="text-lg font-heading font-medium text-[var(--text-primary)] mb-1">
-                No {activeTab} gifts
-              </p>
-              <p className="text-sm text-[var(--text-primary)]/50">
-                {activeTab === "received"
-                  ? "Gifts you receive will appear here"
-                  : "Create a gift to get started"}
-              </p>
-            </div>
+            activeTab === "received" ? (
+              <EmptyState
+                icon={Gift}
+                tone="pink"
+                title="No gifts received yet"
+                body="When someone sends you a gift envelope, it'll show up here. Each gift is a private surprise — the amount stays hidden until you open it."
+              />
+            ) : (
+              <EmptyState
+                icon={Gift}
+                tone="pink"
+                title="You haven't sent any gifts"
+                body="Send a private gift to friends or family. Pick recipients, fund it, share. Each share is encrypted — only the receiver sees their amount."
+                cta={{
+                  label: "Create a gift envelope",
+                  onClick: () => {
+                    document.getElementById("create-gift-section")?.scrollIntoView({ behavior: "smooth" });
+                  },
+                }}
+              />
+            )
           ) : (
             <div className="space-y-3">
               {filteredGifts.map((activity) => {

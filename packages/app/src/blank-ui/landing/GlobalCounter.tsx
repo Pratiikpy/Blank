@@ -4,6 +4,7 @@ import { Lock, Loader2 } from "lucide-react";
 import { useChain } from "@/providers/ChainProvider";
 import { PaymentReceiptsAbi } from "@/lib/abis";
 import { useCofheDecryptForView, useCofheConnection } from "@/lib/cofhe-shim";
+import { log } from "@/lib/log";
 import "./global-counter.css";
 
 // ─────────────────────────────────────────────────────────────────────
@@ -79,7 +80,7 @@ export function GlobalCounter() {
       if (typeof cnt === "bigint") setTxCount(cnt);
     } catch (err) {
       // Network/RPC error — keep prior value, just stop the spinner
-      console.warn("[GlobalCounter] refresh failed:", err);
+      log.warn("globalCounter.refresh.failed", err instanceof Error ? err : new Error(String(err)));
     } finally {
       setLoading(false);
     }

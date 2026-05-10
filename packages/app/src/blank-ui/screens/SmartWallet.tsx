@@ -19,6 +19,7 @@ import toast from "react-hot-toast";
 import { useSmartAccount } from "@/hooks/useSmartAccount";
 import { useChain } from "@/providers/ChainProvider";
 import { TestUSDCAbi } from "@/lib/abis";
+import { log } from "@/lib/log";
 
 // ──────────────────────────────────────────────────────────────────
 //  SmartWallet (`/app/wallet`) — passkey signup + account info.
@@ -78,7 +79,7 @@ export default function SmartWallet() {
       setSmartUsdc(s);
       setEoaUsdc(e);
     } catch (err) {
-      console.warn("[SmartWallet] balance refresh failed:", err);
+      log.warn("smartWallet.balanceRefresh.failed", err instanceof Error ? err : new Error(String(err)));
     }
   }, [publicClient, account, eoaAddress, contracts]);
 

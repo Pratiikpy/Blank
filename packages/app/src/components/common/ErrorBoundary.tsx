@@ -1,6 +1,7 @@
 import { Component, type ReactNode } from "react";
 import { AlertTriangle, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { log } from "@/lib/log";
 
 interface Props {
   children: ReactNode;
@@ -23,7 +24,8 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    console.error("[Blank] Error caught by boundary:", error, errorInfo);
+    log.error("errorBoundary.caught", error);
+    log.warn("errorBoundary.context", { componentStack: errorInfo.componentStack ?? "" });
   }
 
   render() {

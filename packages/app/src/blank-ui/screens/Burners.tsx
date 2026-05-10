@@ -36,6 +36,7 @@ import {
   CloudDownload,
   KeyRound,
 } from "lucide-react";
+import { EmptyState } from "@/components/common/EmptyState";
 import { QRCodeSVG } from "qrcode.react";
 import toast from "react-hot-toast";
 import { usePublicClient } from "wagmi";
@@ -356,17 +357,13 @@ export default function Burners() {
 
         {/* Burner list */}
         {burners.length === 0 ? (
-          <div className="rounded-[2rem] glass-card-static p-10 text-center">
-            <div className="w-12 h-12 rounded-2xl bg-orange-500/10 flex items-center justify-center mx-auto mb-4">
-              <Flame size={22} className="text-orange-600 dark:text-orange-400" />
-            </div>
-            <p className="text-base font-medium text-[var(--text-primary)] mb-1">
-              No burners yet
-            </p>
-            <p className="text-sm text-[var(--text-secondary)] max-w-sm mx-auto">
-              Create one above. Each gets its own address you can share publicly
-              without revealing your main wallet.
-            </p>
+          <div className="rounded-[2rem] glass-card-static">
+            <EmptyState
+              icon={Flame}
+              tone="amber"
+              title="No burners yet"
+              body="Create one with the form above. Each burner gets its own address you can share publicly — your main wallet stays separate."
+            />
           </div>
         ) : (
           <div className="space-y-3" data-testid="burner-list">

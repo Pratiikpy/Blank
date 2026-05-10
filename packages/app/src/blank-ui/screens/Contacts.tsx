@@ -2,6 +2,7 @@ import { useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useContacts } from "@/hooks/useContacts";
 import { ChevronLeft, Plus, Trash2, Search, User } from "lucide-react";
+import { EmptyState } from "@/components/common/EmptyState";
 import toast from "react-hot-toast";
 import { truncateAddress } from "@/lib/address";
 
@@ -128,13 +129,13 @@ export default function Contacts() {
 
         <div className="glass-card-static rounded-[2rem] p-4">
           {filtered.length === 0 ? (
-            <div className="py-12 text-center">
-              <User size={32} className="mx-auto mb-3 text-gray-300" />
-              <p className="text-[var(--text-secondary)]">No contacts yet</p>
-              <p className="text-xs text-[var(--text-tertiary)] mt-1">
-                Add contacts for quick payments
-              </p>
-            </div>
+            <EmptyState
+              icon={User}
+              tone="purple"
+              title="No contacts yet"
+              body="Save addresses with nicknames so you don't have to retype them every time you send."
+              cta={{ label: "Add a contact", onClick: () => setShowAdd(true) }}
+            />
           ) : (
             filtered.map((c) => (
               <div

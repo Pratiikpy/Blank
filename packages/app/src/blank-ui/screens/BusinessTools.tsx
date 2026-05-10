@@ -20,6 +20,7 @@ import toast from "react-hot-toast";
 import { isAddress, parseUnits, formatUnits } from "viem";
 import { usePublicClient } from "wagmi";
 import { useBusinessHub } from "@/hooks/useBusinessHub";
+import { EmptyState } from "@/components/common/EmptyState";
 import { MILESTONE_TEMPLATES } from "@/lib/escrow-templates";
 import { useEffectiveAddress } from "@/hooks/useEffectiveAddress";
 import { useChain } from "@/providers/ChainProvider";
@@ -42,6 +43,7 @@ import {
 } from "@/lib/supabase";
 import { useActivityFeed } from "@/hooks/useActivityFeed";
 import { useRealtime } from "@/providers/RealtimeProvider";
+import { log } from "@/lib/log";
 
 const MAX_PAYROLL_SIZE = 30;
 const INVOICE_PAGE_SIZE = 10;
@@ -176,7 +178,7 @@ export default function BusinessTools() {
       setInvoices(deduped);
       setEscrows(userEscrows);
     } catch (err) {
-      console.warn("Failed to load business data:", err);
+      log.warn("businessTools.loadData.failed", err instanceof Error ? err : new Error(String(err)));
       setDataError("Failed to load data. Tap to retry.");
     } finally {
       setIsLoadingData(false);
@@ -709,11 +711,13 @@ export default function BusinessTools() {
                   <p className="font-medium mb-1">{dataError}</p>
                 </button>
               ) : invoices.length === 0 ? (
-                <div className="text-center py-8 text-[var(--text-primary)]/40">
-                  <FileText size={40} className="mx-auto mb-3 opacity-30" />
-                  <p className="font-medium mb-1">No invoices yet</p>
-                  <p className="text-sm">Create your first invoice to get started</p>
-                </div>
+                <EmptyState
+                  icon={FileText}
+                  tone="slate"
+                  title="No invoices yet"
+                  body="Send your first private invoice. Amounts stay encrypted on-chain — only you and your client see them."
+                  cta={{ label: "Create your first invoice", onClick: () => setShowModal(true) }}
+                />
               ) : (
                 <div className="space-y-3">
                   {invoices.slice(0, visibleInvoiceCount).map((invoice) => (
@@ -822,11 +826,15 @@ export default function BusinessTools() {
 
             <div className="rounded-[2rem] glass-card p-4 sm:p-8">
               <h3 className="text-xl font-heading font-medium text-[var(--text-primary)] mb-6">Payroll</h3>
-              <div className="text-center py-8 text-[var(--text-primary)]/40">
-                <DollarSign size={40} className="mx-auto mb-3 opacity-30" />
-                <p className="font-medium mb-1">Run encrypted payroll</p>
-                <p className="text-sm">Click &ldquo;Run Payroll&rdquo; to send encrypted salary payments to multiple employees at once</p>
-              </div>
+              <EmptyState
+                icon={DollarSign}
+                tone="emerald"
+                title="Run encrypted payroll"
+                body="Send salaries to multiple employees in a single transaction. Each amount is FHE-encrypted client-side — every employee only sees their own pay. Upload a CSV or paste a list."
+                cta={{ label: "Run Payroll", onClick: () => setShowModal(true) }}
+              />
+            </div>
+            <div className={cn("rounded-[2rem] glass-card p-4 sm:p-8", payrollActivities.length === 0 && "hidden")}>
 
               {/* Payroll History */}
               {payrollActivities.length > 0 && (
@@ -1106,6 +1114,57 @@ export default function BusinessTools() {
 
             {activeTab === "payroll" && (
               <div className="space-y-4">
+                {/* Wave 4 #256 — drag-drop CSV upload that fills the comma-list
+                    fields below. CSV format: one row per employee,
+                    `address,amount` (header row optional). Comments OK. */}
+                <div>
+                  <label className="text-xs text-[var(--text-primary)]/50 font-medium uppercase mb-2 block">
+                    Upload CSV (optional)
+                  </label>
+                  <input
+                    type="file"
+                    accept=".csv,text/csv"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      const reader = new FileReader();
+                      reader.onload = () => {
+                        const text = String(reader.result ?? "");
+                        const rows = text.split(/\r?\n/)
+                          .map((l) => l.trim())
+                          .filter((l) => l.length > 0 && !l.startsWith("#"));
+                        // Skip header if first cell is non-hex/non-numeric
+                        const firstFirstCell = rows[0]?.split(",")[0]?.trim() ?? "";
+                        const startsWithHeader = !firstFirstCell.startsWith("0x") && !/^[0-9.]/.test(firstFirstCell);
+                        const dataRows = startsWithHeader ? rows.slice(1) : rows;
+                        const addrs: string[] = [];
+                        const amts: string[] = [];
+                        for (const row of dataRows) {
+                          const [a, amt] = row.split(",").map((s) => s.trim());
+                          if (a && amt) {
+                            addrs.push(a);
+                            amts.push(amt);
+                          }
+                        }
+                        if (addrs.length === 0) {
+                          toast.error("CSV had no valid rows");
+                          return;
+                        }
+                        setPayAddresses(addrs.join(", "));
+                        setPayAmounts(amts.join(", "));
+                        toast.success(`Loaded ${addrs.length} row${addrs.length === 1 ? "" : "s"} from CSV`);
+                      };
+                      reader.readAsText(file);
+                      // reset input so re-selecting the same file fires onChange
+                      e.target.value = "";
+                    }}
+                    className="block w-full text-sm text-[var(--text-secondary)] file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-medium file:bg-[var(--surface-2)] file:text-[var(--text-primary)] hover:file:bg-[var(--surface-3)] cursor-pointer"
+                  />
+                  <p className="text-xs text-[var(--text-tertiary)] mt-2">
+                    One row per employee: <code className="font-mono">address,amount</code>. Header row optional.
+                  </p>
+                </div>
+
                 <div>
                   <label className="text-xs text-[var(--text-primary)]/50 font-medium uppercase mb-2 block">Employee Addresses (comma-separated)</label>
                   <textarea
@@ -1126,6 +1185,34 @@ export default function BusinessTools() {
                     className="w-full px-5 py-4 rounded-2xl bg-white/60 dark:bg-white/10 border border-black/10 dark:border-white/10 focus:border-black/20 dark:focus:border-white/20 focus:ring-4 focus:ring-black/5 dark:focus:ring-white/5 dark:text-white outline-none resize-none"
                   />
                 </div>
+                {/* Live preview */}
+                {(() => {
+                  const addrs = payAddresses.split(",").map((s) => s.trim()).filter(Boolean);
+                  const amts = payAmounts.split(",").map((s) => s.trim()).filter(Boolean);
+                  const rows = Math.max(addrs.length, amts.length);
+                  if (rows === 0) return null;
+                  return (
+                    <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface-2)] overflow-hidden">
+                      <div className="px-4 py-2 text-xs font-medium uppercase tracking-wide text-[var(--text-secondary)] border-b border-[var(--border)] flex justify-between">
+                        <span>Preview ({rows} {rows === 1 ? "employee" : "employees"})</span>
+                        <span>{addrs.length === amts.length ? "✓ counts match" : "✗ count mismatch"}</span>
+                      </div>
+                      <div className="max-h-48 overflow-y-auto divide-y divide-[var(--border)]">
+                        {Array.from({ length: rows }).map((_, i) => {
+                          const a = addrs[i] ?? "(missing)";
+                          const amt = amts[i] ?? "(missing)";
+                          const valid = !!addrs[i] && !!amts[i] && isAddress(addrs[i]);
+                          return (
+                            <div key={i} className="flex items-center justify-between px-4 py-2 text-xs font-mono">
+                              <span className={cn("truncate", !valid && "text-amber-600")}>{a}</span>
+                              <span className="ml-3 tabular-nums">{amt} USDC</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
                 <div className="p-4 rounded-2xl bg-blue-50 border border-blue-100 text-sm text-blue-700">
                   Each amount will be individually encrypted with FHE before sending. Employees only see their own salary.
                 </div>
