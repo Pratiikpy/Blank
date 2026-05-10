@@ -2,7 +2,7 @@ import type { BlogPost } from "./posts";
 
 const post: BlogPost = {
   slug: "wave-3-shipped",
-  title: "Wave 3 — workspace modes, private invoice escrow, proof-of-payment",
+  title: "Wave 3: workspace modes, private invoice escrow, proof-of-payment",
   date: "2026-04-29",
   summary:
     "What landed in Wave 3, why each piece was the right call, and what we deliberately didn't ship.",

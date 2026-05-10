@@ -2,7 +2,7 @@ import type { BlogPost } from "./posts";
 
 const post: BlogPost = {
   slug: "fhe-vs-zk",
-  title: "Choosing FHE over zero-knowledge — for the specific shape of problem we have",
+  title: "Choosing FHE over zero-knowledge for the specific shape of problem we have",
   date: "2026-05-01",
   summary:
     "ZK proves statements about hidden data. FHE computes on hidden data. Different verbs, different problems. Here's why we picked FHE for amount-private payments.",

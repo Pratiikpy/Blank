@@ -2,10 +2,10 @@ import type { BlogPost } from "./posts";
 
 const post: BlogPost = {
   slug: "why-fhenix-cofhe",
-  title: "Why we built Blank on Fhenix CoFHE — and not on an FHE L1",
+  title: "Why we built Blank on Fhenix CoFHE, not on an FHE L1",
   date: "2026-05-01",
   summary:
-    "There are multiple FHE projects you could build on today. We picked Fhenix. The reason isn't 'FHE is better' — it's that Fhenix's specific architectural shape, the co-processor, is the right shape for application builders shipping on Ethereum.",
+    "There are multiple FHE projects you could build on today. We picked Fhenix. The reason isn't 'FHE is better'. It's that Fhenix's specific architectural shape, the co-processor, is the right shape for application builders shipping on Ethereum.",
   author: "The Blank team",
   category: "deep-dive",
   readingTimeMin: 8,
@@ -14,15 +14,15 @@ const post: BlogPost = {
       <p>
         Before we wrote a line of code we had to make the most
         consequential technical decision of the project: which FHE
-        stack to build on. It wasn't between FHE and ZK — that's a
-        different post. It was between several FHE projects, all
+        stack to build on. It wasn't between FHE and ZK (that's a
+        different post). It was between several FHE projects, all
         serious, all well-funded, all with real engineers shipping
         real code.
       </p>
       <p>
         We picked <strong>Fhenix CoFHE</strong>. This post is about why,
         with as much specificity as we can give. The honest version
-        isn't "Fhenix is the best FHE" — it's "Fhenix's specific
+        isn't "Fhenix is the best FHE". It's "Fhenix's specific
         architectural shape, the co-processor model, is the right shape
         for application builders who want to ship on Ethereum without
         fragmenting their liquidity, their tooling, or their users into

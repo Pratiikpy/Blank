@@ -5,7 +5,7 @@ const post: BlogPost = {
   title: "Why no token, ever",
   date: "2026-04-30",
   summary:
-    "Tokens solve specific problems. Blank doesn't have those problems. Here's why we won't issue one — and why that's a feature.",
+    "Tokens solve specific problems. Blank doesn't have those problems. Here's why we won't issue one, and why that's a feature.",
   author: "The Blank team",
   category: "writeup",
   readingTimeMin: 4,
