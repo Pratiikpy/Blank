@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { getRpcUrls } from "./rpc";
-import { ETH_SEPOLIA_ID, BASE_SEPOLIA_ID } from "./constants";
+import { ETH_SEPOLIA_ID, BASE_SEPOLIA_ID, type SupportedChainId } from "./constants";
 
 // §15.x lib test for the per-chain RPC URL resolver. The list gets
 // passed to viem's fallback() transport so order matters (primary
@@ -18,7 +18,7 @@ describe("getRpcUrls", () => {
   });
 
   it("returns only well-formed https URLs", () => {
-    for (const id of [ETH_SEPOLIA_ID, BASE_SEPOLIA_ID]) {
+    for (const id of [ETH_SEPOLIA_ID, BASE_SEPOLIA_ID] as SupportedChainId[]) {
       for (const url of getRpcUrls(id)) {
         expect(url).toMatch(/^https?:\/\//);
         // Must be parseable
@@ -48,7 +48,7 @@ describe("getRpcUrls", () => {
   });
 
   it("never includes mainnet endpoints", () => {
-    for (const id of [ETH_SEPOLIA_ID, BASE_SEPOLIA_ID]) {
+    for (const id of [ETH_SEPOLIA_ID, BASE_SEPOLIA_ID] as SupportedChainId[]) {
       for (const url of getRpcUrls(id)) {
         const lower = url.toLowerCase();
         // Sanity: a mainnet RPC slipping in would silently route writes
