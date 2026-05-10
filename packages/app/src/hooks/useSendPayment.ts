@@ -9,6 +9,7 @@ import {
 } from "@/lib/cofhe-shim";
 import { Encryptable } from "@/lib/cofhe-shim";
 import toast from "react-hot-toast";
+import { log } from "@/lib/log";
 import { useChain } from "@/providers/ChainProvider";
 import { BusinessHubAbi, FHERC20VaultAbi, PaymentHubAbi } from "@/lib/abis";
 import { isVaultApproved, markVaultApproved, clearVaultApproval } from "@/lib/approval";
@@ -516,7 +517,7 @@ export function useSendPayment() {
       const encrypted = await encryptInputsAsync([
         Encryptable.uint64(amountWei),
       ]);
-      console.log("[useSendPayment] post-encrypt OK len=", encrypted?.length);
+      log.debug("useSendPayment.encrypt.success", { length: encrypted?.length });
       // Explicitly construct ABI tuple from SDK result (CipherPay pattern)
       const raw = encrypted[0] as any;
       const encAmount = {
@@ -525,11 +526,11 @@ export function useSendPayment() {
         utype: Number(raw.utype ?? raw.data?.utype ?? 5),
         signature: (raw.signature ?? raw.data?.signature ?? "0x") as `0x${string}`,
       };
-      console.log("[useSendPayment] encAmount built, ctHash hex len:", encAmount.ctHash.toString(16).length, "approved:", isVaultApproved(contracts.PaymentHub));
+      log.debug("useSendPayment.encAmount.built", { ctHashHexLen: encAmount.ctHash.toString(16).length, approved: isVaultApproved(contracts.PaymentHub) });
 
       // Step 2: Approve + Send
       setState((s) => ({ ...s, step: "sending", encryptionProgress: 100 }));
-      console.log("[useSendPayment] step=sending. Branch:", isVaultApproved(contracts.PaymentHub) ? "send-only" : "approve+send");
+      log.debug("useSendPayment.step.sending", { branch: isVaultApproved(contracts.PaymentHub) ? "send-only" : "approve+send" });
 
       // Phase 7.D: when caller passes paymasterMode === "self", every
       // unifiedWrite below builds a UserOp with paymasterAndData = "0x" so
@@ -537,7 +538,7 @@ export function useSendPayment() {
       // SendConfirm.tsx resolves the mode based on usePaymasterHealth +
       // useBalance; we just forward whatever it picked.
       if (!isVaultApproved(contracts.PaymentHub)) {
-        console.log("[useSendPayment] calling unifiedWrite for approvePlaintext... typeof:", typeof unifiedWrite, "fnName:", (unifiedWrite as { name?: string })?.name ?? "?", "paymasterMode:", paymasterMode ?? "sponsored");
+        log.debug("useSendPayment.approve.calling", { unifiedWriteType: typeof unifiedWrite, fnName: (unifiedWrite as { name?: string })?.name ?? "?", paymasterMode: paymasterMode ?? "sponsored" });
         let approveHash: `0x${string}`;
         try {
           approveHash = await unifiedWrite({
@@ -549,16 +550,16 @@ export function useSendPayment() {
             paymaster: paymasterMode,
           });
         } catch (e) {
-          console.error("[useSendPayment] unifiedWrite(approve) THREW:", String(e).slice(0, 800));
+          log.error("useSendPayment.approve.threw", e instanceof Error ? e : new Error(String(e).slice(0, 800)));
           throw e;
         }
-        console.log("[useSendPayment] approve tx hash:", approveHash);
+        log.debug("useSendPayment.approve.txHash", { hash: approveHash });
         await publicClient.waitForTransactionReceipt({ hash: approveHash, confirmations: 1 });
         markVaultApproved(contracts.PaymentHub);
-        console.log("[useSendPayment] approve confirmed, proceeding to sendPayment");
+        log.debug("useSendPayment.approve.confirmed");
       }
 
-      console.log("[useSendPayment] calling unifiedWrite for sendPayment... paymasterMode:", paymasterMode ?? "sponsored");
+      log.debug("useSendPayment.sendPayment.calling", { paymasterMode: paymasterMode ?? "sponsored" });
       const hash = await unifiedWrite({
         address: contracts.PaymentHub,
         abi: PaymentHubAbi,
