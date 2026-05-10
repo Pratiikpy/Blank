@@ -180,7 +180,9 @@ export function useStorefront() {
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         pipeline.markFailed(err);
-        setState({ ...initial, step: "error", error: msg });
+        // §3.11: preserve prev.txHash so the error state still links to the
+        // failed tx on the explorer. Pre-fix overwrote with ...initial.
+        setState((prev) => ({ ...prev, isProcessing: false, step: "error", error: msg }));
         toast.error(msg);
         return null;
       }
@@ -236,7 +238,9 @@ export function useStorefront() {
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         pipeline.markFailed(err);
-        setState({ ...initial, step: "error", error: msg });
+        // §3.11: preserve prev.txHash so the error state still links to the
+        // failed tx on the explorer. Pre-fix overwrote with ...initial.
+        setState((prev) => ({ ...prev, isProcessing: false, step: "error", error: msg }));
         toast.error(msg);
         return false;
       }
@@ -286,7 +290,9 @@ export function useStorefront() {
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         pipeline.markFailed(err);
-        setState({ ...initial, step: "error", error: msg });
+        // §3.11: preserve prev.txHash so the error state still links to the
+        // failed tx on the explorer. Pre-fix overwrote with ...initial.
+        setState((prev) => ({ ...prev, isProcessing: false, step: "error", error: msg }));
         toast.error(msg);
         return false;
       }
@@ -316,7 +322,9 @@ export function useStorefront() {
         return true;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        setState({ ...initial, step: "error", error: msg });
+        // §3.11: preserve prev.txHash so the error state still links to the
+        // failed tx on the explorer. Pre-fix overwrote with ...initial.
+        setState((prev) => ({ ...prev, isProcessing: false, step: "error", error: msg }));
         toast.error(msg);
         return false;
       }
@@ -388,7 +396,9 @@ export function useStorefront() {
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         pipeline.markFailed(err);
-        setState({ ...initial, step: "error", error: msg });
+        // §3.11: preserve prev.txHash so the error state still links to the
+        // failed tx on the explorer. Pre-fix overwrote with ...initial.
+        setState((prev) => ({ ...prev, isProcessing: false, step: "error", error: msg }));
         toast.error(msg);
         return false;
       }

@@ -127,7 +127,9 @@ export function useCrowdfund() {
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         pipeline.markFailed(err);
-        setState({ ...initial, step: "error", error: msg });
+        // §3.11: preserve prev.txHash so the error state still links to the
+        // failed tx on the explorer.
+        setState((prev) => ({ ...prev, isProcessing: false, step: "error", error: msg }));
         toast.error(msg);
         return null;
       }
@@ -174,7 +176,9 @@ export function useCrowdfund() {
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         pipeline.markFailed(err);
-        setState({ ...initial, step: "error", error: msg });
+        // §3.11: preserve prev.txHash so the error state still links to the
+        // failed tx on the explorer.
+        setState((prev) => ({ ...prev, isProcessing: false, step: "error", error: msg }));
         toast.error(msg);
         return false;
       }
@@ -202,7 +206,9 @@ export function useCrowdfund() {
         return true;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        setState({ ...initial, step: "error", error: msg });
+        // §3.11: preserve prev.txHash so the error state still links to the
+        // failed tx on the explorer.
+        setState((prev) => ({ ...prev, isProcessing: false, step: "error", error: msg }));
         toast.error(msg);
         return false;
       }

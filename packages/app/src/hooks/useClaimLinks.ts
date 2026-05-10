@@ -225,7 +225,9 @@ export function useClaimLinks() {
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         pipeline.markFailed(err);
-        setState({ ...initial, step: "error", error: message });
+        // §3.11: preserve prev.txHash so the error state still links to the
+        // failed tx on the explorer.
+        setState((prev) => ({ ...prev, isProcessing: false, step: "error", error: message }));
         toast.error(message);
         return null;
       }
@@ -294,7 +296,9 @@ export function useClaimLinks() {
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         pipeline.markFailed(err);
-        setState({ ...initial, step: "error", error: message });
+        // §3.11: preserve prev.txHash so the error state still links to the
+        // failed tx on the explorer.
+        setState((prev) => ({ ...prev, isProcessing: false, step: "error", error: message }));
         toast.error(message);
         return false;
       }
