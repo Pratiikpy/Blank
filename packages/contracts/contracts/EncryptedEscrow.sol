@@ -149,6 +149,10 @@ contract EncryptedEscrow is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
         Escrow storage e = _escrows[escrowId];
         require(e.status == EscrowStatus.Active, "EncryptedEscrow: not active");
         require(msg.sender == e.beneficiary, "EncryptedEscrow: not beneficiary");
+        // §2.5 A17 of BEST_VERSION_FULL_PLAN: idempotency guard prevents
+        // duplicate EscrowDelivered events polluting the indexer between
+        // markDelivered and depositor approval.
+        require(!e.beneficiaryMarkedDelivered, "EncryptedEscrow: already delivered");
         e.beneficiaryMarkedDelivered = true;
         emit EscrowDelivered(escrowId, msg.sender);
         try eventHub.emitActivity(msg.sender, e.depositor, "escrow_delivered", "", escrowId) {} catch {}
@@ -159,6 +163,8 @@ contract EncryptedEscrow is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
         Escrow storage e = _escrows[escrowId];
         require(e.status == EscrowStatus.Active, "EncryptedEscrow: not active");
         require(msg.sender == e.depositor, "EncryptedEscrow: not depositor");
+        // §2.5 A17: same idempotency guard for approval-side.
+        require(!e.depositorApproved, "EncryptedEscrow: already approved");
         e.depositorApproved = true;
         emit EscrowApproved(escrowId, msg.sender);
         if (e.beneficiaryMarkedDelivered) _release(escrowId);

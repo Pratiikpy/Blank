@@ -194,6 +194,35 @@ describe("EncryptedEscrow", () => {
     ).to.be.revertedWith("EncryptedEscrow: not arbiter");
   });
 
+  // §2.5 A17 of BEST_VERSION_FULL_PLAN: idempotency guards.
+  it("markDelivered rejects double-call (idempotency)", async () => {
+    const ctx = await loadFixture(deployFixture);
+    const enc = await encUint64(ctx.client, ctx.alice, usdc(10));
+    await ctx.escrow.connect(ctx.alice).createEscrow(
+      ctx.bob.address, await ctx.vault.getAddress(), enc,
+      "x", ctx.charlie.address, Math.floor(Date.now() / 1000) + 7 * 86400,
+    );
+    await ctx.escrow.connect(ctx.bob).markDelivered(0);
+
+    await expect(
+      ctx.escrow.connect(ctx.bob).markDelivered(0),
+    ).to.be.revertedWith("EncryptedEscrow: already delivered");
+  });
+
+  it("approveRelease rejects double-call (idempotency)", async () => {
+    const ctx = await loadFixture(deployFixture);
+    const enc = await encUint64(ctx.client, ctx.alice, usdc(10));
+    await ctx.escrow.connect(ctx.alice).createEscrow(
+      ctx.bob.address, await ctx.vault.getAddress(), enc,
+      "x", ctx.charlie.address, Math.floor(Date.now() / 1000) + 7 * 86400,
+    );
+    await ctx.escrow.connect(ctx.alice).approveRelease(0);
+
+    await expect(
+      ctx.escrow.connect(ctx.alice).approveRelease(0),
+    ).to.be.revertedWith("EncryptedEscrow: already approved");
+  });
+
   it("no-arbiter escrow rejects dispute (would be permanent fund-lock)", async () => {
     const ctx = await loadFixture(deployFixture);
     const enc = await encUint64(ctx.client, ctx.alice, usdc(10));
