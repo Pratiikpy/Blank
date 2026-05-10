@@ -444,13 +444,17 @@ Full address list including Ethereum Sepolia: [`packages/contracts/deployments/`
 | Layer | What we do |
 |-------|------------|
 | **Privacy** | `FHE.select()` over `require()`. A revert leaks one bit of information. Blank never reverts on insufficient funds. |
-| **Encryption** | Every encrypted input is ZK-verified + threshold-signed before on-chain use |
-| **ACL** | 4-tier FHE permits (`allowThis`, `allowSender`, `allow`, `allowTransient`) |
-| **Contracts** | Reentrancy guards everywhere. UUPS storage layout snapshotted in CI; every upgrade fails the build if a slot moves. `uint256[50] private __gap` reserved on every hub. |
+| **Encryption** | Every encrypted input is ZK-verified + threshold-signed before on-chain use. Decrypts gated by `FHE.publishDecryptResult` + threshold signature on-chain. |
+| **ACL** | 4-tier FHE permits (`allowThis`, `allowSender`, `allow`, `allowTransient`). Sender retains decrypt rights on their own values until claim or refund. |
+| **Contracts** | Reentrancy guards everywhere. UUPS storage layout snapshotted in CI for **all 19 UUPS contracts**; every upgrade fails the build if a slot moves. Append-via-`__gap` pattern enforced (`__gap[N]` decremented when a new state variable is added; total slot count preserved). |
 | **AA** | ERC-1271 length guards on passkey accounts. Paymaster validates every target in `executeBatch`. No bypass via batched calls. |
+| **Auction** | Sealed-bid auctions resolve via FHE-tournament (`FHE.gt` + `FHE.select`) with off-chain threshold-signed `revealWinner`. No last-bidder-wins; the differentiating 5/10/7 test catches regression. |
+| **Escrow** | No-arbiter escrows reject `disputeEscrow` at the source; funds always retrievable via `claimExpiredEscrow` after the deadline. No permanent fund-lock path. |
+| **Claim links** | Per-link expiry capped at 365 days (`MAX_EXPIRY_SECONDS`). No `type(uint256).max` shenanigans. Domain-separated hashes (`keccak256(BLANK_CLAIM_v1, mode, secret, ...)`) prevent cross-mode replay. |
 | **Stealth** | Claim codes bound to `keccak256(code, claimer)`. Intercepting the code is useless without the claimer's address. |
 | **Stealth keystore** | AES-GCM-at-rest with PBKDF2-derived key (250k iterations) on the user's passphrase. Plaintext never on disk. |
-| **Frontend** | Wallet-signed challenges on all email + push endpoints. CSP, X-Frame-Options DENY, Permissions-Policy headers. |
+| **Frontend** | Wallet-signed challenges on all email + push endpoints. CSP, X-Frame-Options DENY, Permissions-Policy headers. CI typechecks Vercel functions (was un-typechecked before §1.10). |
+| **Test wallets** | Real testnet mnemonics created by `tasks/fund-mm-test-wallet` are gitignored at `packages/contracts/.gitignore`. Operator warning in the task doc. Never committed to history. |
 
 Find a hole? Open an issue or email. We treat security reports seriously.
 
