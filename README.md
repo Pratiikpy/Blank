@@ -488,6 +488,15 @@ Find a hole? Open an issue or email. We treat security reports seriously.
 
 Gas is free. No extension needed. Works on mobile.
 
+**Try a Wave 4 feature in 60 seconds:**
+
+```
+- /app/claim-link        create a magic claim link, share via URL
+- /app/shop              create a sealed-bid auction listing
+- /app/fund              start an encrypted-goal crowdfund
+- /app/escrow            open an encrypted-amount escrow with arbiter
+```
+
 **Run locally:**
 
 ```bash
@@ -497,10 +506,23 @@ cd Blank && pnpm install
 # Frontend (terminal 1)
 cd packages/app && cp .env.example .env && pnpm dev
 
-# Contracts (terminal 2)
+# Contracts (terminal 2): compile + run full test suite
 cd packages/contracts && cp .env.example .env
-npx hardhat compile && npx hardhat test
+pnpm exec hardhat compile && pnpm exec hardhat test
+
+# Storage layout safety (UUPS upgrade gate)
+cd packages/contracts && pnpm storage:check
+
+# Frontend unit tests (vitest, ~5s)
+cd packages/app && pnpm exec vitest run
+
+# Typecheck Vercel functions
+cd packages/app && pnpm exec tsc --noEmit -p api/tsconfig.json
 ```
+
+All 4 of those local checks run automatically in CI on every PR.
+A fresh clone, `pnpm install`, then any of the above commands
+mirrors what the build does on push.
 
 ---
 
