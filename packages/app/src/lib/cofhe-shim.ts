@@ -39,6 +39,7 @@ import {
   ETH_SEPOLIA_ID,
   type SupportedChainId,
 } from "./constants";
+import { log } from "./log";
 
 // ─── Active chain for SDK init (set by CofheProvider) ──────────────
 // Module-level state because `loadSdk()` runs outside React. Defaults to
@@ -340,7 +341,7 @@ export function useCofheEncrypt() {
   ) => {
     setIsEncrypting(true);
     try {
-      console.log("[cofhe-shim] encryptInputsAsync called with", items.length, "items");
+      log.debug("cofhe-shim.encryptInputsAsync.called", { itemCount: items.length });
 
       const sdkReady = await loadSdk();
 
@@ -348,17 +349,17 @@ export function useCofheEncrypt() {
       // (passkey-only mode). Nothing to do — the binder's connect call
       // populated _sdkClient with the smart-wallet-aware walletClient.
       if (sdkReady && _sdkClient && _sdkClient.connected && _activeConnectionSource === "smart-account") {
-        console.log("[cofhe-shim] SDK already bound to smart-account — using existing connection");
+        log.debug("cofhe-shim.sdk.alreadyBound");
       }
       // Connect path B: wagmi EOA path — eager connect from the encrypt call.
       else if (sdkReady && _sdkClient && !_sdkClient.connected && publicClient && walletClient) {
         try {
-          console.log("[cofhe-shim] Connecting SDK with wagmi clients...");
+          log.debug("cofhe-shim.sdk.connect.start");
           await _sdkClient.connect(publicClient as any, walletClient as any);
           _activeConnectionSource = "wagmi";
-          console.log("[cofhe-shim] SDK connected via wagmi ✓");
+          log.debug("cofhe-shim.sdk.connect.success", { via: "wagmi" });
         } catch (connectErr) {
-          console.warn("[cofhe-shim] SDK wagmi connect failed:", connectErr);
+          log.warn("cofhe-shim.sdk.connect.failed", connectErr instanceof Error ? connectErr : new Error(String(connectErr)));
         }
       }
       // Connect path C: passkey-only mode but binder hasn't fired yet.
@@ -441,7 +442,7 @@ export function useCofheEncrypt() {
             (builder as { onStep: (cb: typeof onStep) => unknown }).onStep(onStep);
           }
           const encrypted = await builder.execute();
-          console.log("[cofhe-shim] REAL encryption SUCCESS ✓");
+          log.debug("cofhe-shim.encrypt.success");
           return encrypted;
         } catch (err) {
           // Audit Top-28 #1 (most dangerous finding): the previous behaviour
@@ -454,7 +455,7 @@ export function useCofheEncrypt() {
           // a privacy leak. Fail-closed instead: throw, let callers surface
           // a clear error to the user, and never let plaintext masquerade
           // as ciphertext.
-          console.error("[cofhe-shim] REAL encryption FAILED:", err);
+          log.error("cofhe-shim.encrypt.failed", err instanceof Error ? err : new Error(String(err)));
           throw new Error(
             err instanceof Error
               ? `Encryption failed: ${err.message}`
