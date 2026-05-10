@@ -84,18 +84,26 @@ No mixer. No trusted custodian. No hardware enclaves. Pure math + a threshold ne
 | **Tip** | Creator support with tiers | Encrypted tip totals, on-chain Bronze/Silver/Gold |
 | **Swap** | P2P encrypted exchange | Atomic settlement, encrypted amounts |
 | **Agent** | AI-derived payments | Plain English → signed → on-chain |
+| **Claim links** | Bearer / email / address-bound payment links | Send to anyone via URL, claim with secret + (optional) email or wallet |
+| **Storefront** | Per-listing FixedPrice / Auction / PWYW | Encrypted prices, FHE-tournament sealed-bid auctions |
+| **Crowdfund** | Encrypted goal + encrypted contributions | Private fundraising, on-chain `FHE.gte(raised, goal)` verdict |
+| **Encrypted escrow** | Arbiter-or-deadline release | Encrypted-amount escrow with dispute path or auto-refund at expiry |
 
-Twelve product surfaces. One encrypted vault. One link to share.
+Sixteen product surfaces. One encrypted vault. One link to share.
 
 ---
 
 ## Send any of these links
 
 ```
-https://blank.app/i/12345              ← invoice (public link, private amount)
-https://blank.app/r/0xabc?amt=10       ← payment request
-https://blank.app/g/<claim-code>       ← gift envelope
-https://blank.app/v/<proof-id>         ← balance proof
+/i/12345                          ← invoice (public link, private amount)
+/r/0xabc?amt=10                   ← payment request
+/g/<claim-code>                   ← gift envelope
+/v/<proof-id>                     ← balance proof
+/claim/<chainId>/<linkId>#<secret>  ← magic claim link (bearer / email / address-bound)
+/shop/<chainId>/<listingId>       ← storefront listing (FixedPrice / Auction / PWYW)
+/fund/<chainId>/<campaignId>      ← encrypted crowdfund campaign
+/escrow/<chainId>/<escrowId>      ← encrypted escrow detail
 ```
 
 Each link is the entire payment flow. No login required to pay. No app to install. Recipients can interact with Blank without ever creating a wallet (we provision a passkey-signed smart account on their first claim).
