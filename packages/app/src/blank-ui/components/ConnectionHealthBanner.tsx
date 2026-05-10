@@ -29,10 +29,10 @@ export function ConnectionHealthBanner() {
       )}
       <span className="leading-tight">
         {both
-          ? "Connection issues — balances and live updates may be stale. Retrying…"
+          ? "Connection issues. Balances and live updates may be stale. Retrying…"
           : rpcDegraded
-            ? "RPC connection unstable — on-chain reads may be stale. Retrying…"
-            : "Live updates paused — try refreshing if your activity feed looks stale."}
+            ? "RPC connection unstable. On-chain reads may be stale. Retrying…"
+            : "Live updates paused. Try refreshing if your activity feed looks stale."}
       </span>
     </div>
   );

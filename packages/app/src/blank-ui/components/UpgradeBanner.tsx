@@ -147,7 +147,7 @@ export function UpgradeBanner() {
       // next render instead of after the 30s polling cadence — the
       // upgrade is mined by the time unifiedWrite resolves.
       await queryClient.invalidateQueries({ queryKey: ["blank-account-impl"] });
-      toast.success("Account upgraded — session keys are now available");
+      toast.success("Account upgraded. Session keys are now available");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Upgrade failed");
     } finally {

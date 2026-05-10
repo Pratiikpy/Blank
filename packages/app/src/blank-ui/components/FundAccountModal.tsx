@@ -112,7 +112,7 @@ export function FundAccountModal({
       await navigator.clipboard.writeText(address);
       setCopied(true);
     } catch {
-      toast.error("Could not copy — long-press the address to copy manually.");
+      toast.error("Could not copy. Long-press the address to copy manually.");
     }
   };
 
