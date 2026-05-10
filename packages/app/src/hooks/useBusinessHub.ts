@@ -7,6 +7,7 @@ import { useCofheEncrypt, useCofheConnection } from "@/lib/cofhe-shim";
 import { useCofheDecryptForTx } from "@/lib/cofhe-shim";
 import { Encryptable } from "@/lib/cofhe-shim";
 import toast from "react-hot-toast";
+import { log } from "@/lib/log";
 import { MAX_UINT64, type EncryptedInput } from "@/lib/constants";
 import { useChain } from "@/providers/ChainProvider";
 import { BusinessHubAbi, FHERC20VaultAbi, TestUSDCAbi } from "@/lib/abis";
@@ -230,7 +231,7 @@ export function useBusinessHub() {
                 gas: BigInt(150_000),
               });
             } catch (anchorErr) {
-              console.warn("On-chain invoice CID anchor failed:", anchorErr);
+              log.warn("useBusinessHub.invoice.cidAnchor.failed", anchorErr instanceof Error ? anchorErr : new Error(String(anchorErr)));
             }
 
             // Email-out (only when we have a client email AND Resend is wired).
@@ -251,7 +252,7 @@ export function useBusinessHub() {
               try {
                 auth = await signEmailAuth(message, signedAt);
               } catch (signErr) {
-                console.warn("Invoice email signing skipped:", signErr);
+                log.warn("useBusinessHub.invoice.emailSigning.skipped", signErr instanceof Error ? signErr : new Error(String(signErr)));
               }
               const result = await sendInvoiceEmail({
                 invoiceId,
@@ -262,12 +263,12 @@ export function useBusinessHub() {
                 ...(auth ?? {}),
               });
               if (!result.ok) {
-                console.warn("Invoice email send failed:", result.error);
+                log.warn("useBusinessHub.invoice.emailSend.failed", { error: String(result.error) });
               }
             }
           } catch (pdfErr) {
             // PDF / email is best-effort — invoice itself already succeeded.
-            console.warn("Invoice PDF/email pipeline failed:", pdfErr);
+            log.warn("useBusinessHub.invoice.pdfEmailPipeline.failed", pdfErr instanceof Error ? pdfErr : new Error(String(pdfErr)));
           }
         })();
       } catch (err) {
@@ -557,10 +558,10 @@ export function useBusinessHub() {
                   gas: BigInt(150_000),
                 });
               } catch (anchorErr) {
-                console.warn("On-chain escrow CID anchor failed:", anchorErr);
+                log.warn("useBusinessHub.escrow.cidAnchor.failed", anchorErr instanceof Error ? anchorErr : new Error(String(anchorErr)));
               }
             } catch (uploadErr) {
-              console.warn("Escrow attachment upload failed:", uploadErr);
+              log.warn("useBusinessHub.escrow.attachmentUpload.failed", uploadErr instanceof Error ? uploadErr : new Error(String(uploadErr)));
             }
           })();
         }
@@ -574,13 +575,13 @@ export function useBusinessHub() {
 
   const finalizeInvoice = useCallback(
     async (invoiceId: number) => {
-      console.log("[finalizeInvoice] entry", { invoiceId, step, hasAddress: !!address, hasPublicClient: !!publicClient });
+      log.debug("useBusinessHub.finalizeInvoice.entry", { invoiceId, step, hasAddress: !!address, hasPublicClient: !!publicClient });
       if (!address || !publicClient) {
         toast.error("Connection lost");
         return;
       }
       if (step !== "idle") {
-        console.log("[finalizeInvoice] bail — step:", step);
+        log.debug("useBusinessHub.finalizeInvoice.bail", { step });
         return;
       }
 
@@ -591,14 +592,14 @@ export function useBusinessHub() {
         // 1. Read the validation handle (ebool) from the contract
         // 2. Fetch off-chain decryption + Threshold Network signature
         // 3. Submit (matchPlaintext, signature) to payInvoiceFinalize
-        console.log("[finalizeInvoice] reading validation handle for invoice", invoiceId);
+        log.debug("useBusinessHub.finalizeInvoice.readingHandle", { invoiceId });
         const validationHandle = (await publicClient.readContract({
           address: contracts.BusinessHub as `0x${string}`,
           abi: BusinessHubAbi,
           functionName: "getInvoiceValidationHandle",
           args: [BigInt(invoiceId)],
         })) as bigint;
-        console.log("[finalizeInvoice] validationHandle =", validationHandle.toString());
+        log.debug("useBusinessHub.finalizeInvoice.validationHandle", { handle: validationHandle.toString() });
         if (!validationHandle || validationHandle === 0n) {
           throw new Error("Invoice not paid yet — nothing to finalize");
         }
@@ -659,7 +660,7 @@ export function useBusinessHub() {
         toast.success(matchPlaintext ? "Invoice finalized!" : "Invoice refunded — amount mismatch");
         setStepWithReset("success", 6000);
       } catch (err) {
-        console.error("[finalizeInvoice] ERROR:", err);
+        log.error("useBusinessHub.finalizeInvoice.error", err instanceof Error ? err : new Error(String(err)));
         toast.error(err instanceof Error ? err.message : "Failed to finalize");
         setStepWithReset("error", 5000);
       }
