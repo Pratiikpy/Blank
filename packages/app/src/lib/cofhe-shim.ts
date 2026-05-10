@@ -161,11 +161,11 @@ async function loadSdk(): Promise<boolean> {
       _sdkClient = _sdkModules.createCofheClient(config);
 
       _sdkLoaded = true;
-      console.log("[cofhe-shim] SDK loaded successfully");
+      log.debug("cofhe-shim.sdk.loaded");
       _notifySdkStateChange();
       return true;
     } catch (err) {
-      console.warn("[cofhe-shim] SDK failed to load, using fallback mode:", err);
+      log.warn("cofhe-shim.sdk.loadFailed.usingFallback", err instanceof Error ? err : new Error(String(err)));
       _sdkFailed = true;
       _notifySdkStateChange();
       return false;
@@ -213,7 +213,7 @@ export function useCofheConnection() {
           await _sdkClient.connect(publicClient, walletClient);
           _activeConnectionSource = "wagmi";
         } catch (err) {
-          console.warn("[cofhe-shim] SDK connect failed:", err);
+          log.warn("cofhe-shim.sdk.providerConnect.failed", err instanceof Error ? err : new Error(String(err)));
         }
       }
     })();
@@ -366,17 +366,17 @@ export function useCofheEncrypt() {
       // Wait briefly for it (binder runs as soon as smart account is
       // ready+deployed, which is async after mount).
       else if (sdkReady && _sdkClient && !_sdkClient.connected && !walletClient) {
-        console.log("[cofhe-shim] Waiting for SmartAccountCofheBinder to connect SDK...");
+        log.debug("cofhe-shim.binder.waiting");
         const start = Date.now();
         while (Date.now() - start < 15_000) {
           if (_sdkClient.connected) {
-            console.log("[cofhe-shim] Binder connected SDK ✓");
+            log.debug("cofhe-shim.binder.connected");
             break;
           }
           await new Promise((r) => setTimeout(r, 200));
         }
         if (!_sdkClient.connected) {
-          console.warn("[cofhe-shim] Binder didn't connect within 15s — encryption will throw");
+          log.warn("cofhe-shim.binder.timeout", { thresholdMs: 15000 });
         }
       }
       // Touch sdkStateTickEnc so React re-renders when SDK state changes.
@@ -393,7 +393,7 @@ export function useCofheEncrypt() {
           const sdkAccount = snap?.account;
           const sdkChainId = snap?.chainId;
           const walletClientAccount = snap?.walletClient?.account?.address;
-          console.log("[cofhe-shim] SDK state before encrypt:", { sdkAccount, sdkChainId, walletClientAccount });
+          log.debug("cofhe-shim.sdk.stateBeforeEncrypt", { sdkAccount, sdkChainId, walletClientAccount });
 
           // Explicit belt-and-suspenders setAccount — guarantees the SDK
           // signs for the address whose ERC-1271 on-chain identity will
@@ -418,18 +418,18 @@ export function useCofheEncrypt() {
             const alreadyWarm = typeof localStorage !== "undefined" && localStorage.getItem(warmupKey) === "1";
             if (!alreadyWarm) {
               try {
-                console.log("[cofhe-shim] permits.createSelf warmup starting for", authoritativeAccount);
+                log.debug("cofhe-shim.permits.warmup.start", { account: authoritativeAccount });
                 await (_sdkClient as { permits: { createSelf: (args: { issuer: string }) => Promise<unknown> } })
                   .permits.createSelf({ issuer: authoritativeAccount });
                 if (typeof localStorage !== "undefined") localStorage.setItem(warmupKey, "1");
-                console.log("[cofhe-shim] permits.createSelf warmup succeeded");
+                log.debug("cofhe-shim.permits.warmup.success");
               } catch (warmupErr) {
-                console.warn("[cofhe-shim] permits.createSelf warmup failed:", warmupErr);
+                log.warn("cofhe-shim.permits.warmup.failed", warmupErr instanceof Error ? warmupErr : new Error(String(warmupErr)));
               }
             }
           }
 
-          console.log("[cofhe-shim] Starting REAL encryption with explicit account=", authoritativeAccount);
+          log.debug("cofhe-shim.encrypt.start", { account: authoritativeAccount });
           const builder = _sdkClient.encryptInputs(items);
           if (authoritativeAccount && typeof builder.setAccount === "function") {
             builder.setAccount(authoritativeAccount);
@@ -499,7 +499,7 @@ export function useCofheDecryptForTx() {
   ): Promise<{ decryptedValue: bigint | boolean; signature: `0x${string}` } | null> => {
     const sdkReady = await loadSdk();
     if (!sdkReady || !_sdkClient) {
-      console.warn("[cofhe-shim] decryptForTx: SDK not ready");
+      log.warn("cofhe-shim.decryptForTx.sdkNotReady");
       return null;
     }
 
@@ -507,7 +507,7 @@ export function useCofheDecryptForTx() {
       try {
         await _sdkClient.connect(publicClient as any, walletClient as any);
       } catch (connectErr) {
-        console.warn("[cofhe-shim] decryptForTx: connect failed:", connectErr);
+        log.warn("cofhe-shim.decryptForTx.connectFailed", connectErr instanceof Error ? connectErr : new Error(String(connectErr)));
       }
     }
 
@@ -518,18 +518,18 @@ export function useCofheDecryptForTx() {
       };
       const fheTypeId = fheTypeMap[fheType] ?? 5;
 
-      console.log("[cofhe-shim] decryptForTx: requesting decryption for ctHash", ctHash.toString());
+      log.debug("cofhe-shim.decryptForTx.requesting", { ctHash: ctHash.toString() });
       const result = await _sdkClient
         .decryptForTx(ctHash, fheTypeId)
         .withoutPermit()
         .execute();
-      console.log("[cofhe-shim] decryptForTx: SUCCESS ✓");
+      log.debug("cofhe-shim.decryptForTx.success");
       return {
         decryptedValue: result.decryptedValue,
         signature: result.signature as `0x${string}`,
       };
     } catch (err) {
-      console.error("[cofhe-shim] decryptForTx: FAILED:", err);
+      log.error("cofhe-shim.decryptForTx.failed", err instanceof Error ? err : new Error(String(err)));
       return null;
     }
   }, [publicClient, walletClient]);
@@ -559,7 +559,7 @@ export function useCofheDecryptForView() {
       try {
         await _sdkClient.connect(publicClient as any, walletClient as any);
       } catch (err) {
-        console.warn("[cofhe-shim] decryptForView: connect failed:", err);
+        log.warn("cofhe-shim.decryptForView.connectFailed", err instanceof Error ? err : new Error(String(err)));
         return null;
       }
     }
@@ -584,7 +584,7 @@ export function useCofheDecryptForView() {
       const result = await _sdkClient.decryptForView(ctHash, fheTypeId).execute();
       return result;
     } catch (err) {
-      console.warn("[cofhe-shim] decryptForView failed:", err);
+      log.warn("cofhe-shim.decryptForView.failed", err instanceof Error ? err : new Error(String(err)));
       return null;
     }
   }, [publicClient, walletClient, address]);
@@ -743,7 +743,7 @@ export function useCofheActivePermit() {
             setPermitData({ isValid: permit.expiration > now, permit });
           })
           .catch((err: any) => {
-            console.warn("[cofhe-shim] Auto-create permit failed:", err);
+            log.warn("cofhe-shim.permits.autoCreate.failed", err instanceof Error ? err : new Error(String(err)));
           })
           .finally(() => { creatingRef.current = false; });
       }
@@ -767,14 +767,14 @@ export function useCofheActivePermit() {
 export function useCofheNavigateToCreatePermit() {
   return useCallback(async (_opts?: { cause?: unknown }) => {
     if (!_sdkLoaded || !_sdkClient || !_sdkClient.connected) {
-      console.warn("[cofhe-shim] navigate-to-create-permit: SDK not connected");
+      log.warn("cofhe-shim.navigateToCreatePermit.sdkNotConnected");
       return;
     }
     try {
       await _sdkClient.permits?.getOrCreateSelfPermit?.();
       _notifySdkStateChange();
     } catch (err) {
-      console.error("[cofhe-shim] navigate-to-create-permit failed:", err);
+      log.error("cofhe-shim.navigateToCreatePermit.failed", err instanceof Error ? err : new Error(String(err)));
       throw err;
     }
   }, []);
