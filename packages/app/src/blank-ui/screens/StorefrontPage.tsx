@@ -1,0 +1,425 @@
+// Wave 4 task #254 — Storefront public buyer page (/shop/:chainId/:listingId).
+//
+// Loads the listing on-chain, renders the right UI for the listing's mode.
+// Public; the buyer creates a passkey via the existing onboarding modal
+// when they need to pay/bid.
+
+import { useEffect, useMemo, useState } from "react";
+import { useParams } from "react-router-dom";
+import { usePublicClient } from "wagmi";
+import toast from "react-hot-toast";
+import {
+  Tag,
+  Gavel,
+  HandCoins,
+  AlertCircle,
+  Loader2,
+  CheckCircle2,
+  Clock,
+  ShoppingBag,
+  type LucideIcon,
+} from "lucide-react";
+import { useStorefront, SALE_MODE, type SaleMode } from "@/hooks/useStorefront";
+import { CONTRACTS_BY_CHAIN, type SupportedChainId } from "@/lib/constants";
+import { StorefrontAbi } from "@/lib/abis";
+import { FhePipelineProgress } from "@/components/payment/FhePipelineProgress";
+import { cn } from "@/lib/cn";
+
+interface OnChainListing {
+  seller: `0x${string}`;
+  vault: `0x${string}`;
+  mode: SaleMode;
+  closesAt: bigint;
+  winner: `0x${string}`;
+  active: boolean;
+  closed: boolean;
+  title: string;
+  descriptionCidHash: `0x${string}`;
+  deliveryChannel: string;
+  createdAt: bigint;
+}
+
+const MODE_META: Record<SaleMode, { label: string; icon: LucideIcon; tone: string }> = {
+  [SALE_MODE.FixedPrice]: { label: "Fixed price", icon: Tag, tone: "bg-blue-50 text-blue-600" },
+  [SALE_MODE.Auction]: { label: "Sealed-bid auction", icon: Gavel, tone: "bg-purple-50 text-purple-600" },
+  [SALE_MODE.PayWhatYouWant]: { label: "Pay what you want", icon: HandCoins, tone: "bg-emerald-50 text-emerald-600" },
+};
+
+export default function StorefrontPage() {
+  const params = useParams<{ chainId: string; listingId: string }>();
+  const chainId = params.chainId ? Number(params.chainId) : NaN;
+  const listingId = params.listingId ? Number(params.listingId) : NaN;
+  const publicClient = usePublicClient({ chainId });
+  const { state, pipeline, buyFixed, placeBid, payPWYW, closeAuction, claimAuctionWin, refundLoserBid } = useStorefront();
+
+  const [onChain, setOnChain] = useState<OnChainListing | null>(null);
+  const [bidCount, setBidCount] = useState<number>(0);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const [amount, setAmount] = useState("");
+
+  // ─── Load on-chain listing + bid count ─────────────────────────
+  useEffect(() => {
+    let cancelled = false;
+    if (!Number.isFinite(chainId) || !Number.isFinite(listingId)) {
+      setLoadError("Invalid URL");
+      return;
+    }
+    if (!(chainId in CONTRACTS_BY_CHAIN)) {
+      setLoadError("Unsupported chain");
+      return;
+    }
+    const contracts = CONTRACTS_BY_CHAIN[chainId as SupportedChainId];
+    if (!contracts.Storefront || contracts.Storefront === "0x0000000000000000000000000000000000000000") {
+      setLoadError("Storefront not deployed on this chain yet");
+      return;
+    }
+    if (!publicClient) return;
+
+    (async () => {
+      try {
+        const result = await publicClient.readContract({
+          address: contracts.Storefront,
+          abi: StorefrontAbi,
+          functionName: "getListing",
+          args: [BigInt(listingId)],
+        });
+        if (cancelled) return;
+        const [
+          seller, vault, mode, closesAt, winner, active, closed,
+          title, descriptionCidHash, deliveryChannel, createdAt,
+        ] = result as readonly [
+          `0x${string}`, `0x${string}`, number, bigint, `0x${string}`, boolean, boolean,
+          string, `0x${string}`, string, bigint,
+        ];
+        if (seller === "0x0000000000000000000000000000000000000000") {
+          setLoadError("Listing not found");
+          return;
+        }
+        setOnChain({
+          seller, vault, mode: mode as SaleMode, closesAt, winner, active, closed,
+          title, descriptionCidHash, deliveryChannel, createdAt,
+        });
+
+        if ((mode as SaleMode) === SALE_MODE.Auction) {
+          const count = await publicClient.readContract({
+            address: contracts.Storefront,
+            abi: StorefrontAbi,
+            functionName: "getBidCount",
+            args: [BigInt(listingId)],
+          });
+          if (!cancelled) setBidCount(Number(count));
+        }
+      } catch (err) {
+        if (!cancelled) setLoadError(err instanceof Error ? err.message : "Failed to load listing");
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [chainId, listingId, publicClient]);
+
+  const auctionStatus = useMemo(() => {
+    if (!onChain || onChain.mode !== SALE_MODE.Auction) return null;
+    const now = Math.floor(Date.now() / 1000);
+    const closeTs = Number(onChain.closesAt);
+    if (onChain.closed) return "closed";
+    if (now < closeTs) return "open";
+    return "needsClose";
+  }, [onChain]);
+
+  // ─── Error / loading screens ───────────────────────────────────
+
+  if (loadError) {
+    return (
+      <CenterCard>
+        <IconBubble color="bg-red-50" icon={<AlertCircle size={32} className="text-red-600" />} />
+        <h1 className="text-2xl font-heading font-semibold mb-3">{loadError}</h1>
+        <p className="text-[var(--text-secondary)]">Double-check the URL.</p>
+      </CenterCard>
+    );
+  }
+
+  if (!onChain) {
+    return (
+      <CenterCard>
+        <Loader2 size={32} className="animate-spin text-[var(--text-secondary)] mb-4" />
+        <p className="text-[var(--text-secondary)]">Loading listing…</p>
+      </CenterCard>
+    );
+  }
+
+  if (!onChain.active && onChain.mode !== SALE_MODE.Auction) {
+    return (
+      <CenterCard>
+        <IconBubble color="bg-slate-100" icon={<AlertCircle size={32} className="text-slate-500" />} />
+        <h1 className="text-2xl font-heading font-semibold mb-3">Listing closed</h1>
+        <p className="text-[var(--text-secondary)]">The seller deactivated this listing.</p>
+      </CenterCard>
+    );
+  }
+
+  // ─── Success state ─────────────────────────────────────────────
+
+  if (state.step === "success") {
+    return (
+      <CenterCard>
+        <IconBubble color="bg-emerald-50" icon={<CheckCircle2 size={32} className="text-emerald-600" />} />
+        <h1 className="text-2xl font-heading font-semibold mb-3">Done</h1>
+        <p className="text-[var(--text-secondary)] mb-2">
+          Your encrypted payment is locked in.
+        </p>
+        {onChain.deliveryChannel && (
+          <p className="text-sm text-[var(--text-secondary)] mb-6">
+            Delivery: <span className="font-medium text-[var(--text-primary)]">{onChain.deliveryChannel}</span>
+          </p>
+        )}
+        <a href="/app" className="inline-block px-6 h-12 leading-[3rem] rounded-2xl bg-[#1D1D1F] text-white font-medium">
+          Open Blank
+        </a>
+      </CenterCard>
+    );
+  }
+
+  const meta = MODE_META[onChain.mode];
+  const ModeIcon = meta.icon;
+
+  // ─── Per-mode buyer UI ─────────────────────────────────────────
+
+  return (
+    <CenterCard>
+      <IconBubble color={meta.tone} icon={<ShoppingBag size={32} />} />
+      <div className="text-xs uppercase tracking-wide text-[var(--text-secondary)] mb-2 inline-flex items-center gap-1.5">
+        <ModeIcon size={12} /> {meta.label}
+      </div>
+      <h1 className="text-2xl font-heading font-semibold mb-3">{onChain.title}</h1>
+      <p className="text-sm text-[var(--text-secondary)] mb-1">
+        From <span className="font-mono">{onChain.seller.slice(0, 6)}…{onChain.seller.slice(-4)}</span>
+      </p>
+      <p className="text-sm text-[var(--text-secondary)] mb-6">
+        Delivery: <span className="font-medium text-[var(--text-primary)]">{onChain.deliveryChannel}</span>
+      </p>
+
+      {/* ── FixedPrice ── */}
+      {onChain.mode === SALE_MODE.FixedPrice && (
+        <BuyForm
+          label="Pay (USDC)"
+          placeholder="10.00"
+          value={amount}
+          onChange={setAmount}
+          ctaLabel="Buy now"
+          isProcessing={state.isProcessing}
+          disabled={!amount || Number.parseFloat(amount) <= 0}
+          onSubmit={() => buyFixed({
+            listingId,
+            vault: onChain.vault,
+            offerTokens: amount,
+            decimals: 6,
+          })}
+          hint="Your payment must equal the seller's price exactly. The chain checks via FHE — neither side reveals the number."
+        />
+      )}
+
+      {/* ── PWYW ── */}
+      {onChain.mode === SALE_MODE.PayWhatYouWant && (
+        <BuyForm
+          label="Name your price (USDC)"
+          placeholder="any amount"
+          value={amount}
+          onChange={setAmount}
+          ctaLabel="Send"
+          isProcessing={state.isProcessing}
+          disabled={!amount || Number.parseFloat(amount) <= 0}
+          onSubmit={() => payPWYW({
+            listingId,
+            vault: onChain.vault,
+            amountTokens: amount,
+            decimals: 6,
+          })}
+          hint="Tip jar / open-source funding mode. The seller sees their total earnings only — never individual amounts."
+        />
+      )}
+
+      {/* ── Auction ── */}
+      {onChain.mode === SALE_MODE.Auction && (
+        <AuctionView
+          onChain={onChain}
+          listingId={listingId}
+          bidCount={bidCount}
+          status={auctionStatus!}
+          isProcessing={state.isProcessing}
+          amount={amount}
+          setAmount={setAmount}
+          onPlaceBid={() => placeBid({ listingId, vault: onChain.vault, bidTokens: amount, decimals: 6 })}
+          onClose={() => closeAuction(listingId)}
+          onClaim={() => claimAuctionWin(listingId)}
+          onRefund={(idx) => refundLoserBid(listingId, idx)}
+        />
+      )}
+
+      {pipeline.phase !== "idle" && (
+        <div className="mt-4 text-left">
+          <FhePipelineProgress state={pipeline} compact />
+        </div>
+      )}
+      {state.error && (
+        <div className="mt-4 px-4 py-3 rounded-xl bg-red-50 text-red-700 text-sm text-left">
+          {state.error}
+        </div>
+      )}
+    </CenterCard>
+  );
+}
+
+// ─── Sub-components ─────────────────────────────────────────────────
+
+function BuyForm(props: {
+  label: string;
+  placeholder: string;
+  value: string;
+  onChange: (v: string) => void;
+  ctaLabel: string;
+  isProcessing: boolean;
+  disabled: boolean;
+  onSubmit: () => void;
+  hint?: string;
+}) {
+  return (
+    <div className="text-left">
+      <label className="block text-sm font-medium mb-2">{props.label}</label>
+      <input
+        type="text"
+        value={props.value}
+        onChange={(e) => props.onChange(e.target.value.replace(/[^0-9.]/g, ""))}
+        placeholder={props.placeholder}
+        className="w-full h-12 rounded-xl border border-[var(--border)] bg-transparent px-3 focus:border-[var(--border-strong)] focus:outline-none"
+      />
+      <button
+        onClick={props.onSubmit}
+        disabled={props.isProcessing || props.disabled}
+        className="mt-4 w-full h-14 rounded-2xl bg-[#1D1D1F] text-white font-medium hover:bg-black transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+      >
+        {props.isProcessing ? "Processing…" : props.ctaLabel}
+      </button>
+      {props.hint && (
+        <p className="text-xs text-[var(--text-secondary)] mt-3">{props.hint}</p>
+      )}
+    </div>
+  );
+}
+
+function AuctionView(props: {
+  onChain: OnChainListing;
+  listingId: number;
+  bidCount: number;
+  status: "open" | "closed" | "needsClose";
+  isProcessing: boolean;
+  amount: string;
+  setAmount: (v: string) => void;
+  onPlaceBid: () => void;
+  onClose: () => void;
+  onClaim: () => void;
+  onRefund: (idx: number) => void;
+}) {
+  const closeTs = Number(props.onChain.closesAt);
+  const now = Math.floor(Date.now() / 1000);
+  const remaining = Math.max(0, closeTs - now);
+  const days = Math.floor(remaining / 86400);
+  const hours = Math.floor((remaining % 86400) / 3600);
+  const minutes = Math.floor((remaining % 3600) / 60);
+
+  if (props.status === "open") {
+    return (
+      <div className="text-left">
+        <div className="flex items-center gap-2 mb-4 text-sm text-[var(--text-secondary)]">
+          <Clock size={14} />
+          <span>
+            {days > 0 ? `${days}d ` : ""}{hours}h {minutes}m left · {props.bidCount} bid{props.bidCount === 1 ? "" : "s"} so far
+          </span>
+        </div>
+        <BuyForm
+          label="Your bid (USDC)"
+          placeholder="enter your max"
+          value={props.amount}
+          onChange={props.setAmount}
+          ctaLabel="Place bid"
+          isProcessing={props.isProcessing}
+          disabled={!props.amount || Number.parseFloat(props.amount) <= 0}
+          onSubmit={props.onPlaceBid}
+          hint="Bids are encrypted. Other bidders can't see yours and you can't see theirs. Highest bid wins at close."
+        />
+      </div>
+    );
+  }
+  if (props.status === "needsClose") {
+    return (
+      <div className="text-left">
+        <div className="flex items-center gap-2 mb-4 text-sm text-[var(--text-secondary)]">
+          <Clock size={14} />
+          <span>Auction ended · {props.bidCount} total bid{props.bidCount === 1 ? "" : "s"}. Anyone can finalize.</span>
+        </div>
+        <button
+          onClick={props.onClose}
+          disabled={props.isProcessing}
+          className="w-full h-14 rounded-2xl bg-[#1D1D1F] text-white font-medium hover:bg-black transition-colors disabled:opacity-40"
+        >
+          {props.isProcessing ? "Closing…" : "Close auction"}
+        </button>
+      </div>
+    );
+  }
+  // status === "closed"
+  return (
+    <div className="text-left">
+      <div className="px-4 py-3 rounded-xl bg-emerald-50 text-emerald-700 mb-4 text-sm">
+        Winner: <span className="font-mono">{props.onChain.winner.slice(0, 6)}…{props.onChain.winner.slice(-4)}</span>
+      </div>
+      <div className="space-y-2">
+        <button
+          onClick={props.onClaim}
+          disabled={props.isProcessing}
+          className="w-full h-12 rounded-2xl bg-[#1D1D1F] text-white font-medium hover:bg-black transition-colors disabled:opacity-40"
+        >
+          Claim (winner only)
+        </button>
+        <button
+          onClick={() => {
+            const raw = prompt("Your bid index (check your wallet history):");
+            if (raw === null) return; // user cancelled
+            const trimmed = raw.trim();
+            if (trimmed === "") {
+              toast.error("Bid index required");
+              return;
+            }
+            const idx = Number.parseInt(trimmed, 10);
+            if (!Number.isFinite(idx) || idx < 0 || String(idx) !== trimmed) {
+              toast.error("Bid index must be a non-negative integer");
+              return;
+            }
+            props.onRefund(idx);
+          }}
+          disabled={props.isProcessing}
+          className="w-full h-12 rounded-2xl border border-[var(--border)] hover:bg-[var(--surface-2)] transition-colors disabled:opacity-40"
+        >
+          Refund my losing bid
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function CenterCard({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="min-h-dvh flex items-center justify-center px-6 py-12">
+      <div className="glass-card-static rounded-[2rem] p-10 max-w-md w-full text-center">
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function IconBubble({ color, icon }: { color: string; icon: React.ReactNode }) {
+  return (
+    <div className={cn("w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-6", color)}>
+      {icon}
+    </div>
+  );
+}
