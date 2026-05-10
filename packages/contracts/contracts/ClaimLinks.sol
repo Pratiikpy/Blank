@@ -112,6 +112,11 @@ contract ClaimLinks is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         uint256 timestamp
     );
 
+    /// @notice §2.6 of BEST_VERSION_FULL_PLAN: emitted when paymentReceipts
+    /// bump call reverts. kind is "user" or "global". Indexer can detect +
+    /// replay the missing bump.
+    event ReceiptsBumpFailed(string kind, bytes reason);
+
     // ─── Initializer ──────────────────────────────────────────────────────
 
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -340,9 +345,16 @@ contract ClaimLinks is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     function _bumpReceiptsAndGlobal(address recipient, euint64 amount) internal {
         if (paymentReceipts == address(0)) return;
         FHE.allowTransient(amount, paymentReceipts);
-        try IPaymentReceipts(paymentReceipts).bumpUserReceived(recipient, amount) {} catch {}
+        // §2.6 of BEST_VERSION_FULL_PLAN: surface receipt-bump failures so an
+        // indexer can detect + replay the missing bump. The previous silent
+        // catch left lifetime-received counters drifting silently (audit A9).
+        try IPaymentReceipts(paymentReceipts).bumpUserReceived(recipient, amount) {} catch (bytes memory reason) {
+            emit ReceiptsBumpFailed("user", reason);
+        }
         FHE.allowTransient(amount, paymentReceipts);
-        try IPaymentReceipts(paymentReceipts).bumpGlobal(amount) {} catch {}
+        try IPaymentReceipts(paymentReceipts).bumpGlobal(amount) {} catch (bytes memory reason) {
+            emit ReceiptsBumpFailed("global", reason);
+        }
     }
 
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}

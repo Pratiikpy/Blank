@@ -93,6 +93,10 @@ contract EncryptedCrowdfund is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
         uint256 contributionIndex
     );
 
+    /// @notice §2.6 of BEST_VERSION_FULL_PLAN: emitted when paymentReceipts
+    /// bump call reverts. kind is "user" or "global". Indexer detects + replays.
+    event ReceiptsBumpFailed(string kind, bytes reason);
+
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
@@ -331,9 +335,14 @@ contract EncryptedCrowdfund is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
     function _bumpReceiptsAndGlobal(address recipient, euint64 amount) internal {
         if (paymentReceipts == address(0)) return;
         FHE.allowTransient(amount, paymentReceipts);
-        try IPaymentReceipts(paymentReceipts).bumpUserReceived(recipient, amount) {} catch {}
+        // §2.6 of BEST_VERSION_FULL_PLAN: surface receipt-bump failures.
+        try IPaymentReceipts(paymentReceipts).bumpUserReceived(recipient, amount) {} catch (bytes memory reason) {
+            emit ReceiptsBumpFailed("user", reason);
+        }
         FHE.allowTransient(amount, paymentReceipts);
-        try IPaymentReceipts(paymentReceipts).bumpGlobal(amount) {} catch {}
+        try IPaymentReceipts(paymentReceipts).bumpGlobal(amount) {} catch (bytes memory reason) {
+            emit ReceiptsBumpFailed("global", reason);
+        }
     }
 
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
