@@ -422,4 +422,40 @@ describe("Storefront", () => {
       ).to.be.revertedWith("Storefront: cannot deactivate live auction");
     });
   });
+
+  // §2.7 + §15.3.1 event-assertion gap: PaymentReceiptsSet fires on
+  // setPaymentReceipts and carries previous + current.
+  describe("PaymentReceiptsSet event", () => {
+    it("emits PaymentReceiptsSet with previous=zero, current=newAddr on first set", async () => {
+      const ctx = await loadFixture(deployFixture);
+      const fake = "0x000000000000000000000000000000000000bEEF";
+
+      await expect(ctx.storefront.connect(ctx.owner).setPaymentReceipts(fake))
+        .to.emit(ctx.storefront, "PaymentReceiptsSet")
+        .withArgs(hre.ethers.ZeroAddress, fake);
+
+      expect(await ctx.storefront.paymentReceipts()).to.equal(fake);
+    });
+
+    it("emits PaymentReceiptsSet with the prior address on subsequent set", async () => {
+      const ctx = await loadFixture(deployFixture);
+      const first = "0x000000000000000000000000000000000000dEaD";
+      const second = "0x000000000000000000000000000000000000bEEF";
+
+      await ctx.storefront.connect(ctx.owner).setPaymentReceipts(first);
+
+      await expect(ctx.storefront.connect(ctx.owner).setPaymentReceipts(second))
+        .to.emit(ctx.storefront, "PaymentReceiptsSet")
+        .withArgs(first, second);
+    });
+
+    it("only owner can call setPaymentReceipts", async () => {
+      const ctx = await loadFixture(deployFixture);
+      const fake = "0x000000000000000000000000000000000000bEEF";
+
+      await expect(
+        ctx.storefront.connect(ctx.alice).setPaymentReceipts(fake),
+      ).to.be.reverted;
+    });
+  });
 });
