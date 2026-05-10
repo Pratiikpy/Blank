@@ -954,7 +954,7 @@ export async function fetchClientInvoices(address: string): Promise<InvoiceRow[]
     .in("status", ["pending", "payment_pending"])
     .eq("chain_id", _activeChainIdForSupabase)
     .order("created_at", { ascending: false });
-  if (error) { console.warn("fetchClientInvoices:", error.message); return []; }
+  if (error) { log.warn("supabase.fetchClientInvoices.failed", { error: error.message }); return []; }
   return data || [];
 }
 
@@ -972,7 +972,7 @@ export async function updateInvoiceStatus(
     .from("invoices")
     .update({ status })
     .eq("invoice_id", invoiceId);
-  if (error) console.warn("updateInvoiceStatus:", error.message);
+  if (error) log.warn("supabase.updateInvoiceStatus.failed", { error: error.message });
 }
 
 /** Persist the IPFS CID of the rendered invoice PDF. Best-effort: no-op
@@ -984,7 +984,7 @@ export async function setInvoicePdfCid(invoiceId: number, cid: string) {
     .from("invoices")
     .update({ pdf_cid: cid })
     .eq("invoice_id", invoiceId);
-  if (error) console.warn("setInvoicePdfCid:", error.message);
+  if (error) log.warn("supabase.setInvoicePdfCid.failed", { error: error.message });
 }
 
 /** Persist the IPFS CID of an escrow attachment (project brief, contract,
@@ -995,7 +995,7 @@ export async function setEscrowAttachmentCid(escrowId: number, cid: string) {
     .from("escrows")
     .update({ attachment_cid: cid })
     .eq("escrow_id", escrowId);
-  if (error) console.warn("setEscrowAttachmentCid:", error.message);
+  if (error) log.warn("supabase.setEscrowAttachmentCid.failed", { error: error.message });
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -1042,7 +1042,7 @@ export async function insertEscrow(escrow: Omit<EscrowRow, "id" | "created_at" |
     tx_hash: escrow.tx_hash.toLowerCase(),
     chain_id: escrow.chain_id ?? _activeChainIdForSupabase,
   });
-  if (!result.ok) console.warn("insertEscrow:", result.error);
+  if (!result.ok) log.warn("supabase.insertEscrow.failed", { error: String(result.error) });
 }
 
 export async function fetchUserEscrows(address: string): Promise<EscrowRow[]> {
@@ -1054,14 +1054,14 @@ export async function fetchUserEscrows(address: string): Promise<EscrowRow[]> {
     .or(`depositor_address.eq.${lower},beneficiary_address.eq.${lower},arbiter_address.eq.${lower}`)
     .eq("chain_id", _activeChainIdForSupabase)
     .order("created_at", { ascending: false });
-  if (error) { console.warn("fetchUserEscrows:", error.message); return []; }
+  if (error) { log.warn("supabase.fetchUserEscrows.failed", { error: error.message }); return []; }
   return data || [];
 }
 
 export async function updateEscrowStatus(escrowId: number, status: EscrowRow["status"]) {
   if (!supabase) return;
   const { error } = await supabase.from("escrows").update({ status }).eq("escrow_id", escrowId);
-  if (error) console.warn("updateEscrowStatus:", error.message);
+  if (error) log.warn("supabase.updateEscrowStatus.failed", { error: error.message });
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -1073,7 +1073,7 @@ export async function insertExchangeOffer(offer: Omit<ExchangeOfferRow, "id" | "
     ...offer,
     chain_id: offer.chain_id ?? _activeChainIdForSupabase,
   });
-  if (!result.ok) console.warn("insertExchangeOffer:", result.error);
+  if (!result.ok) log.warn("supabase.insertExchangeOffer.failed", { error: String(result.error) });
 }
 
 export async function fetchActiveOffers(): Promise<ExchangeOfferRow[]> {
@@ -1084,7 +1084,7 @@ export async function fetchActiveOffers(): Promise<ExchangeOfferRow[]> {
     .eq("status", "active")
     .eq("chain_id", _activeChainIdForSupabase)
     .order("created_at", { ascending: false });
-  if (error) { console.warn("fetchActiveOffers:", error.message); return []; }
+  if (error) { log.warn("supabase.fetchActiveOffers.failed", { error: error.message }); return []; }
   return data || [];
 }
 
@@ -1101,7 +1101,7 @@ export async function fetchFilledOffersForUser(userAddress: string): Promise<Exc
     .or(`maker_address.eq.${lower},taker_address.eq.${lower}`)
     .order("created_at", { ascending: false })
     .limit(20);
-  if (error) { console.warn("fetchFilledOffersForUser:", error.message); return []; }
+  if (error) { log.warn("supabase.fetchFilledOffersForUser.failed", { error: error.message }); return []; }
   return data || [];
 }
 
@@ -1110,7 +1110,7 @@ export async function updateOfferStatus(offerId: number, status: "filled" | "can
   const update: Record<string, unknown> = { status };
   if (takerAddress) update.taker_address = takerAddress;
   const { error } = await supabase.from("exchange_offers").update(update).eq("offer_id", offerId);
-  if (error) console.warn("updateOfferStatus:", error.message);
+  if (error) log.warn("supabase.updateOfferStatus.failed", { error: error.message });
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -1125,7 +1125,7 @@ export async function fetchContacts(ownerAddress: string): Promise<ContactRow[]>
     .eq("owner_address", ownerAddress.toLowerCase())
     .eq("chain_id", _activeChainIdForSupabase)
     .order("nickname", { ascending: true });
-  if (error) { console.warn("fetchContacts:", error.message); return []; }
+  if (error) { log.warn("supabase.fetchContacts.failed", { error: error.message }); return []; }
   return data || [];
 }
 
@@ -1136,7 +1136,7 @@ export async function upsertContact(contact: Omit<ContactRow, "id" | "created_at
     chain_id: contact.chain_id ?? _activeChainIdForSupabase,
   };
   const { error } = await supabase.from("contacts").upsert(row, { onConflict: "owner_address,contact_address" });
-  if (error) console.warn("upsertContact:", error.message);
+  if (error) log.warn("supabase.upsertContact.failed", { error: error.message });
 }
 
 export async function deleteContact(ownerAddress: string, contactAddress: string) {
@@ -1146,5 +1146,5 @@ export async function deleteContact(ownerAddress: string, contactAddress: string
     .delete()
     .eq("owner_address", ownerAddress.toLowerCase())
     .eq("contact_address", contactAddress.toLowerCase());
-  if (error) console.warn("deleteContact:", error.message);
+  if (error) log.warn("supabase.deleteContact.failed", { error: error.message });
 }
