@@ -187,6 +187,12 @@ contract EncryptedCrowdfund is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
         Campaign storage c = _campaigns[campaignId];
         require(c.status == CampaignStatus.Open, "Crowdfund: already closed");
         require(block.timestamp >= c.deadline, "Crowdfund: not yet ended");
+        // §2.2 of BEST_VERSION_FULL_PLAN: reject zero-contributions close.
+        // FHE.gte(0, 0) is true, so without this guard a campaign with no
+        // contributors would emit a fake "successful campaign" event and the
+        // indexer would record a non-existent fundraise. The encrypted goal
+        // value stays private; only "had at least one contribution" is public.
+        require(_contributions[campaignId].length > 0, "Crowdfund: no contributions to close against");
 
         ebool reached = FHE.gte(c.encRaised, c.encGoal);
         FHE.allowThis(reached);
