@@ -615,20 +615,15 @@ export async function fetchActivities(
       (code === "PGRST204" || msg.includes("PGRST204") || /chain_id.*schema cache/i.test(msg))
     ) {
       _activitiesHasChainId = false;
-      console.warn(
-        "[supabase] activities.chain_id column missing — fetchActivities falling back to unfiltered. Run migration to enable cross-chain isolation.",
-      );
+      log.warn("supabase.fetchActivities.chainIdColumnMissing.fallback");
       try {
         return await tryFetch(false);
       } catch (retryErr) {
-        console.warn(
-          "fetchActivities retry without chain_id failed:",
-          retryErr instanceof Error ? retryErr.message : retryErr,
-        );
+        log.warn("supabase.fetchActivities.retryWithoutChainIdFailed", retryErr instanceof Error ? retryErr : new Error(String(retryErr)));
         return [];
       }
     }
-    console.warn("fetchActivities:", msg);
+    log.warn("supabase.fetchActivities.failed", { msg });
     return [];
   }
 }
@@ -644,7 +639,7 @@ export async function insertPaymentRequest(request: Omit<PaymentRequestRow, "id"
     ...request,
     chain_id: request.chain_id ?? _activeChainIdForSupabase,
   });
-  if (!result.ok) console.warn("insertPaymentRequest:", result.error);
+  if (!result.ok) log.warn("supabase.insertPaymentRequest.failed", { error: String(result.error) });
 }
 
 export async function fetchIncomingRequests(address: string): Promise<PaymentRequestRow[]> {
@@ -658,7 +653,7 @@ export async function fetchIncomingRequests(address: string): Promise<PaymentReq
     .eq("status", "pending")
     .eq("chain_id", _activeChainIdForSupabase)
     .order("created_at", { ascending: false });
-  if (error) { console.warn("fetchIncomingRequests:", error.message); return []; }
+  if (error) { log.warn("supabase.fetchIncomingRequests.failed", { error: error.message }); return []; }
   return data || [];
 }
 
@@ -671,7 +666,7 @@ export async function fetchOutgoingRequests(address: string): Promise<PaymentReq
     .eq("to_address", address.toLowerCase()) // I created the request
     .eq("chain_id", _activeChainIdForSupabase)
     .order("created_at", { ascending: false });
-  if (error) { console.warn("fetchOutgoingRequests:", error.message); return []; }
+  if (error) { log.warn("supabase.fetchOutgoingRequests.failed", { error: error.message }); return []; }
   return data || [];
 }
 
@@ -681,7 +676,7 @@ export async function updateRequestStatus(requestId: string, status: "fulfilled"
     .from("payment_requests")
     .update({ status })
     .eq("request_id", requestId);
-  if (error) console.warn("updateRequestStatus:", error.message);
+  if (error) log.warn("supabase.updateRequestStatus.failed", { error: error.message });
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -702,7 +697,7 @@ export async function insertGroupMembership(membership: Omit<GroupMembershipRow,
     },
     { onConflict: "group_id,member_address" },
   );
-  if (!result.ok) console.warn("insertGroupMembership:", result.error);
+  if (!result.ok) log.warn("supabase.insertGroupMembership.failed", { error: String(result.error) });
 }
 
 export async function fetchUserGroups(address: string): Promise<GroupMembershipRow[]> {
@@ -713,7 +708,7 @@ export async function fetchUserGroups(address: string): Promise<GroupMembershipR
     .eq("member_address", address.toLowerCase())
     .eq("chain_id", _activeChainIdForSupabase)
     .order("created_at", { ascending: false });
-  if (error) { console.warn("fetchUserGroups:", error.message); return []; }
+  if (error) { log.warn("supabase.fetchUserGroups.failed", { error: error.message }); return []; }
   return data || [];
 }
 
@@ -737,7 +732,7 @@ export async function fetchGroupById(groupId: number): Promise<GroupMembershipRo
       return (data as GroupMembershipRow | null) ?? null;
     });
   } catch (err) {
-    console.warn("fetchGroupById:", err instanceof Error ? err.message : err);
+    log.warn("supabase.fetchGroupById.failed", err instanceof Error ? err : new Error(String(err)));
     return null;
   }
 }
@@ -768,7 +763,7 @@ export async function addSelfToGroup(groupId: number, address: string): Promise<
     await insertGroupMembership(row);
     return true;
   } catch (err) {
-    console.warn("addSelfToGroup:", err instanceof Error ? err.message : err);
+    log.warn("supabase.addSelfToGroup.failed", err instanceof Error ? err : new Error(String(err)));
     return false;
   }
 }
@@ -778,7 +773,7 @@ export async function insertGroupExpense(expense: Omit<GroupExpenseRow, "id" | "
     ...expense,
     chain_id: expense.chain_id ?? _activeChainIdForSupabase,
   });
-  if (!result.ok) console.warn("insertGroupExpense:", result.error);
+  if (!result.ok) log.warn("supabase.insertGroupExpense.failed", { error: String(result.error) });
 }
 
 export async function fetchGroupExpenses(groupId: number): Promise<GroupExpenseRow[]> {
@@ -789,7 +784,7 @@ export async function fetchGroupExpenses(groupId: number): Promise<GroupExpenseR
     .eq("group_id", groupId)
     .eq("chain_id", _activeChainIdForSupabase)
     .order("created_at", { ascending: false });
-  if (error) { console.warn("fetchGroupExpenses:", error.message); return []; }
+  if (error) { log.warn("supabase.fetchGroupExpenses.failed", { error: error.message }); return []; }
   return data || [];
 }
 
@@ -819,14 +814,14 @@ export async function upsertCreatorProfile(profile: CreatorProfileRow) {
           // Retry once after recording — caller doesn't need exhaustive loop.
           const stripped = stripMissingCols("creator_profiles", row);
           const { error: e2 } = await supabase.from("creator_profiles").upsert(stripped);
-          if (e2) console.warn("upsertCreatorProfile:", e2.message);
+          if (e2) log.warn("supabase.upsertCreatorProfile.failed", { error: e2.message });
           return;
         }
       }
-      console.warn("upsertCreatorProfile:", error.message);
+      log.warn("supabase.upsertCreatorProfile.failed", { error: error.message });
     }
   } catch (err) {
-    console.warn("upsertCreatorProfile:", err instanceof Error ? err.message : err);
+    log.warn("supabase.upsertCreatorProfile.threw", err instanceof Error ? err : new Error(String(err)));
   }
 }
 
@@ -838,7 +833,7 @@ export async function fetchCreatorProfiles(): Promise<CreatorProfileRow[]> {
     .eq("is_active", true)
     .eq("chain_id", _activeChainIdForSupabase)
     .order("supporter_count", { ascending: false });
-  if (error) { console.warn("fetchCreatorProfiles:", error.message); return []; }
+  if (error) { log.warn("supabase.fetchCreatorProfiles.failed", { error: error.message }); return []; }
   return data || [];
 }
 
@@ -850,7 +845,7 @@ export async function fetchCreatorProfile(address: string): Promise<CreatorProfi
     .eq("address", address.toLowerCase())
     .eq("chain_id", _activeChainIdForSupabase)
     .single();
-  if (error) { console.warn("fetchCreatorProfile:", error.message); return null; }
+  if (error) { log.warn("supabase.fetchCreatorProfile.failed", { error: error.message }); return null; }
   return data;
 }
 
@@ -870,13 +865,13 @@ export async function recomputeCreatorSupporterCount(creatorAddress: string) {
     .select("*", { count: "exact", head: true })
     .eq("creator_address", creatorAddress.toLowerCase())
     .eq("chain_id", _activeChainIdForSupabase);
-  if (countErr) { console.warn("recomputeCreatorSupporterCount (count):", countErr.message); return; }
+  if (countErr) { log.warn("supabase.recomputeCreatorSupporterCount.count.failed", { error: countErr.message }); return; }
   const { error: updateErr } = await supabase
     .from("creator_profiles")
     .update({ supporter_count: count ?? 0 })
     .eq("address", creatorAddress.toLowerCase())
     .eq("chain_id", _activeChainIdForSupabase);
-  if (updateErr) console.warn("recomputeCreatorSupporterCount (update):", updateErr.message);
+  if (updateErr) log.warn("supabase.recomputeCreatorSupporterCount.update.failed", { error: updateErr.message });
 }
 
 export async function insertCreatorSupporter(supporter: Omit<CreatorSupporterRow, "id" | "created_at">) {
@@ -886,7 +881,7 @@ export async function insertCreatorSupporter(supporter: Omit<CreatorSupporterRow
     supporter_address: supporter.supporter_address.toLowerCase(),
     chain_id: supporter.chain_id ?? _activeChainIdForSupabase,
   });
-  if (!result.ok) console.warn("insertCreatorSupporter:", result.error);
+  if (!result.ok) log.warn("supabase.insertCreatorSupporter.failed", { error: String(result.error) });
 }
 
 export async function fetchCreatorSupporters(creatorAddress: string): Promise<CreatorSupporterRow[]> {
@@ -897,7 +892,7 @@ export async function fetchCreatorSupporters(creatorAddress: string): Promise<Cr
     .eq("creator_address", creatorAddress.toLowerCase())
     .eq("chain_id", _activeChainIdForSupabase)
     .order("created_at", { ascending: false });
-  if (error) { console.warn("fetchCreatorSupporters:", error.message); return []; }
+  if (error) { log.warn("supabase.fetchCreatorSupporters.failed", { error: error.message }); return []; }
   return data || [];
 }
 
@@ -910,7 +905,7 @@ export async function fetchMySupportedCreators(supporterAddress: string): Promis
     .eq("supporter_address", supporterAddress.toLowerCase())
     .eq("chain_id", _activeChainIdForSupabase)
     .order("created_at", { ascending: false });
-  if (error) { console.warn("fetchMySupportedCreators:", error.message); return []; }
+  if (error) { log.warn("supabase.fetchMySupportedCreators.failed", { error: error.message }); return []; }
   return data || [];
 }
 
@@ -932,7 +927,7 @@ export async function insertInvoice(invoice: Omit<InvoiceRow, "id" | "created_at
     tx_hash: invoice.tx_hash.toLowerCase(),
     chain_id: invoice.chain_id ?? _activeChainIdForSupabase,
   });
-  if (!result.ok) console.warn("insertInvoice:", result.error);
+  if (!result.ok) log.warn("supabase.insertInvoice.failed", { error: String(result.error) });
 }
 
 export async function fetchVendorInvoices(address: string): Promise<InvoiceRow[]> {
@@ -943,7 +938,7 @@ export async function fetchVendorInvoices(address: string): Promise<InvoiceRow[]
     .eq("vendor_address", address.toLowerCase())
     .eq("chain_id", _activeChainIdForSupabase)
     .order("created_at", { ascending: false });
-  if (error) { console.warn("fetchVendorInvoices:", error.message); return []; }
+  if (error) { log.warn("supabase.fetchVendorInvoices.failed", { error: error.message }); return []; }
   return data || [];
 }
 
