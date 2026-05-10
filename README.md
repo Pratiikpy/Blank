@@ -9,7 +9,7 @@
 
 # Blank
 
-### Send a private invoice. Get paid privately.
+### Send a private invoice. Get paid privately. Share a link.
 
 **Same chain. Same finality. Different visibility.**
 
