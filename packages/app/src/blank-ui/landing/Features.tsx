@@ -31,9 +31,9 @@ interface Feature {
 
 const FEATURES: Feature[] = [
   {
-    tag: "01 — Payments",
+    tag: "01. Payments",
     name: "Send",
-    pitch: "Pay anyone with a wallet address. The moment you hit send, the amount becomes ciphertext — only the recipient can decrypt.",
+    pitch: "Pay anyone with a wallet address. The moment you hit send, the amount becomes ciphertext. Only the recipient can decrypt.",
     scenario: "Sarah pays her freelance designer $800 without anyone learning what she pays her contractors.",
     route: "/app/send",
     preview: {
@@ -47,9 +47,9 @@ const FEATURES: Feature[] = [
     },
   },
   {
-    tag: "02 — Payments",
+    tag: "02. Payments",
     name: "Requests",
-    pitch: "Create a payment request with a memo. Share the link. Let the other person fulfill when they're ready — or cancel it anytime.",
+    pitch: "Create a payment request with a memo. Share the link. Let the other person fulfill when they're ready, or cancel it anytime.",
     scenario: "Ask your roommate for their half of the electric bill without publishing the number to the whole world.",
     route: "/app/requests",
     preview: {
@@ -63,9 +63,9 @@ const FEATURES: Feature[] = [
     },
   },
   {
-    tag: "03 — Social",
+    tag: "03. Social",
     name: "Group Split",
-    pitch: "Split bills with custom per-member shares. Disputes resolved by encrypted quadratic voting — the group approves without anyone learning who voted what.",
+    pitch: "Split bills with custom per-member shares. Disputes resolved by encrypted quadratic voting. The group approves without anyone learning who voted what.",
     scenario: "Four friends rent a cabin. Each contribution stays private; if costs change, the group votes without leaking preferences.",
     route: "/app/groups",
     preview: {
@@ -81,7 +81,7 @@ const FEATURES: Feature[] = [
     },
   },
   {
-    tag: "04 — Social",
+    tag: "04. Social",
     name: "Creator Tips",
     pitch: "Support creators anonymously. Earn on-chain tier badges for cumulative support without a public donation log.",
     scenario: "Tip your favorite writer $50/month without every follower seeing your generosity.",
@@ -93,7 +93,7 @@ const FEATURES: Feature[] = [
     },
   },
   {
-    tag: "05 — Business",
+    tag: "05. Business",
     name: "Invoicing",
     pitch: "Two-phase encrypted invoices. Your client sees the amount due; the chain only sees ciphertext handles. Async FHE verification confirms the right amount was paid.",
     scenario: "A consulting firm bills $15K retainers without posting their fee structure for every competitor to read.",
@@ -110,9 +110,9 @@ const FEATURES: Feature[] = [
     },
   },
   {
-    tag: "06 — Business",
+    tag: "06. Business",
     name: "Batch Payroll",
-    pitch: "Pay up to 30 employees in one transaction. Each salary is individually encrypted — the CEO's pay isn't visible to the intern.",
+    pitch: "Pay up to 30 employees in one transaction. Each salary is individually encrypted. The CEO's pay isn't visible to the intern.",
     scenario: "Run payroll for a 20-person team. Nobody except the recipient and the admin sees any number.",
     route: "/app/business",
     preview: {
@@ -126,10 +126,10 @@ const FEATURES: Feature[] = [
     },
   },
   {
-    tag: "07 — Business",
+    tag: "07. Business",
     name: "Escrow",
-    pitch: "Two-of-two approval with an arbiter. Delivery confirmation, automatic expiry, and built-in dispute resolution — without a middleman holding funds.",
-    scenario: "Contract work: buyer funds the escrow, seller delivers, both approve. If it goes sideways, the arbiter decides — no platform rake.",
+    pitch: "Two-of-two approval with an arbiter. Delivery confirmation, automatic expiry, and built-in dispute resolution, without a middleman holding funds.",
+    scenario: "Contract work: buyer funds the escrow, seller delivers, both approve. If it goes sideways, the arbiter decides. No platform rake.",
     route: "/app/business",
     preview: {
       kind: "invoice",
@@ -143,7 +143,7 @@ const FEATURES: Feature[] = [
     },
   },
   {
-    tag: "08 — Privacy",
+    tag: "08. Privacy",
     name: "Stealth Payments",
     pitch: "Anonymous transfers bound to a one-time claim code. The sender's wallet and the receiver's wallet never appear together on-chain. Anti-frontrunning by cryptographic design.",
     scenario: "Send $500 to someone without either wallet ever being linkable by an outside observer.",
@@ -154,10 +154,10 @@ const FEATURES: Feature[] = [
     },
   },
   {
-    tag: "09 — Social",
+    tag: "09. Social",
     name: "Gift Envelopes",
     pitch: "Equal or random encrypted splits with expiry dates and auto-claim. Create an envelope, share the link, watch it get claimed.",
-    scenario: "Wedding gifts for the couple — guests contribute privately, couple opens when ready, unclaimed amounts refund automatically.",
+    scenario: "Wedding gifts for the couple. Guests contribute privately, couple opens when ready, unclaimed amounts refund automatically.",
     route: "/app/gifts",
     preview: {
       kind: "envelope",
@@ -165,10 +165,10 @@ const FEATURES: Feature[] = [
     },
   },
   {
-    tag: "10 — Advanced",
+    tag: "10. Advanced",
     name: "Inheritance",
     pitch: "A dead man's switch with encrypted vault transfer. If you stop checking in, your designated heir can claim access after a challenge period.",
-    scenario: "Set a 90-day inactivity trigger. If something happens, your sister inherits your encrypted funds — no lawyer, no key ceremony.",
+    scenario: "Set a 90-day inactivity trigger. If something happens, your sister inherits your encrypted funds. No lawyer, no key ceremony.",
     route: "/app/inheritance",
     preview: {
       kind: "countdown",
@@ -177,7 +177,7 @@ const FEATURES: Feature[] = [
     },
   },
   {
-    tag: "11 — DeFi",
+    tag: "11. DeFi",
     name: "P2P Exchange",
     pitch: "Atomic swaps with encrypted settlement. Trade token for token without publishing your price or your size.",
     scenario: "Swap 1,000 eUSDC for ETH without revealing which direction you think the market is headed.",
@@ -376,9 +376,9 @@ export default function Features() {
             Everything you'd do with Venmo. With the amounts sealed shut.
           </h1>
           <p className="ll-section-lead">
-            One encrypted vault. Twelve product surfaces. Every feature ships
-            in the app today — real contracts, real FHE, live on Ethereum
-            Sepolia.
+            One encrypted vault. Sixteen product surfaces. Every feature ships
+            in the app today: real contracts, real FHE, live on Ethereum
+            Sepolia and Base Sepolia.
           </p>
         </section>
 
