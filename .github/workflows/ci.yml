@@ -81,6 +81,17 @@ jobs:
         working-directory: packages/app
         run: pnpm exec tsc --noEmit
 
+      # §1.10 of BEST_VERSION_FULL_PLAN: typecheck Vercel functions.
+      # api/tsconfig.json was previously un-typechecked by CI (audit iter 24).
+      - name: Typecheck Vercel functions
+        working-directory: packages/app
+        run: pnpm exec tsc --noEmit -p api/tsconfig.json
+
+      # §1.10: vitest unit tests. Previously dormant (audit iter 13).
+      - name: Unit tests
+        working-directory: packages/app
+        run: pnpm exec vitest run
+
       - name: Build
         working-directory: packages/app
         run: pnpm exec vite build
@@ -140,6 +151,19 @@ jobs:
           # Keep gas reporter off in CI so logs stay readable and fast.
           REPORT_GAS: "false"
         run: pnpm exec hardhat test
+
+      # §1.10 of BEST_VERSION_FULL_PLAN: typecheck hardhat tasks.
+      # packages/contracts/tasks/*.ts was previously un-typechecked.
+      - name: Typecheck hardhat tasks
+        working-directory: packages/contracts
+        run: pnpm exec tsc --noEmit
+
+      # §1.10 + §1.11: UUPS storage layout check. ABSOLUTE-block per §20.16.
+      # Catches struct re-orderings + insertions that would brick existing
+      # proxies post-upgrade.
+      - name: Storage layout check
+        working-directory: packages/contracts
+        run: pnpm storage:check
 
       - name: Report elapsed time
         if: always()
