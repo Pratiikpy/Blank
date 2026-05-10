@@ -12,7 +12,7 @@ import { useFhePipeline } from "./useFhePipeline";
 import { useChain } from "@/providers/ChainProvider";
 import { useCofheEncrypt, useCofheConnection, Encryptable } from "@/lib/cofhe-shim";
 import { EncryptedCrowdfundAbi, FHERC20VaultAbi } from "@/lib/abis";
-import { MAX_UINT64, type EncryptedInput } from "@/lib/constants";
+import { MAX_UINT64, type EncryptedInput, getExplorerTxUrl } from "@/lib/constants";
 import { isVaultApproved, markVaultApproved } from "@/lib/approval";
 import { extractEventId } from "@/lib/event-parser";
 import { invalidateBalanceQueries } from "@/lib/query-invalidation";
@@ -235,8 +235,12 @@ export function useCrowdfund() {
 
   const reset = useCallback(() => { setState(initial); pipeline.reset(); }, [pipeline]);
 
+  // §3.12 of BEST_VERSION_FULL_PLAN: derived txExplorerUrl.
+  const txExplorerUrl = state.txHash ? getExplorerTxUrl(state.txHash, activeChainId) : null;
+
   return {
     state,
+    txExplorerUrl,
     pipeline: pipeline.state,
     createCampaign,
     contribute,
