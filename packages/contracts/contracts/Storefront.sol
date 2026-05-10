@@ -313,26 +313,72 @@ contract Storefront is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     /// @dev Winner identification: we walk the bids and use FHE.gt to
     ///      compare each bid against the current max, then FHE.select to
     ///      track the running winner address. Cost grows with bid count.
-    function closeAuction(uint256 /*listingId*/) external nonReentrant {
-        // §1.3 phase A: auction settlement disabled. The previous implementation
-        // set runningWinner = bids[i].bidder unconditionally inside the loop, so
-        // the LAST bidder won regardless of bid amount. Last-bidder-wins is worse
-        // than not shipping auctions. Phase B reimplements via FHE-friendly
-        // tournament (encrypted-index tracking + async-decrypt revealWinner),
-        // mirroring EncryptedCrowdfund.publishCloseResult.
-        //
-        // Phase B implementation outline (from BEST_VERSION_FULL_PLAN §1.3):
-        //   euint8 winnerIdx = FHE.asEuint8(0);
-        //   euint64 currentMax = bids[0].amount;
-        //   for (uint8 i = 1; i < bids.length; i++) {
-        //       ebool isHigher = FHE.gt(bids[i].amount, currentMax);
-        //       winnerIdx = FHE.select(isHigher, FHE.asEuint8(i), winnerIdx);
-        //       currentMax = FHE.select(isHigher, bids[i].amount, currentMax);
-        //   }
-        //   _winnerIdxHandle[listingId] = winnerIdx;
-        //   FHE.allowPublic(winnerIdx);
-        //   // Plus revealWinner(listingId, plaintextIdx, signature) async-decrypt.
-        revert("Storefront: auction settlement disabled pending fix");
+    /// @notice §1.4 phase B (BEST_VERSION_FULL_PLAN): close auction via
+    /// FHE-tournament selection. Computes encrypted winner index by comparing
+    /// each bid against the running max, using FHE.select to pick the higher
+    /// one. Stores the encrypted index in _winnerIdxHandle. Listing is not
+    /// fully settled here; revealWinner() must be called next to decrypt the
+    /// index and set l.winner. Mirrors EncryptedCrowdfund close + publish
+    /// pattern.
+    function closeAuction(uint256 listingId) external nonReentrant {
+        Listing storage l = _listings[listingId];
+        require(l.active && !l.closed, "Storefront: not closeable");
+        require(l.mode == SaleMode.Auction, "Storefront: not Auction");
+        require(block.timestamp >= l.closesAt, "Storefront: not yet ended");
+
+        Bid[] storage bids = _bids[listingId];
+        require(bids.length > 0, "Storefront: no bids");
+
+        // FHE-tournament: walk bids, track max + winner index simultaneously
+        // via FHE.select. Winner index is encrypted; off-chain decryption +
+        // revealWinner() resolves it to a bidder address.
+        euint8 winnerIdx = FHE.asEuint8(0);
+        euint64 currentMax = bids[0].amount;
+        for (uint256 i = 1; i < bids.length; i++) {
+            ebool isHigher = FHE.gt(bids[i].amount, currentMax);
+            winnerIdx = FHE.select(isHigher, FHE.asEuint8(uint8(i)), winnerIdx);
+            currentMax = FHE.select(isHigher, bids[i].amount, currentMax);
+        }
+        FHE.allowThis(winnerIdx);
+        FHE.allowPublic(winnerIdx);
+        FHE.allowThis(currentMax);
+        FHE.allow(currentMax, l.seller);
+
+        _winnerIdxHandle[listingId] = winnerIdx;
+        l.closed = true;
+        l.winningBid = currentMax;
+        // l.winner stays 0x0 until revealWinner() decrypts and sets it.
+
+        emit AuctionClosed(listingId, address(0), bids.length);
+        try eventHub.emitActivity(l.seller, address(0), "storefront_auction_closed", l.title, listingId) {} catch {}
+    }
+
+    /// @notice §1.4 phase B: publish the decrypted winner index. Threshold
+    /// Network signs the result; this contract verifies via FHE.publishDecryptResult
+    /// and resolves the encrypted index to a concrete bidder address.
+    /// Anyone can call (the verification is the gate).
+    function revealWinner(uint256 listingId, uint8 plaintextIdx, bytes calldata signature) external {
+        Listing storage l = _listings[listingId];
+        require(l.closed, "Storefront: not closed");
+        require(l.mode == SaleMode.Auction, "Storefront: not Auction");
+        require(l.winner == address(0), "Storefront: winner already revealed");
+
+        Bid[] storage bids = _bids[listingId];
+        require(plaintextIdx < bids.length, "Storefront: bad winner index");
+
+        // Verify the off-chain decryption matches the on-chain encrypted handle.
+        // Reverts if signature/value don't match.
+        FHE.publishDecryptResult(_winnerIdxHandle[listingId], plaintextIdx, signature);
+
+        l.winner = bids[plaintextIdx].bidder;
+
+        emit AuctionClosed(listingId, l.winner, bids.length);
+        try eventHub.emitActivity(l.seller, l.winner, "storefront_auction_revealed", l.title, listingId) {} catch {}
+    }
+
+    /// @notice Encrypted winner-index handle accessor for off-chain decrypt.
+    function getWinnerIdxHandle(uint256 listingId) external view returns (euint8) {
+        return _winnerIdxHandle[listingId];
     }
 
     // ─── Auction: Winner Claim ────────────────────────────────────────
@@ -344,6 +390,7 @@ contract Storefront is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         Listing storage l = _listings[listingId];
         require(l.closed, "Storefront: not closed");
         require(l.mode == SaleMode.Auction, "Storefront: not Auction");
+        require(l.winner != address(0), "Storefront: winner not revealed");
         require(msg.sender == l.winner, "Storefront: not winner");
 
         // Pay seller the winning bid amount.

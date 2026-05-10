@@ -2,7 +2,7 @@ import { expect } from "chai";
 import hre from "hardhat";
 import { loadFixture, time } from "@nomicfoundation/hardhat-network-helpers";
 import { mock_expectPlaintext } from "@cofhe/hardhat-plugin";
-import { Encryptable } from "@cofhe/sdk";
+import { Encryptable, FheTypes } from "@cofhe/sdk";
 import { keccak256, parseUnits, toUtf8Bytes } from "ethers";
 
 // ══════════════════════════════════════════════════════════════════
@@ -199,7 +199,7 @@ describe("Storefront", () => {
   });
 
   describe("Auction flow", () => {
-    it.skip("end-to-end: 3 bids, close, winner pays seller, losers refunded (phase B reactivates)", async () => {
+    it("end-to-end: 3 bids, close, reveal, winner pays seller, losers refunded", async () => {
       const ctx = await loadFixture(deployFixture);
       const encMin = await encUint64(ctx.client, ctx.alice, usdc(0));
 
@@ -234,14 +234,24 @@ describe("Storefront", () => {
       const sfBalance = await ctx.vault.balanceOf(sfAddr);
       await mock_expectPlaintext(ctx.alice.provider, sfBalance, usdc(23)); // 5+8+10
 
-      // Close after deadline.
+      // Close after deadline. Phase B: closeAuction stores encrypted winnerIdx
+      // but does NOT set l.winner; revealWinner is the second step.
       await time.increase(2 * 3600 + 1);
       await ctx.storefront.connect(ctx.alice).closeAuction(0);
 
       const lAfterClose = await ctx.storefront.getListing(0);
       expect(lAfterClose.closed).to.equal(true);
-      // Heuristic — the LAST bid that was checked (dave's $10) is set as winner.
-      expect(lAfterClose.winner).to.equal(ctx.dave.address);
+      expect(lAfterClose.winner).to.equal(hre.ethers.ZeroAddress);
+
+      // Decrypt winner index off-chain, then reveal on-chain.
+      const winnerIdxHandle = await ctx.storefront.getWinnerIdxHandle(0);
+      await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.alice);
+      const proof = await ctx.client.decryptForTx(winnerIdxHandle, FheTypes.Uint8).withoutPermit().execute();
+      await ctx.storefront.connect(ctx.alice).revealWinner(0, Number(proof.decryptedValue), proof.signature);
+
+      const lAfterReveal = await ctx.storefront.getListing(0);
+      // FHE.max picks the highest bid. Dave bid 10 (last + highest) → winner.
+      expect(lAfterReveal.winner).to.equal(ctx.dave.address);
 
       // Winner claims.
       await ctx.storefront.connect(ctx.dave).claimAuctionWin(0, ZERO_BYTES32);
@@ -279,26 +289,12 @@ describe("Storefront", () => {
       ).to.be.revertedWith("Storefront: auction closed");
     });
 
-    it("phase A: closeAuction reverts (settlement disabled until phase B)", async () => {
-      const ctx = await loadFixture(deployFixture);
-      const encMin = await encUint64(ctx.client, ctx.alice, usdc(0));
-      await ctx.storefront.connect(ctx.alice).createListing(
-        MODE_AUCTION, await ctx.vault.getAddress(), encMin, 3600, "auction B", ZERO_BYTES32, "",
-      );
-      const bobBid = await encUint64(ctx.client, ctx.bob, usdc(5));
-      await ctx.storefront.connect(ctx.bob).placeBid(0, bobBid);
-      await time.increase(3601);
-
-      await expect(
-        ctx.storefront.connect(ctx.alice).closeAuction(0),
-      ).to.be.revertedWith("Storefront: auction settlement disabled pending fix");
-    });
-
-    // §1.3 of BEST_VERSION_FULL_PLAN: differentiating winner test.
-    // Bids 5, 10, 7 (NOT ascending). Phase A buggy impl returns dave (last
-    // bidder = 7). Proper FHE-tournament impl returns charlie (highest = 10).
-    // Marked .skip until phase B reactivates closeAuction.
-    it.skip("phase B: 5/10/7 bids → highest bidder wins (not last)", async () => {
+    // §1.3 + §1.4 of BEST_VERSION_FULL_PLAN: differentiating winner test.
+    // Bids 5, 10, 7 (NOT ascending). The previous last-bidder-wins bug would
+    // have returned dave (last bidder = $7). The proper FHE-tournament impl
+    // returns charlie (highest = $10). This test PASSES only when the fix
+    // is correct; ascending-bid tests cannot differentiate.
+    it("5/10/7 bids: highest bidder wins (not last)", async () => {
       const ctx = await loadFixture(deployFixture);
       const encMin = await encUint64(ctx.client, ctx.alice, usdc(0));
 
@@ -324,11 +320,43 @@ describe("Storefront", () => {
       await time.increase(2 * 3600 + 1);
       await ctx.storefront.connect(ctx.alice).closeAuction(0);
 
-      const lAfterClose = await ctx.storefront.getListing(0);
-      expect(lAfterClose.closed).to.equal(true);
-      // BUGGY behavior would return ctx.dave (last bidder).
-      // CORRECT behavior returns ctx.charlie (highest bid = 10).
-      expect(lAfterClose.winner).to.equal(ctx.charlie.address);
+      // Winner not yet revealed.
+      const lMid = await ctx.storefront.getListing(0);
+      expect(lMid.closed).to.equal(true);
+      expect(lMid.winner).to.equal(hre.ethers.ZeroAddress);
+
+      // Decrypt winner index.
+      const winnerIdxHandle = await ctx.storefront.getWinnerIdxHandle(0);
+      await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.alice);
+      const proof = await ctx.client.decryptForTx(winnerIdxHandle, FheTypes.Uint8).withoutPermit().execute();
+      // Charlie was placed at index 1 (bob=0, charlie=1, dave=2).
+      expect(Number(proof.decryptedValue)).to.equal(1);
+
+      await ctx.storefront.connect(ctx.alice).revealWinner(0, Number(proof.decryptedValue), proof.signature);
+
+      const lAfterReveal = await ctx.storefront.getListing(0);
+      expect(lAfterReveal.winner).to.equal(ctx.charlie.address);
+    });
+
+    it("revealWinner rejects double-reveal", async () => {
+      const ctx = await loadFixture(deployFixture);
+      const encMin = await encUint64(ctx.client, ctx.alice, usdc(0));
+      await ctx.storefront.connect(ctx.alice).createListing(
+        MODE_AUCTION, await ctx.vault.getAddress(), encMin, 3600, "auction X", ZERO_BYTES32, "",
+      );
+      const bobBid = await encUint64(ctx.client, ctx.bob, usdc(5));
+      await ctx.storefront.connect(ctx.bob).placeBid(0, bobBid);
+      await time.increase(3601);
+      await ctx.storefront.connect(ctx.alice).closeAuction(0);
+
+      const winnerIdxHandle = await ctx.storefront.getWinnerIdxHandle(0);
+      await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.alice);
+      const proof = await ctx.client.decryptForTx(winnerIdxHandle, FheTypes.Uint8).withoutPermit().execute();
+      await ctx.storefront.connect(ctx.alice).revealWinner(0, Number(proof.decryptedValue), proof.signature);
+
+      await expect(
+        ctx.storefront.connect(ctx.alice).revealWinner(0, Number(proof.decryptedValue), proof.signature),
+      ).to.be.revertedWith("Storefront: winner already revealed");
     });
   });
 
