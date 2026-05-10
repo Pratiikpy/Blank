@@ -49,7 +49,7 @@ export function PasskeyCreationModal({ open, onClose, onSuccess }: PasskeyCreati
     try {
       const account = await createAccount(passphrase);
       if (!account) {
-        setError("Account creation failed — try again.");
+        setError("Account creation failed. Try again.");
         return;
       }
       setCreatedAddress(account.address);

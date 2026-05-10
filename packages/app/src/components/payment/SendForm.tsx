@@ -143,7 +143,7 @@ export function SendForm({
           placeholder="What's this for?"
           value={note}
           onChange={(e) => onNoteChange(e.target.value)}
-          hint="Notes are public — everyone can see them"
+          hint="Notes are public. Everyone can see them"
           rightElement={<MessageSquare className="w-4 h-4 text-neutral-600" />}
         />
       </GlassCard>
