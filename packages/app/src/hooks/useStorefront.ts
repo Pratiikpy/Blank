@@ -218,6 +218,18 @@ export function useStorefront() {
       const { sf } = ready;
 
       try {
+        // §3.8 of BEST_VERSION_FULL_PLAN: seller-self-purchase pre-check.
+        // Pre-fix, the contract revert fired AFTER 30s of FHE encryption +
+        // UserOp prefund. This client-side check fails fast.
+        const listing = await publicClient!.readContract({
+          address: sf, abi: StorefrontAbi, functionName: "getListing",
+          args: [BigInt(params.listingId)],
+        }) as readonly [string, ...unknown[]];
+        if (address?.toLowerCase() === (listing[0] as string).toLowerCase()) {
+          toast.error("You can't buy your own listing.");
+          return false;
+        }
+
         pipeline.start();
         setState({ ...initial, step: "approving", isProcessing: true });
         await ensureVaultApproval(params.vault);
@@ -276,6 +288,16 @@ export function useStorefront() {
       const { sf } = ready;
 
       try {
+        // §3.8: seller-self-bid pre-check (fail fast pre-encryption).
+        const listing = await publicClient!.readContract({
+          address: sf, abi: StorefrontAbi, functionName: "getListing",
+          args: [BigInt(params.listingId)],
+        }) as readonly [string, ...unknown[]];
+        if (address?.toLowerCase() === (listing[0] as string).toLowerCase()) {
+          toast.error("You can't bid on your own listing.");
+          return false;
+        }
+
         pipeline.start();
         setState({ ...initial, step: "approving", isProcessing: true });
         await ensureVaultApproval(params.vault);
@@ -383,6 +405,16 @@ export function useStorefront() {
       if (!ready) return false;
       const { sf } = ready;
       try {
+        // §3.8: seller-self-pay pre-check (fail fast pre-encryption).
+        const listing = await publicClient!.readContract({
+          address: sf, abi: StorefrontAbi, functionName: "getListing",
+          args: [BigInt(params.listingId)],
+        }) as readonly [string, ...unknown[]];
+        if (address?.toLowerCase() === (listing[0] as string).toLowerCase()) {
+          toast.error("You can't pay your own listing.");
+          return false;
+        }
+
         pipeline.start();
         setState({ ...initial, step: "approving", isProcessing: true });
         await ensureVaultApproval(params.vault);
