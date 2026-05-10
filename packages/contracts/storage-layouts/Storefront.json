@@ -1,7 +1,7 @@
 {
   "storage": [
     {
-      "astId": 67160,
+      "astId": 67166,
       "contract": "contracts/Storefront.sol:Storefront",
       "label": "_status",
       "offset": 0,
@@ -57,12 +57,20 @@
       "type": "t_mapping(t_address,t_array(t_uint256)dyn_storage)"
     },
     {
-      "astId": 64964,
+      "astId": 63623,
+      "contract": "contracts/Storefront.sol:Storefront",
+      "label": "_winnerIdxHandle",
+      "offset": 0,
+      "slot": "7",
+      "type": "t_mapping(t_uint256,t_userDefinedValueType(euint8)11791)"
+    },
+    {
+      "astId": 64970,
       "contract": "contracts/Storefront.sol:Storefront",
       "label": "__gap",
       "offset": 0,
-      "slot": "7",
-      "type": "t_array(t_uint256)50_storage"
+      "slot": "8",
+      "type": "t_array(t_uint256)49_storage"
     }
   ],
   "types": {
@@ -77,11 +85,11 @@
       "label": "struct Storefront.Bid[]",
       "numberOfBytes": "32"
     },
-    "t_array(t_uint256)50_storage": {
+    "t_array(t_uint256)49_storage": {
       "base": "t_uint256",
       "encoding": "inplace",
-      "label": "uint256[50]",
-      "numberOfBytes": "1600"
+      "label": "uint256[49]",
+      "numberOfBytes": "1568"
     },
     "t_array(t_uint256)dyn_storage": {
       "base": "t_uint256",
@@ -129,6 +137,13 @@
       "label": "mapping(uint256 => struct Storefront.Listing)",
       "numberOfBytes": "32",
       "value": "t_struct(Listing)63584_storage"
+    },
+    "t_mapping(t_uint256,t_userDefinedValueType(euint8)11791)": {
+      "encoding": "mapping",
+      "key": "t_uint256",
+      "label": "mapping(uint256 => euint8)",
+      "numberOfBytes": "32",
+      "value": "t_userDefinedValueType(euint8)11791"
     },
     "t_string_storage": {
       "encoding": "bytes",
@@ -285,6 +300,11 @@
     "t_userDefinedValueType(euint64)11797": {
       "encoding": "inplace",
       "label": "euint64",
+      "numberOfBytes": "32"
+    },
+    "t_userDefinedValueType(euint8)11791": {
+      "encoding": "inplace",
+      "label": "euint8",
       "numberOfBytes": "32"
     }
   }

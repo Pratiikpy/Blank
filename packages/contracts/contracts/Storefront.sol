@@ -88,6 +88,12 @@ contract Storefront is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     /// @dev Reverse lookups.
     mapping(address => uint256[]) private _sellerListings;
 
+    /// @dev §1.4 phase B (BEST_VERSION_FULL_PLAN): encrypted winner-index per
+    /// auction listingId. Set in closeAuction via FHE-tournament selection.
+    /// Decrypted off-chain and posted via revealWinner() with EIP-712 signature.
+    /// Append-only addition; __gap reduced by 1 slot below.
+    mapping(uint256 => euint8) private _winnerIdxHandle;
+
     /// @dev Auction config: minimum auction window (1 hour) + maximum (30 days).
     uint256 public constant MIN_AUCTION_SECONDS = 1 hours;
     uint256 public constant MAX_AUCTION_SECONDS = 30 days;
@@ -514,5 +520,6 @@ contract Storefront is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 
     /// @dev Append-only storage. Decrement when adding a new state variable.
-    uint256[50] private __gap;
+    /// 50 -> 49 after §1.4 phase B added _winnerIdxHandle (BEST_VERSION_FULL_PLAN).
+    uint256[49] private __gap;
 }
