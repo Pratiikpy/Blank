@@ -305,9 +305,7 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         // Verify the encrypted payment matches the encrypted invoice amount exactly.
         // The client should decrypt the invoice amount off-chain first, then encrypt
         // the same value as their payment. This is verified here without revealing either.
-        ebool exactMatch = FHE.eq(payment, inv.amount);
-        FHE.allowThis(exactMatch);
-        FHE.allowSender(exactMatch);
+        ebool exactMatch = _verifyEncryptedMatch(payment, inv.amount);
 
         // Transfer the full encAmount to vendor via vault using pre-verified handle.
         // Since we verified exactMatch, if true this transfers exactly the invoice amount.
@@ -446,12 +444,10 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         FHE.allowSender(held);
         _invoiceEscrowHeld[invoiceId] = held;
 
-        // Encrypted equality check — same shape as payInvoice. Public so the
+        // Encrypted equality check, same shape as payInvoice. Public so the
         // SDK's threshold-decrypt path can publish the result back via
         // releaseInvoiceEscrow.
-        ebool exactMatch = FHE.eq(payment, inv.amount);
-        FHE.allowThis(exactMatch);
-        FHE.allowSender(exactMatch);
+        ebool exactMatch = _verifyEncryptedMatch(payment, inv.amount);
         FHE.allowPublic(exactMatch);
         _invoicePaymentValidation[invoiceId] = exactMatch;
 
@@ -597,9 +593,7 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         // decryption + finalize, mirroring payInvoice exactly so the same
         // payInvoiceFinalize() handles both flows.
         euint64 payment = FHE.asEuint64(encAmount);
-        ebool exactMatch = FHE.eq(payment, inv.amount);
-        FHE.allowThis(exactMatch);
-        FHE.allowSender(exactMatch);
+        ebool exactMatch = _verifyEncryptedMatch(payment, inv.amount);
         FHE.allowPublic(exactMatch);
         _invoicePaymentValidation[invoiceId] = exactMatch;
 
@@ -828,9 +822,7 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
         // ── FHE encrypted-match validation ─────────────────────────────
         euint64 payment = FHE.asEuint64(encAmount);
-        ebool exactMatch = FHE.eq(payment, inv.amount);
-        FHE.allowThis(exactMatch);
-        FHE.allowSender(exactMatch);
+        ebool exactMatch = _verifyEncryptedMatch(payment, inv.amount);
         FHE.allowPublic(exactMatch);
         _invoicePaymentValidation[invoiceId] = exactMatch;
 
@@ -1076,6 +1068,20 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     ///      try/catch so a misconfigured (non-authorized) PaymentReceipts
     ///      can never block a payroll transfer. Mirrors PaymentHub's
     ///      `_bumpAggregate` defensive pattern.
+    /// @dev §2.8 helper: verify an encrypted payment matches the encrypted
+    ///      invoice amount and grant the standard allow-set (this + sender)
+    ///      so the caller can later read the boolean off-chain. Caller is
+    ///      responsible for the optional `FHE.allowPublic(exactMatch)` and
+    ///      for persisting the result in `_invoicePaymentValidation`.
+    function _verifyEncryptedMatch(euint64 payment, euint64 expected)
+        internal
+        returns (ebool exactMatch)
+    {
+        exactMatch = FHE.eq(payment, expected);
+        FHE.allowThis(exactMatch);
+        FHE.allowSender(exactMatch);
+    }
+
     function _bumpReceipts(address recipient, euint64 amount) internal {
         if (paymentReceipts == address(0)) return;
         // Transient-allow the PaymentReceipts contract to read the amount
