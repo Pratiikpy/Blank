@@ -423,6 +423,71 @@ describe("Storefront", () => {
     });
   });
 
+  // §15.3.1: state-change events on each lifecycle transition.
+  describe("State-change events", () => {
+    it("emits ListingCreated on createListing", async () => {
+      const ctx = await loadFixture(deployFixture);
+      const enc = await encUint64(ctx.client, ctx.alice, usdc(10));
+
+      await expect(
+        ctx.storefront.connect(ctx.alice).createListing(
+          MODE_FIXED, await ctx.vault.getAddress(), enc, 0, "L", ZERO_BYTES32, "",
+        ),
+      ).to.emit(ctx.storefront, "ListingCreated");
+    });
+
+    it("emits ListingDeactivated on deactivateListing", async () => {
+      const ctx = await loadFixture(deployFixture);
+      const enc = await encUint64(ctx.client, ctx.alice, usdc(10));
+      await ctx.storefront.connect(ctx.alice).createListing(
+        MODE_FIXED, await ctx.vault.getAddress(), enc, 0, "L", ZERO_BYTES32, "",
+      );
+
+      await expect(ctx.storefront.connect(ctx.alice).deactivateListing(0))
+        .to.emit(ctx.storefront, "ListingDeactivated");
+    });
+
+    it("emits FixedPriceBuy on buyFixed", async () => {
+      const ctx = await loadFixture(deployFixture);
+      const enc = await encUint64(ctx.client, ctx.alice, usdc(10));
+      await ctx.storefront.connect(ctx.alice).createListing(
+        MODE_FIXED, await ctx.vault.getAddress(), enc, 0, "L", ZERO_BYTES32, "",
+      );
+
+      const encPay = await encUint64(ctx.client, ctx.bob, usdc(10));
+      await expect(ctx.storefront.connect(ctx.bob).buyFixed(0, encPay, ZERO_BYTES32))
+        .to.emit(ctx.storefront, "FixedPriceBuy");
+    });
+
+    it("emits BidPlaced on placeBid + AuctionClosed on closeAuction", async () => {
+      const ctx = await loadFixture(deployFixture);
+      const enc = await encUint64(ctx.client, ctx.alice, usdc(0));
+      await ctx.storefront.connect(ctx.alice).createListing(
+        MODE_AUCTION, await ctx.vault.getAddress(), enc, 3600, "auction", ZERO_BYTES32, "",
+      );
+
+      const bid = await encUint64(ctx.client, ctx.bob, usdc(5));
+      await expect(ctx.storefront.connect(ctx.bob).placeBid(0, bid))
+        .to.emit(ctx.storefront, "BidPlaced");
+
+      await time.increase(3601);
+      await expect(ctx.storefront.connect(ctx.alice).closeAuction(0))
+        .to.emit(ctx.storefront, "AuctionClosed");
+    });
+
+    it("emits PWYWPayment on payPWYW", async () => {
+      const ctx = await loadFixture(deployFixture);
+      const enc = await encUint64(ctx.client, ctx.alice, usdc(0));
+      await ctx.storefront.connect(ctx.alice).createListing(
+        MODE_PWYW, await ctx.vault.getAddress(), enc, 0, "tip", ZERO_BYTES32, "",
+      );
+
+      const encPay = await encUint64(ctx.client, ctx.bob, usdc(7));
+      await expect(ctx.storefront.connect(ctx.bob).payPWYW(0, encPay, ZERO_BYTES32))
+        .to.emit(ctx.storefront, "PWYWPayment");
+    });
+  });
+
   // §2.7 + §15.3.1 event-assertion gap: PaymentReceiptsSet fires on
   // setPaymentReceipts and carries previous + current.
   describe("PaymentReceiptsSet event", () => {
