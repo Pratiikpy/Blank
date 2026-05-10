@@ -96,6 +96,7 @@ contract EncryptedCrowdfund is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
     /// @notice §2.6 of BEST_VERSION_FULL_PLAN: emitted when paymentReceipts
     /// bump call reverts. kind is "user" or "global". Indexer detects + replays.
     event ReceiptsBumpFailed(string kind, bytes reason);
+    event PaymentReceiptsSet(address indexed previous, address indexed current);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -329,7 +330,9 @@ contract EncryptedCrowdfund is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
     }
 
     function setPaymentReceipts(address _paymentReceipts) external onlyOwner {
+        address previous = paymentReceipts;
         paymentReceipts = _paymentReceipts;
+        emit PaymentReceiptsSet(previous, _paymentReceipts);
     }
 
     function _bumpReceiptsAndGlobal(address recipient, euint64 amount) internal {

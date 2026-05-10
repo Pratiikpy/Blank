@@ -127,6 +127,7 @@ contract StealthPayments is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
         uint256 timestamp
     );
     event ReceiptsBumpFailed(string kind, bytes reason);
+    event PaymentReceiptsSet(address indexed previous, address indexed current);
 
     // ─── Initializer ────────────────────────────────────────────────────
 
@@ -462,7 +463,9 @@ contract StealthPayments is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
     ///         sendStealth bumps and refund decrements the global encrypted
     ///         volume aggregate. Zero-address = feature off (back-compat).
     function setPaymentReceipts(address _paymentReceipts) external onlyOwner {
+        address previous = paymentReceipts;
         paymentReceipts = _paymentReceipts;
+        emit PaymentReceiptsSet(previous, _paymentReceipts);
     }
 
     /// @dev Internal: bump global volume on send. Wrapped in try/catch so a

@@ -123,6 +123,7 @@ contract PaymentHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         uint256 timestamp
     );
     event ReceiptsBumpFailed(string kind, bytes reason);
+    event PaymentReceiptsSet(address indexed previous, address indexed current);
 
     // ─── Initializer ────────────────────────────────────────────────────
 
@@ -414,7 +415,9 @@ contract PaymentHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     ///         transferred amount to paymentReceipts.bumpGlobalVolume so
     ///         the landing-page counter increments.
     function setPaymentReceipts(address _paymentReceipts) external onlyOwner {
+        address previous = paymentReceipts;
         paymentReceipts = _paymentReceipts;
+        emit PaymentReceiptsSet(previous, _paymentReceipts);
     }
 
     /// @dev Internal: forward an already-verified euint64 to PaymentReceipts.

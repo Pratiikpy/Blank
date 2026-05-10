@@ -218,6 +218,7 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     event InvoicePdfCidSet(uint256 indexed id, bytes32 cidHash, uint256 timestamp);
     event EscrowAttachmentCidSet(uint256 indexed id, bytes32 cidHash, uint256 timestamp);
     event ReceiptsBumpFailed(string kind, bytes reason);
+    event PaymentReceiptsSet(address indexed previous, address indexed current);
 
     // ─── Initializer ────────────────────────────────────────────────────
 
@@ -1060,7 +1061,9 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     ///         runPayroll forwards each recipient's transferred amount so
     ///         they can later prove their encrypted total received income.
     function setPaymentReceipts(address _paymentReceipts) external onlyOwner {
+        address previous = paymentReceipts;
         paymentReceipts = _paymentReceipts;
+        emit PaymentReceiptsSet(previous, _paymentReceipts);
     }
 
     /// @dev Internal: forward a pre-verified euint64 to PaymentReceipts for

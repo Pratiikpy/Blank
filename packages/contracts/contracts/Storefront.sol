@@ -149,6 +149,7 @@ contract Storefront is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     /// @notice §2.6 of BEST_VERSION_FULL_PLAN: emitted when paymentReceipts
     /// bump call reverts. kind is "user" or "global". Indexer detects + replays.
     event ReceiptsBumpFailed(string kind, bytes reason);
+    event PaymentReceiptsSet(address indexed previous, address indexed current);
 
     // ─── Initializer ──────────────────────────────────────────────────
 
@@ -555,7 +556,9 @@ contract Storefront is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     }
 
     function setPaymentReceipts(address _paymentReceipts) external onlyOwner {
+        address previous = paymentReceipts;
         paymentReceipts = _paymentReceipts;
+        emit PaymentReceiptsSet(previous, _paymentReceipts);
     }
 
     // ─── Internals ─────────────────────────────────────────────────────

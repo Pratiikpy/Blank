@@ -119,6 +119,7 @@ contract GiftMoney is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         uint256 expiryTimestamp
     );
     event ReceiptsBumpFailed(string kind, bytes reason);
+    event PaymentReceiptsSet(address indexed previous, address indexed current);
 
     // ─── Initializer ────────────────────────────────────────────────────
 
@@ -391,7 +392,9 @@ contract GiftMoney is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     ///         encrypted total received income, and bumps the global
     ///         aggregate so the landing-page counter reflects gift volume.
     function setPaymentReceipts(address _paymentReceipts) external onlyOwner {
+        address previous = paymentReceipts;
         paymentReceipts = _paymentReceipts;
+        emit PaymentReceiptsSet(previous, _paymentReceipts);
     }
 
     /// @dev Internal: forward a pre-verified euint64 to PaymentReceipts for

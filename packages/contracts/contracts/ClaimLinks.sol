@@ -116,6 +116,7 @@ contract ClaimLinks is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     /// bump call reverts. kind is "user" or "global". Indexer can detect +
     /// replay the missing bump.
     event ReceiptsBumpFailed(string kind, bytes reason);
+    event PaymentReceiptsSet(address indexed previous, address indexed current);
 
     // ─── Initializer ──────────────────────────────────────────────────────
 
@@ -339,7 +340,9 @@ contract ClaimLinks is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     }
 
     function setPaymentReceipts(address _paymentReceipts) external onlyOwner {
+        address previous = paymentReceipts;
         paymentReceipts = _paymentReceipts;
+        emit PaymentReceiptsSet(previous, _paymentReceipts);
     }
 
     function setDefaultExpiry(uint256 newDefault) external onlyOwner {
