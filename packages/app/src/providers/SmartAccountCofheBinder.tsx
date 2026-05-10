@@ -7,6 +7,7 @@ import { useChain } from "./ChainProvider";
 import { useCofheSmartWalletBinding } from "@/lib/cofhe-shim";
 import { buildBlankSmartAccountClient } from "@/lib/smart-account-cofhe-bridge";
 import type { CofheSmartAccountClient } from "@/lib/smart-account-cofhe-bridge";
+import { log } from "@/lib/log";
 
 // R5-D: wire-up provider. Mounts once under CofheProvider +
 // PassphrasePromptProvider. When a passkey-backed smart account is ready,
@@ -30,15 +31,14 @@ export function SmartAccountCofheBinder() {
   // first UserOp (shield/send/etc.) will deploy, then the next mount
   // cycle picks up isDeployed=true and activates the binding.
   const client: CofheSmartAccountClient | null = useMemo(() => {
-    // §3.20 of BEST_VERSION_FULL_PLAN: gated behind DEV mode. This log
-    // fires on every wallet transition / chain switch / account deploy
-    // cycle. esbuild drop in production strips the call entirely.
-    if (import.meta.env.DEV) {
-      console.log("[SmartAccountCofheBinder] state check", {
-        status, hasAccount: !!account, isDeployed: account?.isDeployed,
-        hasPublicClient: !!publicClient, activeChainId,
-      });
-    }
+    // §3.21: structured-logger. Fires on every wallet transition /
+    // chain switch / account deploy cycle. log.debug filters to dev
+    // via lib/log.ts console-sink production filter; Sentry sink
+    // (when wired per §3.22) sees the event for state-machine telemetry.
+    log.debug("smartAccountCofheBinder.stateCheck", {
+      status, hasAccount: !!account, isDeployed: account?.isDeployed,
+      hasPublicClient: !!publicClient, activeChainId,
+    });
     if (status !== "ready" || !account || !publicClient) return null;
     if (!account.isDeployed) return null; // see comment above
 
