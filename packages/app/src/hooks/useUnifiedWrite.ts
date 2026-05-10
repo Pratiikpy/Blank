@@ -3,17 +3,17 @@ import { useWriteContract } from "wagmi";
 import { encodeFunctionData, type Abi, type Address, type Hex } from "viem";
 import { useSmartAccount } from "./useSmartAccount";
 import { usePassphrasePrompt } from "@/components/PassphrasePrompt";
+import { log } from "@/lib/log";
 
 // Module-load marker — proves Vite served fresh module to the page.
 // If you don't see this in the browser console at app boot, the page is
 // running a stale cached bundle and any diagnostics added below will
 // silently no-op.
-// §3.18 of BEST_VERSION_FULL_PLAN: dev-only logs. Production builds drop
-// these via esbuild config. Pre-fix all 6 calls fired on every contract
-// write, polluting prod console output.
-if (typeof window !== "undefined" && import.meta.env.DEV) {
-  // eslint-disable-next-line no-console
-  console.log("[useUnifiedWrite.module] loaded build-2026-04-14-A");
+// §3.21 of BEST_VERSION_FULL_PLAN: route through structured logger.
+// log.debug entries are filtered out by the console sink in production
+// (lib/log.ts) but still flow to Sentry-style sinks for observability.
+if (typeof window !== "undefined") {
+  log.debug("useUnifiedWrite.module.loaded", { build: "2026-04-14-A" });
 }
 
 // ──────────────────────────────────────────────────────────────────
@@ -233,11 +233,11 @@ export function useUnifiedWrite(): UseUnifiedWriteReturn {
 
   const unifiedWrite = useCallback(
     async (params: UnifiedWriteParams): Promise<Hex> => {
-      if (import.meta.env.DEV) console.log("[unifiedWrite] called", { fn: params.functionName, isSmartAccount, smartAccountStatus: smartAccount.status, hasAccount: !!smartAccount.account });
+      log.debug("unifiedWrite.called", { fn: params.functionName, isSmartAccount, smartAccountStatus: smartAccount.status, hasAccount: !!smartAccount.account });
       // EOA path — wagmi unchanged. Cast as any because wagmi's strict
       // ABI inference would require literal abis at every call site.
       if (!isSmartAccount) {
-        if (import.meta.env.DEV) console.log("[unifiedWrite] taking EOA wagmi path");
+        log.debug("unifiedWrite.path", { path: "EOA" });
         try {
           const hash = await writeContractAsync({
             address: params.address,
@@ -254,7 +254,7 @@ export function useUnifiedWrite(): UseUnifiedWriteReturn {
       }
 
       // AA path — encode the call data, send via UserOp.
-      if (import.meta.env.DEV) console.log("[unifiedWrite] taking AA passkey path, requesting passphrase...");
+      log.debug("unifiedWrite.path", { path: "AA-passkey", phase: "requesting-passphrase" });
       const data = encodeFunctionData({
         abi: params.abi,
         functionName: params.functionName,
@@ -268,7 +268,7 @@ export function useUnifiedWrite(): UseUnifiedWriteReturn {
             ? `Submit via your smart wallet — paid from your wallet's ETH.`
             : `Submit via your smart wallet — gas sponsored.`,
       });
-      if (import.meta.env.DEV) console.log("[unifiedWrite] passphrase obtained, calling sendUserOp...");
+      log.debug("unifiedWrite.passphrase", { phase: "obtained" });
       if (!passphrase) throw new Error("Cancelled");
 
       let result;
@@ -300,7 +300,7 @@ export function useUnifiedWrite(): UseUnifiedWriteReturn {
   // avoid the post-relay RPC poll roulette.
   const unifiedWriteAndWait = useCallback(
     async (params: UnifiedWriteParams): Promise<UnifiedWriteAndWaitResult> => {
-      if (import.meta.env.DEV) console.log("[unifiedWriteAndWait] called", { fn: params.functionName, isSmartAccount, smartAccountStatus: smartAccount.status });
+      log.debug("unifiedWriteAndWait.called", { fn: params.functionName, isSmartAccount, smartAccountStatus: smartAccount.status });
       if (!isSmartAccount) {
         const hash = await writeContractAsync({
           address: params.address,

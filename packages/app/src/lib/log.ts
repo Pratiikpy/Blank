@@ -26,8 +26,17 @@ type Sink = (entry: LogEntry) => void;
 
 const sinks: Sink[] = [];
 
-/** Console sink — always on, so dev tools still show everything. */
+/**
+ * Console sink. Production filters out debug-level entries to keep prod
+ * console output focused on actionable signal. Dev mode prints every level.
+ *
+ * §3.21 of BEST_VERSION_FULL_PLAN: the production filter was added so that
+ * migrating hot-path console.log calls to log.debug doesn't reintroduce the
+ * console spam that the §1.10 esbuild drop solved. Hot-path debug events
+ * still flow to non-console sinks (Sentry per §3.22) where they're useful.
+ */
 sinks.push((entry) => {
+  if (entry.level === "debug" && !import.meta.env.DEV) return;
   const method = entry.level === "error" ? "error" : entry.level === "warn" ? "warn" : "log";
   // eslint-disable-next-line no-console
   console[method](`[${entry.event}]`, entry.context ?? "", entry.error ?? "");
