@@ -16,7 +16,7 @@ export interface MappedError {
 
 const DEFAULT: MappedError = {
   title: "Transaction failed",
-  body: "Something went wrong — please try again.",
+  body: "Something went wrong. Please try again.",
   userCancelled: false,
 };
 
@@ -41,7 +41,7 @@ const PATTERNS: Array<{ test: RegExp; map: MappedError }> = [
     test: /allowance|approve.*amount|erc20/i,
     map: {
       title: "Approval needed",
-      body: "The vault approval expired or changed — please try again.",
+      body: "The vault approval expired or changed. Please try again.",
       userCancelled: false,
     },
   },
@@ -49,7 +49,7 @@ const PATTERNS: Array<{ test: RegExp; map: MappedError }> = [
     test: /gas (?:price|required|estimation) (?:too low|exceeds|failed)/i,
     map: {
       title: "Gas estimation failed",
-      body: "Network may be congested — retry in a moment.",
+      body: "Network may be congested. Retry in a moment.",
       userCancelled: false,
     },
   },
@@ -57,7 +57,7 @@ const PATTERNS: Array<{ test: RegExp; map: MappedError }> = [
     test: /nonce|replacement transaction underpriced/i,
     map: {
       title: "Transaction stuck",
-      body: "A previous transaction is still pending — wait for it to confirm, then retry.",
+      body: "A previous transaction is still pending. Wait for it to confirm, then retry.",
       userCancelled: false,
     },
   },
@@ -65,7 +65,7 @@ const PATTERNS: Array<{ test: RegExp; map: MappedError }> = [
     test: /429|too many requests|rate limit/i,
     map: {
       title: "Rate limited",
-      body: "The network is rate-limiting your wallet — retry in a few seconds.",
+      body: "The network is rate-limiting your wallet. Retry in a few seconds.",
       userCancelled: false,
     },
   },
@@ -73,7 +73,7 @@ const PATTERNS: Array<{ test: RegExp; map: MappedError }> = [
     test: /network.*(?:error|unreachable)|fetch failed|ECONNREFUSED|ENOTFOUND/i,
     map: {
       title: "Network error",
-      body: "Couldn't reach the RPC — check your connection and retry.",
+      body: "Couldn't reach the RPC. Check your connection and retry.",
       userCancelled: false,
     },
   },
@@ -89,7 +89,7 @@ const PATTERNS: Array<{ test: RegExp; map: MappedError }> = [
     test: /timeout|timed out/i,
     map: {
       title: "Timeout",
-      body: "The operation took too long. The transaction may still confirm — check explorer.",
+      body: "The operation took too long. The transaction may still confirm; check the explorer.",
       userCancelled: false,
     },
   },

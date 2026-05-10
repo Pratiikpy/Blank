@@ -253,8 +253,8 @@ export function buildBlankSmartAccountClient(
       const initCode: Hex = "0x";
       if (!account.isDeployed) {
         throw new Error(
-          "BlankSmartAccountClient.sendTransaction: account not yet deployed — " +
-            "deploy via useSmartAccount first, then (re)connect cofhe SDK",
+          "BlankSmartAccountClient.sendTransaction: account not yet deployed. " +
+            "Deploy via useSmartAccount first, then (re)connect cofhe SDK.",
         );
       }
 

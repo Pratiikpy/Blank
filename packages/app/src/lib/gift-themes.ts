@@ -30,7 +30,7 @@ export const GIFT_THEMES: GiftTheme[] = [
     color: "text-pink-600",
     bgColor: "bg-pink-50",
     borderColor: "border-pink-100",
-    tagline: "Happy birthday — claim your gift",
+    tagline: "Happy birthday. Claim your gift.",
   },
   {
     id: 2,
@@ -57,7 +57,7 @@ export const GIFT_THEMES: GiftTheme[] = [
     color: "text-emerald-600",
     bgColor: "bg-emerald-50",
     borderColor: "border-emerald-100",
-    tagline: "Thank you — please accept this",
+    tagline: "Thank you. Please accept this.",
   },
 ];
 

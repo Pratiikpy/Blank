@@ -180,11 +180,11 @@ export function useFeatureKit(config: FeatureConfig) {
           return null;
         }
         if (!publicClient) {
-          toast.error("Network not ready — please retry");
+          toast.error("Network not ready. Please retry.");
           return null;
         }
         if (!cofheConnected) {
-          toast.error("FHE is still initializing — please retry in a moment");
+          toast.error("FHE is still initializing. Please retry in a moment.");
           return null;
         }
         if (config.rateLimit && !checkRateLimit(
@@ -192,7 +192,7 @@ export function useFeatureKit(config: FeatureConfig) {
           config.rateLimit.windowMs,
           config.rateLimit.max,
         )) {
-          toast.error("Too many requests — please try again later");
+          toast.error("Too many requests. Please try again later.");
           return null;
         }
 
@@ -288,7 +288,7 @@ export function useFeatureKit(config: FeatureConfig) {
       });
 
       if (guarded) {
-        toast("Already in flight — please wait", { icon: "\u23F3" });
+        toast("Already in flight. Please wait.", { icon: "\u23F3" });
         return null;
       }
       return result ?? null;

@@ -192,7 +192,7 @@ export async function createPasskey(
   label?: string,
 ): Promise<{ pubX: `0x${string}`; pubY: `0x${string}` }> {
   if (await hasPasskey(chainId)) {
-    throw new Error("passkey already exists for this chain — delete it first");
+    throw new Error("passkey already exists for this chain. Delete it first.");
   }
   if (passphrase.length < 8) {
     throw new Error("passphrase must be at least 8 characters");

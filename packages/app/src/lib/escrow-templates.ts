@@ -37,7 +37,7 @@ export const MILESTONE_TEMPLATES: MilestoneTemplate[] = [
   {
     id: "33-33-33",
     label: "33 / 33 / 33 (kickoff, midpoint, delivery)",
-    description: "Three equal tranches — kickoff, midpoint review, final delivery.",
+    description: "Three equal tranches: kickoff, midpoint review, final delivery.",
     splits: [
       { name: "Kickoff", fraction: 1 / 3 },
       { name: "Midpoint", fraction: 1 / 3 },
@@ -47,7 +47,7 @@ export const MILESTONE_TEMPLATES: MilestoneTemplate[] = [
   {
     id: "25-50-25",
     label: "25 / 50 / 25 (kickoff, build, polish)",
-    description: "Light on the ends, heavy in the middle — useful for build-heavy projects.",
+    description: "Light on the ends, heavy in the middle. Useful for build-heavy projects.",
     splits: [
       { name: "Kickoff", fraction: 0.25 },
       { name: "Build", fraction: 0.5 },

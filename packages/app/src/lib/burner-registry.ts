@@ -109,7 +109,7 @@ export const BurnerRegistryAbi = [
 
 function getCrypto(): SubtleCrypto {
   if (typeof crypto === "undefined" || !crypto.subtle) {
-    throw new Error("Web Crypto API unavailable — browser too old or non-secure context");
+    throw new Error("Web Crypto API unavailable. Browser too old or non-secure context.");
   }
   return crypto.subtle;
 }
@@ -225,7 +225,7 @@ export async function decryptBlob(
     );
   } catch {
     // Wrong passphrase or tampered ciphertext — AES-GCM auth tag mismatch.
-    throw new Error("Decryption failed — wrong passphrase or corrupted backup");
+    throw new Error("Decryption failed. Wrong passphrase or corrupted backup.");
   }
   const dec = new TextDecoder();
   const json = dec.decode(plaintext);
