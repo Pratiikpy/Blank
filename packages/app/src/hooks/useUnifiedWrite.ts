@@ -8,7 +8,10 @@ import { usePassphrasePrompt } from "@/components/PassphrasePrompt";
 // If you don't see this in the browser console at app boot, the page is
 // running a stale cached bundle and any diagnostics added below will
 // silently no-op.
-if (typeof window !== "undefined") {
+// §3.18 of BEST_VERSION_FULL_PLAN: dev-only logs. Production builds drop
+// these via esbuild config. Pre-fix all 6 calls fired on every contract
+// write, polluting prod console output.
+if (typeof window !== "undefined" && import.meta.env.DEV) {
   // eslint-disable-next-line no-console
   console.log("[useUnifiedWrite.module] loaded build-2026-04-14-A");
 }
@@ -218,11 +221,11 @@ export function useUnifiedWrite(): UseUnifiedWriteReturn {
 
   const unifiedWrite = useCallback(
     async (params: UnifiedWriteParams): Promise<Hex> => {
-      console.log("[unifiedWrite] called", { fn: params.functionName, isSmartAccount, smartAccountStatus: smartAccount.status, hasAccount: !!smartAccount.account });
+      if (import.meta.env.DEV) console.log("[unifiedWrite] called", { fn: params.functionName, isSmartAccount, smartAccountStatus: smartAccount.status, hasAccount: !!smartAccount.account });
       // EOA path — wagmi unchanged. Cast as any because wagmi's strict
       // ABI inference would require literal abis at every call site.
       if (!isSmartAccount) {
-        console.log("[unifiedWrite] taking EOA wagmi path");
+        if (import.meta.env.DEV) console.log("[unifiedWrite] taking EOA wagmi path");
         try {
           const hash = await writeContractAsync({
             address: params.address,
@@ -239,7 +242,7 @@ export function useUnifiedWrite(): UseUnifiedWriteReturn {
       }
 
       // AA path — encode the call data, send via UserOp.
-      console.log("[unifiedWrite] taking AA passkey path, requesting passphrase...");
+      if (import.meta.env.DEV) console.log("[unifiedWrite] taking AA passkey path, requesting passphrase...");
       const data = encodeFunctionData({
         abi: params.abi,
         functionName: params.functionName,
@@ -253,7 +256,7 @@ export function useUnifiedWrite(): UseUnifiedWriteReturn {
             ? `Submit via your smart wallet — paid from your wallet's ETH.`
             : `Submit via your smart wallet — gas sponsored.`,
       });
-      console.log("[unifiedWrite] passphrase obtained, calling sendUserOp...");
+      if (import.meta.env.DEV) console.log("[unifiedWrite] passphrase obtained, calling sendUserOp...");
       if (!passphrase) throw new Error("Cancelled");
 
       let result;
@@ -285,7 +288,7 @@ export function useUnifiedWrite(): UseUnifiedWriteReturn {
   // avoid the post-relay RPC poll roulette.
   const unifiedWriteAndWait = useCallback(
     async (params: UnifiedWriteParams): Promise<UnifiedWriteAndWaitResult> => {
-      console.log("[unifiedWriteAndWait] called", { fn: params.functionName, isSmartAccount, smartAccountStatus: smartAccount.status });
+      if (import.meta.env.DEV) console.log("[unifiedWriteAndWait] called", { fn: params.functionName, isSmartAccount, smartAccountStatus: smartAccount.status });
       if (!isSmartAccount) {
         const hash = await writeContractAsync({
           address: params.address,
