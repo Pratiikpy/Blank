@@ -259,6 +259,82 @@ describe("EncryptedCrowdfund", () => {
     ).to.be.revertedWith("Crowdfund: already published");
   });
 
+  // §15.3.1: state-change events on each lifecycle transition.
+  describe("State-change events", () => {
+    it("emits CampaignCreated on createCampaign", async () => {
+      const ctx = await loadFixture(deployFixture);
+      const encGoal = await encUint64(ctx.client, ctx.alice, usdc(100));
+
+      await expect(
+        ctx.crowdfund.connect(ctx.alice).createCampaign(
+          await ctx.vault.getAddress(), encGoal, 3600, "with note", ZERO_BYTES32,
+        ),
+      ).to.emit(ctx.crowdfund, "CampaignCreated");
+    });
+
+    it("emits Contributed on contribute", async () => {
+      const ctx = await loadFixture(deployFixture);
+      const encGoal = await encUint64(ctx.client, ctx.alice, usdc(100));
+      await ctx.crowdfund.connect(ctx.alice).createCampaign(
+        await ctx.vault.getAddress(), encGoal, 3600, "C", ZERO_BYTES32,
+      );
+
+      const c1 = await encUint64(ctx.client, ctx.bob, usdc(40));
+      await expect(ctx.crowdfund.connect(ctx.bob).contribute(0, c1))
+        .to.emit(ctx.crowdfund, "Contributed");
+    });
+
+    it("emits CampaignClosed + CloseResultPublished + CampaignReleased on goal-met flow", async () => {
+      const ctx = await loadFixture(deployFixture);
+      const encGoal = await encUint64(ctx.client, ctx.alice, usdc(50));
+      await ctx.crowdfund.connect(ctx.alice).createCampaign(
+        await ctx.vault.getAddress(), encGoal, 3600, "Met", ZERO_BYTES32,
+      );
+
+      const c1 = await encUint64(ctx.client, ctx.bob, usdc(40));
+      await ctx.crowdfund.connect(ctx.bob).contribute(0, c1);
+      const c2 = await encUint64(ctx.client, ctx.charlie, usdc(20));
+      await ctx.crowdfund.connect(ctx.charlie).contribute(0, c2);
+
+      await time.increase(3601);
+      await expect(ctx.crowdfund.connect(ctx.dave).closeCampaign(0))
+        .to.emit(ctx.crowdfund, "CampaignClosed");
+
+      const handle = await ctx.crowdfund.getGoalCheckHandle(0);
+      await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.dave);
+      const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutPermit().execute();
+
+      await expect(
+        ctx.crowdfund.connect(ctx.dave).publishCloseResult(0, Boolean(proof.decryptedValue), proof.signature),
+      ).to.emit(ctx.crowdfund, "CloseResultPublished");
+
+      await expect(ctx.crowdfund.connect(ctx.alice).claimRelease(0))
+        .to.emit(ctx.crowdfund, "CampaignReleased");
+    });
+
+    it("emits ContributionRefunded on goal-not-met refund", async () => {
+      const ctx = await loadFixture(deployFixture);
+      const encGoal = await encUint64(ctx.client, ctx.alice, usdc(500));
+      await ctx.crowdfund.connect(ctx.alice).createCampaign(
+        await ctx.vault.getAddress(), encGoal, 3600, "Fail", ZERO_BYTES32,
+      );
+
+      const c1 = await encUint64(ctx.client, ctx.bob, usdc(40));
+      await ctx.crowdfund.connect(ctx.bob).contribute(0, c1);
+
+      await time.increase(3601);
+      await ctx.crowdfund.connect(ctx.dave).closeCampaign(0);
+
+      const handle = await ctx.crowdfund.getGoalCheckHandle(0);
+      await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.dave);
+      const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutPermit().execute();
+      await ctx.crowdfund.connect(ctx.dave).publishCloseResult(0, Boolean(proof.decryptedValue), proof.signature);
+
+      await expect(ctx.crowdfund.connect(ctx.bob).claimRefund(0, 0))
+        .to.emit(ctx.crowdfund, "ContributionRefunded");
+    });
+  });
+
   // §2.7 + §15.3.1 event-assertion gap: PaymentReceiptsSet fires on
   // setPaymentReceipts and carries previous + current.
   describe("PaymentReceiptsSet event", () => {
