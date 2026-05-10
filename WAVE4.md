@@ -137,7 +137,7 @@ Status: `✅` done · `🟡` in-progress · `⏳` pending · `❌` blocked
 ## Sprint week (BEST_VERSION_FULL_PLAN §1)
 
 - ✅ §1.1 gitignore e2e-test-wallet.json. Scoped at `packages/contracts/.gitignore`. Verified with `git check-ignore`. History clean (never committed). Operator warning added to `tasks/fund-mm-test-wallet.ts`.
-- ⏳ §1.2 EncryptedEscrow no-arbiter dispute fix
+- ✅ §1.2 EncryptedEscrow no-arbiter dispute fix. `disputeEscrow` now reverts when `arbiter == 0x0`. Regression test added (10/10 tests pass). Storage layout unchanged (no struct fields touched, only runtime guard). UI guard pending (forthcoming escrow screen, deferred to §3 hooks debt).
 - ⏳ §1.3 Storefront fake-green test drop (phase A)
 - ⏳ §1.4 Storefront auction phase B fix
 - ⏳ §1.5 ClaimLinks expiry cap (60-day constant)
