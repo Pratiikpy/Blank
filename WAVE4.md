@@ -150,6 +150,7 @@ Status: `✅` done · `🟡` in-progress · `⏳` pending · `❌` blocked
 
 ## Section 3 hooks debt
 
+- ✅ §3.10 markConfirming dead-UI flash removed on AndWait paths. Half-baked B14: `markConfirming()` fired immediately before `markDone()` on `unifiedWriteAndWait` paths where the receipt was already in hand. AA path returns `writeResult.receipt` directly (no wait); EOA path needs to poll. Fix: moved `markConfirming()` into the `else` branch where the actual wait happens (4 sites in createListing/createCampaign/createEscrow/createLink), and removed entirely from sites that don't poll at all (4 sites in buyFixed/placeBid/payPWYW/refund). 8 markConfirming calls replaced with proper conditional or removed. tsc clean.
 - ✅ §3.11 txHash preserved on error across all 4 Wave 4 hooks. Half-baked B15: `setState({ ...initial, step: "error", error: msg })` in catch blocks wiped the in-flight tx hash, leaving users without an explorer link to the failed tx. Fix: switched to functional update `setState((prev) => ({ ...prev, isProcessing: false, step: "error", error: msg }))` at all 13 catch sites across useClaimLinks (2), useStorefront (5), useCrowdfund (3), useEncryptedEscrow (2), plus 1 more useClaimLinks site. tsc clean.
 - ✅ §3.20 SmartAccountCofheBinder console.log gated behind DEV. Audit iter 25: state-check console.log fired on every render when state changed (wallet transitions, chain switches, account deploys). Now wrapped in `if (import.meta.env.DEV)` so production builds drop the call. Five-minute one-line fix. tsc clean.
 

@@ -159,11 +159,15 @@ export function useStorefront() {
           gas: BigInt(5_000_000),
         });
 
-        pipeline.markConfirming();
+        // §3.10 of BEST_VERSION_FULL_PLAN: markConfirming only fires when we
+        // actually need to wait. AA path embeds the receipt in writeResult.receipt
+        // so no wait is needed; pre-fix code flashed the "confirming" UI for one
+        // frame even when the receipt was already in hand. EOA path still waits.
         let logs: ReadonlyArray<{ address: `0x${string}`; topics: readonly `0x${string}`[]; data: `0x${string}` }>;
         if (writeResult.receipt) {
           logs = writeResult.receipt.logs as never;
         } else {
+          pipeline.markConfirming();
           const r = await publicClient!.waitForTransactionReceipt({ hash: writeResult.hash, confirmations: 1 });
           if (r.status === "reverted") throw new Error("createListing reverted");
           logs = r.logs as never;
@@ -230,7 +234,8 @@ export function useStorefront() {
           gas: BigInt(5_000_000),
         });
 
-        pipeline.markConfirming();
+        // §3.10: unifiedWriteAndWait already settled the receipt on the AA path;
+        // no extra confirm step. Skip directly to markDone.
         pipeline.markDone();
         setState({ step: "success", isProcessing: false, error: null, txHash: writeResult.hash, lastListingId: params.listingId });
         invalidateBalanceQueries();
@@ -282,7 +287,7 @@ export function useStorefront() {
           args: [BigInt(params.listingId), encBid as unknown as EncryptedInput],
           gas: BigInt(5_000_000),
         });
-        pipeline.markConfirming();
+        // §3.10: unifiedWriteAndWait settled the receipt; skip confirm flash.
         pipeline.markDone();
         setState({ step: "success", isProcessing: false, error: null, txHash: writeResult.hash, lastListingId: params.listingId });
         invalidateBalanceQueries();
@@ -388,7 +393,7 @@ export function useStorefront() {
           ],
           gas: BigInt(5_000_000),
         });
-        pipeline.markConfirming();
+        // §3.10: unifiedWriteAndWait settled the receipt; skip confirm flash.
         pipeline.markDone();
         setState({ step: "success", isProcessing: false, error: null, txHash: writeResult.hash, lastListingId: params.listingId });
         invalidateBalanceQueries();

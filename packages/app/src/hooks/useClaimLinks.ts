@@ -186,7 +186,8 @@ export function useClaimLinks() {
           status: "success" | "reverted";
           logs: ReadonlyArray<{ address: `0x${string}`; topics: readonly `0x${string}`[]; data: `0x${string}` }>;
         };
-        pipeline.markConfirming();
+        // §3.10: markConfirming only fires on the EOA path that actually waits.
+        // AA path embeds the receipt in writeResult.receipt; no wait, no flash.
         let receipt: ReceiptShape;
         if (writeResult.receipt) {
           receipt = {
@@ -194,6 +195,7 @@ export function useClaimLinks() {
             logs: writeResult.receipt.logs as ReceiptShape["logs"],
           };
         } else {
+          pipeline.markConfirming();
           const r = await publicClient.waitForTransactionReceipt({ hash: writeResult.hash, confirmations: 1 });
           receipt = { status: r.status, logs: r.logs as ReceiptShape["logs"] };
         }
@@ -281,7 +283,7 @@ export function useClaimLinks() {
           gas: BigInt(5_000_000),
         });
 
-        pipeline.markConfirming();
+        // §3.10: unifiedWriteAndWait already settled the receipt; skip flash.
         pipeline.markDone();
         setState({
           step: "success",

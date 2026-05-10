@@ -108,10 +108,11 @@ export function useCrowdfund() {
           gas: BigInt(5_000_000),
         });
 
-        pipeline.markConfirming();
+        // §3.10: only flash confirming on the EOA path that actually waits.
         let logs: ReadonlyArray<{ address: `0x${string}`; topics: readonly `0x${string}`[]; data: `0x${string}` }>;
         if (wr.receipt) logs = wr.receipt.logs as never;
         else {
+          pipeline.markConfirming();
           const r = await publicClient!.waitForTransactionReceipt({ hash: wr.hash, confirmations: 1 });
           if (r.status === "reverted") throw new Error("createCampaign reverted");
           logs = r.logs as never;
@@ -168,7 +169,7 @@ export function useCrowdfund() {
           args: [BigInt(params.campaignId), encAmount as unknown as EncryptedInput],
           gas: BigInt(5_000_000),
         });
-        pipeline.markConfirming();
+        // §3.10: unifiedWriteAndWait already settled the receipt; skip flash.
         pipeline.markDone();
         setState({ step: "success", isProcessing: false, error: null, txHash: wr.hash, lastCampaignId: params.campaignId });
         invalidateBalanceQueries();
