@@ -233,6 +233,39 @@ export function useCrowdfund() {
     [callSimple],
   );
 
+  // §3.2 of BEST_VERSION_FULL_PLAN: publishCloseResult wrapper. Half-baked B2.
+  // After closeCampaign, the encrypted goal-met verdict needs publishing via
+  // FHE.publishDecryptResult. Caller is responsible for fetching the
+  // plaintext + threshold signature (via cofhe client.decryptForTx) before
+  // invoking this hook. Auto-call after closeCampaign deferred to Wave 5
+  // (needs cofhe-decrypt-queue subscription).
+  const publishCloseResult = useCallback(
+    async (campaignId: number, plaintext: boolean, signature: `0x${string}`) => {
+      const ready = guardReady();
+      if (!ready) return false;
+      const { cf } = ready;
+      try {
+        setState((prev) => ({ ...prev, step: "sending", isProcessing: true, error: null }));
+        await unifiedWriteAndWait({
+          address: cf,
+          abi: EncryptedCrowdfundAbi,
+          functionName: "publishCloseResult",
+          args: [BigInt(campaignId), plaintext, signature],
+        });
+        setState((prev) => ({ ...prev, step: "success", isProcessing: false }));
+        invalidateBalanceQueries();
+        toast.success(plaintext ? "Goal verdict: success published" : "Goal verdict: not met published");
+        return true;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        setState((prev) => ({ ...prev, isProcessing: false, step: "error", error: msg }));
+        toast.error(msg);
+        return false;
+      }
+    },
+    [guardReady, unifiedWriteAndWait],
+  );
+
   const reset = useCallback(() => { setState(initial); pipeline.reset(); }, [pipeline]);
 
   // §3.12 of BEST_VERSION_FULL_PLAN: derived txExplorerUrl.
@@ -245,6 +278,7 @@ export function useCrowdfund() {
     createCampaign,
     contribute,
     closeCampaign,
+    publishCloseResult,
     claimRelease,
     claimRefund,
     reset,
