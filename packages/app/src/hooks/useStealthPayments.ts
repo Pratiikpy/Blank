@@ -7,6 +7,7 @@ import { useCofheEncrypt, useCofheConnection } from "@/lib/cofhe-shim";
 import { useCofheDecryptForTx } from "@/lib/cofhe-shim";
 import { Encryptable } from "@/lib/cofhe-shim";
 import toast from "react-hot-toast";
+import { log } from "@/lib/log";
 import { type EncryptedInput } from "@/lib/constants";
 import { useChain } from "@/providers/ChainProvider";
 import { StealthPaymentsAbi, TestUSDCAbi } from "@/lib/abis";
@@ -919,7 +920,7 @@ export function useStealthPayments() {
 
         return pending;
       } catch (err) {
-        console.warn("getMyPendingClaims failed:", err);
+        log.warn("useStealthPayments.getMyPendingClaims.failed", err instanceof Error ? err : new Error(String(err)));
         return [];
       }
     },

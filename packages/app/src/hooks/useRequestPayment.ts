@@ -6,6 +6,7 @@ import { parseUnits } from "viem";
 import { useCofheEncrypt, useCofheConnection } from "@/lib/cofhe-shim";
 import { Encryptable } from "@/lib/cofhe-shim";
 import toast from "react-hot-toast";
+import { log } from "@/lib/log";
 import { MAX_UINT64, type EncryptedInput } from "@/lib/constants";
 import { useChain } from "@/providers/ChainProvider";
 import { PaymentHubAbi, FHERC20VaultAbi } from "@/lib/abis";
@@ -167,7 +168,7 @@ export function useRequestPayment() {
               try {
                 auth = await signEmailAuth(message, signedAt);
               } catch (signErr) {
-                console.warn("Payment-request email signing skipped:", signErr);
+                log.warn("useRequestPayment.email.signing.skipped", signErr instanceof Error ? signErr : new Error(String(signErr)));
               }
               const result = await sendPaymentRequestEmail({
                 requestId,
@@ -176,10 +177,10 @@ export function useRequestPayment() {
                 ...(auth ?? {}),
               });
               if (!result.ok) {
-                console.warn("Payment-request email send failed:", result.error);
+                log.warn("useRequestPayment.email.send.failed", { error: String(result.error) });
               }
             } catch (mailErr) {
-              console.warn("Payment-request email pipeline failed:", mailErr);
+              log.warn("useRequestPayment.email.pipeline.failed", mailErr instanceof Error ? mailErr : new Error(String(mailErr)));
             }
           })();
         }

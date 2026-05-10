@@ -5,6 +5,7 @@ import { parseUnits } from "viem";
 import { useCofheEncrypt, useCofheConnection } from "@/lib/cofhe-shim";
 import { Encryptable } from "@/lib/cofhe-shim";
 import toast from "react-hot-toast";
+import { log } from "@/lib/log";
 import { MAX_UINT64, type EncryptedInput } from "@/lib/constants";
 import { useChain } from "@/providers/ChainProvider";
 import { CreatorHubAbi, FHERC20VaultAbi } from "@/lib/abis";
@@ -144,7 +145,7 @@ export function useTipCreator() {
           });
           await recomputeCreatorSupporterCount(creator);
         } catch (supporterErr) {
-          console.warn("Failed to insert creator supporter record:", supporterErr);
+          log.warn("useTipCreator.insertSupporter.failed", supporterErr instanceof Error ? supporterErr : new Error(String(supporterErr)));
         }
 
         // Notify other tabs and invalidate cached balances

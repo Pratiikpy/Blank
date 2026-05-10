@@ -32,6 +32,7 @@ import { useCallback } from "react";
 import { useReadContract, usePublicClient } from "wagmi";
 import { type Address, type Hex } from "viem";
 import { erc20Abi } from "viem";
+import { log } from "@/lib/log";
 
 import { ERC5564AnnouncerAbi, ERC6538RegistryAbi } from "@/lib/abis";
 import {
@@ -245,7 +246,7 @@ export function useStealthSend() {
         // Post-confirm bookkeeping failure must NOT mask a successful tx.
         // The on-chain send already happened; surface the error to console
         // for debugging but return success so the UI advances.
-        console.warn("[useStealthSend] post-confirm bookkeeping failed:", err);
+        log.warn("useStealthSend.postConfirmBookkeeping.failed", err instanceof Error ? err : new Error(String(err)));
       }
 
       return {

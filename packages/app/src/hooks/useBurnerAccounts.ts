@@ -29,6 +29,7 @@ import { type Address } from "viem";
 import { usePublicClient } from "wagmi";
 import { useSmartAccount } from "./useSmartAccount";
 import { useChain } from "@/providers/ChainProvider";
+import { log } from "@/lib/log";
 import { BlankAccountFactoryAbi } from "@/lib/abis";
 import {
   STORAGE_KEYS,
@@ -189,7 +190,7 @@ export function useBurnerAccounts(): UseBurnerAccountsReturn {
           } catch (err) {
             // Surface but don't halt — other burners may still derive.
             const msg = err instanceof Error ? err.message : String(err);
-            console.warn(`[useBurnerAccounts] derive failed for salt ${r.salt}:`, msg);
+            log.warn("useBurnerAccounts.derive.failed", { salt: r.salt, msg });
             if (!cancelled) setError(msg.slice(0, 280));
           }
         }

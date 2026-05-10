@@ -3,6 +3,7 @@ import { useReadContract, usePublicClient } from "wagmi";
 import { useUnifiedWrite } from "./useUnifiedWrite";
 import { parseUnits, formatUnits, encodeFunctionData } from "viem";
 import toast from "react-hot-toast";
+import { log } from "@/lib/log";
 import { useChain } from "@/providers/ChainProvider";
 import { TestUSDCAbi, FHERC20VaultAbi } from "@/lib/abis";
 import { insertActivity } from "@/lib/supabase";
@@ -541,7 +542,7 @@ export function useShield() {
       null,
     );
     if (!data) return; // pending on-chain but no local hint — leave it for explicit retry
-    console.log("[useShield] Auto-resuming pending unshield from previous session");
+    log.debug("useShield.unshield.autoResuming");
     _attemptClaim(pendingCtHash as bigint, data.amount ?? "");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [address, hasPendingUnshield, activeChainId]);

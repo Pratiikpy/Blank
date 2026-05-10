@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useAccount } from "wagmi";
+import { log } from "@/lib/log";
 
 /**
  * Cleanup-safe polling primitive.
@@ -52,7 +53,7 @@ export function usePolling({
         await fnRef.current(controller.signal);
       } catch (err) {
         if (!controller.signal.aborted) {
-          console.warn("[usePolling] tick error:", err);
+          log.warn("usePolling.tick.error", err instanceof Error ? err : new Error(String(err)));
         }
       }
     };

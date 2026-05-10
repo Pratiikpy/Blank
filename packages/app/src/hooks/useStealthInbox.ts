@@ -38,6 +38,7 @@ import { type Address, type Hex } from "viem";
 
 import { useChain } from "@/providers/ChainProvider";
 import { useEffectiveAddress } from "./useEffectiveAddress";
+import { log } from "@/lib/log";
 import { ERC5564AnnouncerAbi } from "@/lib/abis";
 import { checkStealthAddress } from "@/lib/stealth";
 import {
@@ -227,10 +228,12 @@ export function useStealthInbox(): UseStealthInboxResult {
             toBlock: batchTo,
           });
         } catch (err) {
-          console.warn(
-            `[stealth-inbox] getContractEvents failed for blocks ${cursor}..${batchTo} on chain ${activeChainId} — skipping batch (will retry on next scan):`,
-            err instanceof Error ? err.message : err,
-          );
+          log.warn("useStealthInbox.getContractEvents.failed", {
+            cursor: cursor.toString(),
+            batchTo: batchTo.toString(),
+            chainId: activeChainId,
+            error: err instanceof Error ? err.message : String(err),
+          });
           // Don't advance watermark past this batch on failure — the
           // outer-loop `cursor` will, but we DON'T persist the watermark
           // for THIS batch. So the next scan will start from cursor and

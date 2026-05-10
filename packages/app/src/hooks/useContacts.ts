@@ -6,6 +6,7 @@ import {
   deleteContact,
 } from "@/lib/supabase";
 import { STORAGE_KEYS, getStoredJson, setStoredJson } from "@/lib/storage";
+import { log } from "@/lib/log";
 import toast from "react-hot-toast";
 
 interface Contact {
@@ -115,7 +116,7 @@ export function useContacts() {
           nickname,
         });
       } catch {
-        console.warn("Contact saved locally but remote sync failed");
+        log.warn("useContacts.upsert.remoteSyncFailed");
       }
 
       toast.success(`Contact "${nickname}" saved`);
@@ -139,7 +140,7 @@ export function useContacts() {
       try {
         await deleteContact(address.toLowerCase(), normalized);
       } catch {
-        console.warn("Contact removed locally but remote sync failed");
+        log.warn("useContacts.delete.remoteSyncFailed");
       }
       toast.success("Contact removed");
     },

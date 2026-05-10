@@ -8,6 +8,7 @@ import { insertActivity } from "@/lib/supabase";
 import { ACTIVITY_TYPES } from "@/lib/activity-types";
 import { broadcastAction } from "@/lib/cross-tab";
 import { invalidateBalanceQueries } from "@/lib/query-invalidation";
+import { log } from "@/lib/log";
 import toast from "react-hot-toast";
 
 const MAX_UINT64 = BigInt("18446744073709551615"); // type(uint64).max
@@ -71,14 +72,14 @@ export function useInheritance() {
           gas: BigInt(5_000_000), // CoFHE: manual gas limit (precompile breaks estimation)
         });
         const hash = writeResult.hash;
-        console.log("[useInheritance.setHeir] write returned", { hash, hasReceipt: !!writeResult.receipt, status: writeResult.receipt?.status, blockNumber: writeResult.receipt?.blockNumber?.toString() });
+        log.debug("useInheritance.setHeir.writeReturned", { hash, hasReceipt: !!writeResult.receipt, status: writeResult.receipt?.status, blockNumber: writeResult.receipt?.blockNumber?.toString() });
         const setHeirReceipt =
           writeResult.receipt ??
           (await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 }));
         if (setHeirReceipt.status === "reverted") {
           throw new Error("Transaction reverted on-chain");
         }
-        console.log("[useInheritance.setHeir] receipt OK, writing activity rows");
+        log.debug("useInheritance.setHeir.receiptOk");
 
         // Owner's own row — so their feed + cross-tab state updates.
         await insertActivity({
@@ -113,7 +114,7 @@ export function useInheritance() {
         toast.success("Inheritance plan set!");
         await refetchPlan();
       } catch (err) {
-        console.error("[useInheritance.setHeir] threw:", err instanceof Error ? err.message : String(err));
+        log.error("useInheritance.setHeir.threw", err instanceof Error ? err : new Error(String(err)));
         toast.error(err instanceof Error ? err.message : "Failed to set heir");
       } finally {
         setIsProcessing(false);

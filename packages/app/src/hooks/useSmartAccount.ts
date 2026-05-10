@@ -23,6 +23,7 @@ import {
   ENTRYPOINT_V08,
 } from "@/lib/userop";
 import { broadcastAction, onCrossTabAction } from "@/lib/cross-tab";
+import { log } from "@/lib/log";
 
 // Result shape returned from submitCallData / sendUserOp. The optional
 // blockNumber/blockHash/status/logs are forwarded from /api/relay which
@@ -186,7 +187,7 @@ export function useSmartAccount() {
     // resolveAccount so React doesn't emit an unhandled-promise warning
     // and e2e harnesses don't see a page-level error.
     resolveAccount().catch((err) => {
-      console.warn("[useSmartAccount] resolveAccount unhandled:", err);
+      log.warn("useSmartAccount.resolveAccount.unhandled", err instanceof Error ? err : new Error(String(err)));
     });
   }, [resolveAccount]);
 
