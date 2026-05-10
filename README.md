@@ -430,6 +430,10 @@ UUPS-upgradeable proxies, deployed on **Base Sepolia** (84532) and **Ethereum Se
 | StealthPayments | `0x76aDF6D8...32F1C` | Anonymous claim-code transfers |
 | InheritanceManager | `0x289714c4...973d5` | Dead-man's-switch |
 | BlankPaymaster | `0xB1CbBD59...e63de` | Gas sponsorship for passkey users |
+| ClaimLinks | `0x2eD78815...654665` | Bearer / email / address-bound payment links |
+| Storefront | `0xeA8a38f2...Dfd419` | FixedPrice / Auction / PWYW listings |
+| EncryptedCrowdfund | `0x0F217055...4183C` | Encrypted goal + contributions, FHE.gte verdict |
+| EncryptedEscrow | `0x6414742D...3e421` | Arbiter-or-deadline release with encrypted amount |
 
 Full address list including Ethereum Sepolia: [`packages/contracts/deployments/`](packages/contracts/deployments).
 
