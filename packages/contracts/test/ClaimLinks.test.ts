@@ -325,6 +325,120 @@ describe("ClaimLinks", () => {
         ctx.claimLinks.connect(ctx.alice).refundLink(0),
       ).to.be.revertedWith("ClaimLinks: already claimed");
     });
+
+    // §15.3.1: double-refund must revert (state already cleared by first refund).
+    it("cannot refund twice", async () => {
+      const ctx = await loadFixture(deployFixture);
+      const secret = newSecret();
+      const enc = await encAmount(ctx.client, ctx.alice, usdc(3));
+
+      await ctx.claimLinks.connect(ctx.alice).createLink(
+        await ctx.vault.getAddress(),
+        enc,
+        bearerHash(secret),
+        MODE_BEARER,
+        hre.ethers.ZeroAddress,
+        100,
+        "",
+      );
+
+      await time.increase(101);
+      await ctx.claimLinks.connect(ctx.alice).refundLink(0);
+
+      await expect(
+        ctx.claimLinks.connect(ctx.alice).refundLink(0),
+      ).to.be.revertedWith("ClaimLinks: already refunded");
+    });
+
+    // §15.3.1: claim after refund must revert (state machine integrity).
+    it("cannot claim a refunded link", async () => {
+      const ctx = await loadFixture(deployFixture);
+      const secret = newSecret();
+      const enc = await encAmount(ctx.client, ctx.alice, usdc(4));
+
+      await ctx.claimLinks.connect(ctx.alice).createLink(
+        await ctx.vault.getAddress(),
+        enc,
+        bearerHash(secret),
+        MODE_BEARER,
+        hre.ethers.ZeroAddress,
+        100,
+        "",
+      );
+
+      await time.increase(101);
+      await ctx.claimLinks.connect(ctx.alice).refundLink(0);
+
+      await expect(
+        ctx.claimLinks.connect(ctx.bob).claimBearer(0, secret),
+      ).to.be.revertedWith("ClaimLinks: refunded");
+    });
+  });
+
+  // §15.3.1: wrong-mode-claim must revert. Each claim entrypoint binds to a
+  // specific LinkMode and the dispatcher (_claimable) rejects mismatched modes.
+  describe("Wrong-mode claim rejection", () => {
+    it("rejects claimBearer on an EmailBound link", async () => {
+      const ctx = await loadFixture(deployFixture);
+      const secret = newSecret();
+      const email = "alice@example.com";
+      const enc = await encAmount(ctx.client, ctx.alice, usdc(2));
+
+      await ctx.claimLinks.connect(ctx.alice).createLink(
+        await ctx.vault.getAddress(),
+        enc,
+        emailHash(secret, email),
+        MODE_EMAIL,
+        hre.ethers.ZeroAddress,
+        0,
+        "",
+      );
+
+      await expect(
+        ctx.claimLinks.connect(ctx.bob).claimBearer(0, secret),
+      ).to.be.revertedWith("ClaimLinks: wrong mode");
+    });
+
+    it("rejects claimEmailBound on a Bearer link", async () => {
+      const ctx = await loadFixture(deployFixture);
+      const secret = newSecret();
+      const enc = await encAmount(ctx.client, ctx.alice, usdc(2));
+
+      await ctx.claimLinks.connect(ctx.alice).createLink(
+        await ctx.vault.getAddress(),
+        enc,
+        bearerHash(secret),
+        MODE_BEARER,
+        hre.ethers.ZeroAddress,
+        0,
+        "",
+      );
+
+      const fakeEmailHash = keccak256(toUtf8Bytes("nobody@example.com"));
+      await expect(
+        ctx.claimLinks.connect(ctx.bob).claimEmailBound(0, secret, fakeEmailHash),
+      ).to.be.revertedWith("ClaimLinks: wrong mode");
+    });
+
+    it("rejects claimAddressBound on a Bearer link", async () => {
+      const ctx = await loadFixture(deployFixture);
+      const secret = newSecret();
+      const enc = await encAmount(ctx.client, ctx.alice, usdc(2));
+
+      await ctx.claimLinks.connect(ctx.alice).createLink(
+        await ctx.vault.getAddress(),
+        enc,
+        bearerHash(secret),
+        MODE_BEARER,
+        hre.ethers.ZeroAddress,
+        0,
+        "",
+      );
+
+      await expect(
+        ctx.claimLinks.connect(ctx.bob).claimAddressBound(0, secret),
+      ).to.be.revertedWith("ClaimLinks: wrong mode");
+    });
   });
 
   describe("Expiry", () => {
