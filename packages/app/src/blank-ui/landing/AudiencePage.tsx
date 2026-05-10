@@ -43,9 +43,9 @@ const CONTENT: Record<Audience, AudienceContent> = {
     },
     why: [
       "Send and receive USDC where the amount is invisible to MEV bots, blockchain analytics, and your contacts list.",
-      "Prove income or balance thresholds without revealing the underlying number — share a verification link, done.",
+      "Prove income or balance thresholds without revealing the underlying number. Share a verification link, done.",
       "Encrypted gift envelopes for birthdays, weddings, condolences. Each recipient sees only their own share.",
-      "AI agent helps you derive splits and salaries from natural language. The agent's address is on-chain — fully auditable.",
+      "AI agent helps you derive splits and salaries from natural language. The agent's address is on-chain, fully auditable.",
     ],
     proof: [
       { stat: "ebool", label: "What your income comparison actually returns" },
@@ -66,7 +66,7 @@ const CONTENT: Record<Audience, AudienceContent> = {
     },
     why: [
       "Tip amounts are encrypted on-chain. No public leaderboard of who paid you and how much.",
-      "Tier badges (bronze / silver / gold) computed via FHE.gte — supporters know they qualify without anyone seeing the numbers.",
+      "Tier badges (bronze / silver / gold) computed via FHE.gte. Supporters know they qualify without anyone seeing the numbers.",
       "Receipts are first-class: every tip generates an encrypted receipt only you and the supporter can unseal.",
       "Multi-chain ready: same supporter base, Eth Sepolia or Base Sepolia.",
     ],
@@ -81,7 +81,7 @@ const CONTENT: Record<Audience, AudienceContent> = {
     kicker: "For businesses",
     headline: "Pay your team without leaking comp bands to your investors.",
     subhead:
-      "Onchain payroll today is a leaderboard of every salary you've ever paid. Cap tables, treasuries, vendor invoices — all visible. Blank fixes the privacy half so your business operations stop being an open book.",
+      "Onchain payroll today is a leaderboard of every salary you've ever paid. Cap tables, treasuries, vendor invoices, all visible. Blank fixes the privacy half so your business operations stop being an open book.",
     leadFeature: {
       title: "Encrypted payroll batches",
       body: "Send up to 30 employees in one transaction. Each salary line is individually encrypted. The CFO sees the total. Each employee sees only their own line. The intern doesn't see the senior engineer's pay.",
@@ -90,7 +90,7 @@ const CONTENT: Record<Audience, AudienceContent> = {
     why: [
       "Encrypted invoice line-items: total + per-line breakdowns visible only to vendor and client.",
       "Escrow with encrypted amounts and on-chain dispute resolution. Arbiter decides without seeing the underlying value.",
-      "AI agents derive payroll lines from role + region context, sign attestations on-chain — auditable forever, never custodial.",
+      "AI agents derive payroll lines from role + region context, sign attestations on-chain. Auditable forever, never custodial.",
       "All operations encrypted, but social context (who, when, what) stays public for accountability.",
     ],
     proof: [
@@ -104,16 +104,16 @@ const CONTENT: Record<Audience, AudienceContent> = {
     kicker: "For DAOs",
     headline: "Treasury operations your token holders can audit. Not surveil.",
     subhead:
-      "Your DAO needs accountability — every contributor grant, every operations payment, every vendor invoice. It does not need every token holder to see exactly what every other contributor earns. Blank lets you keep both.",
+      "Your DAO needs accountability for every contributor grant, every operations payment, every vendor invoice. It does not need every token holder to see exactly what every other contributor earns. Blank lets you keep both.",
     leadFeature: {
       title: "Encrypted grant payments",
       body: "Pay contributors with encrypted amounts. Aggregate spend is publicly verifiable on-chain (anyone can decrypt the total via FHE.allowGlobal). Per-contributor amounts stay between the DAO and the recipient.",
       cta: { label: "Try a payment", to: "/app/send" },
     },
     why: [
-      "Public aggregate volume + tx count via FHE.allowGlobal — token holders verify treasury health without surveilling individual contributors.",
+      "Public aggregate volume + tx count via FHE.allowGlobal. Token holders verify treasury health without surveilling individual contributors.",
       "Stealth payments break the address-correlation problem: payouts can't be traced back to recipients via on-chain analysis.",
-      "P2P exchange for OTC grants — public order sizes for discovery, encrypted settlement.",
+      "P2P exchange for OTC grants. Public order sizes for discovery, encrypted settlement.",
       "Inheritance + multisig recovery for treasury continuity if signers go inactive or are compromised.",
     ],
     proof: [
