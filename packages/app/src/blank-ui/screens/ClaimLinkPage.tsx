@@ -25,7 +25,7 @@ interface OnChainLink {
 }
 
 const MODE_LABEL: Record<LinkMode, string> = {
-  [MODE.Bearer]: "Open link — anyone can claim",
+  [MODE.Bearer]: "Open link. Anyone can claim",
   [MODE.EmailBound]: "Email-protected link",
   [MODE.AddressBound]: "Address-protected link",
 };
@@ -104,7 +104,7 @@ export default function ClaimLinkPage() {
 
   const handleClaim = async () => {
     if (!parsed) {
-      toast.error("Invalid link — secret missing");
+      toast.error("Invalid link. Secret missing");
       return;
     }
     if (parsed.mode === MODE.EmailBound && !email) {

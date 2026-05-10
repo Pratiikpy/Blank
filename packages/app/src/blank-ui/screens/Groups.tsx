@@ -291,9 +291,9 @@ function AddExpenseModal({
           setDescription(result.merchant);
         }
         if (result.total == null && !result.merchant) {
-          toast.error("Couldn't read this receipt — try a sharper photo.", { id: toastId });
+          toast.error("Couldn't read this receipt. Try a sharper photo.", { id: toastId });
         } else {
-          toast.success("Receipt scanned — review the fields.", { id: toastId });
+          toast.success("Receipt scanned. Review the fields.", { id: toastId });
         }
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "OCR failed", { id: toastId });
@@ -1031,7 +1031,7 @@ export default function Groups() {
     try {
       const existing = await fetchGroupById(parsed);
       if (!existing) {
-        toast.error("Group not found — ask the group admin to add you");
+        toast.error("Group not found. Ask the group admin to add you");
         return;
       }
       const ok = await addSelfToGroup(parsed, address.toLowerCase());

@@ -186,7 +186,7 @@ export default function CrowdfundPage() {
 
       {phase === "released" && (
         <SimpleAction
-          headline="Goal met — campaign succeeded"
+          headline="Goal met. Campaign succeeded"
           body="The creator can pull the entire pool. Contributors get whatever the creator promised off-chain."
           ctaLabel="Creator: claim release"
           isProcessing={state.isProcessing}

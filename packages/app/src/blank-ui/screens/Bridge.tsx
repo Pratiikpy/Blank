@@ -76,7 +76,7 @@ function statusLabel(step: BridgeStep, attestationStatus: string | null): string
     case "complete":
       return "Bridge complete";
     case "error":
-      return "Bridge interrupted — see error below";
+      return "Bridge interrupted. See error below";
   }
 }
 

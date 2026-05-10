@@ -706,14 +706,14 @@ export default function Gifts() {
                 icon={Gift}
                 tone="pink"
                 title="No gifts received yet"
-                body="When someone sends you a gift envelope, it'll show up here. Each gift is a private surprise — the amount stays hidden until you open it."
+                body="When someone sends you a gift envelope, it'll show up here. Each gift is a private surprise. The amount stays hidden until you open it."
               />
             ) : (
               <EmptyState
                 icon={Gift}
                 tone="pink"
                 title="You haven't sent any gifts"
-                body="Send a private gift to friends or family. Pick recipients, fund it, share. Each share is encrypted — only the receiver sees their amount."
+                body="Send a private gift to friends or family. Pick recipients, fund it, share. Each share is encrypted. Only the receiver sees their amount."
                 cta={{
                   label: "Create a gift envelope",
                   onClick: () => {
@@ -806,7 +806,7 @@ export default function Gifts() {
                         <button
                           onClick={() => handleClaim(envelopeId)}
                           disabled={isProcessing || isExpired}
-                          title={isExpired ? "Envelope expired — no longer claimable" : undefined}
+                          title={isExpired ? "Envelope expired. No longer claimable" : undefined}
                           className="h-10 px-4 rounded-xl bg-emerald-500 text-white text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           {isProcessing ? (

@@ -460,7 +460,7 @@ export default function AgentPayments() {
                         )}
                       >
                         {expired
-                          ? "Expired — please re-derive"
+                          ? "Expired. Please re-derive"
                           : `Expires in ${Math.floor(remaining / 60)}m ${remaining % 60}s`}
                       </code>
                     </div>

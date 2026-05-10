@@ -715,7 +715,7 @@ export default function BusinessTools() {
                   icon={FileText}
                   tone="slate"
                   title="No invoices yet"
-                  body="Send your first private invoice. Amounts stay encrypted on-chain — only you and your client see them."
+                  body="Send your first private invoice. Amounts stay encrypted on-chain. Only you and your client see them."
                   cta={{ label: "Create your first invoice", onClick: () => setShowModal(true) }}
                 />
               ) : (
@@ -830,7 +830,7 @@ export default function BusinessTools() {
                 icon={DollarSign}
                 tone="emerald"
                 title="Run encrypted payroll"
-                body="Send salaries to multiple employees in a single transaction. Each amount is FHE-encrypted client-side — every employee only sees their own pay. Upload a CSV or paste a list."
+                body="Send salaries to multiple employees in a single transaction. Each amount is FHE-encrypted client-side. Every employee only sees their own pay. Upload a CSV or paste a list."
                 cta={{ label: "Run Payroll", onClick: () => setShowModal(true) }}
               />
             </div>

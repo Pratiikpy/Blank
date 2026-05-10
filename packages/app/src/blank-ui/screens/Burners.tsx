@@ -109,7 +109,7 @@ export default function Burners() {
       setTimeout(() => setCopiedId(null), 1800);
       toast.success("Copied to clipboard");
     } catch {
-      toast.error("Couldn't copy — your browser blocked clipboard access");
+      toast.error("Couldn't copy. Your browser blocked clipboard access");
     }
   };
 
@@ -362,7 +362,7 @@ export default function Burners() {
               icon={Flame}
               tone="amber"
               title="No burners yet"
-              body="Create one with the form above. Each burner gets its own address you can share publicly — your main wallet stays separate."
+              body="Create one with the form above. Each burner gets its own address you can share publicly. Your main wallet stays separate."
             />
           </div>
         ) : (
@@ -616,7 +616,7 @@ export default function Burners() {
             <p className="text-sm text-[var(--text-secondary)] leading-snug mb-4">
               {backupModal.kind === "backup"
                 ? "Encrypt the label + salt with a passphrase only you know. The on-chain blob is opaque to anyone without this passphrase."
-                : "Enter the same passphrase you used at backup time. We'll fetch your encrypted records from chain and decrypt locally — the passphrase never leaves your device."}
+                : "Enter the same passphrase you used at backup time. We'll fetch your encrypted records from chain and decrypt locally. The passphrase never leaves your device."}
             </p>
 
             <input

@@ -119,7 +119,7 @@ export default function Dashboard() {
       const r = await faucetUsdc({ address, chainId: activeChainId });
       if (r.ok) toast.success("100 testnet USDC minted", { id });
       else if (r.error === "rate_limited") {
-        toast.error("Faucet rate-limited — try again in an hour.", { id });
+        toast.error("Faucet rate-limited. Try again in an hour.", { id });
       } else toast.error(`Faucet failed: ${r.error ?? "unknown"}`, { id });
     } finally {
       setFaucetPending(false);
