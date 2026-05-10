@@ -184,7 +184,7 @@ export default function SendConfirm() {
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         setMetaStealthError(msg);
-        toast.error("Stealth send failed — see details on the screen");
+        toast.error("Stealth send failed. See details on the screen");
       } finally {
         setMetaStealthBusy(false);
       }

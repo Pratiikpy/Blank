@@ -190,7 +190,7 @@ export default function ScheduledSends() {
         // the schedule is active when it isn't.
         setStubModeDetected(true);
         toast(
-          "Session key generated, but the cron isn't wired yet — fires won't trigger until next release.",
+          "Session key generated, but the cron isn't wired yet. Fires won't trigger until next release.",
           { icon: "⏳", duration: 8000 },
         );
       }
@@ -268,7 +268,7 @@ export default function ScheduledSends() {
   const handleRevoke = async (sessionKey: Address) => {
     if (
       !confirm(
-        "Revoke this scheduled send? The server-held session key will no longer authorize transfers. This is irreversible — you'd need to set up a new one to resume.",
+        "Revoke this scheduled send? The server-held session key will no longer authorize transfers. This is irreversible. You'd need to set up a new one to resume.",
       )
     ) {
       return;
@@ -562,7 +562,7 @@ export default function ScheduledSends() {
                 type="text"
                 value={label}
                 onChange={(e) => setLabel(e.target.value.slice(0, 64))}
-                placeholder="e.g. Rent — March"
+                placeholder="e.g. Rent for March"
                 aria-label="Label"
                 className="h-11 w-full px-3 rounded-xl bg-white/60 dark:bg-white/5 border border-black/10 dark:border-white/15 outline-none focus:border-black/30 dark:focus:border-white/30 transition-all placeholder:text-[var(--text-tertiary)]"
               />

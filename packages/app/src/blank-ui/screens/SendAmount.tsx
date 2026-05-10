@@ -253,7 +253,7 @@ export default function SendAmount() {
                     setLocalAmount(max);
                     setAmount(max);
                   } else {
-                    toast("Enter amount manually — encrypted balance can't be read yet");
+                    toast("Enter amount manually. Encrypted balance can't be read yet");
                   }
                 }}
                 className="text-xs font-medium text-[#6366F1] hover:text-[#4F46E5] px-2 py-1 rounded-lg hover:bg-[#6366F1]/5 transition-colors"

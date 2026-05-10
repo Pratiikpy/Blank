@@ -139,7 +139,7 @@ export default function SmartWallet() {
       if (publicClient) {
         await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
       }
-      toast.success(isAA ? "10,000 USDC ready in your smart wallet!" : "10,000 USDC minted to your EOA — now click Fund", { id: "faucet-tx" });
+      toast.success(isAA ? "10,000 USDC ready in your smart wallet!" : "10,000 USDC minted to your EOA. Now click Fund", { id: "faucet-tx" });
       await refreshBalances();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Faucet failed", { id: "faucet-tx" });
@@ -161,7 +161,7 @@ export default function SmartWallet() {
     try {
       const result = await createAccount(passphrase);
       if (result) {
-        toast.success("Smart wallet created — counterfactual address ready");
+        toast.success("Smart wallet created. Counterfactual address ready");
         setPassphrase("");
         setConfirmPassphrase("");
       }
@@ -172,7 +172,7 @@ export default function SmartWallet() {
 
   const handleDelete = async () => {
     if (!confirm(
-      "Delete your smart wallet? This is irreversible — any funds in the on-chain account will be unreachable from this browser.",
+      "Delete your smart wallet? This is irreversible. Any funds in the on-chain account will be unreachable from this browser.",
     )) return;
     await removeAccount();
     toast.success("Smart wallet deleted from this browser");
@@ -311,8 +311,8 @@ export default function SmartWallet() {
                   </h2>
                   <p className="text-xs text-[var(--text-tertiary)] mt-0.5">
                     {account.isDeployed
-                      ? "Deployed on-chain — ready to send UserOps"
-                      : "Counterfactual — deploys lazily on first UserOp"}
+                      ? "Deployed on-chain. Ready to send UserOps"
+                      : "Counterfactual. Deploys lazily on first UserOp"}
                   </p>
                 </div>
                 {account.isDeployed && (

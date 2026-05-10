@@ -146,7 +146,7 @@ export default function StealthMetaSetup() {
         ? {
             title: "Set stealth passphrase",
             subtitle:
-              "Encrypts your stealth keys at rest. Save it — needed to recover your keys after a browser reset.",
+              "Encrypts your stealth keys at rest. Save it. Needed to recover your keys after a browser reset.",
           }
         : {
             title: "Unlock stealth keys",
@@ -193,7 +193,7 @@ export default function StealthMetaSetup() {
       return;
     }
     setRecord(newRec);
-    toast.success("Stealth keys generated locally — publish to start receiving.");
+    toast.success("Stealth keys generated locally. Publish to start receiving.");
   };
 
   const handlePublish = async () => {
@@ -213,7 +213,7 @@ export default function StealthMetaSetup() {
         // Tx already landed but we can't persist publishedAt without
         // the passphrase. Surface it so the user knows the chain is
         // updated even if local cache isn't.
-        toast.error("Published on-chain but couldn't save locally — re-enter passphrase to refresh");
+        toast.error("Published on-chain but couldn't save locally. Re-enter passphrase to refresh");
         return;
       }
       const updated: StealthKeyRecord = {
@@ -227,7 +227,7 @@ export default function StealthMetaSetup() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setError(msg);
-      toast.error("Publish failed — see error below");
+      toast.error("Publish failed. See error below");
     } finally {
       setBusy(false);
     }

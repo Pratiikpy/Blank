@@ -166,7 +166,7 @@ export default function StealthInbox() {
                   icon={Ghost}
                   tone="slate"
                   title="No stealth payments yet"
-                  body="Share your stealth meta-address. Senders will derive a one-time address that nobody can link back to your main wallet — payments will appear here automatically."
+                  body="Share your stealth meta-address. Senders will derive a one-time address that nobody can link back to your main wallet. Payments will appear here automatically."
                   cta={{ label: "Copy meta-address", onClick: () => navigate("/app/stealth/setup") }}
                   secondary={{ label: "How stealth works", href: "/blog/why-fhenix-cofhe" }}
                 />

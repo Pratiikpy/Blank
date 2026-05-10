@@ -214,7 +214,7 @@ export default function StorefrontPage() {
             offerTokens: amount,
             decimals: 6,
           })}
-          hint="Your payment must equal the seller's price exactly. The chain checks via FHE — neither side reveals the number."
+          hint="Your payment must equal the seller's price exactly. The chain checks via FHE; neither side reveals the number."
         />
       )}
 
@@ -234,7 +234,7 @@ export default function StorefrontPage() {
             amountTokens: amount,
             decimals: 6,
           })}
-          hint="Tip jar / open-source funding mode. The seller sees their total earnings only — never individual amounts."
+          hint="Tip jar / open-source funding mode. The seller sees their total earnings only, never individual amounts."
         />
       )}
 

@@ -317,7 +317,7 @@ export default function Stealth() {
 
       if (fromLegacyQuery) {
         toast(
-          "For security, please re-share the link — the old format exposes the claim code in server logs.",
+          "For security, please re-share the link. The old format exposes the claim code in server logs.",
           { icon: "\u26A0\uFE0F", duration: 8000 },
         );
       }
