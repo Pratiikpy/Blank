@@ -2017,3 +2017,70 @@ describe("PaymentReceiptsSet event (PaymentHub + BusinessHub)", () => {
     ).to.be.reverted;
   });
 });
+
+// ══════════════════════════════════════════════════════════════════
+//  PaymentReceiptsSet event coverage on GiftMoney + StealthPayments.
+//  These hubs use describe-block-local fixtures elsewhere (#241, #199),
+//  but the event-assertion flow doesn't need the receipt-bump wiring;
+//  a fresh proxy is enough.
+// ══════════════════════════════════════════════════════════════════
+
+describe("PaymentReceiptsSet event (GiftMoney + StealthPayments)", () => {
+  async function deployFreshHub(name: "GiftMoney" | "StealthPayments") {
+    const [owner, alice] = await hre.ethers.getSigners();
+    const eventHub = await deployProxy("EventHub");
+    const hub = await deployProxy(name, [await eventHub.getAddress()]);
+    return { owner, alice, hub };
+  }
+
+  it("GiftMoney: emits PaymentReceiptsSet with previous=zero on first set", async () => {
+    const { owner, hub } = await deployFreshHub("GiftMoney");
+    const fake = "0x000000000000000000000000000000000000bEEF";
+
+    await expect(hub.connect(owner).setPaymentReceipts(fake))
+      .to.emit(hub, "PaymentReceiptsSet")
+      .withArgs(hre.ethers.ZeroAddress, fake);
+
+    expect(await hub.paymentReceipts()).to.equal(fake);
+  });
+
+  it("GiftMoney: emits PaymentReceiptsSet with prior address on subsequent set", async () => {
+    const { owner, hub } = await deployFreshHub("GiftMoney");
+    const first = "0x000000000000000000000000000000000000dEaD";
+    const second = "0x000000000000000000000000000000000000bEEF";
+
+    await hub.connect(owner).setPaymentReceipts(first);
+    await expect(hub.connect(owner).setPaymentReceipts(second))
+      .to.emit(hub, "PaymentReceiptsSet")
+      .withArgs(first, second);
+  });
+
+  it("GiftMoney: only owner can call setPaymentReceipts", async () => {
+    const { alice, hub } = await deployFreshHub("GiftMoney");
+    const fake = "0x000000000000000000000000000000000000bEEF";
+
+    await expect(
+      hub.connect(alice).setPaymentReceipts(fake),
+    ).to.be.reverted;
+  });
+
+  it("StealthPayments: emits PaymentReceiptsSet with previous=zero on first set", async () => {
+    const { owner, hub } = await deployFreshHub("StealthPayments");
+    const fake = "0x000000000000000000000000000000000000bEEF";
+
+    await expect(hub.connect(owner).setPaymentReceipts(fake))
+      .to.emit(hub, "PaymentReceiptsSet")
+      .withArgs(hre.ethers.ZeroAddress, fake);
+
+    expect(await hub.paymentReceipts()).to.equal(fake);
+  });
+
+  it("StealthPayments: only owner can call setPaymentReceipts", async () => {
+    const { alice, hub } = await deployFreshHub("StealthPayments");
+    const fake = "0x000000000000000000000000000000000000bEEF";
+
+    await expect(
+      hub.connect(alice).setPaymentReceipts(fake),
+    ).to.be.reverted;
+  });
+});
