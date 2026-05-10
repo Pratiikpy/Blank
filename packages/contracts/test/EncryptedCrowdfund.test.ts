@@ -230,4 +230,32 @@ describe("EncryptedCrowdfund", () => {
       ctx.crowdfund.connect(ctx.dave).closeCampaign(0),
     ).to.be.revertedWith("Crowdfund: no contributions to close against");
   });
+
+  // §15.3.1: double-publish must revert.
+  it("rejects publishCloseResult called twice on the same campaign", async () => {
+    const ctx = await loadFixture(deployFixture);
+    const encGoal = await encUint64(ctx.client, ctx.alice, usdc(50));
+    await ctx.crowdfund.connect(ctx.alice).createCampaign(
+      await ctx.vault.getAddress(), encGoal, 3600, "Double-publish", ZERO_BYTES32,
+    );
+
+    const c1 = await encUint64(ctx.client, ctx.bob, usdc(40));
+    await ctx.crowdfund.connect(ctx.bob).contribute(0, c1);
+    const c2 = await encUint64(ctx.client, ctx.charlie, usdc(20));
+    await ctx.crowdfund.connect(ctx.charlie).contribute(0, c2);
+
+    await time.increase(3601);
+    await ctx.crowdfund.connect(ctx.dave).closeCampaign(0);
+
+    const handle = await ctx.crowdfund.getGoalCheckHandle(0);
+    await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.dave);
+    const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutPermit().execute();
+
+    await ctx.crowdfund.connect(ctx.dave).publishCloseResult(0, Boolean(proof.decryptedValue), proof.signature);
+
+    // Second publish must revert. The resultPublished guard fires first.
+    await expect(
+      ctx.crowdfund.connect(ctx.dave).publishCloseResult(0, Boolean(proof.decryptedValue), proof.signature),
+    ).to.be.revertedWith("Crowdfund: already published");
+  });
 });
