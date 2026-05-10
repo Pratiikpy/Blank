@@ -115,7 +115,16 @@ export function useFhePipeline() {
   const onEncryptStep = useCallback((step: unknown, ctx?: { isStart?: boolean; isEnd?: boolean; duration?: number }) => {
     const stepKey = typeof step === "string" ? step : String(step);
     const id = SDK_TO_PIPELINE[stepKey];
-    if (!id) return;
+    if (!id) {
+      // §3.6 B21 of BEST_VERSION_FULL_PLAN: unknown SDK step keys were
+      // silently dropped, so a future @cofhe/sdk that adds new step names
+      // would surface as "pipeline silently stalls". Warn in dev so the
+      // gap is visible; production stays silent (esbuild drops the call).
+      if (import.meta.env.DEV) {
+        console.warn(`[useFhePipeline] unknown SDK step: ${stepKey}`);
+      }
+      return;
+    }
 
     setState((prev) => {
       const idx = PIPELINE_STEPS.indexOf(id);
