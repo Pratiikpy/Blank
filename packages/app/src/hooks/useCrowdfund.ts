@@ -29,6 +29,13 @@ export interface CrowdfundState {
 }
 const initial: CrowdfundState = { step: "idle", isProcessing: false, error: null, txHash: null, lastCampaignId: null };
 
+// §3.7 of BEST_VERSION_FULL_PLAN: friendly labels for callSimple toasts.
+const FRIENDLY_LABEL: Record<string, string> = {
+  closeCampaign: "Campaign closed",
+  claimRelease: "Funds released",
+  claimRefund: "Refund claimed",
+};
+
 export function useCrowdfund() {
   const { effectiveAddress: address } = useEffectiveAddress();
   const { contracts, activeChainId } = useChain();
@@ -193,7 +200,8 @@ export function useCrowdfund() {
       if (!ready) return false;
       const { cf } = ready;
       try {
-        setState({ ...initial, step: "sending", isProcessing: true });
+        // §3.13: preserve lastCampaignId across callSimple invocations.
+        setState((prev) => ({ ...prev, step: "sending", isProcessing: true, error: null }));
         await unifiedWriteAndWait({
           address: cf,
           abi: EncryptedCrowdfundAbi,
@@ -201,9 +209,10 @@ export function useCrowdfund() {
           args: args as never,
           gas: BigInt(gasLimit),
         });
-        setState({ ...initial, step: "success" });
+        setState((prev) => ({ ...prev, step: "success", isProcessing: false }));
         invalidateBalanceQueries();
-        toast.success(`${functionName} completed`);
+        // §3.7: friendly label instead of raw function name.
+        toast.success(FRIENDLY_LABEL[functionName] ?? "Submitted");
         return true;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);

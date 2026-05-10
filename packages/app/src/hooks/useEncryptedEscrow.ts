@@ -39,6 +39,15 @@ export interface EscrowState {
 }
 const initial: EscrowState = { step: "idle", isProcessing: false, error: null, txHash: null, lastEscrowId: null };
 
+// §3.7 of BEST_VERSION_FULL_PLAN: friendly labels for callSimple toasts.
+const FRIENDLY_LABEL: Record<string, string> = {
+  markDelivered: "Delivery marked",
+  approveRelease: "Release approved",
+  disputeEscrow: "Dispute opened",
+  claimExpiredEscrow: "Escrow refunded after deadline",
+  arbiterDecide: "Arbiter decision recorded",
+};
+
 export function useEncryptedEscrow() {
   const { effectiveAddress: address } = useEffectiveAddress();
   const { contracts, activeChainId } = useChain();
@@ -165,7 +174,8 @@ export function useEncryptedEscrow() {
       if (!ready) return false;
       const { ee } = ready;
       try {
-        setState({ ...initial, step: "sending", isProcessing: true });
+        // §3.13: preserve lastEscrowId across callSimple invocations.
+        setState((prev) => ({ ...prev, step: "sending", isProcessing: true, error: null }));
         await unifiedWriteAndWait({
           address: ee,
           abi: EncryptedEscrowAbi,
@@ -173,9 +183,10 @@ export function useEncryptedEscrow() {
           args: args as never,
           gas: BigInt(gasLimit),
         });
-        setState({ ...initial, step: "success" });
+        setState((prev) => ({ ...prev, step: "success", isProcessing: false }));
         invalidateBalanceQueries();
-        toast.success(`${functionName} completed`);
+        // §3.7: friendly label instead of raw function name.
+        toast.success(FRIENDLY_LABEL[functionName] ?? "Submitted");
         return true;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
