@@ -53,6 +53,15 @@ const initial: StorefrontState = {
   lastListingId: null,
 };
 
+// §3.7 of BEST_VERSION_FULL_PLAN: friendly labels for callSimple toasts.
+// Pre-fix, users saw raw function names like "closeAuction completed".
+const FRIENDLY_LABEL: Record<string, string> = {
+  closeAuction: "Auction closed",
+  claimAuctionWin: "Winning bid claimed",
+  refundLoserBid: "Losing bid refunded",
+  deactivateListing: "Listing deactivated",
+};
+
 // ─── Hook ────────────────────────────────────────────────────────────
 
 export function useStorefront() {
@@ -328,7 +337,7 @@ export function useStorefront() {
         });
         setState((prev) => ({ ...prev, step: "success", isProcessing: false }));
         invalidateBalanceQueries();
-        toast.success(`${functionName} completed`);
+        toast.success(FRIENDLY_LABEL[functionName] ?? "Submitted");
         return true;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
