@@ -1,7 +1,9 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   buildInvoiceEmailSignableMessage,
   buildRequestEmailSignableMessage,
+  sendInvoiceEmail,
+  sendPaymentRequestEmail,
 } from "./email-client";
 
 // §15.x lib test for the email-auth canonical message builders.
@@ -106,5 +108,96 @@ describe("buildRequestEmailSignableMessage", () => {
       requestId: 1, recipient: "bob@example.com", signedAt: 1, chainId: 1,
     });
     expect(upper).toBe(lower);
+  });
+});
+
+// ─── Send wrappers (fetch-mocked) ─────────────────────────────────────
+
+function mockFetch(response: { status: number; body?: unknown } | "throw") {
+  return vi.fn(async () => {
+    if (response === "throw") throw new Error("network down");
+    const status = response.status;
+    return {
+      ok: status >= 200 && status < 300,
+      status,
+      json: async () => response.body ?? {},
+    } as unknown as Response;
+  });
+}
+
+beforeEach(() => {
+  vi.stubGlobal("fetch", mockFetch({ status: 200, body: {} }));
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+describe("sendInvoiceEmail", () => {
+  it("posts to /api/email/invoice with the args body", async () => {
+    const fetch = mockFetch({ status: 200, body: { messageId: "abc-123" } });
+    vi.stubGlobal("fetch", fetch);
+
+    const out = await sendInvoiceEmail({
+      invoiceId: 7,
+      amount: "100.00",
+    });
+
+    expect(out).toEqual({ ok: true, messageId: "abc-123" });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("/api/email/invoice");
+    expect(init.method).toBe("POST");
+    expect((init.headers as Record<string, string>)["Content-Type"]).toBe("application/json");
+    const body = JSON.parse(init.body as string);
+    expect(body.invoiceId).toBe(7);
+    expect(body.amount).toBe("100.00");
+  });
+
+  it("returns ok=false with server error on non-2xx", async () => {
+    vi.stubGlobal(
+      "fetch",
+      mockFetch({ status: 401, body: { error: "missing signature" } }),
+    );
+    const out = await sendInvoiceEmail({ invoiceId: 7, amount: "1" });
+    expect(out).toEqual({ ok: false, error: "missing signature" });
+  });
+
+  it("falls back to HTTP <status> on non-2xx without body.error", async () => {
+    vi.stubGlobal("fetch", mockFetch({ status: 500, body: {} }));
+    const out = await sendInvoiceEmail({ invoiceId: 7, amount: "1" });
+    expect(out).toEqual({ ok: false, error: "HTTP 500" });
+  });
+
+  it("survives a thrown fetch (network down)", async () => {
+    vi.stubGlobal("fetch", mockFetch("throw"));
+    const out = await sendInvoiceEmail({ invoiceId: 7, amount: "1" });
+    expect(out.ok).toBe(false);
+    expect(out.error).toBe("network down");
+  });
+});
+
+describe("sendPaymentRequestEmail", () => {
+  it("posts to /api/email/request with the args body", async () => {
+    const fetch = mockFetch({ status: 200, body: { messageId: "req-99" } });
+    vi.stubGlobal("fetch", fetch);
+
+    const out = await sendPaymentRequestEmail({ requestId: 7 });
+
+    expect(out).toEqual({ ok: true, messageId: "req-99" });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const [url] = fetch.mock.calls[0] as unknown as [string];
+    expect(url).toBe("/api/email/request");
+  });
+
+  it("uses a different endpoint than the invoice send", async () => {
+    // SECURITY: invoice + request share auth fields but different
+    // server-side rules. They MUST hit distinct endpoints.
+    const fetch = mockFetch({ status: 200, body: {} });
+    vi.stubGlobal("fetch", fetch);
+    await sendInvoiceEmail({ invoiceId: 1, amount: "1" });
+    await sendPaymentRequestEmail({ requestId: 1 });
+    const calls = fetch.mock.calls.map((c) => (c as unknown as [string])[0]);
+    expect(calls).toEqual(["/api/email/invoice", "/api/email/request"]);
   });
 });
