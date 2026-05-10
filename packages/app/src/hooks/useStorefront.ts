@@ -118,6 +118,19 @@ export function useStorefront() {
     return { sf };
   }, [address, connected, contracts.Storefront, publicClient, state.isProcessing]);
 
+  // §3.17 of BEST_VERSION_FULL_PLAN: plaintext-only guard for callSimple.
+  // closeAuction / claimAuctionWin / refundLoserBid / deactivateListing don't
+  // require cofhe-connected; this lets the user complete those flows even
+  // when the cofhe shim hasn't connected.
+  const guardWalletReady = useCallback((): { sf: `0x${string}` } | null => {
+    if (!address) { toast.error("Wallet not connected"); return null; }
+    if (state.isProcessing) return null;
+    const sf = contracts.Storefront as `0x${string}`;
+    if (!sf || sf === ZERO_ADDRESS) { toast.error("Storefront not deployed on this chain yet"); return null; }
+    if (!publicClient) { toast.error("Connection lost. Please refresh."); return null; }
+    return { sf };
+  }, [address, contracts.Storefront, publicClient, state.isProcessing]);
+
   // ─── createListing ─────────────────────────────────────────────
 
   const createListing = useCallback(
@@ -343,7 +356,8 @@ export function useStorefront() {
 
   const callSimple = useCallback(
     async (functionName: "closeAuction" | "claimAuctionWin" | "refundLoserBid" | "deactivateListing", args: readonly unknown[], gasLimit = 5_000_000) => {
-      const ready = guardReady();
+      // §3.17: plaintext-only guard. callSimple ops don't need cofhe.
+      const ready = guardWalletReady();
       if (!ready) return false;
       const { sf } = ready;
       try {
@@ -373,7 +387,7 @@ export function useStorefront() {
         return false;
       }
     },
-    [guardReady, unifiedWriteAndWait],
+    [guardWalletReady, unifiedWriteAndWait],
   );
 
   const closeAuction = useCallback(

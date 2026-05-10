@@ -55,6 +55,18 @@ export function useCrowdfund() {
     return { cf };
   }, [address, connected, contracts.EncryptedCrowdfund, publicClient, state.isProcessing]);
 
+  // §3.17 of BEST_VERSION_FULL_PLAN: plaintext-only guard for callSimple.
+  // closeCampaign / claimRelease / claimRefund / publishCloseResult don't
+  // need cofhe-connected.
+  const guardWalletReady = useCallback((): { cf: `0x${string}` } | null => {
+    if (!address) { toast.error("Wallet not connected"); return null; }
+    if (state.isProcessing) return null;
+    const cf = contracts.EncryptedCrowdfund as `0x${string}`;
+    if (!cf || cf === ZERO_ADDRESS) { toast.error("Crowdfund not deployed on this chain yet"); return null; }
+    if (!publicClient) { toast.error("Connection lost. Please refresh."); return null; }
+    return { cf };
+  }, [address, contracts.EncryptedCrowdfund, publicClient, state.isProcessing]);
+
   const ensureVaultApproval = useCallback(async (vault: `0x${string}`) => {
     const cf = contracts.EncryptedCrowdfund as `0x${string}`;
     if (isVaultApproved(cf)) return;
@@ -197,7 +209,8 @@ export function useCrowdfund() {
 
   const callSimple = useCallback(
     async (functionName: "closeCampaign" | "claimRelease" | "claimRefund", args: readonly unknown[], gasLimit = 5_000_000) => {
-      const ready = guardReady();
+      // §3.17: plaintext-only guard.
+      const ready = guardWalletReady();
       if (!ready) return false;
       const { cf } = ready;
       try {
@@ -224,7 +237,7 @@ export function useCrowdfund() {
         return false;
       }
     },
-    [guardReady, unifiedWriteAndWait],
+    [guardWalletReady, unifiedWriteAndWait],
   );
 
   const closeCampaign = useCallback((id: number) => callSimple("closeCampaign", [BigInt(id)]), [callSimple]);
@@ -242,7 +255,8 @@ export function useCrowdfund() {
   // (needs cofhe-decrypt-queue subscription).
   const publishCloseResult = useCallback(
     async (campaignId: number, plaintext: boolean, signature: `0x${string}`) => {
-      const ready = guardReady();
+      // §3.17: plaintext-only (signature already obtained off-chain).
+      const ready = guardWalletReady();
       if (!ready) return false;
       const { cf } = ready;
       try {
@@ -264,7 +278,7 @@ export function useCrowdfund() {
         return false;
       }
     },
-    [guardReady, unifiedWriteAndWait],
+    [guardWalletReady, unifiedWriteAndWait],
   );
 
   const reset = useCallback(() => { setState(initial); pipeline.reset(); }, [pipeline]);

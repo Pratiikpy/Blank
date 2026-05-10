@@ -58,6 +58,12 @@ export function useEncryptedEscrow() {
   const pipeline = useFhePipeline();
   const [state, setState] = useState<EscrowState>(initial);
 
+  // §3.17 of BEST_VERSION_FULL_PLAN: split guards. The original guardReady
+  // required cofhe-connected which blocked plaintext-only ops (arbiterDecide,
+  // markDelivered, approveRelease, claimExpiredEscrow, disputeEscrow) when
+  // the cofhe shim hadn't connected yet. Half-baked B7. The encrypt-required
+  // path (createEscrow) keeps the strict guard; plaintext-only paths use the
+  // wallet-only guard.
   const guardReady = useCallback((): { ee: `0x${string}` } | null => {
     if (!address || !connected) { toast.error("Wallet not connected"); return null; }
     if (state.isProcessing) return null;
@@ -66,6 +72,15 @@ export function useEncryptedEscrow() {
     if (!publicClient) { toast.error("Connection lost. Please refresh."); return null; }
     return { ee };
   }, [address, connected, contracts.EncryptedEscrow, publicClient, state.isProcessing]);
+
+  const guardWalletReady = useCallback((): { ee: `0x${string}` } | null => {
+    if (!address) { toast.error("Wallet not connected"); return null; }
+    if (state.isProcessing) return null;
+    const ee = contracts.EncryptedEscrow as `0x${string}`;
+    if (!ee || ee === ZERO_ADDRESS) { toast.error("EncryptedEscrow not deployed on this chain yet"); return null; }
+    if (!publicClient) { toast.error("Connection lost. Please refresh."); return null; }
+    return { ee };
+  }, [address, contracts.EncryptedEscrow, publicClient, state.isProcessing]);
 
   const ensureVaultApproval = useCallback(async (vault: `0x${string}`) => {
     const ee = contracts.EncryptedEscrow as `0x${string}`;
@@ -196,7 +211,9 @@ export function useEncryptedEscrow() {
       args: readonly unknown[],
       gasLimit = 5_000_000,
     ) => {
-      const ready = guardReady();
+      // §3.17: callSimple is plaintext-only. Use the wallet-only guard so
+      // arbiter decide / mark / approve / claim work without cofhe connect.
+      const ready = guardWalletReady();
       if (!ready) return false;
       const { ee } = ready;
       try {
@@ -223,7 +240,7 @@ export function useEncryptedEscrow() {
         return false;
       }
     },
-    [guardReady, unifiedWriteAndWait],
+    [guardWalletReady, unifiedWriteAndWait],
   );
 
   const markDelivered = useCallback((id: number) => callSimple("markDelivered", [BigInt(id)]), [callSimple]);
