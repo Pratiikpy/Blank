@@ -134,7 +134,73 @@ function humanizeWriteError(err: unknown): string {
   if (s.includes("rate limit")) {
     return "Too many requests. Please wait a minute and try again.";
   }
-  // Unrecognized — surface the raw message so it's still debuggable but
+
+  // §3.14 of BEST_VERSION_FULL_PLAN: contract-revert mappings. Pre-fix users
+  // saw raw strings like "ClaimLinks: bad secret/email" with the contract
+  // namespace prefix. The full extraction to lib/error-messages.ts is a
+  // Wave 5 candidate; these inline mappings cover the common user paths.
+  if (s.includes("claimlinks: bad secret") || s.includes("claimlinks: bad secret/email")) {
+    return "This link is for a different recipient.";
+  }
+  if (s.includes("claimlinks: expired")) {
+    return "This link has expired.";
+  }
+  if (s.includes("claimlinks: already claimed")) {
+    return "This link has already been claimed.";
+  }
+  if (s.includes("claimlinks: refunded") || s.includes("claimlinks: already refunded")) {
+    return "This link was refunded by the sender.";
+  }
+  if (s.includes("claimlinks: expiry too long")) {
+    return "Link expiry must be 1 second to 365 days.";
+  }
+  if (s.includes("claimlinks: not bound address")) {
+    return "Only the address this link was sent to can claim it.";
+  }
+  if (s.includes("encryptedescrow: no arbiter")) {
+    return "No arbiter set; wait for the deadline to refund instead.";
+  }
+  if (s.includes("encryptedescrow: not active")) {
+    return "This escrow is no longer active.";
+  }
+  if (s.includes("encryptedescrow: not yet expired")) {
+    return "The escrow deadline hasn't passed yet.";
+  }
+  if (s.includes("encryptedescrow: bad beneficiary")) {
+    return "Beneficiary must be a different address from yours.";
+  }
+  if (s.includes("encryptedescrow: deadline")) {
+    return "Escrow deadline must be at least 1 day from now.";
+  }
+  if (s.includes("encryptedescrow: already delivered")) {
+    return "Delivery already marked.";
+  }
+  if (s.includes("encryptedescrow: already approved")) {
+    return "Release already approved.";
+  }
+  if (s.includes("encryptedescrow: not arbiter")) {
+    return "Only the arbiter can decide this escrow.";
+  }
+  if (s.includes("storefront: not winner")) {
+    return "Only the auction winner can claim.";
+  }
+  if (s.includes("storefront: winner not revealed")) {
+    return "Auction winner pending. Run revealWinner first.";
+  }
+  if (s.includes("storefront: winner already revealed")) {
+    return "Auction winner already published.";
+  }
+  if (s.includes("storefront: auction settlement disabled")) {
+    return "Auction settlement is temporarily disabled.";
+  }
+  if (s.includes("crowdfund: no contributions")) {
+    return "Cannot close a campaign with no contributors.";
+  }
+  if (s.includes("crowdfund: already published")) {
+    return "Campaign verdict already published.";
+  }
+
+  // Unrecognized: surface the raw message so it's still debuggable but
   // cap the length so it fits in a toast.
   return raw.length > 180 ? raw.slice(0, 180) + "…" : raw;
 }
