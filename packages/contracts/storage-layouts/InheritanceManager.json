@@ -1,7 +1,7 @@
 {
   "storage": [
     {
-      "astId": 62374,
+      "astId": 67160,
       "contract": "contracts/InheritanceManager.sol:InheritanceManager",
       "label": "_status",
       "offset": 0,
@@ -9,23 +9,23 @@
       "type": "t_uint256"
     },
     {
-      "astId": 51781,
+      "astId": 55088,
       "contract": "contracts/InheritanceManager.sol:InheritanceManager",
       "label": "eventHub",
       "offset": 0,
       "slot": "1",
-      "type": "t_contract(IEventHub)51751"
+      "type": "t_contract(IEventHub)55058"
     },
     {
-      "astId": 51786,
+      "astId": 55093,
       "contract": "contracts/InheritanceManager.sol:InheritanceManager",
       "label": "plans",
       "offset": 0,
       "slot": "2",
-      "type": "t_mapping(t_address,t_struct(InheritancePlan)51772_storage)"
+      "type": "t_mapping(t_address,t_struct(InheritancePlan)55079_storage)"
     },
     {
-      "astId": 51791,
+      "astId": 55098,
       "contract": "contracts/InheritanceManager.sol:InheritanceManager",
       "label": "claimFinalized",
       "offset": 0,
@@ -33,7 +33,7 @@
       "type": "t_mapping(t_address,t_bool)"
     },
     {
-      "astId": 52432,
+      "astId": 55739,
       "contract": "contracts/InheritanceManager.sol:InheritanceManager",
       "label": "__gap",
       "offset": 0,
@@ -64,7 +64,7 @@
       "label": "bool",
       "numberOfBytes": "1"
     },
-    "t_contract(IEventHub)51751": {
+    "t_contract(IEventHub)55058": {
       "encoding": "inplace",
       "label": "contract IEventHub",
       "numberOfBytes": "20"
@@ -76,19 +76,19 @@
       "numberOfBytes": "32",
       "value": "t_bool"
     },
-    "t_mapping(t_address,t_struct(InheritancePlan)51772_storage)": {
+    "t_mapping(t_address,t_struct(InheritancePlan)55079_storage)": {
       "encoding": "mapping",
       "key": "t_address",
       "label": "mapping(address => struct InheritanceManager.InheritancePlan)",
       "numberOfBytes": "32",
-      "value": "t_struct(InheritancePlan)51772_storage"
+      "value": "t_struct(InheritancePlan)55079_storage"
     },
-    "t_struct(InheritancePlan)51772_storage": {
+    "t_struct(InheritancePlan)55079_storage": {
       "encoding": "inplace",
       "label": "struct InheritanceManager.InheritancePlan",
       "members": [
         {
-          "astId": 51760,
+          "astId": 55067,
           "contract": "contracts/InheritanceManager.sol:InheritanceManager",
           "label": "heir",
           "offset": 0,
@@ -96,7 +96,7 @@
           "type": "t_address"
         },
         {
-          "astId": 51762,
+          "astId": 55069,
           "contract": "contracts/InheritanceManager.sol:InheritanceManager",
           "label": "inactivityPeriod",
           "offset": 0,
@@ -104,7 +104,7 @@
           "type": "t_uint256"
         },
         {
-          "astId": 51764,
+          "astId": 55071,
           "contract": "contracts/InheritanceManager.sol:InheritanceManager",
           "label": "lastHeartbeat",
           "offset": 0,
@@ -112,7 +112,7 @@
           "type": "t_uint256"
         },
         {
-          "astId": 51766,
+          "astId": 55073,
           "contract": "contracts/InheritanceManager.sol:InheritanceManager",
           "label": "claimStartedAt",
           "offset": 0,
@@ -120,7 +120,7 @@
           "type": "t_uint256"
         },
         {
-          "astId": 51768,
+          "astId": 55075,
           "contract": "contracts/InheritanceManager.sol:InheritanceManager",
           "label": "active",
           "offset": 0,
@@ -128,7 +128,7 @@
           "type": "t_bool"
         },
         {
-          "astId": 51771,
+          "astId": 55078,
           "contract": "contracts/InheritanceManager.sol:InheritanceManager",
           "label": "vaults",
           "offset": 0,

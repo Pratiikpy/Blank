@@ -1,0 +1,218 @@
+{
+  "storage": [
+    {
+      "astId": 67160,
+      "contract": "contracts/EncryptedEscrow.sol:EncryptedEscrow",
+      "label": "_status",
+      "offset": 0,
+      "slot": "0",
+      "type": "t_uint256"
+    },
+    {
+      "astId": 48960,
+      "contract": "contracts/EncryptedEscrow.sol:EncryptedEscrow",
+      "label": "eventHub",
+      "offset": 0,
+      "slot": "1",
+      "type": "t_contract(IEventHub)48905"
+    },
+    {
+      "astId": 48962,
+      "contract": "contracts/EncryptedEscrow.sol:EncryptedEscrow",
+      "label": "paymentReceipts",
+      "offset": 0,
+      "slot": "2",
+      "type": "t_address"
+    },
+    {
+      "astId": 48964,
+      "contract": "contracts/EncryptedEscrow.sol:EncryptedEscrow",
+      "label": "nextEscrowId",
+      "offset": 0,
+      "slot": "3",
+      "type": "t_uint256"
+    },
+    {
+      "astId": 48969,
+      "contract": "contracts/EncryptedEscrow.sol:EncryptedEscrow",
+      "label": "_escrows",
+      "offset": 0,
+      "slot": "4",
+      "type": "t_mapping(t_uint256,t_struct(Escrow)48957_storage)"
+    },
+    {
+      "astId": 48974,
+      "contract": "contracts/EncryptedEscrow.sol:EncryptedEscrow",
+      "label": "_userEscrows",
+      "offset": 0,
+      "slot": "5",
+      "type": "t_mapping(t_address,t_array(t_uint256)dyn_storage)"
+    },
+    {
+      "astId": 49946,
+      "contract": "contracts/EncryptedEscrow.sol:EncryptedEscrow",
+      "label": "__gap",
+      "offset": 0,
+      "slot": "6",
+      "type": "t_array(t_uint256)50_storage"
+    }
+  ],
+  "types": {
+    "t_address": {
+      "encoding": "inplace",
+      "label": "address",
+      "numberOfBytes": "20"
+    },
+    "t_array(t_uint256)50_storage": {
+      "base": "t_uint256",
+      "encoding": "inplace",
+      "label": "uint256[50]",
+      "numberOfBytes": "1600"
+    },
+    "t_array(t_uint256)dyn_storage": {
+      "base": "t_uint256",
+      "encoding": "dynamic_array",
+      "label": "uint256[]",
+      "numberOfBytes": "32"
+    },
+    "t_bool": {
+      "encoding": "inplace",
+      "label": "bool",
+      "numberOfBytes": "1"
+    },
+    "t_contract(IEventHub)48905": {
+      "encoding": "inplace",
+      "label": "contract IEventHub",
+      "numberOfBytes": "20"
+    },
+    "t_enum(EscrowStatus)48932": {
+      "encoding": "inplace",
+      "label": "enum EncryptedEscrow.EscrowStatus",
+      "numberOfBytes": "1"
+    },
+    "t_mapping(t_address,t_array(t_uint256)dyn_storage)": {
+      "encoding": "mapping",
+      "key": "t_address",
+      "label": "mapping(address => uint256[])",
+      "numberOfBytes": "32",
+      "value": "t_array(t_uint256)dyn_storage"
+    },
+    "t_mapping(t_uint256,t_struct(Escrow)48957_storage)": {
+      "encoding": "mapping",
+      "key": "t_uint256",
+      "label": "mapping(uint256 => struct EncryptedEscrow.Escrow)",
+      "numberOfBytes": "32",
+      "value": "t_struct(Escrow)48957_storage"
+    },
+    "t_string_storage": {
+      "encoding": "bytes",
+      "label": "string",
+      "numberOfBytes": "32"
+    },
+    "t_struct(Escrow)48957_storage": {
+      "encoding": "inplace",
+      "label": "struct EncryptedEscrow.Escrow",
+      "members": [
+        {
+          "astId": 48934,
+          "contract": "contracts/EncryptedEscrow.sol:EncryptedEscrow",
+          "label": "depositor",
+          "offset": 0,
+          "slot": "0",
+          "type": "t_address"
+        },
+        {
+          "astId": 48936,
+          "contract": "contracts/EncryptedEscrow.sol:EncryptedEscrow",
+          "label": "beneficiary",
+          "offset": 0,
+          "slot": "1",
+          "type": "t_address"
+        },
+        {
+          "astId": 48938,
+          "contract": "contracts/EncryptedEscrow.sol:EncryptedEscrow",
+          "label": "arbiter",
+          "offset": 0,
+          "slot": "2",
+          "type": "t_address"
+        },
+        {
+          "astId": 48940,
+          "contract": "contracts/EncryptedEscrow.sol:EncryptedEscrow",
+          "label": "vault",
+          "offset": 0,
+          "slot": "3",
+          "type": "t_address"
+        },
+        {
+          "astId": 48943,
+          "contract": "contracts/EncryptedEscrow.sol:EncryptedEscrow",
+          "label": "encAmount",
+          "offset": 0,
+          "slot": "4",
+          "type": "t_userDefinedValueType(euint64)11797"
+        },
+        {
+          "astId": 48945,
+          "contract": "contracts/EncryptedEscrow.sol:EncryptedEscrow",
+          "label": "deadline",
+          "offset": 0,
+          "slot": "5",
+          "type": "t_uint256"
+        },
+        {
+          "astId": 48947,
+          "contract": "contracts/EncryptedEscrow.sol:EncryptedEscrow",
+          "label": "depositorApproved",
+          "offset": 0,
+          "slot": "6",
+          "type": "t_bool"
+        },
+        {
+          "astId": 48949,
+          "contract": "contracts/EncryptedEscrow.sol:EncryptedEscrow",
+          "label": "beneficiaryMarkedDelivered",
+          "offset": 1,
+          "slot": "6",
+          "type": "t_bool"
+        },
+        {
+          "astId": 48952,
+          "contract": "contracts/EncryptedEscrow.sol:EncryptedEscrow",
+          "label": "status",
+          "offset": 2,
+          "slot": "6",
+          "type": "t_enum(EscrowStatus)48932"
+        },
+        {
+          "astId": 48954,
+          "contract": "contracts/EncryptedEscrow.sol:EncryptedEscrow",
+          "label": "description",
+          "offset": 0,
+          "slot": "7",
+          "type": "t_string_storage"
+        },
+        {
+          "astId": 48956,
+          "contract": "contracts/EncryptedEscrow.sol:EncryptedEscrow",
+          "label": "createdAt",
+          "offset": 0,
+          "slot": "8",
+          "type": "t_uint256"
+        }
+      ],
+      "numberOfBytes": "288"
+    },
+    "t_uint256": {
+      "encoding": "inplace",
+      "label": "uint256",
+      "numberOfBytes": "32"
+    },
+    "t_userDefinedValueType(euint64)11797": {
+      "encoding": "inplace",
+      "label": "euint64",
+      "numberOfBytes": "32"
+    }
+  }
+}

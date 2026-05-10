@@ -1,0 +1,130 @@
+{
+  "storage": [
+    {
+      "astId": 49962,
+      "contract": "contracts/EncryptedFlags.sol:EncryptedFlags",
+      "label": "_isVerified",
+      "offset": 0,
+      "slot": "0",
+      "type": "t_mapping(t_address,t_userDefinedValueType(ebool)11789)"
+    },
+    {
+      "astId": 49967,
+      "contract": "contracts/EncryptedFlags.sol:EncryptedFlags",
+      "label": "_isActive",
+      "offset": 0,
+      "slot": "1",
+      "type": "t_mapping(t_address,t_userDefinedValueType(ebool)11789)"
+    },
+    {
+      "astId": 49972,
+      "contract": "contracts/EncryptedFlags.sol:EncryptedFlags",
+      "label": "_hasCompletedKYC",
+      "offset": 0,
+      "slot": "2",
+      "type": "t_mapping(t_address,t_userDefinedValueType(ebool)11789)"
+    },
+    {
+      "astId": 49977,
+      "contract": "contracts/EncryptedFlags.sol:EncryptedFlags",
+      "label": "_isMerchant",
+      "offset": 0,
+      "slot": "3",
+      "type": "t_mapping(t_address,t_userDefinedValueType(ebool)11789)"
+    },
+    {
+      "astId": 49982,
+      "contract": "contracts/EncryptedFlags.sol:EncryptedFlags",
+      "label": "_flagBitmask",
+      "offset": 0,
+      "slot": "4",
+      "type": "t_mapping(t_address,t_userDefinedValueType(euint8)11791)"
+    },
+    {
+      "astId": 49985,
+      "contract": "contracts/EncryptedFlags.sol:EncryptedFlags",
+      "label": "_baseFeeRate",
+      "offset": 0,
+      "slot": "5",
+      "type": "t_userDefinedValueType(euint64)11797"
+    },
+    {
+      "astId": 49988,
+      "contract": "contracts/EncryptedFlags.sol:EncryptedFlags",
+      "label": "_merchantDiscount",
+      "offset": 0,
+      "slot": "6",
+      "type": "t_userDefinedValueType(euint64)11797"
+    },
+    {
+      "astId": 49995,
+      "contract": "contracts/EncryptedFlags.sol:EncryptedFlags",
+      "label": "_auditScopes",
+      "offset": 0,
+      "slot": "7",
+      "type": "t_mapping(t_address,t_mapping(t_address,t_userDefinedValueType(euint8)11791))"
+    },
+    {
+      "astId": 50800,
+      "contract": "contracts/EncryptedFlags.sol:EncryptedFlags",
+      "label": "__gap",
+      "offset": 0,
+      "slot": "8",
+      "type": "t_array(t_uint256)50_storage"
+    }
+  ],
+  "types": {
+    "t_address": {
+      "encoding": "inplace",
+      "label": "address",
+      "numberOfBytes": "20"
+    },
+    "t_array(t_uint256)50_storage": {
+      "base": "t_uint256",
+      "encoding": "inplace",
+      "label": "uint256[50]",
+      "numberOfBytes": "1600"
+    },
+    "t_mapping(t_address,t_mapping(t_address,t_userDefinedValueType(euint8)11791))": {
+      "encoding": "mapping",
+      "key": "t_address",
+      "label": "mapping(address => mapping(address => euint8))",
+      "numberOfBytes": "32",
+      "value": "t_mapping(t_address,t_userDefinedValueType(euint8)11791)"
+    },
+    "t_mapping(t_address,t_userDefinedValueType(ebool)11789)": {
+      "encoding": "mapping",
+      "key": "t_address",
+      "label": "mapping(address => ebool)",
+      "numberOfBytes": "32",
+      "value": "t_userDefinedValueType(ebool)11789"
+    },
+    "t_mapping(t_address,t_userDefinedValueType(euint8)11791)": {
+      "encoding": "mapping",
+      "key": "t_address",
+      "label": "mapping(address => euint8)",
+      "numberOfBytes": "32",
+      "value": "t_userDefinedValueType(euint8)11791"
+    },
+    "t_uint256": {
+      "encoding": "inplace",
+      "label": "uint256",
+      "numberOfBytes": "32"
+    },
+    "t_userDefinedValueType(ebool)11789": {
+      "encoding": "inplace",
+      "label": "ebool",
+      "numberOfBytes": "32"
+    },
+    "t_userDefinedValueType(euint64)11797": {
+      "encoding": "inplace",
+      "label": "euint64",
+      "numberOfBytes": "32"
+    },
+    "t_userDefinedValueType(euint8)11791": {
+      "encoding": "inplace",
+      "label": "euint8",
+      "numberOfBytes": "32"
+    }
+  }
+}

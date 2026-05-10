@@ -55,10 +55,20 @@ const TRACKED_CONTRACTS: string[] = [
   "InheritanceManager",
   "PrivacyRouter",
   "CreatorHub",
-  // Phase 4.1 — BlankAccount became UUPS-upgradeable in v0.4.1 (validator
+  // Phase 4.1 BlankAccount became UUPS-upgradeable in v0.4.1 (validator
   // dispatch). Tracking guards against accidental storage reordering on
   // future upgrades that would brick existing user proxies.
   "BlankAccount",
+  // §1.11 sweep (audit iter 47): 7 UUPS contracts that pre-existed the
+  // tracking list. Wave 4 added the first four; the last three predated
+  // Wave 4 and were never added to the list.
+  "ClaimLinks",
+  "Storefront",
+  "EncryptedCrowdfund",
+  "EncryptedEscrow",
+  "EncryptedFlags",
+  "EventHub",
+  "TokenRegistry",
 ];
 
 const SNAPSHOT_DIR = path.join(__dirname, "..", "storage-layouts");

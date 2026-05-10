@@ -146,7 +146,7 @@ Status: `✅` done · `🟡` in-progress · `⏳` pending · `❌` blocked
 - ⏳ §1.8 cancel-defaults-to-zero at 2 sites
 - ⏳ §1.9 README marketing-shape rewrite
 - ⏳ §1.10 CI uplift (vitest + Playwright + storage)
-- ⏳ §1.11 TRACKED_CONTRACTS sweep
+- ✅ §1.11 TRACKED_CONTRACTS sweep. 12 → 19 contracts tracked. Added Wave 4 contracts (ClaimLinks, Storefront, EncryptedCrowdfund, EncryptedEscrow) plus 3 pre-Wave-4 missing UUPS contracts (EncryptedFlags, EventHub, TokenRegistry). Wrote 19 storage-layout baselines via `hardhat check-storage-layout --write`. Verified `--check` exits 0 against the new baselines.
 
 ---
 
