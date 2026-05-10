@@ -203,7 +203,7 @@ contract EncryptedCrowdfund is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
     /// @notice Publish the off-chain decryption of the goal-check ebool.
     ///         Threshold Network signs the result; this contract verifies
     ///         and stores the boolean verdict. Anyone can call.
-    function publishCloseResult(uint256 campaignId, bool plaintext, bytes calldata signature) external {
+    function publishCloseResult(uint256 campaignId, bool plaintext, bytes calldata signature) external nonReentrant {
         Campaign storage c = _campaigns[campaignId];
         require(c.status == CampaignStatus.Closed || c.status == CampaignStatus.Released || c.status == CampaignStatus.Refunding, "Crowdfund: not closed");
         require(!c.resultPublished, "Crowdfund: already published");

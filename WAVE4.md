@@ -150,6 +150,7 @@ Status: `✅` done · `🟡` in-progress · `⏳` pending · `❌` blocked
 
 ## Section 2 contract debt
 
+- ✅ §2.3 publishCloseResult adds nonReentrant. Half-baked A5: `EncryptedCrowdfund.publishCloseResult` was a state-mutating external function with no reentrancy guard. The other 5 state-mutating externals already have `nonReentrant`; this restores symmetry. Cheap insurance against future FHE-coprocessor callback hooks. EncryptedCrowdfund tests: 7/7 passing. storage:check clean (modifier addition doesn't affect layout).
 - ✅ §2.9 storage gap reservation comments. Added `/// @dev Used: N. Gap: M.` comment to all 17 UUPS contracts (16 with `__gap[50]` reservation + Storefront with `__gap[49]` post-§1.4 phase B). Slot counts read directly from `storage-layouts/*.json` baselines. Pattern is consistent across all contracts: `Used: <slot-of-gap>. Gap: <gap-array-size>.` Future contributors adding state variables can read the comment to know exactly how many slots remain. compile + storage:check both clean (comments don't affect layout). Closes half-baked A22.
 
 ---
