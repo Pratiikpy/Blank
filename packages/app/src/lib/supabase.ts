@@ -1,6 +1,7 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { SUPABASE_URL, SUPABASE_ANON_KEY, SUPPORTED_CHAIN_ID } from "./constants";
 import { ACTIVITY_TYPES } from "./activity-types";
+import { log } from "./log";
 
 // Reactive chain id for activity inserts. ChainProvider keeps this in sync
 // via setSupabaseActiveChain() so rows written after a reload-free chain
@@ -21,7 +22,7 @@ export const supabase: SupabaseClient | null =
 
 // Warn if running without Supabase
 if (!supabase) {
-  console.warn("[Blank] Running in offline mode — Supabase not configured. Activities, requests, and groups will not sync.");
+  log.warn("supabase.offlineMode", { reason: "Not configured. Activities, requests, and groups will not sync." });
 }
 
 export function isOfflineMode(): boolean {
@@ -413,7 +414,7 @@ export async function insertActivity(activity: Omit<ActivityRow, "id" | "created
     const errObj = err as { message?: string; code?: string } | undefined;
     const msg = errObj?.message ?? (err instanceof Error ? err.message : JSON.stringify(err));
     const code = errObj?.code ?? "";
-    console.warn("[insertActivity] caught error", { code, msg, raw: err });
+    log.warn("supabase.insertActivity.caught", { code, msg });
     // R3 #229 follow-up: prod Supabase schema lacks `chain_id` on
     // `activities`. Cache the discovery + retry without it. Once the
     // migration runs, this fallback never trips.
@@ -422,10 +423,9 @@ export async function insertActivity(activity: Omit<ActivityRow, "id" | "created
       (code === "PGRST204" || msg.includes("PGRST204") || /chain_id.*schema cache/i.test(msg))
     ) {
       _activitiesHasChainId = false;
-      console.warn(
-        "[supabase] activities.chain_id column missing — disabling chain_id on inserts. " +
-          "Run a SQL migration `ALTER TABLE activities ADD COLUMN chain_id INT` to fix.",
-      );
+      log.warn("supabase.activities.chainIdColumnMissing", {
+        action: "Disabling chain_id on inserts. Run `ALTER TABLE activities ADD COLUMN chain_id INT` to fix.",
+      });
       try {
         await withRetry(async () => {
           const { error } = await supabase!
@@ -435,14 +435,11 @@ export async function insertActivity(activity: Omit<ActivityRow, "id" | "created
         });
         return;
       } catch (retryErr) {
-        console.warn(
-          "insertActivity retry without chain_id failed:",
-          retryErr instanceof Error ? retryErr.message : retryErr,
-        );
+        log.warn("supabase.insertActivity.retryWithoutChainIdFailed", retryErr instanceof Error ? retryErr : new Error(String(retryErr)));
         return;
       }
     }
-    console.warn("insertActivity:", msg);
+    log.warn("supabase.insertActivity.failed", { msg });
   }
 }
 
@@ -459,7 +456,7 @@ export async function fetchActivityById(id: string): Promise<ActivityRow | null>
       return data;
     });
   } catch (err) {
-    console.warn("fetchActivityById:", err instanceof Error ? err.message : err);
+    log.warn("supabase.fetchActivityById.failed", err instanceof Error ? err : new Error(String(err)));
     return null;
   }
 }
@@ -507,7 +504,7 @@ export async function fetchInvoiceActivities(
       return (data ?? []).filter((row) => exact.test(row.note ?? ""));
     });
   } catch (err) {
-    console.warn("fetchInvoiceActivities:", err instanceof Error ? err.message : err);
+    log.warn("supabase.fetchInvoiceActivities.failed", err instanceof Error ? err : new Error(String(err)));
     return [];
   }
 }
@@ -532,7 +529,7 @@ export async function fetchHeirAssignments(heirAddress: string): Promise<Activit
       return data || [];
     });
   } catch (err) {
-    console.warn("fetchHeirAssignments:", err instanceof Error ? err.message : err);
+    log.warn("supabase.fetchHeirAssignments.failed", err instanceof Error ? err : new Error(String(err)));
     return [];
   }
 }
