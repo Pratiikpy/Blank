@@ -20,7 +20,6 @@
  * What this re-exports:
  * - useCofheConnection: reports connected=true when wallet is on correct chain
  * - useCofheEncrypt: real SDK encryption when available, pass-through fallback
- * - useCofheEncryptAndWriteContract: atomic encrypt + write
  * - useCofheReadContractAndDecrypt: read + decrypt (when SDK available)
  * - useCofheActivePermit: permit management
  * - CofheProvider: attempts SDK init, no-op if fails
@@ -331,7 +330,14 @@ export function useCofheEncrypt() {
   // so we can also wait for the SmartAccountCofheBinder to do its thing.
   const sdkStateTickEnc = useSdkStateTick();
 
-  const encryptInputsAsync = useCallback(async (items: unknown[]) => {
+  // Wave 4 task #245 — pass an optional step callback through to the
+  // SDK builder so callers can drive a real-step progress UI off the
+  // 5 phases the SDK reports (initTfhe → fetchKeys → pack → prove → verify).
+  // The callback signature matches @cofhe/sdk's EncryptStepCallbackFunction.
+  const encryptInputsAsync = useCallback(async (
+    items: unknown[],
+    onStep?: (step: unknown, ctx?: { isStart?: boolean; isEnd?: boolean; duration?: number }) => void,
+  ) => {
     setIsEncrypting(true);
     try {
       console.log("[cofhe-shim] encryptInputsAsync called with", items.length, "items");
@@ -426,6 +432,13 @@ export function useCofheEncrypt() {
           const builder = _sdkClient.encryptInputs(items);
           if (authoritativeAccount && typeof builder.setAccount === "function") {
             builder.setAccount(authoritativeAccount);
+          }
+          // Wave 4 task #245 — wire SDK step callbacks through to the
+          // caller's progress UI. Best-effort: builder.onStep was added in
+          // @cofhe/sdk PR #239 / package patch 0.5.x — guard with typeof
+          // so older bundles don't throw.
+          if (onStep && typeof (builder as { onStep?: unknown }).onStep === "function") {
+            (builder as { onStep: (cb: typeof onStep) => unknown }).onStep(onStep);
           }
           const encrypted = await builder.execute();
           console.log("[cofhe-shim] REAL encryption SUCCESS ✓");
@@ -578,19 +591,11 @@ export function useCofheDecryptForView() {
   return { decryptForView };
 }
 
-// ─── useCofheEncryptAndWriteContract ────────────────────────────────
-
-export function useCofheEncryptAndWriteContract() {
-  return {
-    encryptAndWrite: async (_params: any) => {
-      throw new Error("Use writeContractAsync directly with Encryptable values");
-    },
-    encryption: { isEncrypting: false },
-    write: { isPending: false },
-    atomicEncryption: { isEncrypting: false },
-    atomicWrite: { isPending: false },
-  };
-}
+// §1.6 of BEST_VERSION_FULL_PLAN: useCofheEncryptAndWriteContract was a
+// non-functional stub that threw on call. Removed entirely. All Wave 4
+// hooks (useClaimLinks, useCrowdfund, useEncryptedEscrow, useStorefront)
+// already use useUnifiedWrite which accepts InEuint64 values directly.
+// useInheritance + useSendPayment migrated to the same shape.
 
 // ─── useCofheReadContractAndDecrypt ─────────────────────────────────
 // #281: was a non-functional stub that returned all-undefined regardless

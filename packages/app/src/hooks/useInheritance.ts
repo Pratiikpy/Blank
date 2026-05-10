@@ -2,8 +2,6 @@ import { useState, useCallback } from "react";
 import { useReadContract, usePublicClient } from "wagmi";
 import { useEffectiveAddress } from "./useEffectiveAddress";
 import { useUnifiedWrite } from "./useUnifiedWrite";
-import { chainIdToViemChain } from "@/lib/viem-chains";
-import { useCofheEncryptAndWriteContract } from "@/lib/cofhe-shim";
 import { InheritanceManagerAbi } from "@/lib/abis";
 import { useChain } from "@/providers/ChainProvider";
 import { insertActivity } from "@/lib/supabase";
@@ -30,8 +28,10 @@ export function useInheritance() {
   const { unifiedWrite, unifiedWriteAndWait } = useUnifiedWrite();
   const [isProcessing, setIsProcessing] = useState(false);
 
-  // Atomic encrypt + write for finalizeClaim (encrypted InEuint64[] amounts)
-  const { encryptAndWrite } = useCofheEncryptAndWriteContract();
+  // §1.6 of BEST_VERSION_FULL_PLAN: useCofheEncryptAndWriteContract was a
+  // stub that threw "Use writeContractAsync directly with Encryptable values".
+  // Migrated finalizeClaim to unifiedWrite (already imported above) which
+  // accepts InEuint64 values directly and routes through both EOA and AA paths.
 
   // Read current plan
   const { data: planData, refetch: refetchPlan } = useReadContract({
@@ -337,19 +337,15 @@ export function useInheritance() {
         // auto-encrypt these plaintext values.
         const maxAmounts = Array.from({ length: vaultCount }, () => MAX_UINT64);
 
-        const hash = await encryptAndWrite({
-          params: {
-            address: contracts.InheritanceManager,
-            abi: InheritanceManagerAbi,
-            functionName: "finalizeClaim",
-            chain: chainIdToViemChain(activeChainId),
-            account: address,
-            gas: BigInt(5_000_000), // FHE: manual gas limit (precompile can't be estimated)
-          },
+        const hash = await unifiedWrite({
+          address: contracts.InheritanceManager,
+          abi: InheritanceManagerAbi,
+          functionName: "finalizeClaim",
           args: [
             ownerAddress as `0x${string}`,
             maxAmounts,
           ],
+          gas: BigInt(5_000_000), // FHE: manual gas limit (precompile can't be estimated)
         });
 
         const finalizeReceipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
@@ -395,7 +391,7 @@ export function useInheritance() {
         setIsProcessing(false);
       }
     },
-    [address, publicClient, encryptAndWrite, refetchPlan, contracts]
+    [address, publicClient, unifiedWrite, refetchPlan, contracts]
   );
 
   return {

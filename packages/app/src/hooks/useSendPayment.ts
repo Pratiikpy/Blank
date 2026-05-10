@@ -3,11 +3,9 @@ import { useAccount, usePublicClient } from "wagmi";
 import { useEffectiveAddress } from "./useEffectiveAddress";
 import { useUnifiedWrite } from "./useUnifiedWrite";
 import { parseUnits } from "viem";
-import { chainIdToViemChain } from "@/lib/viem-chains";
 import {
   useCofheEncrypt,
   useCofheConnection,
-  useCofheEncryptAndWriteContract,
 } from "@/lib/cofhe-shim";
 import { Encryptable } from "@/lib/cofhe-shim";
 import toast from "react-hot-toast";
@@ -172,11 +170,13 @@ export function useSendPayment() {
   //   3. Inserts encrypted values back into args
   //   4. Calls walletClient.writeContract
   // This eliminates the separate "encrypting" -> "confirming" steps.
-  const {
-    encryptAndWrite,
-    encryption: atomicEncryption,
-    write: atomicWrite,
-  } = useCofheEncryptAndWriteContract();
+  // §1.6 of BEST_VERSION_FULL_PLAN: removed useCofheEncryptAndWriteContract
+  // (a stub that threw). Atomic encrypt+write now goes through unifiedWrite,
+  // which accepts InEuint64 values directly. Atomic-state booleans below
+  // were sourced from the stub and are now stubbed locally as false (the
+  // USE_ATOMIC_ENCRYPT_WRITE flag is constant-false anyway).
+  const atomicEncryption = { isEncrypting: false };
+  const atomicWrite = { isPending: false };
 
   // Encrypted input — stored between encrypt and confirm steps (legacy path)
   const [encryptedAmount, setEncryptedAmount] = useState<Record<string, unknown> | null>(null);
@@ -340,14 +340,13 @@ export function useSendPayment() {
       //
       // PaymentHub calls vault.transferFrom() on the user's behalf, which
       // is why the approval step above is required.
-      const hash = await encryptAndWrite({
-        params: {
-          address: contracts.PaymentHub,
-          abi: PaymentHubAbi,
-          functionName: "sendPayment",
-          chain: chainIdToViemChain(activeChainId),
-          account: address,
-        },
+      // §1.6 of BEST_VERSION_FULL_PLAN: migrated from encryptAndWrite stub
+      // (which threw) to unifiedWrite. unifiedWrite handles InEuint64
+      // encryption internally and routes through both EOA and AA paths.
+      const hash = await unifiedWrite({
+        address: contracts.PaymentHub,
+        abi: PaymentHubAbi,
+        functionName: "sendPayment",
         args: [
           state.recipient as `0x${string}`,
           vaultAddress,
@@ -428,7 +427,7 @@ export function useSendPayment() {
     } finally {
       submittingRef.current = false;
     }
-  }, [address, state.step, state.amount, state.recipient, state.note, encryptAndWrite, unifiedWrite, publicClient, activeChainId, contracts]);
+  }, [address, state.step, state.amount, state.recipient, state.note, unifiedWrite, publicClient, activeChainId, contracts]);
 
   // Phase 7.D — the atomic path uses `encryptAndWrite` from `@cofhe/react`,
   // which lives outside our `unifiedWrite` abstraction and currently has no
