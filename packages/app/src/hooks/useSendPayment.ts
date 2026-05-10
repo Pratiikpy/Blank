@@ -353,6 +353,10 @@ export function useSendPayment() {
           amountWei,
           state.note || "",
         ],
+        // §3.19 of BEST_VERSION_FULL_PLAN: FHE-touching call needs explicit
+        // gas (precompile can't be auto-estimated). The §1.6 migration from
+        // the encryptAndWrite stub dropped this; restoring per audit iter 41.
+        gas: BigInt(5_000_000),
       });
 
       // Save pending tx for crash recovery (#71)
