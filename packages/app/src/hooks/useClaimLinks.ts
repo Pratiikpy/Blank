@@ -114,7 +114,13 @@ export function useClaimLinks() {
         if (!isVaultApproved(claimLinksAddress)) {
           const toastId = toast.loading("Approving encrypted transfers...");
           try {
-            await unifiedWrite({
+            // §3.4 of BEST_VERSION_FULL_PLAN: AndWait so the receipt confirms
+            // before we mark the approval cached. Pre-fix used unifiedWrite
+            // (no wait) and markVaultApproved fired before the approve tx
+            // mined. If the main tx ran first, transferFromVerified reverted
+            // with "insufficient allowance" and the localStorage flag was
+            // still set, so retry skipped re-approve and the user was locked.
+            await unifiedWriteAndWait({
               address: params.vault,
               abi: FHERC20VaultAbi,
               functionName: "approvePlaintext",

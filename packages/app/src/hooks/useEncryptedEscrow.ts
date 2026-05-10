@@ -54,7 +54,7 @@ export function useEncryptedEscrow() {
   const publicClient = usePublicClient({ chainId: activeChainId });
   const { connected } = useCofheConnection();
   const { encryptInputsAsync } = useCofheEncrypt();
-  const { unifiedWrite, unifiedWriteAndWait } = useUnifiedWrite();
+  const { unifiedWriteAndWait } = useUnifiedWrite();
   const pipeline = useFhePipeline();
   const [state, setState] = useState<EscrowState>(initial);
 
@@ -72,7 +72,10 @@ export function useEncryptedEscrow() {
     if (isVaultApproved(ee)) return;
     const toastId = toast.loading("Approving vault...");
     try {
-      await unifiedWrite({
+      // §3.4 of BEST_VERSION_FULL_PLAN: AndWait so receipt mines before
+      // markVaultApproved caches. Pre-fix race could leave allowance still
+      // pending while the main tx fired, reverting on insufficient allowance.
+      await unifiedWriteAndWait({
         address: vault,
         abi: FHERC20VaultAbi,
         functionName: "approvePlaintext",
@@ -85,7 +88,7 @@ export function useEncryptedEscrow() {
       toast.error("Approval failed", { id: toastId });
       throw err;
     }
-  }, [contracts.EncryptedEscrow, unifiedWrite]);
+  }, [contracts.EncryptedEscrow, unifiedWriteAndWait]);
 
   const createEscrow = useCallback(
     async (params: {

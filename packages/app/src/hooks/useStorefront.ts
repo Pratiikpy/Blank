@@ -70,7 +70,7 @@ export function useStorefront() {
   const publicClient = usePublicClient({ chainId: activeChainId });
   const { connected } = useCofheConnection();
   const { encryptInputsAsync } = useCofheEncrypt();
-  const { unifiedWrite, unifiedWriteAndWait } = useUnifiedWrite();
+  const { unifiedWriteAndWait } = useUnifiedWrite();
   const pipeline = useFhePipeline();
 
   const [state, setState] = useState<StorefrontState>(initial);
@@ -82,7 +82,10 @@ export function useStorefront() {
     if (isVaultApproved(sf)) return;
     const toastId = toast.loading("Approving vault...");
     try {
-      await unifiedWrite({
+      // §3.4 of BEST_VERSION_FULL_PLAN: AndWait for approve receipt before
+      // markVaultApproved caches. Pre-fix race could leave allowance pending
+      // when main tx fired.
+      await unifiedWriteAndWait({
         address: vault,
         abi: FHERC20VaultAbi,
         functionName: "approvePlaintext",
@@ -95,7 +98,7 @@ export function useStorefront() {
       toast.error("Approval failed", { id: toastId });
       throw err;
     }
-  }, [contracts.Storefront, unifiedWrite]);
+  }, [contracts.Storefront, unifiedWriteAndWait]);
 
   const guardReady = useCallback((): { sf: `0x${string}` } | null => {
     if (!address || !connected) {
