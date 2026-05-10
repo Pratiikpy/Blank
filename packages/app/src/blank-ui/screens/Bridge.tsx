@@ -68,7 +68,7 @@ function statusLabel(step: BridgeStep, attestationStatus: string | null): string
         ? "Attestation ready"
         : `Waiting for Circle attestation${attestationStatus ? ` (${attestationStatus})` : ""}…`;
     case "readyToClaim":
-      return "Attestation ready — claim on the destination chain";
+      return "Attestation ready. Claim on the destination chain.";
     case "switching":
       return "Switching to destination chain…";
     case "minting":

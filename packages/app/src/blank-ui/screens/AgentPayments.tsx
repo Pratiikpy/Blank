@@ -258,7 +258,7 @@ export default function AgentPayments() {
     // this before the tx — this is just fast-fail UX).
     const secondsLeft = att.expiry - (blockTimestamp ?? Math.floor(Date.now() / 1000));
     if (secondsLeft <= 30) {
-      toast.error("Attestation about to expire — re-derive");
+      toast.error("Attestation about to expire. Re-derive.");
       return;
     }
     const hash = await submit(recipient as `0x${string}`, att, note.trim());
