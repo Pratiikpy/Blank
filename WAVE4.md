@@ -148,6 +148,10 @@ Status: `✅` done · `🟡` in-progress · `⏳` pending · `❌` blocked
 - 🟡 §1.10 CI uplift partial (4 of 6 checks). Added: vitest unit tests (103 tests passing), tsc typecheck for Vercel functions (api/tsconfig.json), tsc typecheck for hardhat tasks, UUPS storage layout check (`pnpm storage:check`, 19 contracts). Deferred: ESLint (no eslint config exists in packages/app; needs setup before wiring), Playwright (the `if: false` flag stays until E2E suite stability is confirmed standalone). All 4 added checks verified passing locally before CI commit.
 - ✅ §1.11 TRACKED_CONTRACTS sweep. 12 → 19 contracts tracked. Added Wave 4 contracts (ClaimLinks, Storefront, EncryptedCrowdfund, EncryptedEscrow) plus 3 pre-Wave-4 missing UUPS contracts (EncryptedFlags, EventHub, TokenRegistry). Wrote 19 storage-layout baselines via `hardhat check-storage-layout --write`. Verified `--check` exits 0 against the new baselines.
 
+## Section 3 hooks debt
+
+- ✅ §3.20 SmartAccountCofheBinder console.log gated behind DEV. Audit iter 25: state-check console.log fired on every render when state changed (wallet transitions, chain switches, account deploys). Now wrapped in `if (import.meta.env.DEV)` so production builds drop the call. Five-minute one-line fix. tsc clean.
+
 ## Section 2 contract debt
 
 - ✅ §20.18 quarantine fix: EncryptedEscrow tests no longer flake. The "expired escrow: depositor refunds after deadline" test failed twice in this session with a `Date.now()/1000 + offset` (wall clock) deadline computation racing against `time.increase(offset)` (chain time advance). Fix: replaced 11 instances of `Math.floor(Date.now() / 1000) + N` with `(await time.latest()) + N` so the deadline anchors to actual block.timestamp. Verified 3 consecutive runs all 12/12 passing. Closes the §2.5-A17 flake note + the broader §20.18 deferred quarantine debt.
