@@ -172,10 +172,17 @@ contract ClaimLinks is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         // Move funds from sender into this contract's vault balance
         euint64 locked = IFHERC20Vault(vault).transferFromVerified(msg.sender, address(this), verified);
 
-        // Persist permission for this contract; sender keeps decrypt rights
-        // (so they can verify the locked amount) until claim or refund.
+        // §2.1 privacy posture: only this contract retains decrypt rights
+        // on the locked handle. Sender does NOT get allowSender(locked).
+        // Rationale: CoFHE has no revoke primitive, so granting at create
+        // would leave the sender able to publish a decrypt proof of the
+        // claim amount permanently after the recipient claims. The sender
+        // already knows the plaintext at create (they encrypted it), so
+        // dropping the on-chain allowance costs them nothing they can't
+        // reconstruct from local state. At refund, the vault's
+        // transferVerified produces a fresh handle that the sender (now
+        // the recipient of the refund) is allowed on by the vault.
         FHE.allowThis(locked);
-        FHE.allowSender(locked);
 
         linkId = nextLinkId++;
         _links[linkId] = ClaimLink({
