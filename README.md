@@ -367,7 +367,7 @@ PaymentHub on Base Sepolia: [`0xF420102D...e831`](https://sepolia.basescan.org/a
 
 ---
 
-### Wave 3. Partner-grade ship-readiness *(May 1 to Apr 30)*
+### Wave 3. Partner-grade ship-readiness *(May 1 to May 9)*
 
 > **In one line:** Made the app explainable (public pricing, roadmap, four blog posts) and faster (Fhenix-recommended perf optimization shipped onchain on both chains in one day).
 
@@ -387,6 +387,30 @@ Fhenix publishes a canonical AI training material called `marronjo/fhe-assistant
 Wave 3 is the wave where Blank stops being a thing we shipped and starts being a thing we explain. Tests grew from 17 at the end of Wave 1 to 154 today, about a **9× increase**. Storage drift across every UUPS upgrade we ran: **zero**. UUPS upgrades shipped this wave: **18**, across two chains. Long-form blog posts live: **4**. Multichain bugs in landing-page widgets: **0**.
 
 **Anchor commits:** [`925d5e4`](https://github.com/Pratiikpy/Blank/commit/925d5e4) CSP relax · [`ab4eaf4`](https://github.com/Pratiikpy/Blank/commit/ab4eaf4) /pricing + /roadmap + /blog · [`968b00a`](https://github.com/Pratiikpy/Blank/commit/968b00a) Why-Fhenix-CoFHE post · [`bdf9415`](https://github.com/Pratiikpy/Blank/commit/bdf9415) multichain GlobalCounter fix · [`015701e`](https://github.com/Pratiikpy/Blank/commit/015701e) allowSender refactor · [`c1ffa7e`](https://github.com/Pratiikpy/Blank/commit/c1ffa7e) UUPS rollout
+
+### Wave 4. Composable public-link surface *(May 1 to present)*
+
+> **In one line:** Made every payment shape a public link that any wallet (or no wallet) can interact with, while the amount stays encrypted. Magic claim links, sealed-bid storefronts, encrypted crowdfunding, encrypted escrow.
+
+**4 new contracts (all UUPS, all storage-layout tracked)**
+`ClaimLinks` ships bearer / email-bound / address-bound payment links with on-chain `keccak256(DOMAIN, mode, secret, ...)` matching, hard-capped at 365 days expiry. `Storefront` ships three sale modes per listing: `FixedPrice` (FHE.eq matching), sealed-bid `Auction` (FHE-tournament selection via `FHE.gt` + `FHE.select`, async-decrypted via `revealWinner`), and `PayWhatYouWant`. `EncryptedCrowdfund` keeps the goal AND every contribution encrypted; `closeCampaign` runs `FHE.gte(raised, goal)` and the verdict is published via `FHE.publishDecryptResult`. `EncryptedEscrow` ships arbiter-or-deadline release with the disputed-without-arbiter fund-lock fixed at create time.
+
+**FHE pipeline UI**
+Every encrypted operation now has a 5-step progress UI (`useFhePipeline`): cofhe SDK init, encrypt input, ZK proof, submit tx, confirm. Wired into all four Wave 4 hooks plus `useClaimLinks`. The hook surfaces step + sub-step state through a single React state machine; the component renders both compact and full modes.
+
+**Auction settlement (the audit-iter-10 fix)**
+The previous Wave 4 prototype set `runningWinner = bids[i].bidder` unconditionally inside the close loop, so the LAST bidder won regardless of bid amount. The existing test masked the bug because it used ascending bids (5, 8, 10), where the last bidder happened to also be the highest. Phase A disabled `closeAuction` with a clear revert. Phase B reimplemented via FHE-tournament: encrypted winner index tracked alongside running max via `FHE.select`, off-chain decrypted, posted on-chain via `revealWinner(listingId, plaintextIdx, signature)`. The new 5/10/7 differentiating test (charlie at $10 wins, NOT dave at $7) actually catches the bug if it ever returns.
+
+**Storage layout coverage (audit iter 47 close)**
+TRACKED_CONTRACTS swept from 12 to 19 (the 4 new Wave 4 contracts plus 3 pre-Wave-4 contracts that were never tracked: `EncryptedFlags`, `EventHub`, `TokenRegistry`). UUPS storage-layout coverage: **100%**. CI gate now runs `pnpm storage:check` on every PR; ABSOLUTE-block on layout-break.
+
+**CI uplift**
+4 new gating checks added: vitest unit tests (103 passing), Vercel function typecheck (`api/tsconfig.json`), hardhat task typecheck, storage layout check. Total CI surface: 4 jobs to 8.
+
+**Where we are**
+Sprint week shipped 13 commits across 11 §1 punch-list items in ~6.5 hours. UUPS upgrades safe: 100% slot-preserving (`__gap` decremented when consumed). Tests grew with new 4-of-4 Wave 4 test files. README voice clean: 0 em-dashes, 0 banned-word violations.
+
+**Anchor commits:** `7c241d7` gitignore test wallet · `71d85ae` EncryptedEscrow no-arbiter fix · `429551d` + `333c508` + `a841ebb` Storefront phase A + B · `2e5f7d9` ClaimLinks expiry cap · `f866153` useInheritance unbricked · `e2eca12` extractEventId fails closed · `7992351` cancel-defaults-zero · `3058e32` TRACKED_CONTRACTS sweep · `b351e2e` CI uplift · `68f9d8e` README polish · `d7c24fc` README §4.2.8 engineering tour · `273c508` README surface refresh
 
 ---
 
