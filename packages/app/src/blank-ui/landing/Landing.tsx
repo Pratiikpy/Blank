@@ -43,9 +43,9 @@ function Hero() {
 
       <XRaySlider
         baseSrc={BILL_BASE}
-        baseAlt="A standard US hundred dollar bill — public money, fully visible"
+        baseAlt="A standard US hundred dollar bill: public money, fully visible"
         revealSrc={BILL_REVEAL}
-        revealAlt="The same bill rendered as FHE ciphertext — what the blockchain sees"
+        revealAlt="The same bill rendered as FHE ciphertext: what the blockchain sees"
       />
     </section>
   );
@@ -59,9 +59,9 @@ function ProofOfProduct() {
         "Deployed on Base Sepolia and Ethereum Sepolia. Open source, end-to-end testable.",
     },
     {
-      num: "12",
+      num: "16",
       label:
-        "product surfaces — invoices, escrow, payroll, requests, gifts, stealth, inheritance, and more.",
+        "product surfaces: invoices, escrow, payroll, requests, gifts, stealth, inheritance, claim links, storefronts, crowdfund, encrypted escrow, and more.",
     },
     {
       num: "FHE",
@@ -96,7 +96,7 @@ function HowItWorks() {
     {
       n: "01",
       title: "Shield",
-      body: "Deposit USDC into your encrypted vault. Public tokens become encrypted eUSDC — balances stored as ciphertext on-chain.",
+      body: "Deposit USDC into your encrypted vault. Public tokens become encrypted eUSDC. Balances stored as ciphertext on-chain.",
     },
     {
       n: "02",

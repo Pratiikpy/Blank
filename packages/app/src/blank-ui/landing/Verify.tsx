@@ -77,7 +77,7 @@ export default function Verify() {
         setNotFound(false);
       }
     } catch {
-      setRpcError("Network error — try again");
+      setRpcError("Network error. Try again");
       setNotFound(false);
       setProof(null);
     }
@@ -186,7 +186,7 @@ export default function Verify() {
                   </div>
                   <div className="verify-status">
                     {!proof.isReady
-                      ? "Not yet published — anyone can finalize on-chain"
+                      ? "Not yet published. Anyone can finalize on-chain"
                       : proof.isTrue
                         ? "Confirmed by Fhenix Threshold Network"
                         : "Disproven by Fhenix Threshold Network"}

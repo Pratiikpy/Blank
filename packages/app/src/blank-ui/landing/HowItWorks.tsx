@@ -22,7 +22,7 @@ type Row = {
 const ROWS: Row[] = [
   {
     feature: "Encrypted send",
-    without: "Amount visible to MEV bots — sandwich-able before landing.",
+    without: "Amount visible to MEV bots, sandwich-able before landing.",
     with: "Ciphertext only. Bots see a meaningless 32-byte handle.",
   },
   {
@@ -33,7 +33,7 @@ const ROWS: Row[] = [
   {
     feature: "Salary / balance proof",
     without: "Reveal your full statement to rent a flat.",
-    with: "Return an ebool — 'income ≥ $X' — without revealing $X.",
+    with: "Return an ebool ('income ≥ $X') without revealing $X.",
   },
   {
     feature: "Group expense splits",

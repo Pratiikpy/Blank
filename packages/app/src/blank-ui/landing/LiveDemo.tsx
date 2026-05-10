@@ -160,7 +160,7 @@ export function LiveDemo() {
                   {" "}
                   ·{" "}
                   {fheSyncTimedOut
-                    ? "FHE sync timed out — reload page"
+                    ? "FHE sync timed out. Reload page"
                     : "syncing FHE…"}
                 </span>
               )}

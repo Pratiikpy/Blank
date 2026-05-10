@@ -40,7 +40,7 @@ export function LandingNav() {
 
   return (
     <nav className={`ll-nav${scrolled ? " scrolled" : ""}`} aria-label="Primary">
-      <Link to="/" className="ll-logo" aria-label="Blank — home">
+      <Link to="/" className="ll-logo" aria-label="Blank home">
         <BlankLogo variant="lockup" size={22} />
       </Link>
 

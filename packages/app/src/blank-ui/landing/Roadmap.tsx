@@ -34,7 +34,7 @@ const SHIPPED: RoadmapItem[] = [
   {
     title: "Encrypted P2P payments",
     detail:
-      "Send + receive amounts that the chain processes but nobody else can read. The core primitive — every other feature builds on this.",
+      "Send + receive amounts that the chain processes but nobody else can read. The core primitive. Every other feature builds on this.",
   },
   {
     title: "Private invoice escrow",
@@ -44,7 +44,7 @@ const SHIPPED: RoadmapItem[] = [
   {
     title: "Workspace modes",
     detail:
-      "Freelancer / Business / Privacy / Full. Single source of truth in nav-registry — adapts the entire app to the user's role.",
+      "Freelancer / Business / Privacy / Full. Single source of truth in nav-registry. Adapts the entire app to the user's role.",
   },
   {
     title: "Stealth payments + meta-addresses",
@@ -122,7 +122,7 @@ const BLOCKED: BlockedItem[] = [
     detail:
       "Real-money usage requires three things to land in order. We don't speculate on dates because two of them are external dependencies and one is a security review whose duration we can't predict.",
     blockedBy: [
-      "Fhenix CoFHE mainnet release (external — Fhenix's roadmap)",
+      "Fhenix CoFHE mainnet release (external, on Fhenix's roadmap)",
       "Third-party audit of every Blank contract",
       "Decentralization of the threshold operator set",
     ],

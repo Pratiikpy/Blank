@@ -120,7 +120,7 @@ export default function Live() {
             <span className="ll-live-dot" />
             {supabaseConfigured
               ? "Streaming from Base Sepolia & Ethereum Sepolia"
-              : "Supabase not configured — showing empty state"}
+              : "Supabase not configured. Showing empty state"}
           </div>
 
           {isLoading && (
