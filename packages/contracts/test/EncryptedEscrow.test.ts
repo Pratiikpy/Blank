@@ -264,6 +264,74 @@ describe("EncryptedEscrow", () => {
     ).to.be.revertedWith("EncryptedEscrow: bad beneficiary");
   });
 
+  // §15.3.1: state-change events on each lifecycle transition.
+  // Each event must fire so indexers can mirror state without polling.
+  describe("State-change events", () => {
+    it("emits EscrowCreated on createEscrow", async () => {
+      const ctx = await loadFixture(deployFixture);
+      const enc = await encUint64(ctx.client, ctx.alice, usdc(10));
+
+      await expect(
+        ctx.escrow.connect(ctx.alice).createEscrow(
+          ctx.bob.address,
+          await ctx.vault.getAddress(),
+          enc,
+          "with note",
+          hre.ethers.ZeroAddress,
+          (await time.latest()) + 7 * 86400,
+        ),
+      ).to.emit(ctx.escrow, "EscrowCreated");
+    });
+
+    it("emits EscrowDelivered + EscrowApproved + EscrowReleased on happy path", async () => {
+      const ctx = await loadFixture(deployFixture);
+      const enc = await encUint64(ctx.client, ctx.alice, usdc(15));
+      await ctx.escrow.connect(ctx.alice).createEscrow(
+        ctx.bob.address, await ctx.vault.getAddress(), enc,
+        "happy", hre.ethers.ZeroAddress, (await time.latest()) + 7 * 86400,
+      );
+
+      await expect(ctx.escrow.connect(ctx.bob).markDelivered(0))
+        .to.emit(ctx.escrow, "EscrowDelivered");
+
+      // approveRelease fires both EscrowApproved and EscrowReleased
+      // since markDelivered already happened.
+      const tx = ctx.escrow.connect(ctx.alice).approveRelease(0);
+      await expect(tx).to.emit(ctx.escrow, "EscrowApproved");
+      await expect(tx).to.emit(ctx.escrow, "EscrowReleased");
+    });
+
+    it("emits EscrowDisputed + EscrowArbiterDecided on dispute path", async () => {
+      const ctx = await loadFixture(deployFixture);
+      const enc = await encUint64(ctx.client, ctx.alice, usdc(20));
+      await ctx.escrow.connect(ctx.alice).createEscrow(
+        ctx.bob.address, await ctx.vault.getAddress(), enc,
+        "dispute", ctx.charlie.address, (await time.latest()) + 7 * 86400,
+      );
+
+      await expect(ctx.escrow.connect(ctx.alice).disputeEscrow(0))
+        .to.emit(ctx.escrow, "EscrowDisputed");
+
+      await expect(ctx.escrow.connect(ctx.charlie).arbiterDecide(0, true))
+        .to.emit(ctx.escrow, "EscrowArbiterDecided");
+    });
+
+    it("emits EscrowExpiryClaimed on claimExpiredEscrow", async () => {
+      const ctx = await loadFixture(deployFixture);
+      const enc = await encUint64(ctx.client, ctx.alice, usdc(25));
+      const deadline = (await time.latest()) + 7 * 86400;
+      await ctx.escrow.connect(ctx.alice).createEscrow(
+        ctx.bob.address, await ctx.vault.getAddress(), enc,
+        "expired", hre.ethers.ZeroAddress, deadline,
+      );
+
+      await time.increase(7 * 86400 + 1);
+
+      await expect(ctx.escrow.connect(ctx.alice).claimExpiredEscrow(0))
+        .to.emit(ctx.escrow, "EscrowExpiryClaimed");
+    });
+  });
+
   // §2.7 + §15.3.1 event-assertion gap: PaymentReceiptsSet fires on
   // setPaymentReceipts and carries previous + current.
   describe("PaymentReceiptsSet event", () => {
