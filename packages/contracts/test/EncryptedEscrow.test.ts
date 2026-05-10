@@ -74,7 +74,7 @@ describe("EncryptedEscrow", () => {
       enc,
       "Build a website",
       hre.ethers.ZeroAddress,
-      Math.floor(Date.now() / 1000) + 7 * 86400,
+      (await time.latest()) + 7 * 86400,
     );
 
     const e = await ctx.escrow.getEscrow(0);
@@ -95,7 +95,7 @@ describe("EncryptedEscrow", () => {
     const enc = await encUint64(ctx.client, ctx.alice, usdc(50));
     await ctx.escrow.connect(ctx.alice).createEscrow(
       ctx.bob.address, await ctx.vault.getAddress(), enc,
-      "x", hre.ethers.ZeroAddress, Math.floor(Date.now() / 1000) + 7 * 86400,
+      "x", hre.ethers.ZeroAddress, (await time.latest()) + 7 * 86400,
     );
 
     await ctx.escrow.connect(ctx.bob).markDelivered(0);
@@ -112,7 +112,7 @@ describe("EncryptedEscrow", () => {
     const enc = await encUint64(ctx.client, ctx.alice, usdc(50));
     await ctx.escrow.connect(ctx.alice).createEscrow(
       ctx.bob.address, await ctx.vault.getAddress(), enc,
-      "x", hre.ethers.ZeroAddress, Math.floor(Date.now() / 1000) + 7 * 86400,
+      "x", hre.ethers.ZeroAddress, (await time.latest()) + 7 * 86400,
     );
 
     await ctx.escrow.connect(ctx.alice).approveRelease(0);
@@ -130,7 +130,7 @@ describe("EncryptedEscrow", () => {
     const enc = await encUint64(ctx.client, ctx.alice, usdc(40));
     await ctx.escrow.connect(ctx.alice).createEscrow(
       ctx.bob.address, await ctx.vault.getAddress(), enc,
-      "with arbiter", ctx.charlie.address, Math.floor(Date.now() / 1000) + 7 * 86400,
+      "with arbiter", ctx.charlie.address, (await time.latest()) + 7 * 86400,
     );
 
     await ctx.escrow.connect(ctx.alice).disputeEscrow(0);
@@ -147,7 +147,7 @@ describe("EncryptedEscrow", () => {
     const enc = await encUint64(ctx.client, ctx.alice, usdc(40));
     await ctx.escrow.connect(ctx.alice).createEscrow(
       ctx.bob.address, await ctx.vault.getAddress(), enc,
-      "with arbiter", ctx.charlie.address, Math.floor(Date.now() / 1000) + 7 * 86400,
+      "with arbiter", ctx.charlie.address, (await time.latest()) + 7 * 86400,
     );
 
     await ctx.escrow.connect(ctx.bob).disputeEscrow(0);
@@ -160,7 +160,7 @@ describe("EncryptedEscrow", () => {
   it("expired escrow: depositor refunds after deadline", async () => {
     const ctx = await loadFixture(deployFixture);
     const enc = await encUint64(ctx.client, ctx.alice, usdc(25));
-    const deadline = Math.floor(Date.now() / 1000) + 7 * 86400;
+    const deadline = (await time.latest()) + 7 * 86400;
     await ctx.escrow.connect(ctx.alice).createEscrow(
       ctx.bob.address, await ctx.vault.getAddress(), enc,
       "x", hre.ethers.ZeroAddress, deadline,
@@ -185,7 +185,7 @@ describe("EncryptedEscrow", () => {
     const enc = await encUint64(ctx.client, ctx.alice, usdc(10));
     await ctx.escrow.connect(ctx.alice).createEscrow(
       ctx.bob.address, await ctx.vault.getAddress(), enc,
-      "x", ctx.charlie.address, Math.floor(Date.now() / 1000) + 7 * 86400,
+      "x", ctx.charlie.address, (await time.latest()) + 7 * 86400,
     );
     await ctx.escrow.connect(ctx.alice).disputeEscrow(0);
 
@@ -200,7 +200,7 @@ describe("EncryptedEscrow", () => {
     const enc = await encUint64(ctx.client, ctx.alice, usdc(10));
     await ctx.escrow.connect(ctx.alice).createEscrow(
       ctx.bob.address, await ctx.vault.getAddress(), enc,
-      "x", ctx.charlie.address, Math.floor(Date.now() / 1000) + 7 * 86400,
+      "x", ctx.charlie.address, (await time.latest()) + 7 * 86400,
     );
     await ctx.escrow.connect(ctx.bob).markDelivered(0);
 
@@ -214,7 +214,7 @@ describe("EncryptedEscrow", () => {
     const enc = await encUint64(ctx.client, ctx.alice, usdc(10));
     await ctx.escrow.connect(ctx.alice).createEscrow(
       ctx.bob.address, await ctx.vault.getAddress(), enc,
-      "x", ctx.charlie.address, Math.floor(Date.now() / 1000) + 7 * 86400,
+      "x", ctx.charlie.address, (await time.latest()) + 7 * 86400,
     );
     await ctx.escrow.connect(ctx.alice).approveRelease(0);
 
@@ -228,7 +228,7 @@ describe("EncryptedEscrow", () => {
     const enc = await encUint64(ctx.client, ctx.alice, usdc(10));
     await ctx.escrow.connect(ctx.alice).createEscrow(
       ctx.bob.address, await ctx.vault.getAddress(), enc,
-      "x", hre.ethers.ZeroAddress, Math.floor(Date.now() / 1000) + 7 * 86400,
+      "x", hre.ethers.ZeroAddress, (await time.latest()) + 7 * 86400,
     );
 
     await expect(
@@ -248,7 +248,7 @@ describe("EncryptedEscrow", () => {
     await expect(
       ctx.escrow.connect(ctx.alice).createEscrow(
         ctx.bob.address, await ctx.vault.getAddress(), enc,
-        "x", hre.ethers.ZeroAddress, Math.floor(Date.now() / 1000) + 60,
+        "x", hre.ethers.ZeroAddress, (await time.latest()) + 60,
       ),
     ).to.be.revertedWith("EncryptedEscrow: deadline < 1 day out");
   });
@@ -259,7 +259,7 @@ describe("EncryptedEscrow", () => {
     await expect(
       ctx.escrow.connect(ctx.alice).createEscrow(
         ctx.alice.address, await ctx.vault.getAddress(), enc,
-        "x", hre.ethers.ZeroAddress, Math.floor(Date.now() / 1000) + 7 * 86400,
+        "x", hre.ethers.ZeroAddress, (await time.latest()) + 7 * 86400,
       ),
     ).to.be.revertedWith("EncryptedEscrow: bad beneficiary");
   });
