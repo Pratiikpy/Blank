@@ -313,7 +313,12 @@ export function useStorefront() {
       if (!ready) return false;
       const { sf } = ready;
       try {
-        setState({ ...initial, step: "sending", isProcessing: true });
+        // §3.13 of BEST_VERSION_FULL_PLAN: preserve lastListingId across
+        // callSimple invocations. Pre-fix, calling closeAuction/refund after
+        // a create wiped lastListingId because { ...initial, ... } reset it
+        // to null. UI logic that read lastListingId post-callSimple saw null
+        // and lost track of which listing the user was working with.
+        setState((prev) => ({ ...prev, step: "sending", isProcessing: true, error: null }));
         await unifiedWriteAndWait({
           address: sf,
           abi: StorefrontAbi,
@@ -321,7 +326,7 @@ export function useStorefront() {
           args: args as never,
           gas: BigInt(gasLimit),
         });
-        setState({ ...initial, step: "success" });
+        setState((prev) => ({ ...prev, step: "success", isProcessing: false }));
         invalidateBalanceQueries();
         toast.success(`${functionName} completed`);
         return true;
