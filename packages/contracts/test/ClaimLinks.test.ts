@@ -518,4 +518,41 @@ describe("ClaimLinks", () => {
       // 0 means defaultExpirySeconds (7 days), accepted.
     });
   });
+
+  // §2.7 + §15.3.1 event-assertion gap: PaymentReceiptsSet fires on
+  // setPaymentReceipts and carries previous + current addresses. Indexers
+  // and deploy scripts subscribe to verify wiring.
+  describe("PaymentReceiptsSet event", () => {
+    it("emits PaymentReceiptsSet with previous=zero, current=newAddr on first set", async () => {
+      const ctx = await loadFixture(deployFixture);
+      const fake = "0x000000000000000000000000000000000000bEEF";
+
+      await expect(ctx.claimLinks.connect(ctx.owner).setPaymentReceipts(fake))
+        .to.emit(ctx.claimLinks, "PaymentReceiptsSet")
+        .withArgs(hre.ethers.ZeroAddress, fake);
+
+      expect(await ctx.claimLinks.paymentReceipts()).to.equal(fake);
+    });
+
+    it("emits PaymentReceiptsSet with the prior address on subsequent set", async () => {
+      const ctx = await loadFixture(deployFixture);
+      const first = "0x000000000000000000000000000000000000dEaD";
+      const second = "0x000000000000000000000000000000000000bEEF";
+
+      await ctx.claimLinks.connect(ctx.owner).setPaymentReceipts(first);
+
+      await expect(ctx.claimLinks.connect(ctx.owner).setPaymentReceipts(second))
+        .to.emit(ctx.claimLinks, "PaymentReceiptsSet")
+        .withArgs(first, second);
+    });
+
+    it("only owner can call setPaymentReceipts", async () => {
+      const ctx = await loadFixture(deployFixture);
+      const fake = "0x000000000000000000000000000000000000bEEF";
+
+      await expect(
+        ctx.claimLinks.connect(ctx.alice).setPaymentReceipts(fake),
+      ).to.be.reverted;
+    });
+  });
 });
