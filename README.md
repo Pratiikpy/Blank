@@ -126,6 +126,74 @@ Each link is the entire payment flow. No login required to pay. No app to instal
 
 ---
 
+## What is actually novel here
+
+Most ERC-4337 reference implementations cover 60-70% of the
+concerns below; Blank's stack covers all of them, integrated
+with FHE handle management.
+
+### The 11-file passkey-AA control flow
+
+| Step | File | Role |
+|---|---|---|
+| 1 | `hooks/useSmartAccount.ts` | React orchestration, 6-state FSM |
+| 2 | `lib/userop.ts` | PackedUserOp v0.8, defers EIP-712 to chain |
+| 3 | `lib/passkey.ts` | P-256 custody, AES-GCM at rest, prehash:false |
+| 4 | `api/relay.ts` | Submission, env or AWS-KMS signer |
+| 5 | `contracts/BlankPaymaster.sol` | 4-layer gas-sponsor defense |
+| 6 | `contracts/BlankAccount.sol` | Length-discriminated EOA / passkey dispatch |
+| 7 | `contracts/BlankAccountFactory.sol` | CREATE2 idempotent deploy |
+
+Plus auxiliary:
+
+| File | Role |
+|---|---|
+| `providers/SmartAccountCofheBinder.tsx` | FHE-AA bridge (waits for `isDeployed`) |
+| `api/_lib/sig-auth.ts` | Off-chain auth, asymmetric replay window |
+| `api/_lib/supabase-admin.ts` | Privileged DB, mechanical leak prevention |
+
+### Three load-bearing engineering choices
+
+1. **Defer to on-chain authority for hashing.** `lib/userop.ts`
+   reads `userOpHash` from EntryPoint instead of reimplementing
+   EIP-712 in JS. One extra RPC per signing for guaranteed
+   agreement.
+
+2. **HSM-only signing in production.** `_lib/signer.ts` supports
+   both env-var (dev) and AWS KMS (prod) backends via one env
+   var. KMS path: keys never leave the HSM, recovery-bit-by-trial
+   reconstructs canonical Ethereum signatures from KMS's DER output.
+
+3. **`prehash: false` on every passkey signature.** `lib/passkey.ts`
+   L253. The default Noble curve setting would silently produce
+   sigs over `sha256(digest)`; on-chain RIP-7212 verifier rejects.
+   The CRITICAL caveat in the comment names the failure mode.
+
+### BusinessHub: the canonical FHE async-decrypt pattern
+
+The strongest piece of cryptographic engineering in the codebase.
+`payInvoiceFinalize` verifies the threshold-network signature
+on-chain via `FHE.publishDecryptResult`, gates with
+`FHE.getDecryptResultSafe`, branches plaintext-side. The 3-line
+`FHE.eq` plus ACL-grant idiom is templated verbatim across 4
+invoice flows (regular pay, escrow, swap, plus a fourth). Same
+async-decrypt block at 2 finalize sites.
+
+### Privacy-aware defaults at 5 surfaces
+
+| Surface | Default | Enforcement |
+|---|---|---|
+| Sentry observability | Opt-in via `VITE_SENTRY_DSN` | Behavioral |
+| Email API auth | Strict by default | Behavioral |
+| Database tables | RLS enabled, no public policies | Behavioral (PostgreSQL) |
+| Service-role key | Frontend-blocked at build | Mechanical (Vite no-`VITE_`-prefix) |
+| Permissions-Policy | geolocation/mic/camera disabled at header | Mechanical (Vercel header) |
+
+The mechanical defaults survive developer error. The behavioral
+defaults survive deployment misconfig. Both are present.
+
+---
+
 ## Wallets: two paths, same UI
 
 | | Passkey wallet | MetaMask / EOA |
