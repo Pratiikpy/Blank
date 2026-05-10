@@ -95,6 +95,18 @@ export interface UseUnifiedWriteReturn {
 }
 
 /**
+ * §3.18 of BEST_VERSION_FULL_PLAN: post-confirm RPC settlement window.
+ * After an AA UserOp lands on-chain, the public RPC nodes used for
+ * EntryPoint.getNonce() lag a block or two behind. Without a brief wait,
+ * back-to-back unifiedWriteAndWait calls (e.g. approve then write) can
+ * read the pre-mine nonce and fire a UserOp that EntryPoint rejects
+ * with AA25 (invalid account nonce). 2.5s covers public-node lag in
+ * practice. A future refactor (audit iter 8) replaces this with a
+ * polling loop on EntryPoint.getNonce() until the increment is visible.
+ */
+const RPC_SETTLEMENT_DELAY_MS = 2_500;
+
+/**
  * Map cryptic low-level errors from the relayer / EntryPoint / wagmi into
  * something a user can act on. The input messages are e.g.
  * "entryPoint.handleOps failed: insufficient funds for intrinsic transaction cost..."
@@ -344,17 +356,12 @@ export function useUnifiedWrite(): UseUnifiedWriteReturn {
             }
           : undefined;
 
-      // Post-confirm settlement delay: the on-chain UserOp committed, but
-      // the public RPC nodes (publicnode, sepolia.base.org) we use for
-      // EntryPoint.getNonce() reads can lag a block or two behind. Without
-      // this brief wait, the NEXT unifiedWriteAndWait call reads the
-      // pre-mine nonce and fires a UserOp that EntryPoint then rejects
-      // with AA25 (invalid account nonce). The local nonce hint in
-      // useSmartAccount handles most cases, but a 2.5s settlement window
-      // is defence-in-depth for hooks that fire approve → write back-to-
-      // back (useExchange, useSendPayment, useBusinessHub, etc.).
+      // §3.18 named-constant: see RPC_SETTLEMENT_DELAY_MS at module top.
+      // Defence-in-depth for hooks that fire approve → write back-to-back
+      // (useExchange, useSendPayment, useBusinessHub) when the local
+      // nonce hint hasn't propagated.
       if (isSmartAccount && receipt?.status === "success") {
-        await new Promise((r) => setTimeout(r, 2_500));
+        await new Promise((r) => setTimeout(r, RPC_SETTLEMENT_DELAY_MS));
       }
 
       return { hash: result.txHash, receipt };
