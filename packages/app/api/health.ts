@@ -47,13 +47,13 @@ export default async function handler(_req: any, res: any) {
       envVar: "NVIDIA_API_KEY",
       set: !!process.env.NVIDIA_API_KEY,
       required: false,
-      feature: "AI agent derivation — Kimi K2 instruct (PRIMARY)",
+      feature: "AI agent derivation, Kimi K2 instruct (PRIMARY)",
     },
     {
       envVar: "ANTHROPIC_API_KEY",
       set: !!process.env.ANTHROPIC_API_KEY,
       required: false,
-      feature: "AI agent derivation — Claude opus-4-6 (FALLBACK)",
+      feature: "AI agent derivation, Claude opus-4-6 (FALLBACK)",
     },
     {
       envVar: "AGENT_PRIVATE_KEY",
@@ -71,7 +71,7 @@ export default async function handler(_req: any, res: any) {
       envVar: "SEPOLIA_RPC_URL",
       set: !!process.env.SEPOLIA_RPC_URL,
       required: false,
-      feature: "Eth Sepolia RPC (private — public nodes have nonce races)",
+      feature: "Eth Sepolia RPC (private; public nodes have nonce races)",
     },
     {
       envVar: "BASE_SEPOLIA_RPC_URL",

@@ -304,7 +304,7 @@ export default function Roadmap() {
 
         <section className="ll-section">
           <StatusBadge kind="shipped" />
-          <h2 className="ll-section-title">Shipped — live on testnet today.</h2>
+          <h2 className="ll-section-title">Shipped. Live on testnet today.</h2>
           <p className="ll-section-lead">
             Twelve product surfaces, one encrypted vault, two chains.
             Every flow below works end-to-end on Base Sepolia and
@@ -317,7 +317,7 @@ export default function Roadmap() {
 
         <section className="ll-section">
           <StatusBadge kind="next" />
-          <h2 className="ll-section-title">Next up — Wave 4 candidates.</h2>
+          <h2 className="ll-section-title">Next up. Wave 4 candidates.</h2>
           <p className="ll-section-lead">
             Things in active scoping. We don't commit to all of them,
             and the order will shift as we learn what actually matters.
@@ -330,7 +330,7 @@ export default function Roadmap() {
 
         <section className="ll-section">
           <StatusBadge kind="blocked" />
-          <h2 className="ll-section-title">Blocked — we can't ship these yet.</h2>
+          <h2 className="ll-section-title">Blocked. We can't ship these yet.</h2>
           <p className="ll-section-lead">
             Three things that aren't on the active roadmap because
             they're gated on something outside our team's control.
@@ -347,7 +347,7 @@ export default function Roadmap() {
           </h2>
           <p className="ll-cta-sub">
             Every roadmap change shows up in the changelog on our blog.
-            No newsletter sign-up, no notification spam — just open
+            No newsletter sign-up, no notification spam. Just open
             the blog when you want an update.
           </p>
           <Link to="/blog" className="ll-btn ll-btn--hero ll-btn--ink">

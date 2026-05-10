@@ -66,7 +66,7 @@ export default function HowItWorks() {
           <p className="ll-section-lead">
             Every feature below is either impossible or trivially broken on a
             regular blockchain. Fully Homomorphic Encryption is not a polish
-            layer — it's what makes each of these work at all.
+            layer. It's what makes each of these work at all.
           </p>
         </section>
 
@@ -115,7 +115,7 @@ export default function HowItWorks() {
                 </a>
               ) : (
                 <span className="hiw-agents-pending">
-                  Not yet published — recoverable via ecrecover from each event
+                  Not yet published. Recoverable via ecrecover from each event
                 </span>
               )}
             </div>

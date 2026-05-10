@@ -167,7 +167,7 @@ export default async function handler(req: any, res: any) {
     if (isProd) {
       res.status(503).json({
         error: "rate_limit_unavailable",
-        hint: "Rate-limit infrastructure is unhealthy — refusing to sign quotes until it recovers.",
+        hint: "Rate-limit infrastructure is unhealthy. Refusing to sign quotes until it recovers.",
       });
       return;
     }
@@ -195,7 +195,7 @@ export default async function handler(req: any, res: any) {
   const expectedUsdcOut = (payAmountIn * allowed.ratePpm) / 1_000_000n;
   if (expectedUsdcOut === 0n) {
     res.status(400).json({
-      error: "payAmountIn too small — would round to zero USDC",
+      error: "payAmountIn too small. Would round to zero USDC",
       hint: "minimum payAmountIn at this rate is 1_000_000 / ratePpm wei",
     });
     return;
@@ -212,7 +212,7 @@ export default async function handler(req: any, res: any) {
   }
   if (!/^0x?[0-9a-fA-F]{64}$/.test(oracleKey) && !/^[0-9a-fA-F]{64}$/.test(oracleKey)) {
     res.status(503).json({
-      error: "ORACLE_PRIVATE_KEY malformed — must be 32 bytes hex (64 chars, optional 0x prefix)",
+      error: "ORACLE_PRIVATE_KEY malformed. Must be 32 bytes hex (64 chars, optional 0x prefix)",
     });
     return;
   }

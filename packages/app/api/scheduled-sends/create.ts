@@ -136,7 +136,7 @@ export default async function handler(req: any, res: any) {
       `[scheduled-sends/create] keystore failure for ${body.account}: ${msg}`,
     );
     res.status(503).json({
-      error: "keystore unavailable — set SESSION_KEYS_MASTER_KEY + Supabase env vars",
+      error: "keystore unavailable. Set SESSION_KEYS_MASTER_KEY + Supabase env vars",
       detail: msg.slice(0, 280),
     });
     return;
