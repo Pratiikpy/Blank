@@ -176,6 +176,9 @@ export function useExchange() {
         // (matches P2PExchange.sol which uses public uint256 amounts for order matching)
         // Extract offer ID from OfferCreated event in receipt logs
         const offerId = extractEventId(receipt.logs, contracts.P2PExchange);
+        if (offerId === null) {
+          throw new Error("Tx mined but offerId could not be read; check History tab.");
+        }
 
         await insertExchangeOffer({
           offer_id: offerId,

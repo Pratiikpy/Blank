@@ -273,9 +273,10 @@ export function useGiftMoney() {
 
         // Extract envelope ID from the contract event logs
         const envelopeId = extractEventId(giftReceipt.logs, contracts.GiftMoney);
-        const envelopeNote = envelopeId
-          ? `[envelope:${envelopeId}] ${note || "Gift envelope"}`
-          : note || "Gift envelope";
+        if (envelopeId === null) {
+          throw new Error("Tx mined but envelopeId could not be read; check History tab.");
+        }
+        const envelopeNote = `[envelope:${envelopeId}] ${note || "Gift envelope"}`;
 
         // Sync to Supabase for each recipient + the sender-copy row, all in
         // parallel via Promise.allSettled so a single row failure doesn't halt

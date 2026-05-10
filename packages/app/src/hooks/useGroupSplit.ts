@@ -113,6 +113,9 @@ export function useGroupSplit() {
 
         // Extract real group ID from event logs
         const groupId = extractEventId(receipt.logs, contracts.GroupManager);
+        if (groupId === null) {
+          throw new Error("Tx mined but groupId could not be read; check History tab.");
+        }
 
         // Sync memberships to Supabase
         const allMembers = [address, ...members.filter((m) => m !== address)];
@@ -219,6 +222,9 @@ export function useGroupSplit() {
 
         // Extract real expense ID from event logs
         const expenseId = extractEventId(expenseReceipt.logs, contracts.GroupManager);
+        if (expenseId === null) {
+          throw new Error("Tx mined but expenseId could not be read; check History tab.");
+        }
 
         // Sync to Supabase
         await insertGroupExpense({

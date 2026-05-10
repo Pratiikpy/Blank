@@ -107,6 +107,9 @@ export function useRequestPayment() {
 
         // Extract real request ID from event logs
         const requestId = extractEventId(createReceipt.logs, contracts.PaymentHub);
+        if (requestId === null) {
+          throw new Error("Tx mined but requestId could not be read; check History tab.");
+        }
 
         // Write to Supabase for real-time notification
         const trimmedEmail = payerEmail?.trim();

@@ -147,6 +147,9 @@ export function useBusinessHub() {
 
         // Extract real invoice ID from event logs
         const invoiceId = extractEventId(invoiceReceipt.logs, contracts.BusinessHub);
+        if (invoiceId === null) {
+          throw new Error("Tx mined but invoiceId could not be read; check History tab.");
+        }
 
         await insertInvoice({
           invoice_id: invoiceId,
@@ -472,6 +475,9 @@ export function useBusinessHub() {
 
         // Extract real escrow ID from event logs
         const escrowId = extractEventId(escrowReceipt.logs, contracts.BusinessHub);
+        if (escrowId === null) {
+          throw new Error("Tx mined but escrowId could not be read; check History tab.");
+        }
 
         await insertEscrow({
           escrow_id: escrowId,
