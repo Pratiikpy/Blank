@@ -3,6 +3,8 @@ import {
   buildInvoiceEmailMessage,
   buildRequestEmailMessage,
   checkTimestampWindow,
+  strictEmailAuthEnabled,
+  verifyOwnerSignature,
   SIGNATURE_WINDOW_SECONDS,
 } from "./sig-auth.js";
 
@@ -107,5 +109,161 @@ describe("checkTimestampWindow (audit Top-28 #14)", () => {
     // accepts -89s but rejects +120s — verify the gap.
     expect(checkTimestampWindow(1_700_000_000 - 89)).toBeNull();
     expect(checkTimestampWindow(1_700_000_000 + 89)).toContain("future");
+  });
+
+  it("exact past boundary: signedAt = now - SIGNATURE_WINDOW_SECONDS (90s) is ACCEPTED", () => {
+    // The check uses `ageSeconds > SIGNATURE_WINDOW_SECONDS`, so age =
+    // exactly 90s is admitted (strict-greater-than is the boundary).
+    expect(checkTimestampWindow(1_700_000_000 - SIGNATURE_WINDOW_SECONDS)).toBeNull();
+  });
+
+  it("exact future boundary: signedAt = now + 60 (clock-skew) is ACCEPTED but +61 is rejected", () => {
+    // ageSeconds = now - (now + 60) = -60. The check is
+    // `ageSeconds < -60`, so -60 is admitted, -61 is rejected.
+    expect(checkTimestampWindow(1_700_000_000 + 60)).toBeNull();
+    expect(checkTimestampWindow(1_700_000_000 + 61)).toContain("future");
+  });
+
+  it("signedAt=0 (epoch) is rejected as too old (sanity catch for missing/default value)", () => {
+    expect(checkTimestampWindow(0)).toContain("too old");
+  });
+
+  it("rejects non-finite signedAt: Infinity, -Infinity (Number.isFinite gate)", () => {
+    expect(checkTimestampWindow(Infinity)).toContain("unix-seconds number");
+    expect(checkTimestampWindow(-Infinity)).toContain("unix-seconds number");
+  });
+
+  it("rejects null + boolean signedAt (typeof number check)", () => {
+    expect(checkTimestampWindow(null)).toContain("unix-seconds number");
+    expect(checkTimestampWindow(true)).toContain("unix-seconds number");
+    expect(checkTimestampWindow(false)).toContain("unix-seconds number");
+  });
+});
+
+// §15.x extension: SIGNATURE_WINDOW_SECONDS value pin + buildRequest
+// byte-for-byte + strictEmailAuthEnabled env flag + verifyOwnerSignature
+// unsupported-chain path. The Top-28 #14 audit set the window to 90s
+// after the previous 5-minute window was deemed too permissive; pinning
+// the literal value catches a regression that drifted it back up.
+
+describe("SIGNATURE_WINDOW_SECONDS constant (Top-28 #14)", () => {
+  it("= 90 seconds (the audited replay-protection window)", () => {
+    expect(SIGNATURE_WINDOW_SECONDS).toBe(90);
+  });
+});
+
+describe("buildRequestEmailMessage — byte-for-byte + lowercase", () => {
+  it("emits the canonical 5-line shape with the payment-request prefix", () => {
+    const out = buildRequestEmailMessage({
+      requestId: 17,
+      recipient: "Bob@Example.com",
+      signedAt: 1_700_000_000,
+      chainId: 84532,
+    });
+    expect(out).toBe(
+      [
+        "Blank: send payment-request email",
+        "requestId: 17",
+        "recipient: bob@example.com",
+        "chainId: 84532",
+        "signedAt: 1700000000",
+      ].join("\n"),
+    );
+  });
+
+  it("lowercases the recipient (same normalization as the invoice builder)", () => {
+    expect(
+      buildRequestEmailMessage({
+        requestId: 1,
+        recipient: "MIXED@CaSe.COM",
+        signedAt: 1,
+        chainId: 1,
+      }),
+    ).toContain("recipient: mixed@case.com");
+  });
+});
+
+describe("buildInvoiceEmailMessage — chain id passthrough", () => {
+  it("emits chainId as-is for Base Sepolia (84532)", () => {
+    const out = buildInvoiceEmailMessage({
+      invoiceId: 1,
+      recipient: "a@b.c",
+      signedAt: 1,
+      chainId: 84532,
+    });
+    expect(out).toContain("chainId: 84532");
+  });
+
+  it("emits chainId as-is for Eth Sepolia (11155111)", () => {
+    const out = buildInvoiceEmailMessage({
+      invoiceId: 1,
+      recipient: "a@b.c",
+      signedAt: 1,
+      chainId: 11155111,
+    });
+    expect(out).toContain("chainId: 11155111");
+  });
+});
+
+describe("strictEmailAuthEnabled (the fail-closed feature flag)", () => {
+  afterEach(() => {
+    delete process.env.STRICT_EMAIL_AUTH;
+  });
+
+  it("defaults to TRUE when STRICT_EMAIL_AUTH is unset (fail-closed shipped default)", () => {
+    delete process.env.STRICT_EMAIL_AUTH;
+    expect(strictEmailAuthEnabled()).toBe(true);
+  });
+
+  it("returns FALSE when STRICT_EMAIL_AUTH is exactly '0' (explicit opt-out for local dev)", () => {
+    process.env.STRICT_EMAIL_AUTH = "0";
+    expect(strictEmailAuthEnabled()).toBe(false);
+  });
+
+  it("returns TRUE for any other value (even 'false') — only the literal '0' disables", () => {
+    process.env.STRICT_EMAIL_AUTH = "false";
+    expect(strictEmailAuthEnabled()).toBe(true);
+    process.env.STRICT_EMAIL_AUTH = "no";
+    expect(strictEmailAuthEnabled()).toBe(true);
+    process.env.STRICT_EMAIL_AUTH = "1";
+    expect(strictEmailAuthEnabled()).toBe(true);
+    process.env.STRICT_EMAIL_AUTH = "";
+    expect(strictEmailAuthEnabled()).toBe(true);
+  });
+});
+
+describe("verifyOwnerSignature — unsupported chain path", () => {
+  it("returns ok=false with 'unsupported chainId' reason for mainnet (1)", async () => {
+    const out = await verifyOwnerSignature({
+      chainId: 1,
+      signer: "0x1234567890abcdef1234567890abcdef12345678",
+      message: "test",
+      signature: "0xdeadbeef",
+    });
+    expect(out.ok).toBe(false);
+    expect(out.reason).toContain("unsupported chainId");
+    expect(out.reason).toContain("1");
+  });
+
+  it("returns ok=false with 'unsupported chainId' reason for arbitrary unknown id", async () => {
+    const out = await verifyOwnerSignature({
+      chainId: 999999,
+      signer: "0x1234567890abcdef1234567890abcdef12345678",
+      message: "test",
+      signature: "0xdeadbeef",
+    });
+    expect(out.ok).toBe(false);
+    expect(out.reason).toContain("unsupported chainId");
+  });
+
+  it("returns ok=false with 'unsupported chainId' for chainId=0 (defensive zero check)", async () => {
+    const out = await verifyOwnerSignature({
+      chainId: 0,
+      signer: "0x1234567890abcdef1234567890abcdef12345678",
+      message: "test",
+      signature: "0xdeadbeef",
+    });
+    expect(out.ok).toBe(false);
+    expect(out.reason).toContain("unsupported chainId");
   });
 });
