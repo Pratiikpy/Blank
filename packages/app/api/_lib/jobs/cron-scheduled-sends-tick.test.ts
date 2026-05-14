@@ -188,3 +188,150 @@ describe("cron-scheduled-sends-tick — validator address config (§15.x)", () =
     delete process.env.VITE_BLANK_11155111_SESSION_KEY_VALIDATOR;
   });
 });
+
+// §15.x extension: auth case-sensitivity + empty-secret + per-chain
+// isolation + snapshot init defaults + multi-chain processing.
+
+describe("cron-scheduled-sends-tick — auth case-sensitivity + empty values", () => {
+  it("returns 401 when CRON_SECRET is empty string (fail-closed treats empty as missing)", async () => {
+    process.env.CRON_SECRET = "";
+    const res = makeRes();
+    await handler(makeReq(), res);
+    expect(res.captured.status).toBe(401);
+    expect(listActiveKeysForChainMock).not.toHaveBeenCalled();
+  });
+
+  it("returns 401 when scheme is 'bearer' (lowercase) — the source compares 'Bearer ' exactly", async () => {
+    const res = makeRes();
+    await handler(
+      makeReq({ headers: { authorization: `bearer ${SECRET}` } }),
+      res,
+    );
+    expect(res.captured.status).toBe(401);
+  });
+
+  it("returns 401 when Authorization has the right token but extra whitespace before it", async () => {
+    const res = makeRes();
+    await handler(
+      makeReq({ headers: { authorization: `Bearer  ${SECRET}` } }), // double space
+      res,
+    );
+    expect(res.captured.status).toBe(401);
+  });
+
+  it("returns 401 when CRON_SECRET equals the literal string 'Bearer '+something (no spoofing via secret value)", async () => {
+    process.env.CRON_SECRET = "Bearer real-secret";
+    const res = makeRes();
+    // Attacker passes the secret directly without a Bearer prefix —
+    // the source requires `Bearer ${expected}` so this MUST 401.
+    await handler(
+      makeReq({ headers: { authorization: "Bearer real-secret" } }),
+      res,
+    );
+    expect(res.captured.status).toBe(401);
+  });
+});
+
+describe("cron-scheduled-sends-tick — snapshot defaults + array init", () => {
+  it("snap.errors is an empty array (not undefined) when no errors occurred", async () => {
+    const res = makeRes();
+    await handler(makeReq(), res);
+    const snapshots = res.captured.body?.snapshots as Array<Record<string, unknown>>;
+    for (const s of snapshots) {
+      // The shape pins that errors is ALWAYS an Array, never undefined.
+      // A regression that lazy-inited it would leak `undefined` to JSON
+      // consumers (jq filters would crash, frontend would error).
+      expect(Array.isArray(s.errors)).toBe(true);
+      expect(s.errors).toEqual([]);
+    }
+  });
+
+  it("every snapshot has all 6 documented fields (chainId / scanned / fired / skipped / errored / errors)", async () => {
+    const res = makeRes();
+    await handler(makeReq(), res);
+    const snapshots = res.captured.body?.snapshots as Array<Record<string, unknown>>;
+    for (const s of snapshots) {
+      expect(s).toHaveProperty("chainId");
+      expect(s).toHaveProperty("scanned");
+      expect(s).toHaveProperty("fired");
+      expect(s).toHaveProperty("skipped");
+      expect(s).toHaveProperty("errored");
+      expect(s).toHaveProperty("errors");
+    }
+  });
+
+  it("snapshots array is in canonical chain-id order (11155111 then 84532)", async () => {
+    // The source iterates SUPPORTED_CHAINS in declared order; pin it
+    // so a JSON consumer can rely on the position-based indexing.
+    const res = makeRes();
+    await handler(makeReq(), res);
+    const snapshots = res.captured.body?.snapshots as Array<{ chainId: number }>;
+    expect(snapshots[0]!.chainId).toBe(11155111);
+    expect(snapshots[1]!.chainId).toBe(84532);
+  });
+});
+
+describe("cron-scheduled-sends-tick — per-chain isolation", () => {
+  it("a validator-config error on ETH Sepolia does NOT prevent Base Sepolia from scanning + processing", async () => {
+    // Set up keys only for ETH and only set the BASE validator — so
+    // ETH lands on the config error, BASE has no keys and lands on
+    // the no-keys early-return. Both snapshots should populate.
+    listActiveKeysForChainMock.mockImplementation(async (chainId: number) => {
+      if (chainId === 11155111) {
+        return [{
+          account: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          sessionKey: "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          encryptedPrivateKey: "blob",
+          chainId,
+          label: "",
+          recipient: "0xc0",
+          spendToken: "0xc1",
+        }];
+      }
+      return [];
+    });
+    // Both chains miss their validator config -> both record the config error.
+    // We're verifying the per-chain ITERATION: a failure on chain 1 doesn't
+    // skip chain 2's snapshot creation.
+    const res = makeRes();
+    await handler(makeReq(), res);
+    const snapshots = res.captured.body?.snapshots as Array<{ chainId: number; scanned: number; errors: string[] }>;
+    const eth = snapshots.find((s) => s.chainId === 11155111)!;
+    const base = snapshots.find((s) => s.chainId === 84532)!;
+    expect(eth).toBeDefined();
+    expect(base).toBeDefined();
+    expect(eth.scanned).toBe(1);
+    expect(base.scanned).toBe(0);
+    expect(eth.errors.some((e) => e.startsWith("config:"))).toBe(true);
+  });
+
+  it("listActiveKeysForChain rejection on ONE chain doesn't abort the OTHER chain's snapshot creation", async () => {
+    listActiveKeysForChainMock.mockImplementation(async (chainId: number) => {
+      if (chainId === 11155111) {
+        throw new Error("supabase ETH timeout");
+      }
+      return [];
+    });
+    const res = makeRes();
+    await handler(makeReq(), res);
+    const snapshots = res.captured.body?.snapshots as Array<{ chainId: number; errors: string[] }>;
+    // Both snapshots exist; ETH has the error, BASE is clean.
+    expect(snapshots).toHaveLength(2);
+    const eth = snapshots.find((s) => s.chainId === 11155111)!;
+    const base = snapshots.find((s) => s.chainId === 84532)!;
+    expect(eth.errors.length).toBeGreaterThan(0);
+    expect(base.errors).toEqual([]);
+  });
+
+  it("handler returns 200 even when EVERY chain hit the list-rejection path (overall status is 'ok')", async () => {
+    listActiveKeysForChainMock.mockRejectedValue(new Error("everywhere fails"));
+    const res = makeRes();
+    await handler(makeReq(), res);
+    // The handler's contract: 200 + status='ok' with errors captured
+    // in the snapshots. A 5xx would suggest pipeline-level failure
+    // and prompt PagerDuty; 200 with per-chain errors keeps the cron
+    // visible without paging on transient supabase blips.
+    expect(res.captured.status).toBe(200);
+    expect(res.captured.body?.status).toBe("ok");
+  });
+});
