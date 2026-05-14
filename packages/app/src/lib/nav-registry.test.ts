@@ -177,3 +177,172 @@ describe("nav-registry", () => {
     });
   });
 });
+
+// §15.x extension: NavItem structural invariants + mobile bottom-nav
+// cap + category coverage + desktop sidebar order + size floors. The
+// registry drives every navigation surface (desktop sidebar + mobile
+// bottom tabs + mobile More sheet) so a malformed entry would break
+// the whole nav of the matching mode. The mobile bottom-nav has a
+// HARD constraint of max 4 tabs (the 5th slot is reserved for "More")
+// per iOS / Material design — a regression that overflowed this would
+// produce a scrollable bottom-nav which is a UX failure mode.
+
+const VALID_CATEGORIES = ["core", "payments", "privacy", "tools", "account"] as const;
+const MOBILE_BOTTOM_NAV_MAX = 4;
+
+describe("nav-registry — NavItem structural invariants", () => {
+  it("every item has a non-empty label", () => {
+    for (const item of NAV_REGISTRY) {
+      expect(item.label, `${item.path} has empty label`).toBeTruthy();
+      expect(typeof item.label).toBe("string");
+      expect(item.label.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("every item declares a category in the documented union (core/payments/privacy/tools/account)", () => {
+    for (const item of NAV_REGISTRY) {
+      expect(
+        VALID_CATEGORIES,
+        `${item.path} has unknown category "${item.category}"`,
+      ).toContain(item.category);
+    }
+  });
+
+  it("every item has a non-null icon (lucide component function)", () => {
+    for (const item of NAV_REGISTRY) {
+      expect(item.icon, `${item.path} has null icon`).toBeTruthy();
+      // Lucide icons are React components; they must be callable.
+      expect(typeof item.icon === "function" || typeof item.icon === "object").toBe(true);
+    }
+  });
+
+  it("path format: either empty (Dashboard's '/app' index) or starts with '/'", () => {
+    for (const item of NAV_REGISTRY) {
+      // The actual path is /app prepended by the consumer; the
+      // registry's path entries either equal "/app" (the bare root)
+      // or start with "/app/".
+      expect(item.path === "/app" || item.path.startsWith("/app/")).toBe(true);
+    }
+  });
+
+  it("every category appears at least once (no orphaned category in the type union)", () => {
+    const seen = new Set(NAV_REGISTRY.map((i) => i.category));
+    for (const cat of VALID_CATEGORIES) {
+      expect(seen, `category "${cat}" has zero items`).toContain(cat);
+    }
+  });
+});
+
+describe("nav-registry — mobile bottom-nav 4-tab cap", () => {
+  it("EVERY mode produces at most 4 mobile bottom-nav items (the 5th slot is 'More')", () => {
+    for (const mode of WORKSPACE_MODES) {
+      const bottomCount = mobileBottomItems(mode).length;
+      expect(
+        bottomCount,
+        `mode=${mode} has ${bottomCount} bottom-nav items — overflows the 4-tab cap`,
+      ).toBeLessThanOrEqual(MOBILE_BOTTOM_NAV_MAX);
+    }
+  });
+
+  it("EVERY mode produces at least 1 mobile bottom-nav item (don't ship an empty bottom-nav)", () => {
+    for (const mode of WORKSPACE_MODES) {
+      expect(
+        mobileBottomItems(mode).length,
+        `mode=${mode} has zero bottom-nav items`,
+      ).toBeGreaterThan(0);
+    }
+  });
+
+  it("mobile bottom-nav items all have mobilePrimary=true (source of truth lives on the NavItem)", () => {
+    for (const mode of WORKSPACE_MODES) {
+      for (const item of mobileBottomItems(mode)) {
+        expect(
+          item.mobilePrimary,
+          `${item.path} in bottom-nav for mode=${mode} but mobilePrimary is falsy`,
+        ).toBe(true);
+      }
+    }
+  });
+
+  it("Dashboard ('/app') is always the FIRST mobile bottom-nav item across all modes (the home anchor)", () => {
+    for (const mode of WORKSPACE_MODES) {
+      const bottom = mobileBottomItems(mode);
+      expect(bottom[0]?.path, `mode=${mode} doesn't start with Dashboard`).toBe("/app");
+    }
+  });
+});
+
+describe("nav-registry — mode size floors (sentinel for accidental category drops)", () => {
+  it("every mode has at least 8 visible items (don't ship a near-empty nav)", () => {
+    for (const mode of WORKSPACE_MODES) {
+      expect(
+        filterByMode(mode).length,
+        `mode=${mode} has fewer than 8 items — likely an accidental category drop`,
+      ).toBeGreaterThanOrEqual(8);
+    }
+  });
+
+  it("Full mode has at least 15 items (the maximalist mode)", () => {
+    expect(filterByMode("full").length).toBeGreaterThanOrEqual(15);
+  });
+});
+
+describe("nav-registry — desktop sidebar invariants", () => {
+  it("Dashboard appears in the desktop sidebar in every mode", () => {
+    for (const mode of WORKSPACE_MODES) {
+      const paths = desktopSidebarItems(mode).map((i) => i.path);
+      expect(
+        paths,
+        `mode=${mode} desktop sidebar missing Dashboard`,
+      ).toContain("/app");
+    }
+  });
+
+  it("desktop sidebar is a subset of filterByMode (only mode-visible items can appear)", () => {
+    for (const mode of WORKSPACE_MODES) {
+      const visible = new Set(filterByMode(mode).map((i) => i.path));
+      for (const sidebarItem of desktopSidebarItems(mode)) {
+        expect(
+          visible,
+          `${sidebarItem.path} in desktop sidebar but not visible in mode=${mode}`,
+        ).toContain(sidebarItem.path);
+      }
+    }
+  });
+
+  it("desktop sidebar has at least 5 items per mode (don't ship a 1-link sidebar)", () => {
+    for (const mode of WORKSPACE_MODES) {
+      expect(
+        desktopSidebarItems(mode).length,
+        `mode=${mode} desktop sidebar has fewer than 5 items`,
+      ).toBeGreaterThanOrEqual(5);
+    }
+  });
+});
+
+describe("nav-registry — category-of-path expectations (UX consistency)", () => {
+  // Spot-check that path-to-category mapping makes editorial sense.
+  // A regression that recategorized /app/send as "account" or
+  // /app/profile as "payments" would silently scramble the sidebar
+  // grouping with no visible compile error.
+  const PATH_CATEGORY_PINS: ReadonlyArray<{ path: string; category: string }> = [
+    { path: "/app", category: "core" },
+    { path: "/app/send", category: "core" },
+    { path: "/app/history", category: "core" },
+    { path: "/app/profile", category: "account" },
+    { path: "/app/wallet", category: "account" },
+    { path: "/app/settings", category: "account" },
+    { path: "/app/help", category: "account" },
+  ];
+
+  it("known paths map to their expected categories", () => {
+    for (const pin of PATH_CATEGORY_PINS) {
+      const item = NAV_REGISTRY.find((i) => i.path === pin.path);
+      expect(item, `${pin.path} not found in registry`).toBeTruthy();
+      expect(
+        item!.category,
+        `${pin.path} category drift (expected ${pin.category}, got ${item!.category})`,
+      ).toBe(pin.category);
+    }
+  });
+});
