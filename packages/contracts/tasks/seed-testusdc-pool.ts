@@ -73,7 +73,7 @@ const WETH_BY_CHAIN: Record<string, string> = {
  *  Uniswap stores price as token1/token0 in Q64.96 fixed-point of the
  *  ratio of raw smallest-units. We compute `sqrt(rawRatio) * 2^96` using
  *  bigint to avoid float precision loss for large ratios. */
-function computeSqrtPriceX96(
+export function computeSqrtPriceX96(
   rawToken1Per1Token0: bigint,
   rawDenominator: bigint,
 ): bigint {
