@@ -226,3 +226,196 @@ describe("/api/reconcile-user — no-DB graceful degradation (§15.x)", () => {
     expect(r2.captured.body?.status).toBe("no-db");
   });
 });
+
+// §15.x extension: address + chainId validation edges, ipFromHeaders
+// extraction, body envelope edges, rate-limit headers on rejection
+// paths, no-DB response shape pin.
+
+describe("/api/reconcile-user — address validation edges", () => {
+  it("returns 400 for empty-string address", async () => {
+    const res = makeRes();
+    await handler(makeReq({ body: { address: "", chainId: ETH_SEPOLIA } }), res);
+    expect(res.captured.status).toBe(400);
+    expect(res.captured.body?.error).toBe("invalid address");
+  });
+
+  it("returns 400 for '0x'-only address (too short for isAddress)", async () => {
+    const res = makeRes();
+    await handler(makeReq({ body: { address: "0x", chainId: ETH_SEPOLIA } }), res);
+    expect(res.captured.status).toBe(400);
+  });
+
+  it("returns 400 for null address", async () => {
+    const res = makeRes();
+    await handler(makeReq({ body: { address: null, chainId: ETH_SEPOLIA } }), res);
+    expect(res.captured.status).toBe(400);
+  });
+
+  it("accepts an all-lowercase 40-char hex (no EIP-55 checksum required)", async () => {
+    const res = makeRes();
+    await handler(
+      makeReq({ body: { address: "0xabcdef0123456789abcdef0123456789abcdef01", chainId: ETH_SEPOLIA } }),
+      res,
+    );
+    // Reached no-db path -> passed validation.
+    expect(res.captured.body?.status).toBe("no-db");
+  });
+});
+
+describe("/api/reconcile-user — chainId validation edges", () => {
+  it("returns 400 for non-number chainId (string)", async () => {
+    const res = makeRes();
+    await handler(
+      makeReq({ body: { address: VALID_ADDR, chainId: "11155111" } }),
+      res,
+    );
+    expect(res.captured.status).toBe(400);
+    expect(res.captured.body?.error).toBe("invalid chainId");
+  });
+
+  it("returns 400 for non-number chainId (boolean)", async () => {
+    const res = makeRes();
+    await handler(
+      makeReq({ body: { address: VALID_ADDR, chainId: true } }),
+      res,
+    );
+    expect(res.captured.status).toBe(400);
+  });
+
+  it("returns 400 for null chainId", async () => {
+    const res = makeRes();
+    await handler(
+      makeReq({ body: { address: VALID_ADDR, chainId: null } }),
+      res,
+    );
+    expect(res.captured.status).toBe(400);
+  });
+
+  it("supported-chainId error lists EXACTLY the configured chains (catches list drift)", async () => {
+    const res = makeRes();
+    await handler(makeReq({ body: { address: VALID_ADDR, chainId: 1 } }), res);
+    const err = res.captured.body?.error as string;
+    expect(err).toContain("11155111");
+    expect(err).toContain("84532");
+    // Mainnet (1) MUST NOT appear in the suggestion list (we don't
+    // support it and the operator-facing error shouldn't list it).
+    expect(err.split(",").map((s) => s.trim())).not.toContain("1");
+  });
+});
+
+describe("/api/reconcile-user — ipFromHeaders extraction", () => {
+  it("uses single x-forwarded-for verbatim as the rate-limit ip", async () => {
+    const res = makeRes();
+    await handler(
+      makeReq({
+        body: { address: VALID_ADDR, chainId: ETH_SEPOLIA },
+        headers: { "x-forwarded-for": "192.0.2.7" },
+      }),
+      res,
+    );
+    const arg = checkRateLimitMock.mock.calls[0][0];
+    expect(arg.ip).toBe("192.0.2.7");
+  });
+
+  it("array-form x-forwarded-for picks first array entry's first comma element", async () => {
+    const res = makeRes();
+    await handler(
+      makeReq({
+        body: { address: VALID_ADDR, chainId: ETH_SEPOLIA },
+        headers: { "x-forwarded-for": ["203.0.113.5, 198.51.100.1"] },
+      }),
+      res,
+    );
+    const arg = checkRateLimitMock.mock.calls[0][0];
+    expect(arg.ip).toBe("203.0.113.5");
+  });
+
+  it("falls back to 'unknown' when x-forwarded-for header is absent", async () => {
+    const res = makeRes();
+    await handler(
+      makeReq({
+        body: { address: VALID_ADDR, chainId: ETH_SEPOLIA },
+        headers: {},
+      }),
+      res,
+    );
+    const arg = checkRateLimitMock.mock.calls[0][0];
+    expect(arg.ip).toBe("unknown");
+  });
+});
+
+describe("/api/reconcile-user — body envelope edges", () => {
+  it("returns 400 when body is null (the address validation surfaces first)", async () => {
+    const res = makeRes();
+    await handler(makeReq({ body: null }), res);
+    expect(res.captured.status).toBe(400);
+  });
+
+  it("returns 400 when body is undefined (the body ?? {} fallback still trips invalid-address)", async () => {
+    const res = makeRes();
+    await handler(makeReq({ body: undefined }), res);
+    expect(res.captured.status).toBe(400);
+  });
+
+  it("accepts extra fields on the body envelope (forward-compat — no strict-schema reject)", async () => {
+    const res = makeRes();
+    await handler(
+      makeReq({
+        body: { address: VALID_ADDR, chainId: ETH_SEPOLIA, extraField: "ignored" },
+      }),
+      res,
+    );
+    expect(res.captured.body?.status).toBe("no-db");
+  });
+});
+
+describe("/api/reconcile-user — rate-limit headers on rejection paths", () => {
+  it("writes rate-limit headers BEFORE returning 400 on body-parsing failure", async () => {
+    const res = makeRes();
+    await handler(makeReq({ body: "{bad json" }), res);
+    expect(writeRateLimitHeadersMock).toHaveBeenCalled();
+    expect(res.captured.status).toBe(400);
+  });
+
+  it("writes rate-limit headers BEFORE returning 400 on invalid address", async () => {
+    const res = makeRes();
+    await handler(
+      makeReq({ body: { address: "not-an-address", chainId: ETH_SEPOLIA } }),
+      res,
+    );
+    expect(writeRateLimitHeadersMock).toHaveBeenCalled();
+  });
+
+  it("writes rate-limit headers ALSO on the 429 rejection path", async () => {
+    checkRateLimitMock.mockResolvedValue({ ok: false, remaining: 0, resetSeconds: 30 });
+    const res = makeRes();
+    await handler(makeReq({ body: { address: VALID_ADDR, chainId: ETH_SEPOLIA } }), res);
+    expect(res.captured.status).toBe(429);
+    expect(writeRateLimitHeadersMock).toHaveBeenCalled();
+  });
+});
+
+describe("/api/reconcile-user — no-db response shape (mount-time call must not surface 500)", () => {
+  it("no-db response has NO error field (clean 200 — UI doesn't render a banner)", async () => {
+    getSupabaseAdminMock.mockReturnValue(null);
+    const res = makeRes();
+    await handler(makeReq({ body: { address: VALID_ADDR, chainId: ETH_SEPOLIA } }), res);
+    // The UI distinguishes "success but no backfill" from "error" by
+    // the presence of the error field. A regression that added an
+    // error field here would silently make every mount surface a
+    // failure banner even on no-db.
+    expect("error" in (res.captured.body ?? {})).toBe(false);
+    expect(res.captured.body?.status).toBe("no-db");
+  });
+
+  it("no-db response has all 4 documented fields (status / indexed / lastBlock / events)", async () => {
+    getSupabaseAdminMock.mockReturnValue(null);
+    const res = makeRes();
+    await handler(makeReq({ body: { address: VALID_ADDR, chainId: ETH_SEPOLIA } }), res);
+    const body = res.captured.body!;
+    expect(body).toHaveProperty("status");
+    expect(body).toHaveProperty("indexed");
+    expect(body).toHaveProperty("lastBlock");
+    expect(body).toHaveProperty("events");
+  });
+});
