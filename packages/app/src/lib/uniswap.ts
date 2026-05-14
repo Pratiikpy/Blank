@@ -393,7 +393,7 @@ export function tickToPrice(args: {
  *  `OracleLibrary.sol::consult`. The chart-display difference is invisible,
  *  but Phase 5.6 (token-agnostic invoice settlement) needs settlement-grade
  *  agreement with on-chain quoting. */
-function arithmeticMeanTick(tickDelta: bigint, windowSeconds: number): number {
+export function arithmeticMeanTick(tickDelta: bigint, windowSeconds: number): number {
   const win = BigInt(windowSeconds);
   let mean = tickDelta / win;
   if (tickDelta < 0n && tickDelta % win !== 0n) mean -= 1n;
