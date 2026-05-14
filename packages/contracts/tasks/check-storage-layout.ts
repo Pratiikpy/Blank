@@ -73,7 +73,7 @@ const TRACKED_CONTRACTS: string[] = [
 
 const SNAPSHOT_DIR = path.join(__dirname, "..", "storage-layouts");
 
-type StorageLayout = {
+export type StorageLayout = {
   storage: unknown[];
   types: Record<string, unknown> | null;
 };
@@ -151,7 +151,7 @@ function writeSnapshot(contractName: string, layout: StorageLayout): void {
   );
 }
 
-function stableStringify(v: unknown): string {
+export function stableStringify(v: unknown): string {
   return JSON.stringify(v, Object.keys(v as object).sort(), 2);
 }
 
@@ -175,7 +175,7 @@ function stableStringify(v: unknown): string {
  * Implementation: top-level `astId` fields are dropped, and any embedded
  * digit run inside a string field (the type-id suffixes) is removed.
  */
-function stripAstIds(value: unknown): unknown {
+export function stripAstIds(value: unknown): unknown {
   if (typeof value === "string") {
     // Pure-digit strings are slot numbers / offset values — leave alone.
     // Mixed strings (type expressions like `t_contract(X)45306`) get
@@ -199,7 +199,7 @@ function stripAstIds(value: unknown): unknown {
   return value;
 }
 
-function layoutsEqual(a: StorageLayout, b: StorageLayout): boolean {
+export function layoutsEqual(a: StorageLayout, b: StorageLayout): boolean {
   // JSON round-trip after AST-id stripping. The stripped form is what
   // actually matters for UUPS upgrade safety.
   return (
