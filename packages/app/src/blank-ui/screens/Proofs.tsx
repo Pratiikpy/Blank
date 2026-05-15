@@ -30,11 +30,17 @@ export default function Proofs() {
   // showed "Connect your wallet" even when a passkey was fully set up.
   const { effectiveAddress: address } = useEffectiveAddress();
   const { activeChain, activeChainId } = useChain();
-  const { createIncomeProof, createBalanceProof, fetchProof, fetchProofsByUser, step, error, reset } =
+  const { createIncomeProof, createBalanceProof, publishProof, fetchProof, fetchProofsByUser, step, error, reset } =
     useQualificationProof();
 
   const [thresholdInput, setThresholdInput] = useState<string>("");
   const [proofKind, setProofKind] = useState<"income" | "balance">("income");
+  // Auto-publish-on-create defaults ON so a fresh share link unfurls as
+  // "Verified on-chain" instead of "Pending verification". The downside
+  // is a second tx (the prover pays ~0.0001 ETH for publish on top of the
+  // create cost); the toggle lets prover defer publishing if they want
+  // the social-cost UX where the recipient pays publish gas.
+  const [autoPublish, setAutoPublish] = useState(true);
   const [proofIds, setProofIds] = useState<bigint[]>([]);
   const [proofs, setProofs] = useState<Record<string, ProofRecord>>({});
   const [loadingList, setLoadingList] = useState(false);
@@ -80,13 +86,28 @@ export default function Proofs() {
         : await createBalanceProof(value);
     if (id !== null) {
       setThresholdInput("");
+      // Chain into publishProof when auto-publish is on so the share
+      // link is immediately a "Verified on-chain" artifact. publishProof
+      // polls TN for ~10s for the decryption signature, then submits a
+      // second tx — the prover pays the publish gas instead of the
+      // recipient. Failure is non-fatal: the proof is still created
+      // and the link still resolves (just as "Pending verification"),
+      // so we don't gate the success path on the publish call.
+      if (autoPublish) {
+        await publishProof(id);
+      }
       reset();
       await refresh();
     }
-  }, [thresholdInput, proofKind, createIncomeProof, createBalanceProof, reset, refresh]);
+  }, [thresholdInput, proofKind, autoPublish, createIncomeProof, createBalanceProof, publishProof, reset, refresh]);
 
+  // Pretty share URL routes through the crawler-friendly /api/share/proof
+  // endpoint (vercel.json rewrite). Real browsers bounce to /verify/:id;
+  // Twitter / Slack / Discord scrape the pre-rendered meta tags + per-proof
+  // og:image. Linking directly to /verify/:id would unfurl as the generic
+  // site card because the SPA shell has no per-proof meta tags.
   const buildShareLink = (proofId: bigint) =>
-    `${window.location.origin}/verify/${proofId.toString()}?chain=${activeChainId}`;
+    `${window.location.origin}/v/${proofId.toString()}?chain=${activeChainId}`;
 
   const copyShareLink = (proofId: bigint) => {
     navigator.clipboard.writeText(buildShareLink(proofId));
@@ -167,6 +188,25 @@ export default function Proofs() {
               Balance
             </button>
           </div>
+
+          {/* Auto-publish toggle — defaults ON so the share link is
+              immediately a verified artifact. Off mode delegates publish
+              gas to whoever opens the link first. */}
+          <label className="flex items-start gap-3 mb-4 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={autoPublish}
+              onChange={(e) => setAutoPublish(e.target.checked)}
+              disabled={submitting}
+              aria-label="Auto-publish proof so the share link is verified immediately"
+              className="mt-0.5 h-4 w-4 rounded border-black/20 text-[#10B981] focus:ring-[#10B981] disabled:opacity-50"
+            />
+            <span className="text-sm text-[var(--text-secondary)] leading-snug">
+              <span className="font-medium text-[var(--text-primary)]">Publish immediately so the share link is verified.</span>
+              {" "}
+              Adds a second tx (~0.0001 ETH). Off: the recipient pays the publish gas and the link unfurls as "Pending" until then.
+            </span>
+          </label>
 
           <div className="flex flex-col sm:flex-row gap-3">
             <div className="flex-1 relative">

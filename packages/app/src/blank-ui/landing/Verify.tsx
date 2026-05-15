@@ -100,6 +100,83 @@ export default function Verify() {
 
   const verifying = step === "decrypting" || step === "publishing";
 
+  // Inject per-proof og:/twitter: meta tags into document.head so JS-
+  // executing previewers (in-app browsers, mobile share sheets, some
+  // chat embeds) unfurl with the per-proof image instead of the
+  // generic site card. Twitter / Slack / Discord crawlers don't run
+  // JS — they're served via the /api/share/proof HTML endpoint when a
+  // user shares the /v/:proofId form.
+  useEffect(() => {
+    if (proofIdBigInt === null) return;
+    const origin = window.location.origin;
+    const ogImageUrl = `${origin}/api/og/proof?id=${proofIdBigInt.toString()}&chain=${activeChainId}`;
+    const shareUrl = `${origin}/v/${proofIdBigInt.toString()}?chain=${activeChainId}`;
+
+    let title: string, description: string;
+    if (!proof) {
+      title = "Encrypted proof — Blank";
+      description = "Encrypted income / balance proof. Verify on-chain without learning the actual amount.";
+    } else if (!proof.isReady) {
+      const usd = (Number(proof.threshold) / 1_000_000).toLocaleString();
+      title = `Income ≥ $${usd} — Pending verification`;
+      description = "Encrypted proof on Blank. Anyone can verify the verdict on-chain.";
+    } else if (proof.isTrue) {
+      const usd = (Number(proof.threshold) / 1_000_000).toLocaleString();
+      title = `Verified: income ≥ $${usd}`;
+      description = "Confirmed by Fhenix Threshold Network. The blockchain saw the comparison run inside FHE. Nobody saw the number.";
+    } else {
+      const usd = (Number(proof.threshold) / 1_000_000).toLocaleString();
+      title = `Income < $${usd}`;
+      description = "Disproven by Fhenix Threshold Network. No amount was leaked, only the boolean answer.";
+    }
+
+    const prevTitle = document.title;
+    document.title = title;
+
+    const tags: Array<{ key: "property" | "name"; value: string; content: string }> = [
+      { key: "property", value: "og:type", content: "website" },
+      { key: "property", value: "og:title", content: title },
+      { key: "property", value: "og:description", content: description },
+      { key: "property", value: "og:image", content: ogImageUrl },
+      { key: "property", value: "og:url", content: shareUrl },
+      { key: "property", value: "og:site_name", content: "Blank" },
+      { key: "name", value: "twitter:card", content: "summary_large_image" },
+      { key: "name", value: "twitter:title", content: title },
+      { key: "name", value: "twitter:description", content: description },
+      { key: "name", value: "twitter:image", content: ogImageUrl },
+      { key: "name", value: "description", content: description },
+    ];
+
+    // Track which elements we created vs. mutated so unmount can
+    // restore the original head state. Without this, navigating away
+    // from /verify leaves stale tags that mis-describe the new page.
+    const restorers: Array<() => void> = [];
+
+    for (const { key, value, content } of tags) {
+      const selector = `meta[${key}="${value}"]`;
+      const existing = document.head.querySelector<HTMLMetaElement>(selector);
+      if (existing) {
+        const prev = existing.getAttribute("content");
+        existing.setAttribute("content", content);
+        restorers.push(() => {
+          if (prev === null) existing.removeAttribute("content");
+          else existing.setAttribute("content", prev);
+        });
+      } else {
+        const el = document.createElement("meta");
+        el.setAttribute(key, value);
+        el.setAttribute("content", content);
+        document.head.appendChild(el);
+        restorers.push(() => { el.remove(); });
+      }
+    }
+
+    return () => {
+      document.title = prevTitle;
+      for (const restore of restorers) restore();
+    };
+  }, [proof, proofIdBigInt, activeChainId]);
+
   return (
     <div className="blank-landing">
       <LandingNav />
@@ -250,21 +327,28 @@ export default function Verify() {
                 </div>
               )}
 
-              {proof.isReady && (
-                <a
-                  href={`https://twitter.com/intent/tweet?text=${encodeURIComponent(
-                    proof.isTrue
-                      ? `Verified on-chain via @blank: this proof of "income ≥ $${(Number(proof.threshold) / 1_000_000).toLocaleString()}" is TRUE — without revealing the actual amount. ${window.location.href}`
-                      : `Verified on-chain via @blank: this proof is FALSE — and no amount was leaked. Just the boolean answer. ${window.location.href}`,
-                  )}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="ll-btn ll-btn--hero"
-                  style={{ background: "#0f1419", color: "white" }}
-                >
-                  <Twitter size={14} /> Share on X
-                </a>
-              )}
+              {proof.isReady && proofIdBigInt !== null && (() => {
+                // Route the shared URL through /v/:proofId so Twitter / Slack /
+                // Discord crawlers get the per-proof meta tags from
+                // /api/share/proof. Bare /verify/:proofId is JS-rendered so
+                // crawlers see the empty SPA shell and unfurl the generic
+                // site card.
+                const shareUrl = `${window.location.origin}/v/${proofIdBigInt.toString()}?chain=${activeChainId}`;
+                const tweetText = proof.isTrue
+                  ? `Verified on-chain via @blank: this proof of "income ≥ $${(Number(proof.threshold) / 1_000_000).toLocaleString()}" is TRUE, without revealing the actual amount. ${shareUrl}`
+                  : `Verified on-chain via @blank: this proof is FALSE and no amount was leaked. Just the boolean answer. ${shareUrl}`;
+                return (
+                  <a
+                    href={`https://twitter.com/intent/tweet?text=${encodeURIComponent(tweetText)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="ll-btn ll-btn--hero"
+                    style={{ background: "#0f1419", color: "white" }}
+                  >
+                    <Twitter size={14} /> Share on X
+                  </a>
+                );
+              })()}
 
               <div className="verify-actions">
                 <Link to="/how-it-works" className="ll-btn ll-btn--ghost">

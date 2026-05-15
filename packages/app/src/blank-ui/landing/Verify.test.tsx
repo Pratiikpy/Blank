@@ -386,3 +386,156 @@ describe("Verify — chain auto-switch from URL param (§15.x)", () => {
     expect(setActiveChainMock).toHaveBeenCalledTimes(0);
   });
 });
+
+// ───────────────────────────────────────────────────────────
+//  Per-proof meta-tag injection into document.head
+// ───────────────────────────────────────────────────────────
+//
+// Pins:
+//   - og:image + twitter:image absolute URL with the right id/chain
+//     (so JS-executing previewers — in-app browsers, mobile share
+//     sheets, some chat embeds — unfurl with the per-proof artwork
+//     rather than the generic site card)
+//   - twitter:card = summary_large_image (1200x630 layout)
+//   - og:url + canonical-style share URL routes through /v/:id so
+//     copy-then-paste back into the address bar lands on the
+//     crawler-friendly path; this catches a regression that built
+//     og:url against /verify/:id and undid the crawler artifact
+//   - document.title swap to per-proof title with cleanup on
+//     unmount (stale title bug avoidance for SPA navigation)
+
+describe("Verify — meta tag injection (§15.x viral artifact)", () => {
+  function getMeta(selector: string): string | null {
+    const el = document.head.querySelector<HTMLMetaElement>(selector);
+    return el ? el.getAttribute("content") : null;
+  }
+
+  it("VERIFIED + isTrue: injects og:image and twitter:image pointing at /api/og/proof", async () => {
+    fetchProofMock.mockResolvedValue(makeProof({ isReady: true, isTrue: true, threshold: 50_000_000_000n }));
+    renderAt("/verify/7");
+    await waitFor(() => {
+      expect(getMeta('meta[property="og:image"]')).toContain("/api/og/proof?id=7&chain=11155111");
+    });
+    expect(getMeta('meta[name="twitter:image"]')).toContain("/api/og/proof?id=7&chain=11155111");
+  });
+
+  it("VERIFIED + isTrue: title contains 'Verified: income ≥ $50,000'", async () => {
+    fetchProofMock.mockResolvedValue(makeProof({ isReady: true, isTrue: true, threshold: 50_000_000_000n }));
+    renderAt("/verify/7");
+    await waitFor(() => {
+      expect(getMeta('meta[property="og:title"]')).toBe("Verified: income ≥ $50,000");
+    });
+  });
+
+  it("NOT-VERIFIED (false): title contains 'Income < $50,000' (disproven framing)", async () => {
+    fetchProofMock.mockResolvedValue(makeProof({ isReady: true, isTrue: false, threshold: 50_000_000_000n }));
+    renderAt("/verify/7");
+    await waitFor(() => {
+      expect(getMeta('meta[property="og:title"]')).toBe("Income < $50,000");
+    });
+  });
+
+  it("PENDING (!isReady): title contains 'Pending verification' suffix", async () => {
+    fetchProofMock.mockResolvedValue(makeProof({ isReady: false, threshold: 50_000_000_000n }));
+    renderAt("/verify/7");
+    await waitFor(() => {
+      expect(getMeta('meta[property="og:title"]')).toContain("Pending verification");
+    });
+  });
+
+  it("MISSING: generic 'Encrypted proof — Blank' title (fetchProof returns null)", async () => {
+    fetchProofMock.mockResolvedValue(null);
+    renderAt("/verify/7");
+    await waitFor(() => {
+      const t = getMeta('meta[property="og:title"]');
+      expect(t).toContain("Encrypted proof");
+    });
+  });
+
+  it("twitter:card = summary_large_image (1200x630 unfurl layout)", async () => {
+    fetchProofMock.mockResolvedValue(makeProof());
+    renderAt("/verify/7");
+    await waitFor(() => {
+      expect(getMeta('meta[name="twitter:card"]')).toBe("summary_large_image");
+    });
+  });
+
+  it("og:url routes through /v/:proofId so crawler-friendly URL survives copy-back-to-address-bar", async () => {
+    fetchProofMock.mockResolvedValue(makeProof());
+    renderAt("/verify/7");
+    await waitFor(() => {
+      expect(getMeta('meta[property="og:url"]')).toContain("/v/7?chain=11155111");
+    });
+  });
+
+  it("og:site_name = Blank (brand context in unfurls)", async () => {
+    fetchProofMock.mockResolvedValue(makeProof());
+    renderAt("/verify/7");
+    await waitFor(() => {
+      expect(getMeta('meta[property="og:site_name"]')).toBe("Blank");
+    });
+  });
+
+  it("document.title swaps to the proof-specific title (browser-tab artifact)", async () => {
+    const prevTitle = document.title;
+    fetchProofMock.mockResolvedValue(makeProof({ isReady: true, isTrue: true, threshold: 50_000_000_000n }));
+    renderAt("/verify/7");
+    await waitFor(() => {
+      expect(document.title).toBe("Verified: income ≥ $50,000");
+    });
+    document.title = prevTitle;
+  });
+
+  it("unmount restores document.title to its previous value (no stale title on SPA navigation)", async () => {
+    document.title = "previous-page-title";
+    fetchProofMock.mockResolvedValue(makeProof({ isReady: true, isTrue: true, threshold: 50_000_000_000n }));
+    const { unmount } = renderAt("/verify/7");
+    await waitFor(() => {
+      expect(document.title).toBe("Verified: income ≥ $50,000");
+    });
+    unmount();
+    expect(document.title).toBe("previous-page-title");
+  });
+
+  it("unmount removes injected meta tags it created (no stale tags after navigation)", async () => {
+    // Clear any leftover from prior tests.
+    document.head.querySelectorAll('meta[property^="og:"], meta[name^="twitter:"]').forEach((el) => el.remove());
+    fetchProofMock.mockResolvedValue(makeProof());
+    const { unmount } = renderAt("/verify/7");
+    await waitFor(() => {
+      expect(getMeta('meta[property="og:image"]')).not.toBeNull();
+    });
+    unmount();
+    // After unmount the injected tags must be cleaned up so a different
+    // route's previewer can't accidentally show this proof's image.
+    expect(getMeta('meta[property="og:image"]')).toBeNull();
+    expect(getMeta('meta[name="twitter:image"]')).toBeNull();
+  });
+
+  it("?chain=84532 (Base Sepolia URL param) propagates into og:image", async () => {
+    useChainMock.mockReturnValue({
+      activeChain: { id: 84532, name: "Base Sepolia", explorerUrl: "https://sepolia.basescan.org" },
+      activeChainId: 84532,
+      setActiveChain: setActiveChainMock,
+    });
+    fetchProofMock.mockResolvedValue(makeProof());
+    renderAt("/verify/7?chain=84532");
+    await waitFor(() => {
+      expect(getMeta('meta[property="og:image"]')).toContain("chain=84532");
+    });
+  });
+
+  it("malformed proof id ('abc') -> no meta tags injected (BigInt cast fails, early-return)", async () => {
+    // Belt-and-braces: a non-numeric id routes to the not-found UI;
+    // the meta-injection effect early-returns when proofIdBigInt is
+    // null, so document.head stays clean. Use a sentinel that the
+    // injection would have set if it ran.
+    document.head.querySelectorAll('meta[property^="og:"], meta[name^="twitter:"]').forEach((el) => el.remove());
+    fetchProofMock.mockResolvedValue(null);
+    renderAt("/verify/not-a-bigint");
+    // Wait for fetchProofMock NOT to be called (proofIdBigInt null path).
+    await new Promise((r) => setTimeout(r, 30));
+    expect(getMeta('meta[property="og:image"]')).toBeNull();
+    expect(getMeta('meta[property="og:title"]')).toBeNull();
+  });
+});

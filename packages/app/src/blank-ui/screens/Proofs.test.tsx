@@ -50,6 +50,7 @@ type ProofRecord = {
 
 let createIncomeProofMock: ReturnType<typeof vi.fn>;
 let createBalanceProofMock: ReturnType<typeof vi.fn>;
+let publishProofMock: ReturnType<typeof vi.fn>;
 let fetchProofMock: ReturnType<typeof vi.fn>;
 let fetchProofsByUserMock: ReturnType<typeof vi.fn>;
 let resetMock: ReturnType<typeof vi.fn>;
@@ -78,6 +79,7 @@ function setHook(overrides: Partial<{
   useQualificationProofMock.mockReturnValue({
     createIncomeProof: createIncomeProofMock,
     createBalanceProof: createBalanceProofMock,
+    publishProof: publishProofMock,
     fetchProof: fetchProofMock,
     fetchProofsByUser: fetchProofsByUserMock,
     step: opts.step,
@@ -101,6 +103,7 @@ beforeEach(() => {
 
   createIncomeProofMock = vi.fn().mockResolvedValue(1n);
   createBalanceProofMock = vi.fn().mockResolvedValue(2n);
+  publishProofMock = vi.fn().mockResolvedValue(true);
   fetchProofMock = vi.fn();
   fetchProofsByUserMock = vi.fn();
   resetMock = vi.fn();
@@ -387,7 +390,12 @@ describe("Proofs — list rendering 3-state row (§15.x)", () => {
 });
 
 describe("Proofs — share link + tweet intent (§15.x)", () => {
-  it("Copy link writes /verify/<id>?chain=<chainId> URL + 'Verification link copied' toast", async () => {
+  it("Copy link writes /v/<id>?chain=<chainId> URL (crawler-friendly form) + 'Verification link copied' toast", async () => {
+    // Share URL routes through /v/:id → /api/share/proof so Twitter /
+    // Slack / Discord can read per-proof meta tags. Real browsers
+    // bounce to /verify/:id via the JS redirect in the share endpoint.
+    // Linking directly to /verify/:id would unfurl as the generic site
+    // card because the SPA shell has no per-proof meta tags.
     setHook({
       proofsToReturn: [7n],
       proofMap: { "7": buildProof() },
@@ -397,7 +405,8 @@ describe("Proofs — share link + tweet intent (§15.x)", () => {
     fireEvent.click(btn);
     expect(writeTextMock).toHaveBeenCalled();
     const url = writeTextMock.mock.calls[0][0];
-    expect(url).toContain("/verify/7");
+    expect(url).toContain("/v/7");
+    expect(url).not.toContain("/verify/7");
     expect(url).toContain("chain=11155111");
     expect(toastSuccessMock).toHaveBeenCalledWith("Verification link copied");
   });
@@ -523,5 +532,116 @@ describe("Proofs — auto-poll (§15.x)", () => {
       await Promise.resolve();
     });
     expect(fetchProofsByUserMock.mock.calls.length).toBeGreaterThan(before);
+  });
+});
+
+// ─── Auto-publish toggle (§15.x viral artifact) ───────────────────
+//
+// Pins:
+//   - Toggle defaults ON so a fresh share link unfurls as
+//     "Verified" instead of "Pending" without a second user action
+//   - Toggling OFF skips publishProof entirely (prover-defers-cost
+//     mode)
+//   - Toggle is disabled while a create is in flight (no race
+//     between submitting=true and a mid-flow toggle change)
+//   - The chained publishProof is called with the proof id returned
+//     from createIncomeProof — pins the dependency arrow so a
+//     regression that called publishProof(undefined) wouldn't slip
+//   - When create returns null (user rejected, etc.), publishProof
+//     is NOT called
+
+describe("Proofs — auto-publish toggle (§15.x viral artifact)", () => {
+  it("toggle renders ON by default with the cost-explainer copy", async () => {
+    setHook();
+    const { findByLabelText, container } = render(<Proofs />);
+    const cb = (await findByLabelText("Auto-publish proof so the share link is verified immediately")) as HTMLInputElement;
+    expect(cb.checked).toBe(true);
+    expect(container.textContent).toContain("Publish immediately so the share link is verified");
+    expect(container.textContent).toContain("0.0001 ETH");
+  });
+
+  it("auto-publish ON + create -> publishProof called with the returned proof id", async () => {
+    createIncomeProofMock.mockResolvedValue(42n);
+    setHook();
+    const { findByLabelText, findByText } = render(<Proofs />);
+    const input = await findByLabelText("Income threshold in USD") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "1000" } });
+    const btn = await findByText("Create proof");
+    await act(async () => {
+      fireEvent.click(btn);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(createIncomeProofMock).toHaveBeenCalledWith(1000);
+    expect(publishProofMock).toHaveBeenCalledTimes(1);
+    expect(publishProofMock).toHaveBeenCalledWith(42n);
+  });
+
+  it("auto-publish OFF + create -> publishProof NOT called (recipient pays publish gas)", async () => {
+    createIncomeProofMock.mockResolvedValue(42n);
+    setHook();
+    const { findByLabelText, findByText } = render(<Proofs />);
+    const cb = (await findByLabelText("Auto-publish proof so the share link is verified immediately")) as HTMLInputElement;
+    fireEvent.click(cb);
+    expect(cb.checked).toBe(false);
+
+    const input = await findByLabelText("Income threshold in USD") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "1000" } });
+    const btn = await findByText("Create proof");
+    await act(async () => {
+      fireEvent.click(btn);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(createIncomeProofMock).toHaveBeenCalledTimes(1);
+    expect(publishProofMock).not.toHaveBeenCalled();
+  });
+
+  it("createIncomeProof returns null (user rejected) -> publishProof NOT called even with auto-publish ON", async () => {
+    createIncomeProofMock.mockResolvedValue(null);
+    setHook();
+    const { findByLabelText, findByText } = render(<Proofs />);
+    const input = await findByLabelText("Income threshold in USD") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "1000" } });
+    const btn = await findByText("Create proof");
+    await act(async () => {
+      fireEvent.click(btn);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(createIncomeProofMock).toHaveBeenCalledTimes(1);
+    // Gate must not fire publish on a failed create.
+    expect(publishProofMock).not.toHaveBeenCalled();
+  });
+
+  it("toggle is disabled while submitting (no race with mid-flow toggle change)", async () => {
+    setHook({ step: "creating" });
+    const { findByLabelText } = render(<Proofs />);
+    const cb = (await findByLabelText("Auto-publish proof so the share link is verified immediately")) as HTMLInputElement;
+    expect(cb.disabled).toBe(true);
+  });
+
+  it("auto-publish ON + balance kind: publishProof still chains after createBalanceProof", async () => {
+    createBalanceProofMock.mockResolvedValue(99n);
+    setHook();
+    const { findByLabelText, findByText, container } = render(<Proofs />);
+    // Switch to balance kind.
+    const balanceBtn = container.querySelectorAll("button");
+    // Find balance button by visible text.
+    const balanceToggle = Array.from(balanceBtn).find((b) => b.textContent === "Balance");
+    if (balanceToggle) fireEvent.click(balanceToggle);
+
+    const input = await findByLabelText("Income threshold in USD") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "1000" } });
+    const btn = await findByText("Create proof");
+    await act(async () => {
+      fireEvent.click(btn);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(createBalanceProofMock).toHaveBeenCalledWith(1000);
+    expect(publishProofMock).toHaveBeenCalledWith(99n);
   });
 });
