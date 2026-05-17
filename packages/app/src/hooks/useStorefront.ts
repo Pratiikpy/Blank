@@ -65,7 +65,7 @@ const FRIENDLY_LABEL: Record<string, string> = {
 // ─── Hook ────────────────────────────────────────────────────────────
 
 export function useStorefront() {
-  const { effectiveAddress: address } = useEffectiveAddress();
+  const { effectiveAddress: address, notReadyReason } = useEffectiveAddress();
   const { contracts, activeChainId } = useChain();
   const publicClient = usePublicClient({ chainId: activeChainId });
   const { connected } = useCofheConnection();
@@ -102,7 +102,7 @@ export function useStorefront() {
 
   const guardReady = useCallback((): { sf: `0x${string}` } | null => {
     if (!address || !connected) {
-      toast.error("Wallet not connected");
+      toast.error(notReadyReason ?? "Wallet not connected");
       return null;
     }
     if (state.isProcessing) return null;
@@ -116,20 +116,20 @@ export function useStorefront() {
       return null;
     }
     return { sf };
-  }, [address, connected, contracts.Storefront, publicClient, state.isProcessing]);
+  }, [address, connected, contracts.Storefront, publicClient, state.isProcessing, notReadyReason]);
 
   // §3.17 of BEST_VERSION_FULL_PLAN: plaintext-only guard for callSimple.
   // closeAuction / claimAuctionWin / refundLoserBid / deactivateListing don't
   // require cofhe-connected; this lets the user complete those flows even
   // when the cofhe shim hasn't connected.
   const guardWalletReady = useCallback((): { sf: `0x${string}` } | null => {
-    if (!address) { toast.error("Wallet not connected"); return null; }
+    if (!address) { toast.error(notReadyReason ?? "Wallet not connected"); return null; }
     if (state.isProcessing) return null;
     const sf = contracts.Storefront as `0x${string}`;
     if (!sf || sf === ZERO_ADDRESS) { toast.error("Storefront not deployed on this chain yet"); return null; }
     if (!publicClient) { toast.error("Connection lost. Please refresh."); return null; }
     return { sf };
-  }, [address, contracts.Storefront, publicClient, state.isProcessing]);
+  }, [address, contracts.Storefront, publicClient, state.isProcessing, notReadyReason]);
 
   // ─── createListing ─────────────────────────────────────────────
 

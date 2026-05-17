@@ -30,10 +30,25 @@ export function useEffectiveAddress() {
       : eoa
   ) as `0x${string}` | undefined;
 
+  // When effectiveAddress is null, callers (guardReady patterns) want
+  // a humanized reason for their toast. Passkey-only users mid-load
+  // would otherwise see "Wallet not connected" — wrong; their wallet IS
+  // connected, the AA is just resolving. Split the message so the user
+  // knows the next action is "wait" vs "connect." "no-passkey" is the
+  // only state where the user genuinely needs to take action; every
+  // other non-"ready" state is a transient resolver/UserOp lifecycle
+  // step that will settle on its own.
+  const notReadyReason: string | null = effectiveAddress
+    ? null
+    : smartAccount.status === "no-passkey"
+      ? "Wallet not connected"
+      : "Smart wallet loading — try again in a moment";
+
   return {
     effectiveAddress,
     eoa,
     smartAccount,
     isSmartAccount,
+    notReadyReason,
   };
 }

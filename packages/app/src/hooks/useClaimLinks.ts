@@ -66,7 +66,7 @@ export type CreateLinkInput =
 // ─── Hook ─────────────────────────────────────────────────────────────
 
 export function useClaimLinks() {
-  const { effectiveAddress: address } = useEffectiveAddress();
+  const { effectiveAddress: address, notReadyReason } = useEffectiveAddress();
   const { contracts, activeChainId } = useChain();
   const publicClient = usePublicClient({ chainId: activeChainId });
   const { connected } = useCofheConnection();
@@ -91,7 +91,7 @@ export function useClaimLinks() {
       input: CreateLinkInput;
     }) => {
       if (!address || !connected) {
-        toast.error("Wallet not connected");
+        toast.error(notReadyReason ?? "Wallet not connected");
         return null;
       }
       if (state.isProcessing) return null;

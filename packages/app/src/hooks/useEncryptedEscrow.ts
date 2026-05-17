@@ -49,7 +49,7 @@ const FRIENDLY_LABEL: Record<string, string> = {
 };
 
 export function useEncryptedEscrow() {
-  const { effectiveAddress: address } = useEffectiveAddress();
+  const { effectiveAddress: address, notReadyReason } = useEffectiveAddress();
   const { contracts, activeChainId } = useChain();
   const publicClient = usePublicClient({ chainId: activeChainId });
   const { connected } = useCofheConnection();
@@ -65,22 +65,22 @@ export function useEncryptedEscrow() {
   // path (createEscrow) keeps the strict guard; plaintext-only paths use the
   // wallet-only guard.
   const guardReady = useCallback((): { ee: `0x${string}` } | null => {
-    if (!address || !connected) { toast.error("Wallet not connected"); return null; }
+    if (!address || !connected) { toast.error(notReadyReason ?? "Wallet not connected"); return null; }
     if (state.isProcessing) return null;
     const ee = contracts.EncryptedEscrow as `0x${string}`;
     if (!ee || ee === ZERO_ADDRESS) { toast.error("EncryptedEscrow not deployed on this chain yet"); return null; }
     if (!publicClient) { toast.error("Connection lost. Please refresh."); return null; }
     return { ee };
-  }, [address, connected, contracts.EncryptedEscrow, publicClient, state.isProcessing]);
+  }, [address, connected, contracts.EncryptedEscrow, publicClient, state.isProcessing, notReadyReason]);
 
   const guardWalletReady = useCallback((): { ee: `0x${string}` } | null => {
-    if (!address) { toast.error("Wallet not connected"); return null; }
+    if (!address) { toast.error(notReadyReason ?? "Wallet not connected"); return null; }
     if (state.isProcessing) return null;
     const ee = contracts.EncryptedEscrow as `0x${string}`;
     if (!ee || ee === ZERO_ADDRESS) { toast.error("EncryptedEscrow not deployed on this chain yet"); return null; }
     if (!publicClient) { toast.error("Connection lost. Please refresh."); return null; }
     return { ee };
-  }, [address, contracts.EncryptedEscrow, publicClient, state.isProcessing]);
+  }, [address, contracts.EncryptedEscrow, publicClient, state.isProcessing, notReadyReason]);
 
   const ensureVaultApproval = useCallback(async (vault: `0x${string}`) => {
     const ee = contracts.EncryptedEscrow as `0x${string}`;

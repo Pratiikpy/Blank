@@ -37,7 +37,7 @@ const FRIENDLY_LABEL: Record<string, string> = {
 };
 
 export function useCrowdfund() {
-  const { effectiveAddress: address } = useEffectiveAddress();
+  const { effectiveAddress: address, notReadyReason } = useEffectiveAddress();
   const { contracts, activeChainId } = useChain();
   const publicClient = usePublicClient({ chainId: activeChainId });
   const { connected } = useCofheConnection();
@@ -47,25 +47,25 @@ export function useCrowdfund() {
   const [state, setState] = useState<CrowdfundState>(initial);
 
   const guardReady = useCallback((): { cf: `0x${string}` } | null => {
-    if (!address || !connected) { toast.error("Wallet not connected"); return null; }
+    if (!address || !connected) { toast.error(notReadyReason ?? "Wallet not connected"); return null; }
     if (state.isProcessing) return null;
     const cf = contracts.EncryptedCrowdfund as `0x${string}`;
     if (!cf || cf === ZERO_ADDRESS) { toast.error("Crowdfund not deployed on this chain yet"); return null; }
     if (!publicClient) { toast.error("Connection lost. Please refresh."); return null; }
     return { cf };
-  }, [address, connected, contracts.EncryptedCrowdfund, publicClient, state.isProcessing]);
+  }, [address, connected, contracts.EncryptedCrowdfund, publicClient, state.isProcessing, notReadyReason]);
 
   // §3.17 of BEST_VERSION_FULL_PLAN: plaintext-only guard for callSimple.
   // closeCampaign / claimRelease / claimRefund / publishCloseResult don't
   // need cofhe-connected.
   const guardWalletReady = useCallback((): { cf: `0x${string}` } | null => {
-    if (!address) { toast.error("Wallet not connected"); return null; }
+    if (!address) { toast.error(notReadyReason ?? "Wallet not connected"); return null; }
     if (state.isProcessing) return null;
     const cf = contracts.EncryptedCrowdfund as `0x${string}`;
     if (!cf || cf === ZERO_ADDRESS) { toast.error("Crowdfund not deployed on this chain yet"); return null; }
     if (!publicClient) { toast.error("Connection lost. Please refresh."); return null; }
     return { cf };
-  }, [address, contracts.EncryptedCrowdfund, publicClient, state.isProcessing]);
+  }, [address, contracts.EncryptedCrowdfund, publicClient, state.isProcessing, notReadyReason]);
 
   const ensureVaultApproval = useCallback(async (vault: `0x${string}`) => {
     const cf = contracts.EncryptedCrowdfund as `0x${string}`;
