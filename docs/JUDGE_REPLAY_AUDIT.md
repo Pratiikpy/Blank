@@ -37,7 +37,7 @@ Status legend:
 | `/app/privacy` | `Privacy.tsx` | Covered (read-only) | P13 render sweep | h1-visible + screenshot. |
 | `/app/gifts` | `Gifts.tsx` | Covered (action) | P20 gifts | Alice creates $5 envelope for Bob with encrypted message + Bob claims via Received tab. 2 passkey UserOps. |
 | `/app/scheduled` | `ScheduledSends.tsx` | Covered (honest-gate) | P21 scheduled | SessionKeyValidator undeployed → screen renders honest amber gate banner + hides Create button. Spec captures gate-state. Full create-scope flow unlocks when validator ships. |
-| `/app/agents` | `AgentPayments.tsx` | Gap (action) | — | Agent payments — passkey-signed agent allowance + spend. |
+| `/app/agents` | `AgentPayments.tsx` | Covered (action — backend-dep) | P22 agents | Alice asks payroll-line agent, reviews ECDSA attestation, encrypts + submits to Bob. Backend-unavailable path captured honestly. Praise: block-timestamp reconciliation for expiry (fix the Inheritance screen needs). |
 | `/app/analytics` | `Analytics.tsx` | Covered (read-only) | P13 render sweep | h1-visible + screenshot. |
 | `/app/profile` | `Profile.tsx` | Covered (read-only) | P13 render sweep | h1-visible + screenshot. |
 | `/app/settings` | `Settings.tsx` | Covered (read-only) | P13 render sweep | h1-visible + screenshot. |
@@ -109,6 +109,14 @@ Each `/loop 1m` fire ships ONE gap closure:
 
 Per-screen findings from reading the code as a judge would inspect the running app. These are NOT spec gaps — they're polish/UX issues a real reviewer would notice. Each one is a launch-readiness item, not a coverage hole.
 
+### Agent Payments (`/app/agents` — fire 11)
+- **Praise:** the **block-timestamp reconciliation for attestation expiry** is excellent (line 122). Instead of trusting `Date.now()`, the screen uses `blockTimestamp ?? now` so the countdown matches what the contract will actually compare against. This is the fix the Inheritance screen's countdown needs (see P1 in Inheritance section).
+- **Praise:** the **30-second safety margin on expiry** (`tooCloseToExpiry`, line 126) prevents the user from clicking Submit when a tx that would arrive after expiry. Block-inclusion time + buffer. Subtle correctness win.
+- **`P2` LLM API key dependency is undocumented in-UI.** When `/api/agent/derive` fails because no `ANTHROPIC_API_KEY` is configured, the error chip says "error" but doesn't surface "agent backend not configured on this deployment". A judge running locally without env vars sees a cryptic chip. Fix: catch the specific 500/503 and surface "Agent backend not configured — set ANTHROPIC_API_KEY".
+- **`P3` "Use example" button is small + grey** (line 393-399). Discoverability low — first-time judges might not notice it exists. Either bump weight or render an inline "Or try: <example>" link beneath the textarea.
+- **`P3` Agent address shown but no clickable explorer link.** `lastAttestation.agent` is rendered as a code block (line 450) but not a link. Judges verifying the agent address want a one-click jump to etherscan.
+- **`P3` Attestation card lacks "What's an attestation?" disclosure.** Novel feature → judges unfamiliar with the pattern see "Agent attestation" + amount but no in-context explanation of "the agent SIGNED this amount, you can verify the signature on-chain". Add an info-icon with disclosure.
+
 ### Scheduled sends (`/app/scheduled` — fire 10)
 - **Praise:** the **honest-gate UX** is the right pattern. When SessionKeyValidator is undeployed, the screen shows a full amber AlertTriangle banner ("Scheduled sends aren't available on {chain.name} yet — try switching to a different network from the chain selector"). The Create button is hidden, not greyed. Compare to Burners (`title=` tooltip hidden on mobile) and DEX swap (no upfront warning) — this is the standard other gated screens should adopt.
 - **`P2` Chain selector isn't reachable from the gate banner.** Banner says "switch from the chain selector" but on mobile that selector lives inside the "More" sheet — 2-3 taps away. Inline a `<button>` "Switch chain" directly in the banner that opens the selector for one-tap discovery.
@@ -148,8 +156,9 @@ Per-screen findings from reading the code as a judge would inspect the running a
 - **Fire 8 — Inheritance + walkthrough:** phases/19-inheritance.spec.ts covers Alice setting Bob as heir (7-day inactivity) + immediate heartbeat check-in. 2 passkey UserOps. Heir-side claim flow needs 7-day wait → documented OOS for headless. Walkthrough surfaced **a new P1**: client-clock-based countdown can mislead the user into thinking they have time when they don't.
 - **Fire 9 — Gifts + walkthrough:** phases/20-gifts.spec.ts covers Alice creating $5 envelope for Bob with encrypted message + Bob claiming via Received tab. 2 passkey UserOps via separate contexts. Walkthrough surfaced **a fairness issue**: `Math.random()` in `computeRandomSplits` is biased + predictable; not a fund-loss bug but a transparency concern.
 - **Fire 10 — ScheduledSends gate + walkthrough:** phases/21-scheduled-sends.spec.ts captures the honest-gate UX (SessionKeyValidator undeployed → amber banner + hidden Create). Walkthrough explicitly **praises** this gate pattern as the standard for other gated screens. Flagged daily-cron demo cadence + native `confirm()` reuse.
-- **Gaps closed:** 18 of 22 (10 read-only + 6 action + 1 partial + 2 local-only/gate)
-- **Suite-covered screens:** 36 of 40 (90%, with /app/swap partial + /app/burners local-only + /app/scheduled gate-only)
-- **Remaining action gaps:** 3 (AgentPayments, Onboarding, Bridge-as-OOS)
-- **Launch-readiness items logged:** 18 (P1×2, P2×5, P3×11) — Burners + Inheritance + Gifts + ScheduledSends
+- **Fire 11 — AgentPayments + walkthrough:** phases/22-agent-payments.spec.ts covers Alice picking payroll template → Ask agent → review ECDSA attestation → encrypt + submit. Backend-unavailable path handled gracefully (no LLM key on deployment). Walkthrough **praises** block-timestamp reconciliation for attestation expiry — this is the pattern Inheritance needs to fix its P1 client-clock bug.
+- **Gaps closed:** 19 of 22 (10 read-only + 7 action + 1 partial + 2 local-only/gate)
+- **Suite-covered screens:** 37 of 40 (92.5%, with /app/swap partial + /app/burners local-only + /app/scheduled gate-only + /app/agents backend-dep)
+- **Remaining action gaps:** 2 (Onboarding, Bridge-as-OOS)
+- **Launch-readiness items logged:** 24 (P1×2, P2×6, P3×16) — Burners + Inheritance + Gifts + ScheduledSends + AgentPayments
 - **After plan complete:** 39 of 40 covered (97.5% — `/app/bridge` declared out of scope)

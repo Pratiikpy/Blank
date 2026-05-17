@@ -133,6 +133,13 @@ const EXPECTED: ExpectedCoverage[] = [
   // of the Create button. Spec captures the gate-state render.
   { phasePrefix: "P21 Scheduled · scheduled gate", chainIds: BOTH, requiresRealTx: false, desc: "Honest gate banner visible + Create button correctly hidden. SessionKeyValidator deploy unblocks the full flow." },
 
+  // ─── Phase 22: AgentPayments (derive + submit) ───────────────
+  // requiresRealTx=false: the derive step depends on an LLM API
+  // key at /api/agent/derive. If the env isn't configured, the UI
+  // surfaces the error honestly + the submission is gated. When
+  // configured, the spec captures a real on-chain submission hash.
+  { phasePrefix: "P22 AgentPayments · derive + submit", chainIds: BOTH, requiresRealTx: false, desc: "Alice picks payroll template, asks agent, reviews ECDSA attestation, submits to Bob. Captures both backend-available + backend-unavailable paths." },
+
   // ─── Phase 13: read-only screen render sweep ──────────────────
   { phasePrefix: "P13 Render Sweep · Dashboard", chainIds: BOTH, requiresRealTx: false, desc: "Dashboard h1 visible + screenshot" },
   { phasePrefix: "P13 Render Sweep · History", chainIds: BOTH, requiresRealTx: false, desc: "History list page render check" },
