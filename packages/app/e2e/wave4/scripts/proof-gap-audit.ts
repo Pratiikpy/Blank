@@ -102,6 +102,12 @@ const EXPECTED: ExpectedCoverage[] = [
   { phasePrefix: "P15 Creator Support · Bob setProfile", chainIds: BOTH, requiresRealTx: true, desc: "Bob creates creator profile via /app/creators 'Become a Creator' form" },
   { phasePrefix: "P15 Creator Support · Alice tip Bob", chainIds: BOTH, requiresRealTx: true, desc: "Alice tips Bob $5 via tier picker + encrypted message" },
 
+  // ─── Phase 16: Swap DEX tab (form + intent) ──────────────────
+  // requiresRealTx=false because canonical Sepolia WETH is funded
+  // outside the Blank suite. The audit accepts the synthetic hash
+  // when the swap form proves reachable + the quote engine fires.
+  { phasePrefix: "P16 Swap DEX · DEX form", chainIds: BOTH, requiresRealTx: false, desc: "Alice picks WETH→USDC, attempts 0.0001 swap; captures whichever outcome (real tx if WETH funded, otherwise error/gate state with documented note)" },
+
   // ─── Phase 13: read-only screen render sweep ──────────────────
   { phasePrefix: "P13 Render Sweep · Dashboard", chainIds: BOTH, requiresRealTx: false, desc: "Dashboard h1 visible + screenshot" },
   { phasePrefix: "P13 Render Sweep · History", chainIds: BOTH, requiresRealTx: false, desc: "History list page render check" },

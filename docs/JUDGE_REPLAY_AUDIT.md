@@ -25,7 +25,7 @@ Status legend:
 | `/app/business` | `BusinessTools.tsx` (Invoice + Payroll + Escrow tabs) | Covered | P3 invoice, P3 payroll, P4 escrow | All three tabs exercised. |
 | `/app/groups` | `Groups.tsx` | Covered (action — create only) | P14 groups | Alice creates group with Bob + Carol. Passkey-signed via /app/groups modal. Expense/vote/settle is a separate future fire. |
 | `/app/creators` | `CreatorSupport.tsx` | Covered (action) | P15 creator-support | Bob setProfile + Alice tips Bob $5 with encrypted message. 2 passkey UserOps. |
-| `/app/swap` | `Swap.tsx`, `DexSwapTab.tsx` | Gap (action) | — | Encrypted swap via MockDEX. Passkey-signed swap. |
+| `/app/swap` | `Swap.tsx`, `DexSwapTab.tsx` | Covered (partial) | P16 swap | DEX tab form render + WETH→USDC picker + quote engine fire + swap intent. Real tx fires IF Alice has canonical Sepolia WETH (funded externally — Blank's TestUSDC faucet doesn't fund WETH). Gap: external WETH funding path. P2P tab (TestUSDT only on Base) remains untested. |
 | `/app/requests` | `Requests.tsx` | Gap (action) | — | Payment requests (encrypted invoices to specific wallets). |
 | `/app/contacts` | `Contacts.tsx` | Covered (read-only) | P13 render sweep | h1-visible + screenshot. |
 | `/app/stealth` | `Stealth.tsx` | Covered | P7 privacy | Alice sends to Bob's stealth. |
@@ -111,7 +111,8 @@ Each `/loop 1m` fire ships ONE gap closure:
 - **Fire 2 — read-only render sweep landed:** phases/13-render-sweep.spec.ts covers Dashboard, History, Explore, Contacts, Privacy, Analytics, Profile, Settings, Help, TransactionDetail (10 screens × 2 chains = 20 proof entries, synthetic 0x0...0 hash, h1-visible assertion + screenshot per screen)
 - **Fire 3 — Groups create:** phases/14-groups.spec.ts covers Alice creating an encrypted group with Bob + Carol via /app/groups modal. Passkey-signed createGroup UserOp.
 - **Fire 4 — Creator Support tip:** phases/15-creator-support.spec.ts covers Bob creating profile + Alice tipping Bob $5 with encrypted message via tier picker. 2 passkey UserOps.
-- **Gaps closed:** 12 of 22 (10 read-only + 2 action)
-- **Suite-covered screens:** 30 of 40 (75%)
-- **Remaining action gaps:** 9 (Swap, Requests, Burners, Inheritance, Gifts, ScheduledSends, AgentPayments, Onboarding, Bridge-as-OOS)
+- **Fire 5 — Swap DEX tab:** phases/16-swap.spec.ts covers Alice opening /app/swap, switching to DEX tab, picking WETH→USDC, typing 0.0001, attempting swap. Captures whichever outcome fires (real tx if Alice has canonical Sepolia WETH; otherwise gate-state proof of UI reachability). Documented gap: external WETH funding path + P2P tab (TestUSDT-on-Base).
+- **Gaps closed:** 13 of 22 (10 read-only + 3 action, 1 partial)
+- **Suite-covered screens:** 31 of 40 (77.5%, with /app/swap as partial)
+- **Remaining action gaps:** 8 (Requests, Burners, Inheritance, Gifts, ScheduledSends, AgentPayments, Onboarding, Bridge-as-OOS)
 - **After plan complete:** 39 of 40 covered (97.5% — `/app/bridge` declared out of scope)
