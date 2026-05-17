@@ -39,18 +39,20 @@ import {
 } from "../_lib/proof-reader.js";
 
 // Site URL for absolute meta-tag URLs. og:image must be absolute or
-// Twitter Cards rejects it. VERCEL_URL is set on every deploy; fall back
-// to PUBLIC_APP_URL for non-Vercel hosts, then to a final literal so
-// the function never crashes on missing env.
+// Twitter Cards rejects it. VERCEL_URL is set on every deploy; fall
+// back to PUBLIC_APP_URL for non-Vercel hosts, then to the inbound
+// request's headers (preview deploys, local dev). The function should
+// never reach the last branch in any sane environment — Vercel always
+// sets VERCEL_URL on serverless functions and local dev sets the host
+// header. If it does, we'd rather fail loud than silently emit a
+// broken og:image pointing at a nonexistent domain.
 function siteOrigin(req: { headers?: Record<string, string | undefined> }): string {
-  // Honor the deploy URL when present (matches cron-invoice-reminders.ts pattern).
   if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
   if (process.env.PUBLIC_APP_URL) return process.env.PUBLIC_APP_URL;
-  // Request-derived fallback (preview deploys, local dev).
   const host = req.headers?.["x-forwarded-host"] || req.headers?.host;
   const proto = req.headers?.["x-forwarded-proto"] || "https";
   if (host) return `${proto}://${host}`;
-  return "https://blank";
+  throw new Error("siteOrigin: no VERCEL_URL, PUBLIC_APP_URL, or host header — refusing to emit a broken og:image URL");
 }
 
 function escapeHtml(s: string): string {

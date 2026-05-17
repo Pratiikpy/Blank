@@ -26,6 +26,7 @@ import { render, fireEvent, act, waitFor } from "@testing-library/react";
 const useParamsMock = vi.hoisted(() => vi.fn());
 const usePublicClientMock = vi.hoisted(() => vi.fn());
 const useStorefrontMock = vi.hoisted(() => vi.fn());
+const useEffectiveAddressMock = vi.hoisted(() => vi.fn());
 const toastErrorMock = vi.hoisted(() => vi.fn());
 
 vi.mock("react-router-dom", () => ({ useParams: useParamsMock }));
@@ -33,6 +34,9 @@ vi.mock("wagmi", () => ({ usePublicClient: usePublicClientMock }));
 vi.mock("@/hooks/useStorefront", () => ({
   useStorefront: useStorefrontMock,
   SALE_MODE: { FixedPrice: 0, Auction: 1, PayWhatYouWant: 2 },
+}));
+vi.mock("@/hooks/useEffectiveAddress", () => ({
+  useEffectiveAddress: useEffectiveAddressMock,
 }));
 vi.mock("@/lib/constants", () => ({
   CONTRACTS_BY_CHAIN: {
@@ -137,9 +141,13 @@ beforeEach(() => {
   useParamsMock.mockReset();
   usePublicClientMock.mockReset();
   useStorefrontMock.mockReset();
+  useEffectiveAddressMock.mockReset();
   toastErrorMock.mockReset();
 
   useParamsMock.mockReturnValue({ chainId: "11155111", listingId: "5" });
+  // Default: no connected wallet. Tests that need a specific viewer
+  // (winner / non-winner / no-bids) override per case.
+  useEffectiveAddressMock.mockReturnValue({ effectiveAddress: undefined });
 
   readContractMock = makeReadContract(buildListing(), 0);
   usePublicClientMock.mockReturnValue({ readContract: readContractMock });
@@ -461,20 +469,25 @@ describe("StorefrontPage — Auction mode 3-substate machine (§15.x)", () => {
     expect(closeAuctionMock).toHaveBeenCalledWith(5);
   });
 
-  it("closed state (closed=true) -> 'Winner:' banner + 'Claim (winner only)' + 'Refund my losing bid' buttons", async () => {
+  it("closed state (closed=true) + viewer is winner -> 'Winner:' banner + 'Claim your win' + 'Refund my losing bid' buttons", async () => {
+    // C6 fix: Claim CTA is now gated to the actual winner. Connect as
+    // WINNER to see the Claim flow + 'You' badge.
+    useEffectiveAddressMock.mockReturnValue({ effectiveAddress: WINNER });
     readContractMock = makeReadContract(
       buildListing({ mode: MODE_AUCTION, closed: true, winner: WINNER }),
     );
     usePublicClientMock.mockReturnValue({ readContract: readContractMock });
     const { findByText, container } = render(<StorefrontPage />);
-    await findByText("Claim (winner only)");
+    await findByText("Claim your win");
     expect(container.textContent).toContain("Winner:");
+    expect(container.textContent).toContain("You");
     expect(container.textContent).toContain("Refund my losing bid");
     expect(container.textContent).toMatch(/0xcccc.{1,3}cccc/i);
   });
 
   it("CRITICAL closed-state priority: closed=true overrides past-closesAt + !closed boundary", async () => {
     // Both closed=true AND past-closesAt (would trigger needsClose if cascade reversed)
+    useEffectiveAddressMock.mockReturnValue({ effectiveAddress: WINNER });
     readContractMock = makeReadContract(
       buildListing({
         mode: MODE_AUCTION,
@@ -485,27 +498,74 @@ describe("StorefrontPage — Auction mode 3-substate machine (§15.x)", () => {
     );
     usePublicClientMock.mockReturnValue({ readContract: readContractMock });
     const { findByText, container } = render(<StorefrontPage />);
-    await findByText("Claim (winner only)");
+    await findByText("Claim your win");
     expect(container.textContent).not.toContain("Close auction");
   });
 
   it("Claim click calls claimAuctionWin(listingId)", async () => {
+    useEffectiveAddressMock.mockReturnValue({ effectiveAddress: WINNER });
     readContractMock = makeReadContract(
       buildListing({ mode: MODE_AUCTION, closed: true, winner: WINNER }),
     );
     usePublicClientMock.mockReturnValue({ readContract: readContractMock });
     const { findByText } = render(<StorefrontPage />);
-    const btn = await findByText("Claim (winner only)");
+    const btn = await findByText("Claim your win");
     await act(async () => {
       fireEvent.click(btn);
       await Promise.resolve();
     });
     expect(claimAuctionWinMock).toHaveBeenCalledWith(5);
   });
+
+  it("C6: viewer is NOT winner -> Claim CTA hidden, explanation banner shown, refund still works", async () => {
+    const NON_WINNER = "0xdddddddddddddddddddddddddddddddddddddddd";
+    useEffectiveAddressMock.mockReturnValue({ effectiveAddress: NON_WINNER });
+    readContractMock = makeReadContract(
+      buildListing({ mode: MODE_AUCTION, closed: true, winner: WINNER }),
+    );
+    usePublicClientMock.mockReturnValue({ readContract: readContractMock });
+    const { findByText, container, queryByText } = render(<StorefrontPage />);
+    await findByText(/aren't the winner/i);
+    expect(queryByText("Claim your win")).toBeNull();
+    expect(container.textContent).toContain("Refund my losing bid");
+  });
+
+  it("C11: closed state with zero winner (no bids) -> 'closed without bids' state, no Claim, no refund", async () => {
+    useEffectiveAddressMock.mockReturnValue({ effectiveAddress: WINNER });
+    readContractMock = makeReadContract(
+      buildListing({ mode: MODE_AUCTION, closed: true, winner: ZERO }),
+    );
+    usePublicClientMock.mockReturnValue({ readContract: readContractMock });
+    const { findByText, container, queryByText } = render(<StorefrontPage />);
+    await findByText(/closed without bids/i);
+    expect(queryByText("Claim your win")).toBeNull();
+    expect(queryByText("Refund my losing bid")).toBeNull();
+    expect(container.textContent).not.toContain("Winner:");
+  });
+
+  it("C6: no connected wallet on closed auction -> 'Connect your wallet' fallback (no Claim CTA, refund disabled)", async () => {
+    // Default beforeEach already sets effectiveAddress: undefined.
+    readContractMock = makeReadContract(
+      buildListing({ mode: MODE_AUCTION, closed: true, winner: WINNER }),
+    );
+    usePublicClientMock.mockReturnValue({ readContract: readContractMock });
+    const { findByText, queryByText } = render(<StorefrontPage />);
+    await findByText(/Connect your wallet to claim/i);
+    expect(queryByText("Claim your win")).toBeNull();
+    // Refund button is rendered but disabled.
+    const refundBtn = await findByText("Refund my losing bid");
+    expect((refundBtn as HTMLButtonElement).disabled).toBe(true);
+  });
 });
 
 describe("StorefrontPage — refund prompt validation (mirrors CrowdfundPage) (§15.x)", () => {
   beforeEach(() => {
+    // Refund requires a connected viewer per the C6 fix (button is
+    // disabled otherwise). The validation tests below all assume a
+    // connected wallet.
+    useEffectiveAddressMock.mockReturnValue({
+      effectiveAddress: "0xdddddddddddddddddddddddddddddddddddddddd",
+    });
     readContractMock = makeReadContract(
       buildListing({ mode: MODE_AUCTION, closed: true, winner: WINNER }),
     );

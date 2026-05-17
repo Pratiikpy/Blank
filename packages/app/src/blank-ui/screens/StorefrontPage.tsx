@@ -20,6 +20,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { useStorefront, SALE_MODE, type SaleMode } from "@/hooks/useStorefront";
+import { useEffectiveAddress } from "@/hooks/useEffectiveAddress";
 import { CONTRACTS_BY_CHAIN, type SupportedChainId } from "@/lib/constants";
 import { StorefrontAbi } from "@/lib/abis";
 import { FhePipelineProgress } from "@/components/payment/FhePipelineProgress";
@@ -51,6 +52,11 @@ export default function StorefrontPage() {
   const listingId = params.listingId ? Number(params.listingId) : NaN;
   const publicClient = usePublicClient({ chainId });
   const { state, pipeline, buyFixed, placeBid, payPWYW, closeAuction, claimAuctionWin, refundLoserBid } = useStorefront();
+  // Passkey-aware: the connected smart-account address. Used to gate
+  // the Claim button so non-winners don't pay gas just to revert. Falls
+  // back to undefined for unconnected viewers; we then show a generic
+  // "Connect your wallet to claim" rather than the Claim CTA.
+  const { effectiveAddress } = useEffectiveAddress();
 
   const [onChain, setOnChain] = useState<OnChainListing | null>(null);
   const [bidCount, setBidCount] = useState<number>(0);
@@ -248,6 +254,7 @@ export default function StorefrontPage() {
           isProcessing={state.isProcessing}
           amount={amount}
           setAmount={setAmount}
+          viewerAddress={effectiveAddress}
           onPlaceBid={() => placeBid({ listingId, vault: onChain.vault, bidTokens: amount, decimals: 6 })}
           onClose={() => closeAuction(listingId)}
           onClaim={() => claimAuctionWin(listingId)}
@@ -314,6 +321,7 @@ function AuctionView(props: {
   isProcessing: boolean;
   amount: string;
   setAmount: (v: string) => void;
+  viewerAddress: `0x${string}` | undefined;
   onPlaceBid: () => void;
   onClose: () => void;
   onClaim: () => void;
@@ -367,19 +375,55 @@ function AuctionView(props: {
     );
   }
   // status === "closed"
+  const ZERO_ADDR = "0x0000000000000000000000000000000000000000";
+  const noBids = props.onChain.winner.toLowerCase() === ZERO_ADDR;
+  const viewerIsWinner =
+    !!props.viewerAddress &&
+    !noBids &&
+    props.viewerAddress.toLowerCase() === props.onChain.winner.toLowerCase();
+
+  if (noBids) {
+    // C11: closing an auction with zero bids was previously rendering a
+    // "Winner: 0x000…0000" banner + Claim button that always reverted.
+    // Branch out explicitly so the dead-end state is honest.
+    return (
+      <div className="text-left">
+        <div className="px-4 py-3 rounded-xl bg-slate-100 text-slate-700 mb-4 text-sm">
+          Auction closed without bids. Nothing to claim or refund.
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="text-left">
       <div className="px-4 py-3 rounded-xl bg-emerald-50 text-emerald-700 mb-4 text-sm">
         Winner: <span className="font-mono">{props.onChain.winner.slice(0, 6)}…{props.onChain.winner.slice(-4)}</span>
+        {viewerIsWinner && <span className="ml-2 px-2 py-0.5 rounded-full bg-emerald-200 text-emerald-900 text-xs font-medium">You</span>}
       </div>
       <div className="space-y-2">
-        <button
-          onClick={props.onClaim}
-          disabled={props.isProcessing}
-          className="w-full h-12 rounded-2xl bg-[#1D1D1F] text-white font-medium hover:bg-black transition-colors disabled:opacity-40"
-        >
-          Claim (winner only)
-        </button>
+        {viewerIsWinner ? (
+          // C6: only the actual winner sees the Claim CTA. Without this
+          // gate, non-winners clicked Claim, ate gas, and got an opaque
+          // contract revert. The button is disabled (not hidden) when
+          // the viewer is connected but isn't the winner, so they know
+          // the action exists but isn't theirs.
+          <button
+            onClick={props.onClaim}
+            disabled={props.isProcessing}
+            className="w-full h-12 rounded-2xl bg-[#1D1D1F] text-white font-medium hover:bg-black transition-colors disabled:opacity-40"
+          >
+            {props.isProcessing ? "Claiming…" : "Claim your win"}
+          </button>
+        ) : !props.viewerAddress ? (
+          <div className="w-full h-12 rounded-2xl border border-[var(--border)] flex items-center justify-center text-sm text-[var(--text-secondary)]">
+            Connect your wallet to claim or refund
+          </div>
+        ) : (
+          <div className="w-full px-4 py-3 rounded-2xl border border-[var(--border)] text-sm text-[var(--text-secondary)] text-center">
+            You aren't the winner. If you bid, you can refund below.
+          </div>
+        )}
         <button
           onClick={() => {
             const raw = prompt("Your bid index (check your wallet history):");
@@ -396,7 +440,7 @@ function AuctionView(props: {
             }
             props.onRefund(idx);
           }}
-          disabled={props.isProcessing}
+          disabled={props.isProcessing || !props.viewerAddress}
           className="w-full h-12 rounded-2xl border border-[var(--border)] hover:bg-[var(--surface-2)] transition-colors disabled:opacity-40"
         >
           Refund my losing bid

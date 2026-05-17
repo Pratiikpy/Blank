@@ -80,6 +80,17 @@ export default function Proofs() {
       toast.error("Enter a positive threshold");
       return;
     }
+    // Heads-up toast when auto-publish is on so the user knows two
+    // wallet popups are coming, not one. Without this the second
+    // MetaMask prompt feels like a bug ("why is it asking me to sign
+    // again?"). Fires before createIncomeProof so it shows during
+    // the encryption phase rather than after the first confirm.
+    if (autoPublish) {
+      toast("You'll sign 2 transactions: create proof, then publish verdict.", {
+        icon: "ℹ️",
+        duration: 6000,
+      });
+    }
     const id =
       proofKind === "income"
         ? await createIncomeProof(value)
@@ -89,10 +100,10 @@ export default function Proofs() {
       // Chain into publishProof when auto-publish is on so the share
       // link is immediately a "Verified on-chain" artifact. publishProof
       // polls TN for ~10s for the decryption signature, then submits a
-      // second tx — the prover pays the publish gas instead of the
-      // recipient. Failure is non-fatal: the proof is still created
-      // and the link still resolves (just as "Pending verification"),
-      // so we don't gate the success path on the publish call.
+      // second tx; prover pays the publish gas instead of the recipient.
+      // Failure is non-fatal: the proof is still created and the link
+      // still resolves (just as "Pending verification"), so we don't
+      // gate the success path on the publish call.
       if (autoPublish) {
         await publishProof(id);
       }

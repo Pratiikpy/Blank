@@ -5,6 +5,7 @@ import { usePublicClient } from "wagmi";
 import toast from "react-hot-toast";
 
 import { useClaimLinks } from "@/hooks/useClaimLinks";
+import { useEffectiveAddress } from "@/hooks/useEffectiveAddress";
 import { MODE, type LinkMode, parseClaimUrl } from "@/lib/claim-links";
 import { CONTRACTS_BY_CHAIN, type SupportedChainId } from "@/lib/constants";
 import { ClaimLinksAbi } from "@/lib/abis";
@@ -47,6 +48,10 @@ export default function ClaimLinkPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [email, setEmail] = useState("");
   const { state, pipeline, claim } = useClaimLinks();
+  // Passkey-aware address resolution: passkey-only users have no wagmi
+  // address but still have a smart-account address. Use the same hook
+  // every other screen uses so AddressBound links behave consistently.
+  const { effectiveAddress } = useEffectiveAddress();
 
   // Load the on-chain link metadata.
   useEffect(() => {
@@ -102,6 +107,18 @@ export default function ClaimLinkPage() {
     return "claimable";
   }, [onChain]);
 
+  // AddressBound links are locked to a specific wallet on chain. Without
+  // a pre-check, a different connected wallet would click Claim, eat
+  // FHE encryption + gas, then revert with an opaque ClaimLinks error.
+  // Fail fast with a clear message instead. Bearer + EmailBound modes
+  // are unaffected (bound to a secret or email, not an address).
+  const wrongWallet = useMemo(() => {
+    if (!onChain || !parsed) return false;
+    if (parsed.mode !== MODE.AddressBound) return false;
+    if (!effectiveAddress) return false;
+    return effectiveAddress.toLowerCase() !== onChain.boundAddress.toLowerCase();
+  }, [onChain, parsed, effectiveAddress]);
+
   const handleClaim = async () => {
     if (!parsed) {
       toast.error("Invalid link. Secret missing");
@@ -109,6 +126,11 @@ export default function ClaimLinkPage() {
     }
     if (parsed.mode === MODE.EmailBound && !email) {
       toast.error("Enter your email to claim");
+      return;
+    }
+    if (wrongWallet && onChain) {
+      const short = `${onChain.boundAddress.slice(0, 6)}…${onChain.boundAddress.slice(-4)}`;
+      toast.error(`This link is locked to wallet ${short}. Connect that wallet to claim.`);
       return;
     }
     await claim({
@@ -239,6 +261,15 @@ export default function ClaimLinkPage() {
         </div>
       )}
 
+      {wrongWallet && onChain && (
+        <div className="mb-4 px-4 py-3 rounded-xl bg-amber-50 text-amber-700 text-sm text-left" role="alert" aria-label="Wrong wallet">
+          <strong className="block mb-1">This link is locked to a different wallet.</strong>
+          Connect{" "}
+          <span className="font-mono">{onChain.boundAddress.slice(0, 6)}…{onChain.boundAddress.slice(-4)}</span>
+          {" "}to claim.
+        </div>
+      )}
+
       {pipeline.phase !== "idle" && (
         <div className="mb-4 text-left">
           <FhePipelineProgress state={pipeline} compact />
@@ -253,7 +284,7 @@ export default function ClaimLinkPage() {
 
       <button
         onClick={handleClaim}
-        disabled={state.isProcessing}
+        disabled={state.isProcessing || wrongWallet}
         className="w-full h-14 rounded-2xl bg-[#1D1D1F] text-white font-medium hover:bg-black transition-colors disabled:opacity-40"
       >
         {state.isProcessing ? "Claiming…" : "Claim private payment"}

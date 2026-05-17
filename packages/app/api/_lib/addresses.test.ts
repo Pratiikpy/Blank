@@ -115,14 +115,15 @@ describe("ServerContractMap shape invariants", () => {
     "TestUSDC",
     "EntryPoint",
     "BlankPaymaster",
+    "PaymentReceipts",
   ] as const;
 
-  it("Eth Sepolia map has EXACTLY 6 required fields (no missing + no extras)", () => {
+  it("Eth Sepolia map has EXACTLY 7 required fields (no missing + no extras)", () => {
     const m = getContracts(ETH_SEPOLIA_ID)!;
     expect(Object.keys(m).sort()).toEqual([...REQUIRED_FIELDS].sort());
   });
 
-  it("Base Sepolia map has EXACTLY 6 required fields (no missing + no extras)", () => {
+  it("Base Sepolia map has EXACTLY 7 required fields (no missing + no extras)", () => {
     const m = getContracts(BASE_SEPOLIA_ID)!;
     expect(Object.keys(m).sort()).toEqual([...REQUIRED_FIELDS].sort());
   });
@@ -170,9 +171,10 @@ describe("cross-chain isolation — every per-chain contract differs", () => {
     "FHERC20Vault_USDC",
     "TestUSDC",
     "BlankPaymaster",
+    "PaymentReceipts",
   ] as const;
 
-  it("all 5 per-chain contracts differ between Eth Sepolia and Base Sepolia", () => {
+  it("all 6 per-chain contracts differ between Eth Sepolia and Base Sepolia", () => {
     const eth = getContracts(ETH_SEPOLIA_ID)!;
     const base = getContracts(BASE_SEPOLIA_ID)!;
     for (const field of PER_CHAIN_CONTRACTS) {

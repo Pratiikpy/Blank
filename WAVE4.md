@@ -130,9 +130,6 @@ Status: `✅` done · `🟡` in-progress · `⏳` pending · `❌` blocked
   - Eth Sepolia: `0x4253163CfCd0cf9885333E0a7B7476d61F010feC`
   - Base Sepolia: `0x6414742D2da28eCEf06D79b82F406B6b8ab3e421`
   - Existing BusinessHub plaintext escrow kept for back-compat
-- ⏳ #255 Proof of income
-- ⏳ #256 Confidential payroll
-- ⏳ #257 Encrypted crowdfunding
 
 ## Sprint week (BEST_VERSION_FULL_PLAN §1)
 

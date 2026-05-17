@@ -45,7 +45,10 @@ vi.mock("ethers", async (importOriginal) => {
 });
 
 vi.mock("../_lib/addresses.js", () => ({
-  CONTRACTS_BY_CHAIN: {},
+  CONTRACTS_BY_CHAIN: {
+    11155111: { PaymentReceipts: "0xE2087A39cEa3C77566DF15936c2750511f808148" },
+    84532: { PaymentReceipts: "0x23f0530e107cCF940093c238bbc97EbdAD6fAD7c" },
+  },
   RPC_URLS: { 11155111: "https://sepolia", 84532: "https://base-sepolia" },
 }));
 

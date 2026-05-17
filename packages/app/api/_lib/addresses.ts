@@ -28,6 +28,10 @@ export interface ServerContractMap {
   /** BlankPaymaster — sponsors gas for AA UserOps. Cron alerts when its
    *  EntryPoint deposit drops below `PAYMASTER_ALERT_THRESHOLD_WEI`. */
   BlankPaymaster: string;
+  /** PaymentReceipts — encrypted income/balance proof anchor + lifetime-
+   *  received accumulator. Read by `/api/og/proof.tsx` + `/api/share/proof.ts`
+   *  to render per-proof preview images and meta tags for shared links. */
+  PaymentReceipts: string;
 }
 
 type ContractKey = keyof ServerContractMap;
@@ -48,6 +52,7 @@ const DEFAULTS: Record<number, ServerContractMap> = {
     TestUSDC: "0x16369CD4B9533795dCdc0D67DB3E4c621ef97D68",
     EntryPoint: ENTRY_POINT_V08,
     BlankPaymaster: "0x68890C23C94e25706F064f8C1d07e04462B9Ec2E",
+    PaymentReceipts: "0xE2087A39cEa3C77566DF15936c2750511f808148",
   },
   [BASE_SEPOLIA_ID]: {
     PaymentHub: "0xF420102Dea1acf437bfc49ded5F4E2f5ed32e831",
@@ -56,6 +61,7 @@ const DEFAULTS: Record<number, ServerContractMap> = {
     TestUSDC: "0x6377eF23B3464019EcF35528be6Eb6d6D57d0b1a",
     EntryPoint: ENTRY_POINT_V08,
     BlankPaymaster: "0xB1CbBD59E63d7aB0BbF0406CCF1016c1Dd8e63de",
+    PaymentReceipts: "0x23f0530e107cCF940093c238bbc97EbdAD6fAD7c",
   },
 };
 
@@ -74,6 +80,7 @@ function buildMap(chainId: number): ServerContractMap {
     TestUSDC: readAddr(`${prefix}TEST_USDC`, defaults.TestUSDC),
     EntryPoint: readAddr(`${prefix}ENTRYPOINT`, defaults.EntryPoint),
     BlankPaymaster: readAddr(`${prefix}BLANK_PAYMASTER`, defaults.BlankPaymaster),
+    PaymentReceipts: readAddr(`${prefix}PAYMENT_RECEIPTS`, defaults.PaymentReceipts),
   };
 }
 

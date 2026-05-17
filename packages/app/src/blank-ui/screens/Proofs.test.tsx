@@ -22,6 +22,7 @@ const useChainMock = vi.hoisted(() => vi.fn());
 const useQualificationProofMock = vi.hoisted(() => vi.fn());
 const toastSuccessMock = vi.hoisted(() => vi.fn());
 const toastErrorMock = vi.hoisted(() => vi.fn());
+const toastCallableMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/hooks/useEffectiveAddress", () => ({
   useEffectiveAddress: useEffectiveAddressMock,
@@ -32,9 +33,17 @@ vi.mock("@/providers/ChainProvider", () => ({
 vi.mock("@/hooks/useQualificationProof", () => ({
   useQualificationProof: useQualificationProofMock,
 }));
-vi.mock("react-hot-toast", () => ({
-  default: { success: toastSuccessMock, error: toastErrorMock },
-}));
+vi.mock("react-hot-toast", () => {
+  // react-hot-toast's default export is BOTH a callable function AND
+  // has static `.success` / `.error` methods. The bare-call form is
+  // the auto-publish "you'll sign 2 transactions" heads-up; the
+  // success / error forms cover the existing flows.
+  const fn = Object.assign(toastCallableMock, {
+    success: toastSuccessMock,
+    error: toastErrorMock,
+  });
+  return { default: fn };
+});
 
 import Proofs from "./Proofs";
 
@@ -94,6 +103,7 @@ beforeEach(() => {
   useQualificationProofMock.mockReset();
   toastSuccessMock.mockReset();
   toastErrorMock.mockReset();
+  toastCallableMock.mockReset();
 
   useEffectiveAddressMock.mockReturnValue({ effectiveAddress: ADDR });
   useChainMock.mockReturnValue({
@@ -620,6 +630,45 @@ describe("Proofs — auto-publish toggle (§15.x viral artifact)", () => {
     const { findByLabelText } = render(<Proofs />);
     const cb = (await findByLabelText("Auto-publish proof so the share link is verified immediately")) as HTMLInputElement;
     expect(cb.disabled).toBe(true);
+  });
+
+  it("auto-publish ON fires a 'you'll sign 2 transactions' heads-up toast BEFORE the first popup", async () => {
+    // Pins the §1.13 N3 fix: without this toast, the second MetaMask
+    // popup feels like a bug ('why is it asking me to sign again?').
+    // Toast must fire BEFORE createIncomeProof, not after — the user
+    // needs the expectation set during encryption, not after the first
+    // confirm has already happened.
+    createIncomeProofMock.mockResolvedValue(42n);
+    setHook();
+    const { findByLabelText, findByText } = render(<Proofs />);
+    const input = await findByLabelText("Income threshold in USD") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "1000" } });
+    const btn = await findByText("Create proof");
+    await act(async () => {
+      fireEvent.click(btn);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(toastCallableMock).toHaveBeenCalled();
+    const msg = toastCallableMock.mock.calls[0][0];
+    expect(msg).toContain("2 transactions");
+  });
+
+  it("auto-publish OFF: no heads-up toast (single-tx path)", async () => {
+    createIncomeProofMock.mockResolvedValue(42n);
+    setHook();
+    const { findByLabelText, findByText } = render(<Proofs />);
+    const cb = (await findByLabelText("Auto-publish proof so the share link is verified immediately")) as HTMLInputElement;
+    fireEvent.click(cb);
+    const input = await findByLabelText("Income threshold in USD") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "1000" } });
+    const btn = await findByText("Create proof");
+    await act(async () => {
+      fireEvent.click(btn);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(toastCallableMock).not.toHaveBeenCalled();
   });
 
   it("auto-publish ON + balance kind: publishProof still chains after createBalanceProof", async () => {

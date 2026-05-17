@@ -27,7 +27,10 @@ vi.mock("ethers", async (importOriginal) => {
 });
 
 vi.mock("../_lib/addresses.js", () => ({
-  CONTRACTS_BY_CHAIN: {},
+  CONTRACTS_BY_CHAIN: {
+    11155111: { PaymentReceipts: "0xE2087A39cEa3C77566DF15936c2750511f808148" },
+    84532: { PaymentReceipts: "0x23f0530e107cCF940093c238bbc97EbdAD6fAD7c" },
+  },
   RPC_URLS: { 11155111: "https://sepolia", 84532: "https://base-sepolia" },
 }));
 
@@ -68,6 +71,10 @@ const VERIFIED_TUPLE = [
 
 beforeEach(() => {
   getProofMock.mockReset();
+  // Default test origin so handler doesn't throw on missing env. Tests
+  // that need to verify the fallback chain (PUBLIC_APP_URL / header /
+  // throw) explicitly delete this before asserting.
+  process.env.VERCEL_URL = "blank.test";
 });
 
 afterEach(() => {
@@ -324,6 +331,19 @@ describe("site origin resolution", () => {
       res,
     );
     expect(res.body).toContain("http://localhost:3000/api/og/proof");
+  });
+
+  it("THROWS when no env URL is set AND no host header is present (fail-loud N5)", async () => {
+    // Locks the §1.13 N5 fix: rather than emit a fake "https://blank"
+    // og:image URL that would produce broken link previews on every
+    // share, the handler refuses and surfaces the misconfiguration on
+    // the first request.
+    delete process.env.VERCEL_URL;
+    delete process.env.PUBLIC_APP_URL;
+    getProofMock.mockResolvedValue(VERIFIED_TUPLE);
+    await expect(
+      handler(makeReq("?id=1&chain=11155111", {}), makeRes()),
+    ).rejects.toThrow(/siteOrigin/);
   });
 });
 

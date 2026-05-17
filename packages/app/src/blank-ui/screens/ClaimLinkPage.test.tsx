@@ -25,12 +25,16 @@ import { render, fireEvent, act, waitFor } from "@testing-library/react";
 const useParamsMock = vi.hoisted(() => vi.fn());
 const usePublicClientMock = vi.hoisted(() => vi.fn());
 const useClaimLinksMock = vi.hoisted(() => vi.fn());
+const useEffectiveAddressMock = vi.hoisted(() => vi.fn());
 const parseClaimUrlMock = vi.hoisted(() => vi.fn());
 const toastErrorMock = vi.hoisted(() => vi.fn());
 
 vi.mock("react-router-dom", () => ({ useParams: useParamsMock }));
 vi.mock("wagmi", () => ({ usePublicClient: usePublicClientMock }));
 vi.mock("@/hooks/useClaimLinks", () => ({ useClaimLinks: useClaimLinksMock }));
+vi.mock("@/hooks/useEffectiveAddress", () => ({
+  useEffectiveAddress: useEffectiveAddressMock,
+}));
 vi.mock("@/lib/claim-links", () => ({
   parseClaimUrl: parseClaimUrlMock,
   MODE: { Bearer: 0, EmailBound: 1, AddressBound: 2 },
@@ -117,10 +121,14 @@ beforeEach(() => {
   useParamsMock.mockReset();
   usePublicClientMock.mockReset();
   useClaimLinksMock.mockReset();
+  useEffectiveAddressMock.mockReset();
   parseClaimUrlMock.mockReset();
   toastErrorMock.mockReset();
 
   useParamsMock.mockReturnValue({ chainId: "11155111", linkId: "42" });
+  // Default: no connected wallet. Tests that need a specific viewer
+  // address (AddressBound wrong-wallet check) override per case.
+  useEffectiveAddressMock.mockReturnValue({ effectiveAddress: undefined });
 
   readContractMock = vi.fn().mockResolvedValue(buildOnChainTuple());
   usePublicClientMock.mockReturnValue({ readContract: readContractMock });

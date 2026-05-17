@@ -4,18 +4,7 @@
 // read + formatters here keeps them from drifting.
 
 import { ethers } from "ethers";
-import { RPC_URLS } from "./addresses.js";
-
-// PaymentReceipts deployments per chain. Mirrors packages/contracts/
-// deployments/*.json — the server bundler can't read the frontend's
-// constants.ts (it references import.meta.env). Operator env-var
-// override per chain matches the rest of api/_lib/addresses.ts.
-const PAYMENT_RECEIPTS_BY_CHAIN: Record<number, string> = {
-  11155111: process.env.BLANK_ETH_SEPOLIA_PAYMENT_RECEIPTS ||
-    "0xE2087A39cEa3C77566DF15936c2750511f808148",
-  84532: process.env.BLANK_BASE_SEPOLIA_PAYMENT_RECEIPTS ||
-    "0x23f0530e107cCF940093c238bbc97EbdAD6fAD7c",
-};
+import { CONTRACTS_BY_CHAIN, RPC_URLS } from "./addresses.js";
 
 // Minimal ABI — just getProof. Bypasses the full PaymentReceipts ABI's
 // tuple-encoded events so the function bundle stays small.
@@ -36,7 +25,7 @@ export async function readProof(
   proofId: bigint,
 ): Promise<ProofState | null> {
   const rpcUrl = RPC_URLS[chainId];
-  const receiptsAddr = PAYMENT_RECEIPTS_BY_CHAIN[chainId];
+  const receiptsAddr = CONTRACTS_BY_CHAIN[chainId]?.PaymentReceipts;
   if (!rpcUrl || !receiptsAddr) return null;
   try {
     const provider = new ethers.JsonRpcProvider(rpcUrl);
