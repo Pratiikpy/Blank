@@ -7,6 +7,7 @@ import { sepolia as cofheSepolia, baseSepolia as cofheBaseSepolia } from "@cofhe
 import {
   createPublicClient,
   createWalletClient,
+  encodePacked,
   http,
   keccak256,
   parseEther,
@@ -441,6 +442,160 @@ task(
       const msg = err instanceof Error ? err.message.slice(0, 200) : String(err);
       console.log(`  Alice→Bob: gift FAILED ${msg}`);
       results.push({ feature: "gift_send", persona: "Alice", status: "fail", error: msg });
+    }
+  }
+  console.log("");
+
+  // ─── 7. Escrow — Alice creates escrow with Bob as beneficiary ──
+  console.log("[Feature 7] Escrow — Alice creates escrow → Bob beneficiary, Carol arbiter");
+  const EncryptedEscrow = deployments.EncryptedEscrow;
+  if (!EncryptedEscrow || !cofheClient) {
+    results.push({ feature: "escrow_create", persona: "Alice", status: "skip", error: !EncryptedEscrow ? "EncryptedEscrow not deployed" : "cofhe client unavailable" });
+  } else {
+    try {
+      const aliceWallet = createWalletClient({
+        account: privateKeyToAccount(personas[0]!.privKey),
+        chain,
+        transport: http(rpcUrl),
+      });
+      // Approve EncryptedEscrow on the vault
+      const apHash = await aliceWallet.writeContract({
+        address: Vault as `0x${string}`,
+        abi: [
+          { name: "approvePlaintext", type: "function", stateMutability: "nonpayable", inputs: [{ name: "spender", type: "address" }, { name: "amount", type: "uint64" }], outputs: [] },
+        ],
+        functionName: "approvePlaintext",
+        args: [EncryptedEscrow as `0x${string}`, MAX_U64],
+      });
+      await publicClient.waitForTransactionReceipt({ hash: apHash, confirmations: 1 });
+
+      const [encEscrow] = (await cofheClient
+        .encryptInputs([Encryptable.uint64(parseUnits("2", 6))])
+        .execute()) as Array<{ ctHash: bigint; securityZone: number; utype: number; signature: Hex }>;
+
+      const escrowHash = await aliceWallet.writeContract({
+        address: EncryptedEscrow as `0x${string}`,
+        abi: [
+          {
+            name: "createEscrow",
+            type: "function",
+            stateMutability: "nonpayable",
+            inputs: [
+              { name: "beneficiary", type: "address" },
+              { name: "vault", type: "address" },
+              {
+                name: "encAmount",
+                type: "tuple",
+                components: [
+                  { name: "ctHash", type: "uint256" },
+                  { name: "securityZone", type: "uint8" },
+                  { name: "utype", type: "uint8" },
+                  { name: "signature", type: "bytes" },
+                ],
+              },
+              { name: "arbiter", type: "address" },
+              { name: "description", type: "string" },
+            ],
+            outputs: [{ name: "escrowId", type: "uint256" }],
+          },
+        ],
+        functionName: "createEscrow",
+        args: [personas[1]!.address, Vault as `0x${string}`, encEscrow, personas[2]!.address, "wave4 sweep escrow"],
+        gas: 5_000_000n,
+      });
+      await publicClient.waitForTransactionReceipt({ hash: escrowHash, confirmations: 1 });
+      console.log(`  Alice→Bob (arb=Carol): escrow ok  tx=${escrowHash}`);
+      results.push({ feature: "escrow_create", persona: "Alice", status: "pass", txHash: escrowHash });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message.slice(0, 250) : String(err);
+      console.log(`  Alice→Bob: escrow FAILED ${msg}`);
+      results.push({ feature: "escrow_create", persona: "Alice", status: "fail", error: msg });
+    }
+  }
+  console.log("");
+
+  // ─── 8. Claim link — Bob creates a bearer link ─────────────────
+  console.log("[Feature 8] Claim link — Bob creates a bearer link (5 USDC)");
+  const ClaimLinks = deployments.ClaimLinks;
+  if (!ClaimLinks || !cofheClient) {
+    results.push({ feature: "claim_link_create", persona: "Bob", status: "skip", error: !ClaimLinks ? "ClaimLinks not deployed" : "cofhe client unavailable" });
+  } else {
+    try {
+      const bobWallet = createWalletClient({
+        account: privateKeyToAccount(personas[1]!.privKey),
+        chain,
+        transport: http(rpcUrl),
+      });
+      const apHash = await bobWallet.writeContract({
+        address: Vault as `0x${string}`,
+        abi: [
+          { name: "approvePlaintext", type: "function", stateMutability: "nonpayable", inputs: [{ name: "spender", type: "address" }, { name: "amount", type: "uint64" }], outputs: [] },
+        ],
+        functionName: "approvePlaintext",
+        args: [ClaimLinks as `0x${string}`, MAX_U64],
+      });
+      await publicClient.waitForTransactionReceipt({ hash: apHash, confirmations: 1 });
+
+      const [encLink] = (await cofheClient
+        .encryptInputs([Encryptable.uint64(parseUnits("0.5", 6))])
+        .execute()) as Array<{ ctHash: bigint; securityZone: number; utype: number; signature: Hex }>;
+
+      // bearer secret + hash
+      const DOMAIN = keccak256(toBytes("BLANK_CLAIM_v1"));
+      const secretBytes = new Uint8Array(32);
+      // deterministic-ish secret so the run is reproducible by hash
+      const seedRaw = keccak256(toBytes(`wave4-sweep-claim-link-${Date.now()}`));
+      for (let i = 0; i < 32; i++) secretBytes[i] = parseInt(seedRaw.slice(2 + i * 2, 4 + i * 2), 16);
+      const secretHex = ("0x" + Array.from(secretBytes).map((b) => b.toString(16).padStart(2, "0")).join("")) as `0x${string}`;
+      const secretHash = keccak256(encodePacked(["bytes32", "uint8", "bytes32"], [DOMAIN, 0, secretHex]));
+
+      const linkHash = await bobWallet.writeContract({
+        address: ClaimLinks as `0x${string}`,
+        abi: [
+          {
+            name: "createLink",
+            type: "function",
+            stateMutability: "nonpayable",
+            inputs: [
+              { name: "vault", type: "address" },
+              {
+                name: "encAmount",
+                type: "tuple",
+                components: [
+                  { name: "ctHash", type: "uint256" },
+                  { name: "securityZone", type: "uint8" },
+                  { name: "utype", type: "uint8" },
+                  { name: "signature", type: "bytes" },
+                ],
+              },
+              { name: "secretHash", type: "bytes32" },
+              { name: "mode", type: "uint8" },
+              { name: "boundAddress", type: "address" },
+              { name: "expirySeconds", type: "uint256" },
+              { name: "note", type: "string" },
+            ],
+            outputs: [{ name: "linkId", type: "uint256" }],
+          },
+        ],
+        functionName: "createLink",
+        args: [
+          Vault as `0x${string}`,
+          encLink,
+          secretHash,
+          0, // BEARER mode
+          "0x0000000000000000000000000000000000000000",
+          0n,
+          "wave4 sweep claim link",
+        ],
+        gas: 5_000_000n,
+      });
+      await publicClient.waitForTransactionReceipt({ hash: linkHash, confirmations: 1 });
+      console.log(`  Bob: createLink ok  tx=${linkHash}`);
+      results.push({ feature: "claim_link_create", persona: "Bob", status: "pass", txHash: linkHash });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message.slice(0, 250) : String(err);
+      console.log(`  Bob: createLink FAILED ${msg}`);
+      results.push({ feature: "claim_link_create", persona: "Bob", status: "fail", error: msg });
     }
   }
   console.log("");
