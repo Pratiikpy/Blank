@@ -67,6 +67,13 @@ task("setup-receipts", "Wire PaymentHub / BusinessHub / GiftMoney / StealthPayme
       [
         "function setAuthorizedCaller(address,bool)",
         "function authorizedCallers(address) view returns (bool)",
+        // Vault whitelist for proveBalanceAbove (added in PaymentReceipts
+        // v0.1.6, /goal-session fix). Without this, a malicious user
+        // could deploy a fake vault that returns uint64.max and forge
+        // balance proofs. Whitelist must include every real
+        // FHERC20Vault_* address.
+        "function setAuthorizedVault(address,bool)",
+        "function authorizedVaults(address) view returns (bool)",
       ],
       deployer,
     );
@@ -241,6 +248,27 @@ task("setup-receipts", "Wire PaymentHub / BusinessHub / GiftMoney / StealthPayme
       } else {
         console.log(tag(`Setting paymentReceipts on ${hub.name}...`));
         const tx = await hub.contract.setPaymentReceipts(addresses.PaymentReceipts);
+        await tx.wait(2);
+        console.log("     ✓ tx:", tx.hash);
+      }
+    }
+
+    // Vault whitelist for proveBalanceAbove. Every deployed FHERC20Vault
+    // must be whitelisted or the frontend's qualification-proof flow
+    // reverts with "vault not authorized". List the vaults present in
+    // the deployments map.
+    const vaultsToWhitelist: { name: string; addr: string | undefined }[] = [
+      { name: "FHERC20Vault_USDC", addr: addresses.FHERC20Vault_USDC },
+      { name: "FHERC20Vault_USDT", addr: addresses.FHERC20Vault_USDT },
+    ];
+    for (const v of vaultsToWhitelist) {
+      if (!v.addr || v.addr === hre.ethers.ZeroAddress) continue;
+      const already = (await receipts.authorizedVaults(v.addr)) as boolean;
+      if (already) {
+        console.log(`  ${v.name} already whitelisted on PaymentReceipts ✓`);
+      } else {
+        console.log(`  Whitelisting ${v.name} on PaymentReceipts...`);
+        const tx = await receipts.setAuthorizedVault(v.addr, true);
         await tx.wait(2);
         console.log("     ✓ tx:", tx.hash);
       }
