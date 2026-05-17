@@ -47,7 +47,10 @@ export const PERSONAS: Record<string, WalletPersona> = {
   },
   Bob: {
     name: "Bob",
-    privKey: "77617665346263f626f625f70617373305f73656564000000000000000000b0b1",
+    // 64 hex chars = 32 bytes. Previous value was 65 chars (typo);
+    // _testImportPasskey rejected it on every Bob run. Clean
+    // ASCII-mnemonic-style seed with zero padding.
+    privKey: "77617665345f626f625f70617373305f73656564000000000000000000b0b1b2",
     passphrase: "wave4-bob-passphrase",
     label: "wave4-e2e-bob",
   },
@@ -64,7 +67,8 @@ export const PERSONAS: Record<string, WalletPersona> = {
   // marker so the suite knows Dave exists.
   Dave: {
     name: "Dave",
-    privKey: "7761766534646461766505f6d6d5f656f615f73656564000000000000000000d0",
+    // 64 hex chars (was 65). Same typo class as Bob.
+    privKey: "7761766534646176655f6d6d5f656f615f7365656400000000000000000000d0",
     passphrase: "wave4-dave-passphrase",
     label: "wave4-e2e-dave-mm",
     isMetaMask: true,

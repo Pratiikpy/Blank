@@ -62,24 +62,33 @@ export default function SmartWallet() {
   const [funding, setFunding] = useState(false);
 
   const refreshBalances = useCallback(async () => {
-    if (!publicClient || !account || !eoaAddress) return;
+    // Smart-wallet balance is independent of whether the user has an EOA
+    // connected. Passkey-only users still want to see their AA balance —
+    // the previous early-return-on-no-eoaAddress meant they saw "— USDC"
+    // forever after a faucet drip + relied on the Refresh button which
+    // had the same gate. Read EACH balance independently; skip the EOA
+    // read when no EOA is connected.
+    if (!publicClient || !account) return;
     try {
-      const [s, e] = await Promise.all([
-        publicClient.readContract({
-          address: contracts.TestUSDC,
-          abi: TestUSDCAbi,
-          functionName: "balanceOf",
-          args: [account.address],
-        }) as Promise<bigint>,
-        publicClient.readContract({
+      const s = (await publicClient.readContract({
+        address: contracts.TestUSDC,
+        abi: TestUSDCAbi,
+        functionName: "balanceOf",
+        args: [account.address],
+      })) as bigint;
+      setSmartUsdc(s);
+
+      if (eoaAddress) {
+        const e = (await publicClient.readContract({
           address: contracts.TestUSDC,
           abi: TestUSDCAbi,
           functionName: "balanceOf",
           args: [eoaAddress],
-        }) as Promise<bigint>,
-      ]);
-      setSmartUsdc(s);
-      setEoaUsdc(e);
+        })) as bigint;
+        setEoaUsdc(e);
+      } else {
+        setEoaUsdc(null);
+      }
     } catch (err) {
       log.warn("smartWallet.balanceRefresh.failed", err instanceof Error ? err : new Error(String(err)));
     }

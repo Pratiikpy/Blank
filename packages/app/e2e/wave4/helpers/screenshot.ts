@@ -1,6 +1,7 @@
 import type { Page } from "@playwright/test";
 import * as fs from "fs";
 import * as path from "path";
+import { fileURLToPath } from "url";
 
 // ──────────────────────────────────────────────────────────────────
 //  Wave 4 E2E screenshot helper.
@@ -14,8 +15,13 @@ import * as path from "path";
 //  WAVE4_TESTING_TODO.md back to the exact PNG via filename.
 // ──────────────────────────────────────────────────────────────────
 
+// On Windows, import.meta.url is `file:///C:/Users/...%20with%20spaces`.
+// Stripping just `file://` leaves a leading `/` plus URL-encoded chars,
+// which path.resolve then treats as cwd-relative — producing the famous
+// `C:\C:\...%20builder` double-drive-letter bug. fileURLToPath handles
+// both the leading slash AND the percent-decoding correctly.
 const SHOTS_DIR = path.resolve(
-  path.dirname(import.meta.url.replace(/^file:\/\//, "")),
+  path.dirname(fileURLToPath(import.meta.url)),
   "../../../test-results/wave4-shots",
 );
 

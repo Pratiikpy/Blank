@@ -1,5 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
+import { fileURLToPath } from "url";
 
 // ──────────────────────────────────────────────────────────────────
 //  Wave 4 E2E testing-todo writer.
@@ -16,8 +17,11 @@ import * as path from "path";
 //  top-to-bottom in the same order the suite runs.
 // ──────────────────────────────────────────────────────────────────
 
+// fileURLToPath handles the Windows `file:///C:/...%20space` shape correctly.
+// The previous `.replace(/^file:\/\//, "")` left a leading slash that caused
+// path.resolve to produce a `C:\C:\...` double-drive-letter path.
 const TODO_PATH = path.resolve(
-  path.dirname(import.meta.url.replace(/^file:\/\//, "")),
+  path.dirname(fileURLToPath(import.meta.url)),
   "../../../../../WAVE4_TESTING_TODO.md",
 );
 
