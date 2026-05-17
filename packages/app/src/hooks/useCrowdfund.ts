@@ -283,6 +283,67 @@ export function useCrowdfund() {
 
   const reset = useCallback(() => { setState(initial); pipeline.reset(); }, [pipeline]);
 
+  // §1.15 B4b — creator-side reads. Closes the audit B4 gap (no UI
+  // listed the creator's own campaigns + no way to navigate to them).
+  const fetchCreatorCampaigns = useCallback(
+    async (creator: `0x${string}`): Promise<bigint[]> => {
+      const cf = contracts.EncryptedCrowdfund as `0x${string}`;
+      if (!publicClient || !cf || cf === "0x0000000000000000000000000000000000000000") {
+        return [];
+      }
+      try {
+        const ids = (await publicClient.readContract({
+          address: cf,
+          abi: EncryptedCrowdfundAbi,
+          functionName: "getCreatorCampaigns",
+          args: [creator],
+        })) as readonly bigint[];
+        return [...ids];
+      } catch {
+        return [];
+      }
+    },
+    [publicClient, contracts.EncryptedCrowdfund],
+  );
+
+  const fetchCampaign = useCallback(
+    async (campaignId: bigint) => {
+      const cf = contracts.EncryptedCrowdfund as `0x${string}`;
+      if (!publicClient || !cf) return null;
+      try {
+        const result = (await publicClient.readContract({
+          address: cf,
+          abi: EncryptedCrowdfundAbi,
+          functionName: "getCampaign",
+          args: [campaignId],
+        })) as readonly [
+          `0x${string}`, `0x${string}`, bigint, number, boolean, boolean,
+          string, `0x${string}`, bigint,
+        ];
+        const [
+          creator, vault, deadline, status, goalMet, resultPublished,
+          title, descriptionCidHash, createdAt,
+        ] = result;
+        if (creator === "0x0000000000000000000000000000000000000000") return null;
+        return {
+          id: campaignId,
+          creator,
+          vault,
+          deadline,
+          status,
+          goalMet,
+          resultPublished,
+          title,
+          descriptionCidHash,
+          createdAt,
+        };
+      } catch {
+        return null;
+      }
+    },
+    [publicClient, contracts.EncryptedCrowdfund],
+  );
+
   // §3.12 of BEST_VERSION_FULL_PLAN: derived txExplorerUrl.
   const txExplorerUrl = state.txHash ? getExplorerTxUrl(state.txHash, activeChainId) : null;
 
@@ -296,6 +357,8 @@ export function useCrowdfund() {
     publishCloseResult,
     claimRelease,
     claimRefund,
+    fetchCreatorCampaigns,
+    fetchCampaign,
     reset,
   };
 }

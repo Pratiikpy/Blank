@@ -36,6 +36,7 @@ import { render, fireEvent, act } from "@testing-library/react";
 
 const useChainMock = vi.hoisted(() => vi.fn());
 const useClaimLinksMock = vi.hoisted(() => vi.fn());
+const useEffectiveAddressMock = vi.hoisted(() => vi.fn());
 const toastErrorMock = vi.hoisted(() => vi.fn());
 const toastSuccessMock = vi.hoisted(() => vi.fn());
 const isAddressMock = vi.hoisted(() => vi.fn());
@@ -43,8 +44,14 @@ const getEnsAddressMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/providers/ChainProvider", () => ({ useChain: useChainMock }));
 vi.mock("@/hooks/useClaimLinks", () => ({ useClaimLinks: useClaimLinksMock }));
+vi.mock("@/hooks/useEffectiveAddress", () => ({
+  useEffectiveAddress: useEffectiveAddressMock,
+}));
 vi.mock("@/lib/claim-links", () => ({
   MODE: { Bearer: 0, EmailBound: 1, AddressBound: 2 },
+  buildClaimUrl: vi.fn((args: { chainId: number; linkId: number | string; mode: number; secret: string }) =>
+    `https://test.app/claim/${args.chainId}/${args.linkId}#${args.mode}:${args.secret}`,
+  ),
 }));
 vi.mock("@/components/payment/FhePipelineProgress", () => ({
   FhePipelineProgress: (props: { state: { phase: string } }) => (
@@ -91,20 +98,30 @@ function setHook(overrides: Partial<{
     pipeline: { phase: overrides.pipelinePhase ?? "idle" },
     createLink: createLinkMock,
     reset: resetMock,
+    // §1.15 B3 — sent-links surface. Default mocks return empty so the
+    // "Your sent links" empty-state shows.
+    refund: vi.fn().mockResolvedValue(true),
+    fetchSentLinks: vi.fn().mockResolvedValue([]),
+    fetchLink: vi.fn().mockResolvedValue(null),
   });
 }
 
 beforeEach(() => {
   useChainMock.mockReset();
   useClaimLinksMock.mockReset();
+  useEffectiveAddressMock.mockReset();
   toastErrorMock.mockReset();
   toastSuccessMock.mockReset();
   isAddressMock.mockReset();
   getEnsAddressMock.mockReset();
 
   useChainMock.mockReturnValue({
-    contracts: { FHERC20Vault_USDC: VAULT_USDC },
+    contracts: { FHERC20Vault_USDC: VAULT_USDC, ClaimLinks: "0x0000000000000000000000000000000000000099" },
+    activeChainId: 11155111,
+    activeChain: { name: "Ethereum Sepolia", explorerUrl: "https://sepolia.etherscan.io" },
   });
+  // Default: no connected wallet -> "Your sent links" section hides.
+  useEffectiveAddressMock.mockReturnValue({ effectiveAddress: undefined });
 
   createLinkMock = vi.fn().mockResolvedValue(undefined);
   resetMock = vi.fn();

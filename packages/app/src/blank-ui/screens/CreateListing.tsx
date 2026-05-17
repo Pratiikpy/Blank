@@ -3,15 +3,30 @@
 // One-product page setup. Pick mode (Fixed / Auction / Pay-what-you-want),
 // fill the form, get a shareable /shop/:chain/:id URL.
 
-import { useState, useMemo } from "react";
-import { Tag, Gavel, HandCoins, Copy, Check, AlertCircle, ShoppingBag } from "lucide-react";
+import { useState, useMemo, useCallback, useEffect } from "react";
+import {
+  Tag, Gavel, HandCoins, Copy, Check, AlertCircle, ShoppingBag,
+  RefreshCw, Loader2, XCircle, ExternalLink,
+} from "lucide-react";
 import toast from "react-hot-toast";
 import { keccak256, stringToBytes } from "viem";
 
 import { useStorefront, SALE_MODE, type SaleMode } from "@/hooks/useStorefront";
 import { useChain } from "@/providers/ChainProvider";
+import { useEffectiveAddress } from "@/hooks/useEffectiveAddress";
 import { cn } from "@/lib/cn";
 import { FhePipelineProgress } from "@/components/payment/FhePipelineProgress";
+
+interface SellerListing {
+  id: bigint;
+  seller: `0x${string}`;
+  mode: number;
+  closesAt: bigint;
+  active: boolean;
+  closed: boolean;
+  title: string;
+  createdAt: bigint;
+}
 
 const AUCTION_DURATIONS: Array<{ label: string; seconds: number }> = [
   { label: "1 day", seconds: 86_400 },
@@ -21,7 +36,10 @@ const AUCTION_DURATIONS: Array<{ label: string; seconds: number }> = [
 
 export default function CreateListing() {
   const { contracts, activeChainId } = useChain();
-  const { state, pipeline, createListing, reset } = useStorefront();
+  const { effectiveAddress } = useEffectiveAddress();
+  const {
+    state, pipeline, createListing, deactivateListing, fetchSellerListings, fetchListing, reset,
+  } = useStorefront();
 
   const [mode, setMode] = useState<SaleMode>(SALE_MODE.FixedPrice);
   const [title, setTitle] = useState("");
@@ -76,6 +94,67 @@ export default function CreateListing() {
     await navigator.clipboard.writeText(shareUrl);
     toast.success("Link copied");
   };
+
+  // §1.15 B4a — seller's own listings list. Closes the audit B4 gap
+  // (deactivateListing was exposed by the hook but no UI surfaced it).
+  const [sellerListings, setSellerListings] = useState<SellerListing[]>([]);
+  const [loadingListings, setLoadingListings] = useState(false);
+  const [deactivatingId, setDeactivatingId] = useState<bigint | null>(null);
+
+  const refreshSellerListings = useCallback(async () => {
+    if (!effectiveAddress) return;
+    setLoadingListings(true);
+    try {
+      const ids = await fetchSellerListings(effectiveAddress as `0x${string}`);
+      const records = await Promise.all(ids.map((id) => fetchListing(id)));
+      const filtered = records
+        .filter((r): r is NonNullable<typeof r> => r !== null)
+        .map((r) => ({
+          id: r.id,
+          seller: r.seller,
+          mode: r.mode,
+          closesAt: r.closesAt,
+          active: r.active,
+          closed: r.closed,
+          title: r.title,
+          createdAt: r.createdAt,
+        }));
+      filtered.sort((a, b) => Number(b.createdAt - a.createdAt));
+      setSellerListings(filtered);
+    } finally {
+      setLoadingListings(false);
+    }
+  }, [effectiveAddress, fetchSellerListings, fetchListing]);
+
+  useEffect(() => {
+    refreshSellerListings();
+  }, [refreshSellerListings]);
+
+  useEffect(() => {
+    if (state.step === "success") refreshSellerListings();
+  }, [state.step, refreshSellerListings]);
+
+  const handleDeactivate = useCallback(
+    async (listingId: bigint) => {
+      setDeactivatingId(listingId);
+      try {
+        const ok = await deactivateListing(Number(listingId));
+        if (ok) await refreshSellerListings();
+      } finally {
+        setDeactivatingId(null);
+      }
+    },
+    [deactivateListing, refreshSellerListings],
+  );
+
+  const copyListingUrl = useCallback(
+    async (listingId: bigint) => {
+      const url = `${window.location.origin}/shop/${activeChainId}/${listingId.toString()}`;
+      await navigator.clipboard.writeText(url);
+      toast.success("Listing URL copied");
+    },
+    [activeChainId],
+  );
 
   // ─── Success ─────────────────────────────────────────────────
   if (state.step === "success" && shareUrl) {
@@ -223,6 +302,108 @@ export default function CreateListing() {
           {state.isProcessing ? "Creating…" : "Create listing"}
         </button>
       </div>
+
+      {/* §1.15 B4a — Your listings. Lets the seller copy the public
+          URL or deactivate their own listings. */}
+      {effectiveAddress && (
+        <div className="glass-card-static rounded-[2rem] p-6 sm:p-8 mt-6">
+          <div className="flex items-center justify-between mb-5">
+            <div>
+              <h2 className="text-lg font-heading font-semibold">Your listings</h2>
+              <p className="text-xs text-[var(--text-secondary)] mt-0.5">
+                Copy the public URL or deactivate listings you've created.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={refreshSellerListings}
+              disabled={loadingListings}
+              className="h-9 px-3 rounded-lg bg-black/[0.04] hover:bg-black/[0.07] dark:bg-white/[0.05] dark:hover:bg-white/[0.08] text-[var(--text-secondary)] text-xs flex items-center gap-1.5 disabled:opacity-50"
+              aria-label="Refresh your listings"
+            >
+              <RefreshCw size={11} className={loadingListings ? "animate-spin" : ""} />
+              Refresh
+            </button>
+          </div>
+
+          {loadingListings && sellerListings.length === 0 ? (
+            <div className="text-center py-6 text-[var(--text-secondary)] text-sm">
+              <Loader2 size={20} className="animate-spin inline mr-2 opacity-60" />
+              Loading…
+            </div>
+          ) : sellerListings.length === 0 ? (
+            <div className="text-center py-8 text-[var(--text-tertiary)] text-sm">
+              <ShoppingBag size={28} className="mx-auto mb-2 opacity-30" />
+              <p>You haven't created any listings yet.</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {sellerListings.map((listing) => {
+                const stateLabel = !listing.active
+                  ? "deactivated"
+                  : listing.closed
+                    ? "closed"
+                    : listing.mode === SALE_MODE.Auction && Number(listing.closesAt) * 1000 < Date.now()
+                      ? "needs close"
+                      : "active";
+                const stateColor =
+                  stateLabel === "active"
+                    ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300"
+                    : stateLabel === "deactivated"
+                      ? "bg-slate-100 text-slate-700 dark:bg-slate-500/10 dark:text-slate-300"
+                      : stateLabel === "closed"
+                        ? "bg-blue-50 text-blue-700 dark:bg-blue-500/10 dark:text-blue-300"
+                        : "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300";
+                const canDeactivate = listing.active && !listing.closed;
+                return (
+                  <div
+                    key={listing.id.toString()}
+                    className="rounded-2xl bg-white/50 dark:bg-white/[0.03] border border-black/5 dark:border-white/5 p-4 flex items-start justify-between gap-3"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="font-mono text-xs text-[var(--text-tertiary)]">
+                          #{listing.id.toString()}
+                        </span>
+                        <span className={cn("px-2 py-0.5 rounded-full text-[10px] font-medium uppercase tracking-wide", stateColor)}>
+                          {stateLabel}
+                        </span>
+                      </div>
+                      <p className="text-sm text-[var(--text-primary)] truncate">{listing.title}</p>
+                    </div>
+                    <div className="flex flex-col gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => copyListingUrl(listing.id)}
+                        className="h-8 px-3 rounded-lg bg-black/[0.04] hover:bg-black/[0.07] dark:bg-white/[0.05] dark:hover:bg-white/[0.08] text-[var(--text-secondary)] text-[11px] flex items-center gap-1.5"
+                        aria-label={`Copy URL for listing ${listing.id}`}
+                      >
+                        <Copy size={10} /> Copy
+                      </button>
+                      {canDeactivate && (
+                        <button
+                          type="button"
+                          onClick={() => handleDeactivate(listing.id)}
+                          disabled={deactivatingId === listing.id}
+                          className="h-8 px-3 rounded-lg bg-[#1D1D1F] hover:bg-black text-white text-[11px] flex items-center gap-1.5 disabled:opacity-50"
+                          aria-label={`Deactivate listing ${listing.id}`}
+                        >
+                          {deactivatingId === listing.id ? (
+                            <Loader2 size={10} className="animate-spin" />
+                          ) : (
+                            <XCircle size={10} />
+                          )}
+                          Deactivate
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

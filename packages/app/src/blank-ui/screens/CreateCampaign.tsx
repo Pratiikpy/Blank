@@ -1,14 +1,32 @@
 // Wave 4 task #257 — Create Campaign screen.
 
-import { useState, useMemo } from "react";
-import { Megaphone, Copy, Check, AlertCircle } from "lucide-react";
+import { useState, useMemo, useCallback, useEffect } from "react";
+import {
+  Megaphone, Copy, Check, AlertCircle, RefreshCw, Loader2, Clock, CheckCircle2, XCircle,
+} from "lucide-react";
 import toast from "react-hot-toast";
 import { keccak256, stringToBytes } from "viem";
 
 import { useCrowdfund } from "@/hooks/useCrowdfund";
 import { useChain } from "@/providers/ChainProvider";
+import { useEffectiveAddress } from "@/hooks/useEffectiveAddress";
 import { cn } from "@/lib/cn";
 import { FhePipelineProgress } from "@/components/payment/FhePipelineProgress";
+
+const STATUS_OPEN = 0;
+const STATUS_CLOSED = 1;
+const STATUS_RELEASED = 2;
+const STATUS_REFUNDING = 3;
+
+interface CreatorCampaign {
+  id: bigint;
+  deadline: bigint;
+  status: number;
+  goalMet: boolean;
+  resultPublished: boolean;
+  title: string;
+  createdAt: bigint;
+}
 
 const DURATIONS: Array<{ label: string; seconds: number }> = [
   { label: "1 day", seconds: 86_400 },
@@ -18,7 +36,10 @@ const DURATIONS: Array<{ label: string; seconds: number }> = [
 
 export default function CreateCampaign() {
   const { contracts, activeChainId } = useChain();
-  const { state, pipeline, createCampaign, reset } = useCrowdfund();
+  const { effectiveAddress } = useEffectiveAddress();
+  const {
+    state, pipeline, createCampaign, closeCampaign, fetchCreatorCampaigns, fetchCampaign, reset,
+  } = useCrowdfund();
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -54,6 +75,65 @@ export default function CreateCampaign() {
     await navigator.clipboard.writeText(shareUrl);
     toast.success("Link copied");
   };
+
+  // §1.15 B4b — creator's own campaigns list + close action.
+  const [creatorCampaigns, setCreatorCampaigns] = useState<CreatorCampaign[]>([]);
+  const [loadingCampaigns, setLoadingCampaigns] = useState(false);
+  const [closingId, setClosingId] = useState<bigint | null>(null);
+
+  const refreshCreatorCampaigns = useCallback(async () => {
+    if (!effectiveAddress) return;
+    setLoadingCampaigns(true);
+    try {
+      const ids = await fetchCreatorCampaigns(effectiveAddress as `0x${string}`);
+      const records = await Promise.all(ids.map((id) => fetchCampaign(id)));
+      const filtered = records
+        .filter((r): r is NonNullable<typeof r> => r !== null)
+        .map((r) => ({
+          id: r.id,
+          deadline: r.deadline,
+          status: r.status,
+          goalMet: r.goalMet,
+          resultPublished: r.resultPublished,
+          title: r.title,
+          createdAt: r.createdAt,
+        }));
+      filtered.sort((a, b) => Number(b.createdAt - a.createdAt));
+      setCreatorCampaigns(filtered);
+    } finally {
+      setLoadingCampaigns(false);
+    }
+  }, [effectiveAddress, fetchCreatorCampaigns, fetchCampaign]);
+
+  useEffect(() => {
+    refreshCreatorCampaigns();
+  }, [refreshCreatorCampaigns]);
+
+  useEffect(() => {
+    if (state.step === "success") refreshCreatorCampaigns();
+  }, [state.step, refreshCreatorCampaigns]);
+
+  const handleClose = useCallback(
+    async (campaignId: bigint) => {
+      setClosingId(campaignId);
+      try {
+        const ok = await closeCampaign(Number(campaignId));
+        if (ok) await refreshCreatorCampaigns();
+      } finally {
+        setClosingId(null);
+      }
+    },
+    [closeCampaign, refreshCreatorCampaigns],
+  );
+
+  const copyCampaignUrl = useCallback(
+    async (campaignId: bigint) => {
+      const url = `${window.location.origin}/fund/${activeChainId}/${campaignId.toString()}`;
+      await navigator.clipboard.writeText(url);
+      toast.success("Campaign URL copied");
+    },
+    [activeChainId],
+  );
 
   if (state.step === "success" && shareUrl) {
     return (
@@ -158,6 +238,119 @@ export default function CreateCampaign() {
           {state.isProcessing ? "Creating…" : "Launch campaign"}
         </button>
       </div>
+
+      {/* §1.15 B4b — Your campaigns. */}
+      {effectiveAddress && (
+        <div className="glass-card-static rounded-[2rem] p-6 sm:p-8 mt-6">
+          <div className="flex items-center justify-between mb-5">
+            <div>
+              <h2 className="text-lg font-heading font-semibold">Your campaigns</h2>
+              <p className="text-xs text-[var(--text-secondary)] mt-0.5">
+                Copy the public URL or close a campaign past its deadline.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={refreshCreatorCampaigns}
+              disabled={loadingCampaigns}
+              className="h-9 px-3 rounded-lg bg-black/[0.04] hover:bg-black/[0.07] dark:bg-white/[0.05] dark:hover:bg-white/[0.08] text-[var(--text-secondary)] text-xs flex items-center gap-1.5 disabled:opacity-50"
+              aria-label="Refresh your campaigns"
+            >
+              <RefreshCw size={11} className={loadingCampaigns ? "animate-spin" : ""} />
+              Refresh
+            </button>
+          </div>
+
+          {loadingCampaigns && creatorCampaigns.length === 0 ? (
+            <div className="text-center py-6 text-[var(--text-secondary)] text-sm">
+              <Loader2 size={20} className="animate-spin inline mr-2 opacity-60" />
+              Loading…
+            </div>
+          ) : creatorCampaigns.length === 0 ? (
+            <div className="text-center py-8 text-[var(--text-tertiary)] text-sm">
+              <Megaphone size={28} className="mx-auto mb-2 opacity-30" />
+              <p>You haven't launched any campaigns yet.</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {creatorCampaigns.map((c) => {
+                const past = Number(c.deadline) * 1000 < Date.now();
+                const phase =
+                  c.status === STATUS_RELEASED || (c.resultPublished && c.goalMet)
+                    ? "released"
+                    : c.status === STATUS_REFUNDING || (c.resultPublished && !c.goalMet)
+                      ? "refunding"
+                      : c.status === STATUS_CLOSED && !c.resultPublished
+                        ? "awaiting"
+                        : past
+                          ? "needs close"
+                          : "open";
+                const phaseIcon = {
+                  open: <Clock size={10} />,
+                  "needs close": <Clock size={10} />,
+                  awaiting: <Clock size={10} />,
+                  released: <CheckCircle2 size={10} />,
+                  refunding: <XCircle size={10} />,
+                }[phase];
+                const phaseColor = {
+                  open: "bg-blue-50 text-blue-700 dark:bg-blue-500/10 dark:text-blue-300",
+                  "needs close": "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300",
+                  awaiting: "bg-purple-50 text-purple-700 dark:bg-purple-500/10 dark:text-purple-300",
+                  released: "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300",
+                  refunding: "bg-slate-100 text-slate-700 dark:bg-slate-500/10 dark:text-slate-300",
+                }[phase];
+                return (
+                  <div
+                    key={c.id.toString()}
+                    className="rounded-2xl bg-white/50 dark:bg-white/[0.03] border border-black/5 dark:border-white/5 p-4 flex items-start justify-between gap-3"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="font-mono text-xs text-[var(--text-tertiary)]">
+                          #{c.id.toString()}
+                        </span>
+                        <span className={cn("px-2 py-0.5 rounded-full text-[10px] font-medium uppercase tracking-wide flex items-center gap-1", phaseColor)}>
+                          {phaseIcon} {phase}
+                        </span>
+                      </div>
+                      <p className="text-sm text-[var(--text-primary)] truncate">{c.title}</p>
+                      <p className="text-[11px] text-[var(--text-tertiary)] mt-0.5">
+                        Deadline {new Date(Number(c.deadline) * 1000).toLocaleDateString()}
+                      </p>
+                    </div>
+                    <div className="flex flex-col gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => copyCampaignUrl(c.id)}
+                        className="h-8 px-3 rounded-lg bg-black/[0.04] hover:bg-black/[0.07] dark:bg-white/[0.05] dark:hover:bg-white/[0.08] text-[var(--text-secondary)] text-[11px] flex items-center gap-1.5"
+                        aria-label={`Copy URL for campaign ${c.id}`}
+                      >
+                        <Copy size={10} /> Copy
+                      </button>
+                      {phase === "needs close" && (
+                        <button
+                          type="button"
+                          onClick={() => handleClose(c.id)}
+                          disabled={closingId === c.id}
+                          className="h-8 px-3 rounded-lg bg-[#1D1D1F] hover:bg-black text-white text-[11px] flex items-center gap-1.5 disabled:opacity-50"
+                          aria-label={`Close campaign ${c.id}`}
+                        >
+                          {closingId === c.id ? (
+                            <Loader2 size={10} className="animate-spin" />
+                          ) : (
+                            <Clock size={10} />
+                          )}
+                          Close
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

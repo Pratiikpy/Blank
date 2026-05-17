@@ -1,11 +1,12 @@
-import { useState, useMemo, useEffect } from "react";
-import { Link2, Mail, AtSign, Lock, Copy, Check, AlertCircle, Loader2 } from "lucide-react";
+import { useState, useMemo, useEffect, useCallback } from "react";
+import { Link2, Mail, AtSign, Lock, Copy, Check, AlertCircle, Loader2, RefreshCw, ExternalLink, RotateCcw } from "lucide-react";
 import toast from "react-hot-toast";
 import { isAddress, type Address } from "viem";
 
 import { useClaimLinks, type CreateLinkInput } from "@/hooks/useClaimLinks";
 import { useChain } from "@/providers/ChainProvider";
-import { MODE, type LinkMode } from "@/lib/claim-links";
+import { useEffectiveAddress } from "@/hooks/useEffectiveAddress";
+import { MODE, type LinkMode, buildClaimUrl } from "@/lib/claim-links";
 import { cn } from "@/lib/cn";
 import { FhePipelineProgress } from "@/components/payment/FhePipelineProgress";
 import { ensClient } from "@/lib/ens-client";
@@ -17,9 +18,35 @@ const EXPIRY_OPTIONS: Array<{ label: string; seconds: number }> = [
   { label: "30 days", seconds: 30 * 86_400 },
 ];
 
+// On-chain link record used by the "Your sent links" section.
+interface SentLinkRecord {
+  id: bigint;
+  sender: `0x${string}`;
+  vault: `0x${string}`;
+  mode: number;
+  boundAddress: `0x${string}`;
+  createdAt: bigint;
+  expiryTimestamp: bigint;
+  claimed: boolean;
+  refunded: boolean;
+  note: string;
+  claimer: `0x${string}`;
+  claimedAt: bigint;
+}
+
+type SentLinkStatus = "claimable" | "claimed" | "refunded" | "expired";
+
+function deriveStatus(record: SentLinkRecord): SentLinkStatus {
+  if (record.claimed) return "claimed";
+  if (record.refunded) return "refunded";
+  if (Number(record.expiryTimestamp) * 1000 < Date.now()) return "expired";
+  return "claimable";
+}
+
 export default function CreateClaimLink() {
-  const { contracts } = useChain();
-  const { state, pipeline, createLink, reset } = useClaimLinks();
+  const { contracts, activeChainId, activeChain } = useChain();
+  const { effectiveAddress } = useEffectiveAddress();
+  const { state, pipeline, createLink, refund, fetchSentLinks, fetchLink, reset } = useClaimLinks();
 
   const [mode, setMode] = useState<LinkMode>(MODE.EmailBound);
   const [amount, setAmount] = useState("");
@@ -154,6 +181,63 @@ export default function CreateClaimLink() {
     await navigator.clipboard.writeText(state.shareableUrl);
     toast.success("Link copied");
   };
+
+  // §1.15 B3 — "Your sent links" section. Fetches the user's sent
+  // linkIds from the contract + reads each link's state in parallel.
+  // Refreshes after a successful create + on the user's demand.
+  const [sentLinks, setSentLinks] = useState<SentLinkRecord[]>([]);
+  const [loadingSent, setLoadingSent] = useState(false);
+  const [refundingId, setRefundingId] = useState<bigint | null>(null);
+
+  const refreshSentLinks = useCallback(async () => {
+    if (!effectiveAddress) return;
+    setLoadingSent(true);
+    try {
+      const ids = await fetchSentLinks(effectiveAddress as `0x${string}`);
+      const records = await Promise.all(ids.map((id) => fetchLink(id)));
+      const filtered = records.filter((r): r is SentLinkRecord => r !== null);
+      // Newest first.
+      filtered.sort((a, b) => Number(b.createdAt - a.createdAt));
+      setSentLinks(filtered);
+    } finally {
+      setLoadingSent(false);
+    }
+  }, [effectiveAddress, fetchSentLinks, fetchLink]);
+
+  useEffect(() => {
+    refreshSentLinks();
+  }, [refreshSentLinks]);
+
+  // Refresh after a successful create so the new link appears in the list.
+  useEffect(() => {
+    if (state.step === "success") refreshSentLinks();
+  }, [state.step, refreshSentLinks]);
+
+  const handleRefund = useCallback(
+    async (linkId: bigint) => {
+      setRefundingId(linkId);
+      try {
+        const ok = await refund(Number(linkId));
+        if (ok) await refreshSentLinks();
+      } finally {
+        setRefundingId(null);
+      }
+    },
+    [refund, refreshSentLinks],
+  );
+
+  const copySentLink = useCallback(
+    async (linkId: bigint) => {
+      // The full claim URL needs the secret in the URL fragment, which
+      // only existed at create time (we don't store it). The sender can
+      // still find their original link in their browser/email/etc; this
+      // button copies the explorer URL as a fallback identifier.
+      const explorerUrl = `${activeChain.explorerUrl}/address/${contracts.ClaimLinks}`;
+      await navigator.clipboard.writeText(`Link #${linkId.toString()} on ${activeChain.name}: ${explorerUrl}`);
+      toast.success("Link identifier copied");
+    },
+    [activeChain, contracts.ClaimLinks],
+  );
 
   // ─── Success screen ───────────────────────────────────────────────
   if (state.step === "success" && state.shareableUrl) {
@@ -351,6 +435,117 @@ export default function CreateClaimLink() {
           {state.isProcessing ? "Creating…" : "Create link"}
         </button>
       </div>
+
+      {/* §1.15 B3 — Your sent links. Closes the "you can refund from
+          the Claim Links tab" promise that previously pointed at a
+          non-existent tab. Sender can refund any of their own links
+          that haven't been claimed yet. */}
+      {effectiveAddress && (
+        <div className="glass-card-static rounded-[2rem] p-6 sm:p-8 mt-6">
+          <div className="flex items-center justify-between mb-5">
+            <div>
+              <h2 className="text-lg font-heading font-semibold">Your sent links</h2>
+              <p className="text-xs text-[var(--text-secondary)] mt-0.5">
+                Refund any link you've sent. Once claimed, the amount is locked with the recipient.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={refreshSentLinks}
+              disabled={loadingSent}
+              className="h-9 px-3 rounded-lg bg-black/[0.04] hover:bg-black/[0.07] dark:bg-white/[0.05] dark:hover:bg-white/[0.08] text-[var(--text-secondary)] text-xs flex items-center gap-1.5 disabled:opacity-50"
+              aria-label="Refresh sent links"
+            >
+              <RefreshCw size={11} className={loadingSent ? "animate-spin" : ""} />
+              Refresh
+            </button>
+          </div>
+
+          {loadingSent && sentLinks.length === 0 ? (
+            <div className="text-center py-6 text-[var(--text-secondary)] text-sm">
+              <Loader2 size={20} className="animate-spin inline mr-2 opacity-60" />
+              Loading sent links…
+            </div>
+          ) : sentLinks.length === 0 ? (
+            <div className="text-center py-8 text-[var(--text-tertiary)] text-sm">
+              <Link2 size={28} className="mx-auto mb-2 opacity-30" />
+              <p>You haven't sent any links yet.</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {sentLinks.map((link) => {
+                const status = deriveStatus(link);
+                const statusColor =
+                  status === "claimable"
+                    ? "bg-blue-50 text-blue-700 dark:bg-blue-500/10 dark:text-blue-300"
+                    : status === "claimed"
+                      ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300"
+                      : status === "refunded"
+                        ? "bg-slate-100 text-slate-700 dark:bg-slate-500/10 dark:text-slate-300"
+                        : "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300";
+                // The contract requires `block.timestamp >= expiryTimestamp`
+                // for refundLink; only show the Refund CTA on expired
+                // links. Claimable links can't be cancel-refunded early
+                // (audit A14 flagged this; "cancel" is a follow-up
+                // contract change, not in scope here).
+                const canRefund = status === "expired";
+                return (
+                  <div
+                    key={link.id.toString()}
+                    className="rounded-2xl bg-white/50 dark:bg-white/[0.03] border border-black/5 dark:border-white/5 p-4 flex items-start justify-between gap-3"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="font-mono text-xs text-[var(--text-tertiary)]">
+                          #{link.id.toString()}
+                        </span>
+                        <span className={cn("px-2 py-0.5 rounded-full text-[10px] font-medium uppercase tracking-wide", statusColor)}>
+                          {status}
+                        </span>
+                      </div>
+                      {link.note && (
+                        <p className="text-sm text-[var(--text-primary)] mb-1 truncate">{link.note}</p>
+                      )}
+                      <p className="text-[11px] text-[var(--text-tertiary)]">
+                        Expires {new Date(Number(link.expiryTimestamp) * 1000).toLocaleDateString()}
+                        {status === "claimed" && link.claimer !== "0x0000000000000000000000000000000000000000" && (
+                          <> · claimed by <span className="font-mono">{link.claimer.slice(0, 6)}…{link.claimer.slice(-4)}</span></>
+                        )}
+                      </p>
+                    </div>
+                    <div className="flex flex-col gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => copySentLink(link.id)}
+                        className="h-8 px-3 rounded-lg bg-black/[0.04] hover:bg-black/[0.07] dark:bg-white/[0.05] dark:hover:bg-white/[0.08] text-[var(--text-secondary)] text-[11px] flex items-center gap-1.5"
+                        aria-label={`Copy link ${link.id}`}
+                      >
+                        <Copy size={10} /> Copy
+                      </button>
+                      {canRefund && (
+                        <button
+                          type="button"
+                          onClick={() => handleRefund(link.id)}
+                          disabled={refundingId === link.id}
+                          className="h-8 px-3 rounded-lg bg-[#1D1D1F] hover:bg-black text-white text-[11px] flex items-center gap-1.5 disabled:opacity-50"
+                          aria-label={`Refund link ${link.id}`}
+                        >
+                          {refundingId === link.id ? (
+                            <Loader2 size={10} className="animate-spin" />
+                          ) : (
+                            <RotateCcw size={10} />
+                          )}
+                          Refund
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

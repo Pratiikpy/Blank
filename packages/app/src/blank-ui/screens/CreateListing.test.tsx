@@ -29,6 +29,7 @@ import { render, fireEvent, act } from "@testing-library/react";
 
 const useChainMock = vi.hoisted(() => vi.fn());
 const useStorefrontMock = vi.hoisted(() => vi.fn());
+const useEffectiveAddressMock = vi.hoisted(() => vi.fn());
 const toastErrorMock = vi.hoisted(() => vi.fn());
 const toastSuccessMock = vi.hoisted(() => vi.fn());
 
@@ -36,6 +37,9 @@ vi.mock("@/providers/ChainProvider", () => ({ useChain: useChainMock }));
 vi.mock("@/hooks/useStorefront", () => ({
   useStorefront: useStorefrontMock,
   SALE_MODE: { FixedPrice: 0, Auction: 1, PayWhatYouWant: 2 },
+}));
+vi.mock("@/hooks/useEffectiveAddress", () => ({
+  useEffectiveAddress: useEffectiveAddressMock,
 }));
 vi.mock("@/components/payment/FhePipelineProgress", () => ({
   FhePipelineProgress: (props: { state: { phase: string } }) => (
@@ -71,12 +75,17 @@ function setHook(overrides: Partial<{
     pipeline: { phase: overrides.pipelinePhase ?? "idle" },
     createListing: createListingMock,
     reset: resetMock,
+    // §1.15 B4a — seller-side surface defaults to empty.
+    deactivateListing: vi.fn().mockResolvedValue(true),
+    fetchSellerListings: vi.fn().mockResolvedValue([]),
+    fetchListing: vi.fn().mockResolvedValue(null),
   });
 }
 
 beforeEach(() => {
   useChainMock.mockReset();
   useStorefrontMock.mockReset();
+  useEffectiveAddressMock.mockReset();
   toastErrorMock.mockReset();
   toastSuccessMock.mockReset();
 
@@ -84,6 +93,7 @@ beforeEach(() => {
     contracts: { FHERC20Vault_USDC: VAULT_USDC },
     activeChainId: 11155111,
   });
+  useEffectiveAddressMock.mockReturnValue({ effectiveAddress: undefined });
 
   createListingMock = vi.fn().mockResolvedValue(undefined);
   resetMock = vi.fn();

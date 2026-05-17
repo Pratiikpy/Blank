@@ -345,8 +345,86 @@ export function useClaimLinks() {
     pipeline.reset();
   }, [pipeline]);
 
+  // §1.15 B3 — sender-side reads. Closes the "you can refund from the
+  // Claim Links tab" promise at CreateClaimLink.tsx:92 that previously
+  // pointed at a tab that didn't exist. Returns the user's sent linkIds
+  // (cheap call: just reads _sentLinks[user]).
+  const fetchSentLinks = useCallback(
+    async (user: `0x${string}`): Promise<bigint[]> => {
+      const claimLinksAddress = contracts.ClaimLinks as `0x${string}`;
+      if (!publicClient || !claimLinksAddress || claimLinksAddress === "0x0000000000000000000000000000000000000000") {
+        return [];
+      }
+      try {
+        const ids = (await publicClient.readContract({
+          address: claimLinksAddress,
+          abi: ClaimLinksAbi,
+          functionName: "getSentLinks",
+          args: [user],
+        })) as readonly bigint[];
+        return [...ids];
+      } catch {
+        return [];
+      }
+    },
+    [publicClient, contracts.ClaimLinks],
+  );
+
+  /** Read a single link's on-chain state. Returns null on miss. */
+  const fetchLink = useCallback(
+    async (linkId: bigint) => {
+      const claimLinksAddress = contracts.ClaimLinks as `0x${string}`;
+      if (!publicClient || !claimLinksAddress || claimLinksAddress === "0x0000000000000000000000000000000000000000") {
+        return null;
+      }
+      try {
+        const result = (await publicClient.readContract({
+          address: claimLinksAddress,
+          abi: ClaimLinksAbi,
+          functionName: "getLink",
+          args: [linkId],
+        })) as readonly [
+          `0x${string}`, `0x${string}`, number, `0x${string}`, bigint, bigint,
+          boolean, boolean, string, `0x${string}`, bigint,
+        ];
+        const [
+          sender, vault, mode, boundAddress, createdAt, expiryTimestamp,
+          claimed, refunded, note, claimer, claimedAt,
+        ] = result;
+        if (sender === "0x0000000000000000000000000000000000000000") return null;
+        return {
+          id: linkId,
+          sender,
+          vault,
+          mode,
+          boundAddress,
+          createdAt,
+          expiryTimestamp,
+          claimed,
+          refunded,
+          note,
+          claimer,
+          claimedAt,
+        };
+      } catch {
+        return null;
+      }
+    },
+    [publicClient, contracts.ClaimLinks],
+  );
+
   // §3.12 of BEST_VERSION_FULL_PLAN: derived txExplorerUrl.
   const txExplorerUrl = state.txHash ? getExplorerTxUrl(state.txHash, activeChainId) : null;
 
-  return { state, txExplorerUrl, pipeline: pipeline.state, createLink, claim, refund, reset };
+  return {
+    state,
+    txExplorerUrl,
+    pipeline: pipeline.state,
+    createLink,
+    claim,
+    refund,
+    fetchSentLinks,
+    fetchLink,
+    reset,
+  };
 }

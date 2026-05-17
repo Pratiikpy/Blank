@@ -29,11 +29,15 @@ import { render, fireEvent, act } from "@testing-library/react";
 
 const useChainMock = vi.hoisted(() => vi.fn());
 const useCrowdfundMock = vi.hoisted(() => vi.fn());
+const useEffectiveAddressMock = vi.hoisted(() => vi.fn());
 const toastErrorMock = vi.hoisted(() => vi.fn());
 const toastSuccessMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/providers/ChainProvider", () => ({ useChain: useChainMock }));
 vi.mock("@/hooks/useCrowdfund", () => ({ useCrowdfund: useCrowdfundMock }));
+vi.mock("@/hooks/useEffectiveAddress", () => ({
+  useEffectiveAddress: useEffectiveAddressMock,
+}));
 vi.mock("@/components/payment/FhePipelineProgress", () => ({
   FhePipelineProgress: (props: { state: { phase: string } }) => (
     <div data-testid="fhe-pipeline-progress" data-phase={props.state.phase} />
@@ -67,6 +71,10 @@ function setHook(overrides: Partial<{
     },
     pipeline: { phase: overrides.pipelinePhase ?? "idle" },
     createCampaign: createCampaignMock,
+    // §1.15 B4b — creator-side surface defaults to empty.
+    closeCampaign: vi.fn().mockResolvedValue(true),
+    fetchCreatorCampaigns: vi.fn().mockResolvedValue([]),
+    fetchCampaign: vi.fn().mockResolvedValue(null),
     reset: resetMock,
   });
 }
@@ -74,6 +82,7 @@ function setHook(overrides: Partial<{
 beforeEach(() => {
   useChainMock.mockReset();
   useCrowdfundMock.mockReset();
+  useEffectiveAddressMock.mockReset();
   toastErrorMock.mockReset();
   toastSuccessMock.mockReset();
 
@@ -81,6 +90,7 @@ beforeEach(() => {
     contracts: { FHERC20Vault_USDC: VAULT_USDC },
     activeChainId: 11155111,
   });
+  useEffectiveAddressMock.mockReturnValue({ effectiveAddress: undefined });
 
   createCampaignMock = vi.fn().mockResolvedValue(undefined);
   resetMock = vi.fn();

@@ -483,6 +483,69 @@ export function useStorefront() {
   // it directly without having to know the chain → explorer mapping.
   const txExplorerUrl = state.txHash ? getExplorerTxUrl(state.txHash, activeChainId) : null;
 
+  // §1.15 B4a — seller-side reads. Closes the "no UI to deactivate
+  // your own listings" gap (audit B4).
+  const fetchSellerListings = useCallback(
+    async (seller: `0x${string}`): Promise<bigint[]> => {
+      const sfAddr = contracts.Storefront as `0x${string}`;
+      if (!publicClient || !sfAddr || sfAddr === "0x0000000000000000000000000000000000000000") {
+        return [];
+      }
+      try {
+        const ids = (await publicClient.readContract({
+          address: sfAddr,
+          abi: StorefrontAbi,
+          functionName: "getSellerListings",
+          args: [seller],
+        })) as readonly bigint[];
+        return [...ids];
+      } catch {
+        return [];
+      }
+    },
+    [publicClient, contracts.Storefront],
+  );
+
+  const fetchListing = useCallback(
+    async (listingId: bigint) => {
+      const sfAddr = contracts.Storefront as `0x${string}`;
+      if (!publicClient || !sfAddr) return null;
+      try {
+        const result = (await publicClient.readContract({
+          address: sfAddr,
+          abi: StorefrontAbi,
+          functionName: "getListing",
+          args: [listingId],
+        })) as readonly [
+          `0x${string}`, `0x${string}`, number, bigint, `0x${string}`,
+          boolean, boolean, string, `0x${string}`, string, bigint,
+        ];
+        const [
+          seller, vault, mode, closesAt, winner, active, closed,
+          title, descriptionCidHash, deliveryChannel, createdAt,
+        ] = result;
+        if (seller === "0x0000000000000000000000000000000000000000") return null;
+        return {
+          id: listingId,
+          seller,
+          vault,
+          mode,
+          closesAt,
+          winner,
+          active,
+          closed,
+          title,
+          descriptionCidHash,
+          deliveryChannel,
+          createdAt,
+        };
+      } catch {
+        return null;
+      }
+    },
+    [publicClient, contracts.Storefront],
+  );
+
   return {
     state,
     txExplorerUrl,
@@ -495,6 +558,8 @@ export function useStorefront() {
     refundLoserBid,
     payPWYW,
     deactivateListing,
+    fetchSellerListings,
+    fetchListing,
     reset,
   };
 }
