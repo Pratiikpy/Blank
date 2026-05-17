@@ -31,7 +31,7 @@ Status legend:
 | `/app/stealth` | `Stealth.tsx` | Covered | P7 privacy | Alice sends to Bob's stealth. |
 | `/app/stealth/setup` | `StealthMetaSetup.tsx` | Covered | P7 privacy | Bob registers stealth keys. |
 | `/app/stealth/inbox` | `StealthInbox.tsx` | Covered | P7 privacy | Bob's scanner detects. |
-| `/app/burners` | `Burners.tsx` | Gap (action) | — | Burner addresses for one-time receive. Passkey-signed burner create. |
+| `/app/burners` | `Burners.tsx` | Covered (UI + local create) | P18 burners | Local burner create (IndexedDB-only, no UserOp). On-chain backup gated by undeployed BurnerRegistry on both chains. Launch-readiness items P1-P3 logged below. |
 | `/app/inheritance` | `InheritancePlanning.tsx` | Gap (action) | — | Heir setup + check-in flow. Passkey-signed inheritance create. |
 | `/app/proofs` | `Proofs.tsx` | Covered | P7 income-proof | Auto-publish ON regression pin. |
 | `/app/privacy` | `Privacy.tsx` | Covered (read-only) | P13 render sweep | h1-visible + screenshot. |
@@ -105,6 +105,16 @@ Each `/loop 1m` fire ships ONE gap closure:
 | 14 | Re-run full audit. Update WAVE4_TESTING_TODO matrix + proof-gap-audit. | Audit | New matrix tuples + run audit → green. |
 | 15 | Final report + stop loop | Stop | CronDelete + final summary commit. |
 
+## Judge-walkthrough observations (launch-readiness)
+
+Per-screen findings from reading the code as a judge would inspect the running app. These are NOT spec gaps — they're polish/UX issues a real reviewer would notice. Each one is a launch-readiness item, not a coverage hole.
+
+### Burners (`/app/burners` — fire 7)
+- **`P1` Delete is destructive with no confirmation.** `onDelete(b)` immediately calls `deleteBurner(b.id)` (line 463). If the burner received funds before deletion, the user loses the private key + access to those funds. Needs a `confirm()` or modal — especially for burners with a non-zero balance.
+- **`P2` "Backup unavailable" UX is desktop-only.** When `registryDeployed=false`, the cloud-backup button is greyed with a `title` tooltip (line 452). Mobile users hover-on-touch may see nothing — needs an inline disabled-reason banner or aria-describedby.
+- **`P3` No in-UI consolidation path.** Banner says "consolidation happens off-chain or via the privacy router" (line 285) but no CTA, no link, no handoff. A user with funds in a burner has no obvious next step. Either wire a "Send to main wallet" button OR drop the privacy-router mention.
+- **`P3` Address derivation "Deriving" state has no timeout signal.** If RPC stalls, the user sees a spinning pill forever (line 423). Add a 30s timeout → "Derivation timed out — retry" state.
+
 ## Status (live)
 
 - **Audit doc written:** fire 1
@@ -113,7 +123,9 @@ Each `/loop 1m` fire ships ONE gap closure:
 - **Fire 4 — Creator Support tip:** phases/15-creator-support.spec.ts covers Bob creating profile + Alice tipping Bob $5 with encrypted message via tier picker. 2 passkey UserOps.
 - **Fire 5 — Swap DEX tab:** phases/16-swap.spec.ts covers Alice opening /app/swap, switching to DEX tab, picking WETH→USDC, typing 0.0001, attempting swap. Captures whichever outcome fires (real tx if Alice has canonical Sepolia WETH; otherwise gate-state proof of UI reachability). Documented gap: external WETH funding path + P2P tab (TestUSDT-on-Base).
 - **Fire 6 — Payment Requests:** phases/17-requests.spec.ts covers Alice creating an encrypted $7 request from Bob + Bob fulfilling it via the Incoming tab. 2 passkey UserOps across separate BrowserContexts.
-- **Gaps closed:** 14 of 22 (10 read-only + 4 action, 1 partial)
-- **Suite-covered screens:** 32 of 40 (80%, with /app/swap as partial)
-- **Remaining action gaps:** 7 (Burners, Inheritance, Gifts, ScheduledSends, AgentPayments, Onboarding, Bridge-as-OOS)
+- **Fire 7 — Burners + judge-walkthrough pivot:** phases/18-burners.spec.ts covers Alice creating a labeled local burner. BurnerRegistry deployment gap surfaced honestly. **Pivot:** each subsequent fire ALSO logs launch-readiness observations in the new "Judge-walkthrough observations" section above. P1=launch blocker, P2=mobile/UX issue, P3=polish.
+- **Gaps closed:** 15 of 22 (10 read-only + 4 action + 1 partial + 1 local-only)
+- **Suite-covered screens:** 33 of 40 (82.5%, with /app/swap partial + /app/burners local-only)
+- **Remaining action gaps:** 6 (Inheritance, Gifts, ScheduledSends, AgentPayments, Onboarding, Bridge-as-OOS)
+- **Launch-readiness items logged:** 4 (P1×1, P2×1, P3×2) — all from Burners
 - **After plan complete:** 39 of 40 covered (97.5% — `/app/bridge` declared out of scope)

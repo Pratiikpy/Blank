@@ -112,6 +112,13 @@ const EXPECTED: ExpectedCoverage[] = [
   { phasePrefix: "P17 Requests · Alice createRequest", chainIds: BOTH, requiresRealTx: true, desc: "Alice creates encrypted $7 payment request from Bob via /app/requests" },
   { phasePrefix: "P17 Requests · Bob fulfillRequest", chainIds: BOTH, requiresRealTx: true, desc: "Bob fulfills Alice's request via Incoming tab → Pay → Pay Now" },
 
+  // ─── Phase 18: Burners (local create; chain-backup gated) ────
+  // requiresRealTx=false because BurnerRegistry isn't deployed on
+  // either chain yet (grep on deployments JSON confirms missing).
+  // Burner local create itself is IndexedDB-only — no UserOp.
+  // The proof is the labeled burner appearing in burner-list.
+  { phasePrefix: "P18 Burners · burner local create", chainIds: BOTH, requiresRealTx: false, desc: "Alice types label, clicks Create, burner row appears in data-testid=burner-list. On-chain backup gated (BurnerRegistry undeployed)." },
+
   // ─── Phase 13: read-only screen render sweep ──────────────────
   { phasePrefix: "P13 Render Sweep · Dashboard", chainIds: BOTH, requiresRealTx: false, desc: "Dashboard h1 visible + screenshot" },
   { phasePrefix: "P13 Render Sweep · History", chainIds: BOTH, requiresRealTx: false, desc: "History list page render check" },
