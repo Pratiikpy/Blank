@@ -35,7 +35,7 @@ Status legend:
 | `/app/inheritance` | `InheritancePlanning.tsx` | Covered (action — principal side) | P19 inheritance | Alice sets Bob as heir (7-day) + immediate heartbeat. 2 passkey UserOps. Heir-side claim flow (startClaim/finalizeClaim) requires 7-day wait — documented as out-of-scope for headless tests. |
 | `/app/proofs` | `Proofs.tsx` | Covered | P7 income-proof | Auto-publish ON regression pin. |
 | `/app/privacy` | `Privacy.tsx` | Covered (read-only) | P13 render sweep | h1-visible + screenshot. |
-| `/app/gifts` | `Gifts.tsx` | Gap (action) | — | Gift money flow — passkey-signed gift create + claim. |
+| `/app/gifts` | `Gifts.tsx` | Covered (action) | P20 gifts | Alice creates $5 envelope for Bob with encrypted message + Bob claims via Received tab. 2 passkey UserOps. |
 | `/app/scheduled` | `ScheduledSends.tsx` | Gap (action) | — | Scheduled sends — passkey-signed schedule create + cron tick. |
 | `/app/agents` | `AgentPayments.tsx` | Gap (action) | — | Agent payments — passkey-signed agent allowance + spend. |
 | `/app/analytics` | `Analytics.tsx` | Covered (read-only) | P13 render sweep | h1-visible + screenshot. |
@@ -109,6 +109,13 @@ Each `/loop 1m` fire ships ONE gap closure:
 
 Per-screen findings from reading the code as a judge would inspect the running app. These are NOT spec gaps — they're polish/UX issues a real reviewer would notice. Each one is a launch-readiness item, not a coverage hole.
 
+### Gifts (`/app/gifts` — fire 9)
+- **`P2` `Math.random()` for random splits.** `computeRandomSplits` in `useGiftMoney.ts:97` uses `cuts.push(Math.random() * remainder)`. Math.random is biased + predictable. For "split this $X gift randomly among N friends" the contract enforces the resulting distribution, but observers of the JS execution can predict the outcome before submit. Not a fund-loss bug; a transparency-of-fairness issue. Fix: `crypto.getRandomValues(new Uint32Array(N))` for unbiased uniform.
+- **`P2` Expired tooltip is desktop-only (line 809).** Same pattern as Burners P2: `title={isExpired ? "Envelope expired..."}`. Mobile users tap the greyed Expired button and get no explanation. Fix: inline disabled-reason chip.
+- **`P3` Fallback manual "Envelope ID" input has no in-app discovery.** Recipients without an indexed Supabase row see a free-form integer input asking for an envelope ID they have no way to know. Fix: when Supabase doesn't index a row, scan recent EnvelopeCreated events on-chain via publicClient and surface candidates.
+- **`P3` No public claim deep-link.** Compared to claim-links (P5/6) which have `/claim/:id` for non-Blank-users, gifts only claim via in-app UI. A judge receiving a gift email has no public landing page to verify the envelope exists. Add `/gift/:envelopeId` route mirroring `/claim/:id`.
+- **`P3` Hidden amount display uses bullet chars (`$•••••.••`)** — visually pleasing but screen readers announce the bullets literally. Add `aria-label="Amount hidden until claim"`.
+
 ### Inheritance (`/app/inheritance` — fire 8)
 - **`P1` Inactivity countdown uses client clock.** `nowSeconds = Math.floor(Date.now() / 1000)` (line 411) → `daysRemaining` derived from `lastHeartbeat + inactivityPeriod - nowSeconds`. If the user's system clock is skewed (timezone bug, manual clock change), they see wrong remaining days. With inheritance the consequence is "user thinks they have 5 days, actually 0, heir can claim". Fix: cross-check against block.timestamp from the publicClient OR display a "as-of {server time}" anchor.
 - **`P2` Native `window.confirm` for Remove Plan is jarring.** `handleRemoveBeneficiary` (line 437) uses the browser's native confirm dialog — visually inconsistent with the rest of Blank's polished modals. Fix: replace with the same modal pattern used for Set Heir.
@@ -132,8 +139,9 @@ Per-screen findings from reading the code as a judge would inspect the running a
 - **Fire 6 — Payment Requests:** phases/17-requests.spec.ts covers Alice creating an encrypted $7 request from Bob + Bob fulfilling it via the Incoming tab. 2 passkey UserOps across separate BrowserContexts.
 - **Fire 7 — Burners + judge-walkthrough pivot:** phases/18-burners.spec.ts covers Alice creating a labeled local burner. BurnerRegistry deployment gap surfaced honestly. **Pivot:** each subsequent fire ALSO logs launch-readiness observations in the new "Judge-walkthrough observations" section above. P1=launch blocker, P2=mobile/UX issue, P3=polish.
 - **Fire 8 — Inheritance + walkthrough:** phases/19-inheritance.spec.ts covers Alice setting Bob as heir (7-day inactivity) + immediate heartbeat check-in. 2 passkey UserOps. Heir-side claim flow needs 7-day wait → documented OOS for headless. Walkthrough surfaced **a new P1**: client-clock-based countdown can mislead the user into thinking they have time when they don't.
-- **Gaps closed:** 16 of 22 (10 read-only + 5 action + 1 partial + 1 local-only)
-- **Suite-covered screens:** 34 of 40 (85%, with /app/swap partial + /app/burners local-only)
-- **Remaining action gaps:** 5 (Gifts, ScheduledSends, AgentPayments, Onboarding, Bridge-as-OOS)
-- **Launch-readiness items logged:** 9 (P1×2, P2×2, P3×5) — Burners + Inheritance
+- **Fire 9 — Gifts + walkthrough:** phases/20-gifts.spec.ts covers Alice creating $5 envelope for Bob with encrypted message + Bob claiming via Received tab. 2 passkey UserOps via separate contexts. Walkthrough surfaced **a fairness issue**: `Math.random()` in `computeRandomSplits` is biased + predictable; not a fund-loss bug but a transparency concern.
+- **Gaps closed:** 17 of 22 (10 read-only + 6 action + 1 partial + 1 local-only)
+- **Suite-covered screens:** 35 of 40 (87.5%, with /app/swap partial + /app/burners local-only)
+- **Remaining action gaps:** 4 (ScheduledSends, AgentPayments, Onboarding, Bridge-as-OOS)
+- **Launch-readiness items logged:** 14 (P1×2, P2×4, P3×8) — Burners + Inheritance + Gifts
 - **After plan complete:** 39 of 40 covered (97.5% — `/app/bridge` declared out of scope)

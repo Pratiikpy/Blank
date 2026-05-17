@@ -123,6 +123,10 @@ const EXPECTED: ExpectedCoverage[] = [
   { phasePrefix: "P19 Inheritance · Alice setHeir(Bob, 7d)", chainIds: BOTH, requiresRealTx: true, desc: "Alice designates Bob as heir with 7-day inactivity period via /app/inheritance modal" },
   { phasePrefix: "P19 Inheritance · Alice heartbeat", chainIds: BOTH, requiresRealTx: true, desc: "Alice performs immediate heartbeat check-in via Active Plan 'Check In Now' CTA" },
 
+  // ─── Phase 20: Gifts (multi-party 2-tx) ──────────────────────
+  { phasePrefix: "P20 Gifts · Alice createGift", chainIds: BOTH, requiresRealTx: true, desc: "Alice creates $5 USDC gift envelope for Bob with encrypted message" },
+  { phasePrefix: "P20 Gifts · Bob claimGift", chainIds: BOTH, requiresRealTx: true, desc: "Bob claims Alice's pending envelope via Received tab → Claim CTA" },
+
   // ─── Phase 13: read-only screen render sweep ──────────────────
   { phasePrefix: "P13 Render Sweep · Dashboard", chainIds: BOTH, requiresRealTx: false, desc: "Dashboard h1 visible + screenshot" },
   { phasePrefix: "P13 Render Sweep · History", chainIds: BOTH, requiresRealTx: false, desc: "History list page render check" },
