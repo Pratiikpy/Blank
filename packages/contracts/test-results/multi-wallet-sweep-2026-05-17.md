@@ -59,15 +59,18 @@ needing manual re-runs.
 
 ## Base Sepolia results (latest run)
 
-**28 pass / 0 fail / 4 skip** (latest run with settleDebt + escrow
-2nd-leg). The 4 skips are intentional — faucet no-ops when personas
-are already funded from a prior run.
+**29 pass / 0 fail / 4 skip** (latest verified run). The 4 skips
+are intentional — faucet no-ops when personas are already funded
+from a prior run.
 
 Now includes the full second-leg consume flows:
 - `gift_claim` — Bob actually claims Alice's envelope
 - `settleDebt` — Bob settles 0.1 USDC encrypted with Carol in Alice's group
 - `escrow_markDelivered` — Bob marks Alice's escrow as delivered
 - `escrow_approveRelease` — Alice releases the encrypted funds to Bob
+- `claim_link_claim` — Dave claims Bob's bearer link with the captured secret
+- `storefront_buy` — Carol buys Alice's just-listed item via buyFixed
+- `stealth_send` — Carol sends a stealth-encrypted payment to Dave
 
 That's "create something + the other party consumes it" verified
 end-to-end on chain, not just creation calls.
@@ -94,7 +97,12 @@ runPayroll               0x7b3d419afe3aa40650bd9a859970c976b3a8ba67fe002c98dc5a1
 requestUnshield          0xcad24b7643fcf58f90e731cc08a4e9a256155010b022836dcbc1093a88051cc6
 creator_setProfile       0x895d3bdd179510984001df7cdd1e1b23774838d57d8cd1955f892483eed8e366
 creator_support          0x572821fc3e68f84dafee0b310f696e8c880cb893a8ebda0f528a880103073c2d
-crowdfund_contribute     0xe506c9b90c974042b575f06f17fb695ed9389c018b98f27a93ecc5130e0c96b1
+crowdfund_contribute     0xabb7720c6d4dbd958760932ff18c12e45b4e5c2e507f8386cb0b35678c4b3810
+stealth_send             0x731189aeb9592e2de90e697459d5154300858c1df838461d8933642a05410790
+settleDebt (Bob→Carol)   0xe2a1c2c10f28391c43fa76582e0a1fb2c2c1bae6d398dfbe7f8223e163731653
+escrow_markDelivered     0x9a29bc1a15d9dc47d5f192853876fa3b791cffb647d8effeb553de3bd4f44e57
+escrow_approveRelease    0xa1d8eaaabed2691cf94b7a84f59987253fdde718a6aab7c8907e4f7381d3a89e
+gift_claim (Bob)         0x4994c31a0bafd1310f0d0bc75f79e69df96e55268f81ff643d88f9d10d795075
 ```
 
 ## Eth Sepolia results (latest extended run)
