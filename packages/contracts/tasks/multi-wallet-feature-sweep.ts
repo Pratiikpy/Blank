@@ -905,6 +905,70 @@ task(
       await publicClient.waitForTransactionReceipt({ hash: listingHash, confirmations: 1 });
       console.log(`  Alice: createListing ok  tx=${listingHash}`);
       results.push({ feature: "storefront_listing", persona: "Alice", status: "pass", txHash: listingHash });
+
+      // Second-leg: Carol buys Alice's just-created listing for 3 USDC.
+      try {
+        const nextLid = (await publicClient.readContract({
+          address: Storefront as `0x${string}`,
+          abi: [{ name: "nextListingId", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] }],
+          functionName: "nextListingId",
+        })) as bigint;
+        const justListed = nextLid > 0n ? nextLid - 1n : 0n;
+        const carolWallet = createWalletClient({
+          account: privateKeyToAccount(personas[2]!.privKey),
+          chain,
+          transport: http(rpcUrl),
+        });
+        // Approve Storefront on vault
+        const apHash = await carolWallet.writeContract({
+          address: Vault as `0x${string}`,
+          abi: [
+            { name: "approvePlaintext", type: "function", stateMutability: "nonpayable", inputs: [{ name: "spender", type: "address" }, { name: "amount", type: "uint64" }], outputs: [] },
+          ],
+          functionName: "approvePlaintext",
+          args: [Storefront as `0x${string}`, MAX_U64],
+        });
+        await publicClient.waitForTransactionReceipt({ hash: apHash, confirmations: 1 });
+        const [encBuy] = (await cofheClient
+          .encryptInputs([Encryptable.uint64(parseUnits("3", 6))])
+          .execute()) as Array<{ ctHash: bigint; securityZone: number; utype: number; signature: Hex }>;
+        const deliveryNoteHash = keccak256(toBytes("wave4-sweep-buyer-note"));
+        const buyHash = await withRetry("storefront_buy", () => carolWallet.writeContract({
+          address: Storefront as `0x${string}`,
+          abi: [
+            {
+              name: "buyFixed",
+              type: "function",
+              stateMutability: "nonpayable",
+              inputs: [
+                { name: "listingId", type: "uint256" },
+                {
+                  name: "encAmount",
+                  type: "tuple",
+                  components: [
+                    { name: "ctHash", type: "uint256" },
+                    { name: "securityZone", type: "uint8" },
+                    { name: "utype", type: "uint8" },
+                    { name: "signature", type: "bytes" },
+                  ],
+                },
+                { name: "deliveryNoteHash", type: "bytes32" },
+              ],
+              outputs: [],
+            },
+          ],
+          functionName: "buyFixed",
+          args: [justListed, encBuy, deliveryNoteHash],
+          gas: 5_000_000n,
+        }));
+        await publicClient.waitForTransactionReceipt({ hash: buyHash, confirmations: 1 });
+        console.log(`  Carol: buyFixed listing #${justListed} ok  tx=${buyHash}`);
+        results.push({ feature: "storefront_buy", persona: "Carol", status: "pass", txHash: buyHash });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message.slice(0, 250) : String(err);
+        console.log(`  Carol: buyFixed FAILED ${msg}`);
+        results.push({ feature: "storefront_buy", persona: "Carol", status: "fail", error: msg });
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message.slice(0, 250) : String(err);
       console.log(`  Alice: createListing FAILED ${msg}`);
