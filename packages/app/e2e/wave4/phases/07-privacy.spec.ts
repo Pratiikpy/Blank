@@ -245,7 +245,7 @@ test.describe("Phase 7 — privacy primitives", () => {
     // "Register meta-address" or "Set up stealth". A passphrase is
     // typed to encrypt the spending key locally.
     const setupBtn = bob.page
-      .locator("buttonbuttonbutton").filter({ hasText: /^Generate/i })
+      .locator("button").filter({ hasText: /^Generate/i })
       .first();
     await setupBtn.waitFor({ state: "visible", timeout: 30_000 });
     await setupBtn.click();
@@ -299,7 +299,7 @@ test.describe("Phase 7 — privacy primitives", () => {
       .fill("5");
 
     await alice.page
-      .locator("buttonbutton").filter({ hasText: /^Pay/i })
+      .locator("button").filter({ hasText: /^Pay/i })
       .last()
       .click();
     await enterPassphrase(alice.page, PERSONAS.Alice.passphrase);

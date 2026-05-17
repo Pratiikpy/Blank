@@ -186,7 +186,7 @@ test.describe("Phase 11 — negative cases", () => {
     // arbiter=0x0.
     await alice.page.goto("/app/business");
     await alice.page.getByText(/^Escrow$/).first().click({ timeout: 30_000 }).catch(() => undefined);
-    await alice.page.locator("buttonbutton").filter({ hasText: /^\\+ Escrow/i }).first().click();
+    await alice.page.locator("button").filter({ hasText: /^\\+ Escrow/i }).first().click();
 
     await alice.page.locator('input[placeholder="0x..."]').first().fill(bob.address);
     await alice.page.locator('input[placeholder="0.00"]').first().fill("10");
@@ -195,7 +195,7 @@ test.describe("Phase 11 — negative cases", () => {
     await alice.page.locator('input[placeholder*="leave empty for no arbiter"]').fill("");
     await snap(alice.page, shot, "no-arbiter-escrow-form");
 
-    await alice.page.locator("buttonbutton").filter({ hasText: /^Submit/i }).last().click();
+    await alice.page.locator("button").filter({ hasText: /^Submit/i }).last().click();
     await enterPassphrase(alice.page, PERSONAS.Alice.passphrase);
     const createTx = await readTxHashFromSuccess(alice.page);
 

@@ -111,7 +111,7 @@ test.describe("Phase 4 — escrow", () => {
     await snap(alice.page, aliceShot, "escrow-tab-open");
 
     const newEscrowBtn = alice.page
-      .locator("buttonbuttonbutton").filter({ hasText: /^Create escrow/i })
+      .locator("button").filter({ hasText: /^Create escrow/i })
       .first();
     await newEscrowBtn.click();
 
@@ -131,7 +131,7 @@ test.describe("Phase 4 — escrow", () => {
     await snap(alice.page, aliceShot, "escrow-modal-filled");
 
     await alice.page
-      .locator("buttonbutton").filter({ hasText: /^Submit/i })
+      .locator("button").filter({ hasText: /^Submit/i })
       .last()
       .click();
     await enterPassphrase(alice.page, PERSONAS.Alice.passphrase);

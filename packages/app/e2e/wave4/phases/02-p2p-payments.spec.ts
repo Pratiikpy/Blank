@@ -71,7 +71,7 @@ async function driveSendFlow(
 
   // The continue/next button advances to SendAmount.
   const continueBtn = page
-    .locator("buttonbutton").filter({ hasText: /^Next/i })
+    .locator("button").filter({ hasText: /^Next/i })
     .first();
   await continueBtn.click();
 
@@ -83,13 +83,13 @@ async function driveSendFlow(
   await amountInput.fill(amountUsdc);
 
   const confirmBtn = page
-    .locator("buttonbuttonbutton").filter({ hasText: /^Send/i })
+    .locator("button").filter({ hasText: /^Send/i })
     .last();
   await confirmBtn.click();
 
   // Step 3: confirm screen — final "Send" button.
   const finalSendBtn = page
-    .locator("buttonbutton").filter({ hasText: /^Confirm/i })
+    .locator("button").filter({ hasText: /^Confirm/i })
     .last();
   await finalSendBtn.waitFor({ state: "visible", timeout: 15_000 });
   await finalSendBtn.click();
@@ -221,11 +221,11 @@ test.describe("Phase 2 — P2P encrypted payments", () => {
     const recipientInput = alicePage.locator('input[placeholder*="0x"]').first();
     await recipientInput.waitFor({ state: "visible", timeout: 30_000 });
     await recipientInput.fill(bobAddress);
-    await alicePage.locator("buttonbutton").filter({ hasText: /^Next/i }).first().click();
+    await alicePage.locator("button").filter({ hasText: /^Next/i }).first().click();
 
     await alicePage.locator('input[placeholder="0.00"]').first().fill("1000");
-    await alicePage.locator("buttonbuttonbutton").filter({ hasText: /^Send/i }).last().click();
-    await alicePage.locator("buttonbutton").filter({ hasText: /^Confirm/i }).last().click();
+    await alicePage.locator("button").filter({ hasText: /^Send/i }).last().click();
+    await alicePage.locator("button").filter({ hasText: /^Confirm/i }).last().click();
 
     // Either passphrase prompt fires (and relay rejects post-encrypt),
     // or pre-encryption validation catches the over-balance attempt

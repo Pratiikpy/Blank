@@ -101,7 +101,7 @@ test.describe("Phase 3 — business tools", () => {
     });
 
     const newInvoiceBtn = alice.page
-      .locator("buttonbuttonbutton").filter({ hasText: /^Create invoice/i })
+      .locator("button").filter({ hasText: /^Create invoice/i })
       .first();
     await newInvoiceBtn.click();
 
@@ -119,7 +119,7 @@ test.describe("Phase 3 — business tools", () => {
 
     // — Step 3: submit invoice creation.
     await alice.page
-      .locator("buttonbuttonbutton").filter({ hasText: /^Send invoice/i })
+      .locator("button").filter({ hasText: /^Send invoice/i })
       .last()
       .click();
     await enterPassphrase(alice.page, PERSONAS.Alice.passphrase);
@@ -219,7 +219,7 @@ test.describe("Phase 3 — business tools", () => {
     // placeholder="0xabc..., 0xdef..., 0x123..." for addresses and
     // placeholder="5000, 8000, 3500" for amounts.
     const newPayrollBtn = alice.page
-      .locator("buttonbuttonbutton").filter({ hasText: /^\\+ Payroll/i })
+      .locator("button").filter({ hasText: /^\\+ Payroll/i })
       .first();
     await newPayrollBtn.click().catch(() => {
       // Some builds open the form inline without a separate "New" button.
@@ -235,7 +235,7 @@ test.describe("Phase 3 — business tools", () => {
     await snap(alice.page, shot, "payroll-filled");
 
     await alice.page
-      .locator("buttonbutton").filter({ hasText: /^Submit/i })
+      .locator("button").filter({ hasText: /^Submit/i })
       .last()
       .click();
     await enterPassphrase(alice.page, PERSONAS.Alice.passphrase);

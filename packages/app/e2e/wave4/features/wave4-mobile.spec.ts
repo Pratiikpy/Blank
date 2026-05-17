@@ -183,7 +183,7 @@ test.describe("Phase 12 — mobile sweep", () => {
       .first()
       .fill(bob.address);
     await alice.page
-      .locator("buttonbutton").filter({ hasText: /^Next/i })
+      .locator("button").filter({ hasText: /^Next/i })
       .first()
       .tap();
     await snap(alice.page, shotA, "send-recipient-entered");
@@ -191,13 +191,13 @@ test.describe("Phase 12 — mobile sweep", () => {
     // SendAmount → 1 USDC.
     await alice.page.locator('input[placeholder="0.00"]').first().fill("1");
     await alice.page
-      .locator("buttonbuttonbutton").filter({ hasText: /^Send/i })
+      .locator("button").filter({ hasText: /^Send/i })
       .last()
       .tap();
     await snap(alice.page, shotA, "send-amount-entered");
 
     // SendConfirm → final Send → passphrase prompt → encrypting.
-    await alice.page.locator("buttonbutton").filter({ hasText: /^Confirm/i }).last().tap();
+    await alice.page.locator("button").filter({ hasText: /^Confirm/i }).last().tap();
     await snap(alice.page, shotA, "send-confirm-tapped");
 
     await enterPassphrase(alice.page, PERSONAS.Alice.passphrase);
@@ -265,7 +265,7 @@ test.describe("Phase 12 — mobile sweep", () => {
     // The primary CTA should be a visible button (Claim, Contribute,
     // Bid, View). Assert it's above the fold (within 812px viewport
     // height + accounting for sticky header).
-    const ctaCandidates = page.locator("buttonbuttonbuttonbutton").filter({ hasText: /^Connect/i });
+    const ctaCandidates = page.locator("button").filter({ hasText: /^Connect/i });
     const cta = ctaCandidates.first();
     await cta.waitFor({ state: "visible", timeout: 15_000 });
     const box = await cta.boundingBox();

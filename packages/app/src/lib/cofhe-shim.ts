@@ -26,7 +26,7 @@
  * - createCofheConfig: config creation
  */
 
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { useAccount, usePublicClient, useWalletClient, useReadContract } from "wagmi";
 import type { Abi, Chain } from "viem";
 import {
@@ -265,7 +265,18 @@ export function useCofheSmartWalletBinding(
   const { chain: wagmiChain } = useAccount();
   const effectiveChainId = chainId ?? wagmiChain?.id;
   const publicClient = usePublicClient({ chainId: effectiveChainId });
-  const chain: { id: number } | undefined = wagmiChain ?? (effectiveChainId ? { id: effectiveChainId } : undefined);
+  // Stabilise the chain ref. Pre-fix this was a fresh `{ id: ... }` object
+  // literal on every render in the passkey-only path (no wagmiChain), so
+  // the effect below — which has `chain` in its deps array — fired every
+  // render, called setBound, which re-rendered, which built yet another
+  // {} object, which fired the effect again. Maximum-update-depth loop
+  // visible in DevTools as a constant stream of warnings, and Playwright
+  // editability checks hang because no element ever settles. Memoize on
+  // the stable id so reference equality holds across renders.
+  const chain: { id: number } | undefined = useMemo(
+    () => (wagmiChain ?? (effectiveChainId ? { id: effectiveChainId } : undefined)),
+    [wagmiChain, effectiveChainId],
+  );
   const sdkTick = useSdkStateTick();
   const [bound, setBound] = useState(false);
   const [error, setError] = useState<Error | null>(null);
