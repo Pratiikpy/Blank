@@ -650,13 +650,13 @@ describe("StorefrontPage — refund prompt validation (mirrors CrowdfundPage) (�
 });
 
 describe("StorefrontPage — success terminal + pipeline + error (§15.x)", () => {
-  it("state.step === 'success' shows 'Done' + delivery channel + Open Blank link", async () => {
+  it("state.step === 'success' shows 'Payment locked in' + delivery channel + Open Blank link", async () => {
     setHook({ step: "success" });
     readContractMock = makeReadContract(buildListing({ deliveryChannel: "DM @alice" }));
     usePublicClientMock.mockReturnValue({ readContract: readContractMock });
     const { findByText, container } = render(<StorefrontPage />);
-    await findByText("Done");
-    expect(container.textContent).toContain("encrypted payment is locked in");
+    await findByText("Payment locked in");
+    expect(container.textContent).toContain("encrypted payment is on-chain");
     expect(container.textContent).toContain("DM @alice");
     const link = (await findByText("Open Blank")) as HTMLAnchorElement;
     expect(link.getAttribute("href")).toBe("/app");
@@ -667,7 +667,7 @@ describe("StorefrontPage — success terminal + pipeline + error (§15.x)", () =
     readContractMock = makeReadContract(buildListing({ deliveryChannel: "" }));
     usePublicClientMock.mockReturnValue({ readContract: readContractMock });
     const { findByText, container } = render(<StorefrontPage />);
-    await findByText("Done");
+    await findByText("Payment locked in");
     expect(container.textContent).not.toContain("Delivery:");
   });
 

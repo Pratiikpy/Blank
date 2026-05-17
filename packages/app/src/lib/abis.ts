@@ -85,6 +85,15 @@ export const BlankAccountAbi = [
   { type: "function", name: "execute", inputs: [{ name: "target", type: "address" }, { name: "value", type: "uint256" }, { name: "data", type: "bytes" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "executeBatch", inputs: [{ name: "targets", type: "address[]" }, { name: "values", type: "uint256[]" }, { name: "datas", type: "bytes[]" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "isValidSignature", inputs: [{ name: "hash", type: "bytes32" }, { name: "signature", type: "bytes" }], outputs: [{ name: "", type: "bytes4" }], stateMutability: "view" },
+  // §1.13 — UUPS upgrade hook. Called by the smart account against
+  // itself (via EntryPoint self-call) to swap its implementation
+  // pointer when a new BlankAccount impl ships.
+  { type: "function", name: "upgradeToAndCall", inputs: [{ name: "newImplementation", type: "address" }, { name: "data", type: "bytes" }], outputs: [], stateMutability: "payable" },
+  // §1.13 — gas-wallet helpers (only present on the gas-wallet impl).
+  // topUpGas: permissionless idle-to-deposit conversion.
+  // withdrawGasDepositTo: owner-gated EntryPoint withdrawal.
+  { type: "function", name: "topUpGas", inputs: [], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "withdrawGasDepositTo", inputs: [{ name: "to", type: "address" }, { name: "amount", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
 ] as const;
 
 export const TokenRegistryAbi = [

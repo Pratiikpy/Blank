@@ -1,13 +1,14 @@
-import { useState, useMemo } from "react";
-import { Link2, Mail, AtSign, Lock, Copy, Check, AlertCircle } from "lucide-react";
+import { useState, useMemo, useEffect } from "react";
+import { Link2, Mail, AtSign, Lock, Copy, Check, AlertCircle, Loader2 } from "lucide-react";
 import toast from "react-hot-toast";
-import { isAddress } from "viem";
+import { isAddress, type Address } from "viem";
 
 import { useClaimLinks, type CreateLinkInput } from "@/hooks/useClaimLinks";
 import { useChain } from "@/providers/ChainProvider";
 import { MODE, type LinkMode } from "@/lib/claim-links";
 import { cn } from "@/lib/cn";
 import { FhePipelineProgress } from "@/components/payment/FhePipelineProgress";
+import { ensClient } from "@/lib/ens-client";
 
 // Pre-set expiry windows. Sender can pick "1 day" through "30 days".
 const EXPIRY_OPTIONS: Array<{ label: string; seconds: number }> = [
@@ -27,16 +28,98 @@ export default function CreateClaimLink() {
   const [note, setNote] = useState("");
   const [expirySeconds, setExpirySeconds] = useState(EXPIRY_OPTIONS[1].seconds);
 
+  // §1.14 C7: ENS / Basenames resolution. When the user types something
+  // ending in .eth (or .base.eth), look it up via the mainnet ensClient
+  // (CCIP-Read handles Basenames automatically). The placeholder
+  // "0x... or alice.eth" was previously a lie because validation only
+  // accepted hex. Now it's true.
+  const [ensResolution, setEnsResolution] = useState<{
+    state: "idle" | "resolving" | "resolved" | "not-found" | "error";
+    address: Address | null;
+    name: string | null;
+  }>({ state: "idle", address: null, name: null });
+
+  const looksLikeEnsName = (s: string): boolean => /\.eth$/i.test(s.trim());
+
+  useEffect(() => {
+    if (mode !== MODE.AddressBound) {
+      setEnsResolution({ state: "idle", address: null, name: null });
+      return;
+    }
+    const trimmed = boundAddress.trim();
+    if (!trimmed) {
+      setEnsResolution({ state: "idle", address: null, name: null });
+      return;
+    }
+    if (isAddress(trimmed)) {
+      // Already a hex address; no ENS lookup needed.
+      setEnsResolution({ state: "idle", address: null, name: null });
+      return;
+    }
+    if (!looksLikeEnsName(trimmed)) {
+      setEnsResolution({ state: "idle", address: null, name: null });
+      return;
+    }
+    // Debounce ENS lookups to avoid hammering the mainnet RPC on every
+    // keystroke. 350ms is short enough to feel snappy, long enough that
+    // typing "alice.eth" character by character only fires one lookup.
+    let cancelled = false;
+    setEnsResolution((prev) => ({ ...prev, state: "resolving" }));
+    const handle = setTimeout(async () => {
+      try {
+        const resolved = await ensClient.getEnsAddress({ name: trimmed });
+        if (cancelled) return;
+        if (resolved && isAddress(resolved)) {
+          setEnsResolution({ state: "resolved", address: resolved as Address, name: trimmed });
+        } else {
+          setEnsResolution({ state: "not-found", address: null, name: trimmed });
+        }
+      } catch {
+        if (!cancelled) {
+          setEnsResolution({ state: "error", address: null, name: trimmed });
+        }
+      }
+    }, 350);
+    return () => {
+      cancelled = true;
+      clearTimeout(handle);
+    };
+  }, [mode, boundAddress]);
+
+  // Resolved hex address to use for the on-chain call. Falls back to
+  // the raw input when it's already hex.
+  const effectiveBoundAddress: Address | null = useMemo(() => {
+    if (mode !== MODE.AddressBound) return null;
+    const trimmed = boundAddress.trim();
+    if (isAddress(trimmed)) return trimmed as Address;
+    if (ensResolution.state === "resolved" && ensResolution.address) {
+      return ensResolution.address;
+    }
+    return null;
+  }, [mode, boundAddress, ensResolution]);
+
   const validation = useMemo(() => {
     if (!amount || Number.parseFloat(amount) <= 0) return "Enter an amount above zero";
     if (mode === MODE.EmailBound) {
-      if (!email || email.indexOf("@") < 1) return "Enter a valid email";
+      // §1.14 C12: tighter regex than the old `indexOf("@") < 1` check,
+      // which accepted "a@", "@b", "a@b" (no TLD). Still permissive
+      // enough for international TLDs (no length cap on parts).
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        return "Enter a valid email";
+      }
     }
     if (mode === MODE.AddressBound) {
-      if (!boundAddress || !isAddress(boundAddress)) return "Enter a valid address";
+      if (!boundAddress.trim()) return "Enter a valid address or ENS name";
+      // Mid-resolution: block submit but don't show this as a validation
+      // error (the UI shows a "Resolving…" hint instead — distinct from
+      // a permanent error like "ENS not found").
+      if (ensResolution.state === "resolving") return "Resolving ENS name…";
+      if (ensResolution.state === "not-found") return "ENS name didn't resolve to an address";
+      if (ensResolution.state === "error") return "Couldn't reach ENS resolver";
+      if (!effectiveBoundAddress) return "Enter a valid address or ENS name";
     }
     return null;
-  }, [amount, mode, email, boundAddress]);
+  }, [amount, mode, email, boundAddress, ensResolution, effectiveBoundAddress]);
 
   const handleCreate = async () => {
     if (validation) {
@@ -48,7 +131,13 @@ export default function CreateClaimLink() {
         ? { mode: MODE.Bearer }
         : mode === MODE.EmailBound
           ? { mode: MODE.EmailBound, email }
-          : { mode: MODE.AddressBound, boundAddress: boundAddress as `0x${string}` };
+          : {
+              mode: MODE.AddressBound,
+              // §1.14 C7: when input was an ENS name, use the resolved
+              // hex address (validation already gated on resolution
+              // success, so effectiveBoundAddress is non-null here).
+              boundAddress: (effectiveBoundAddress ?? (boundAddress as Address)) as `0x${string}`,
+            };
 
     await createLink({
       vault: contracts.FHERC20Vault_USDC,
@@ -158,13 +247,39 @@ export default function CreateClaimLink() {
           />
         )}
         {mode === MODE.AddressBound && (
-          <Field
-            label="Recipient address"
-            icon={<AtSign size={16} />}
-            value={boundAddress}
-            onChange={setBoundAddress}
-            placeholder="0x... or alice.eth"
-          />
+          <div>
+            <Field
+              label="Recipient address"
+              icon={<AtSign size={16} />}
+              value={boundAddress}
+              onChange={setBoundAddress}
+              placeholder="0x… or alice.eth"
+            />
+            {ensResolution.state === "resolving" && (
+              <p className="text-xs text-[var(--text-secondary)] mt-1 mb-3 flex items-center gap-1.5">
+                <Loader2 size={11} className="animate-spin" />
+                Resolving {ensResolution.name ?? "ENS name"}…
+              </p>
+            )}
+            {ensResolution.state === "resolved" && ensResolution.address && (
+              <p className="text-xs text-emerald-700 dark:text-emerald-400 mt-1 mb-3 flex items-center gap-1.5">
+                <Check size={11} />
+                Resolved to <span className="font-mono">{ensResolution.address.slice(0, 6)}…{ensResolution.address.slice(-4)}</span>
+              </p>
+            )}
+            {ensResolution.state === "not-found" && (
+              <p className="text-xs text-red-600 mt-1 mb-3 flex items-center gap-1.5">
+                <AlertCircle size={11} />
+                {ensResolution.name} doesn't have a primary address set on ENS
+              </p>
+            )}
+            {ensResolution.state === "error" && (
+              <p className="text-xs text-amber-700 mt-1 mb-3 flex items-center gap-1.5">
+                <AlertCircle size={11} />
+                Couldn't reach the ENS resolver. Paste a 0x address instead.
+              </p>
+            )}
+          </div>
         )}
 
         {/* Amount */}

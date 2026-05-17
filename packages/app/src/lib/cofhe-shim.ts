@@ -780,13 +780,25 @@ export function useCofheNavigateToCreatePermit() {
   }, []);
 }
 
-// ─── useCoingeckoUsdPrice ───────────────────────────────────────────
+// ─── useCoingeckoUsdPrice (stub, kept for callers expecting the
+//     legacy @cofhe/react export shape) ─────────────────────────────
+//
+// §1.14 G3: this used to be exposed as if it hit a real price feed.
+// Today on testnet we treat USDC = $1.00; mainnet would wire a real
+// oracle here. Kept as an explicit stub with the legacy export name
+// so any caller imports compile, but the JSDoc + the
+// `__BLANK_INTENTIONAL_STUB__` marker makes the intent legible to a
+// reader and to grep-based audits.
 
+/** @deprecated Testnet-only 1.0 stub. Mainnet ship should replace
+ *  with a real oracle (Chainlink ETH/USD or Pyth). Tagged so a
+ *  grep for `__BLANK_INTENTIONAL_STUB__` finds every landmine. */
 export function useCoingeckoUsdPrice(_config?: unknown) {
   return {
     data: 1.0,
     isLoading: false,
     error: null,
+    __BLANK_INTENTIONAL_STUB__: true as const,
   };
 }
 

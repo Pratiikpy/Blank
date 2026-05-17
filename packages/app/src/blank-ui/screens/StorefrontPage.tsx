@@ -197,9 +197,9 @@ export default function StorefrontPage() {
     return (
       <CenterCard>
         <IconBubble color="bg-emerald-50" icon={<CheckCircle2 size={32} className="text-emerald-600" />} />
-        <h1 className="text-2xl font-heading font-semibold mb-3">Done</h1>
+        <h1 className="text-2xl font-heading font-semibold mb-3">Payment locked in</h1>
         <p className="text-[var(--text-secondary)] mb-2">
-          Your encrypted payment is locked in.
+          Your encrypted payment is on-chain.
         </p>
         {onChain.deliveryChannel && (
           <p className="text-sm text-[var(--text-secondary)] mb-6">
@@ -380,7 +380,7 @@ function AuctionView(props: {
           isProcessing={props.isProcessing}
           disabled={!props.amount || Number.parseFloat(props.amount) <= 0}
           onSubmit={props.onPlaceBid}
-          hint="Bids are encrypted. Other bidders can't see yours and you can't see theirs. Highest bid wins at close."
+          hint="Bids are encrypted end-to-end. Highest bid wins at close, decided by the Fhenix Threshold Network."
         />
       </div>
     );

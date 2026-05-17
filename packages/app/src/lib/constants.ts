@@ -142,6 +142,14 @@ export type ContractMap = {
    *  when it doesn't match this address. address(0) means upgrades are
    *  unavailable on this chain (impl not deployed yet). */
   BlankAccount_Impl_v041: `0x${string}`;
+  /** §1.13 — BlankAccount gas-wallet upgrade. Adds receive() auto-deposit
+   *  + topUpGas + withdrawGasDepositTo. Existing user proxies still
+   *  point at the older impl until they self-upgrade via UUPS (the
+   *  GasWalletPanel shows an upgrade prompt when the proxy's
+   *  EIP-1967 _IMPLEMENTATION_SLOT doesn't match this address). Set
+   *  to address(0) until the `deploy-upgrade-blankaccount-gas-wallet`
+   *  hardhat task runs; the prompt is dormant while this is zero. */
+  BlankAccount_Impl_gasWallet: `0x${string}`;
   /** Phase 4.1 — SessionKeyValidator address. The user authorizes this
    *  via `BlankAccount.enableValidator(SessionKeyValidator)` and then
    *  uses `setScope` / `revokeScope` to manage server-held session
@@ -203,6 +211,10 @@ export const CONTRACTS_BY_CHAIN: Record<SupportedChainId, ContractMap> = {
     // --network eth-sepolia`. Frontend treats address(0) as "upgrade
     // unavailable" so the UpgradeBanner gracefully hides.
     BlankAccount_Impl_v041: "0x0000000000000000000000000000000000000000",
+    // §1.13 — Address(0) until operator runs
+    // `pnpm hardhat deploy-upgrade-blankaccount-gas-wallet` on this chain.
+    // Until then the GasWalletPanel's self-upgrade prompt stays hidden.
+    BlankAccount_Impl_gasWallet: "0x0000000000000000000000000000000000000000",
     // Address(0) until operator runs `pnpm hardhat deploy-session-key-validator
     // --network eth-sepolia`. ScheduledSends gracefully hides when unset.
     SessionKeyValidator: "0x0000000000000000000000000000000000000000",
@@ -249,6 +261,9 @@ export const CONTRACTS_BY_CHAIN: Record<SupportedChainId, ContractMap> = {
     // See note on Sepolia entry above. Same TODO.
     BurnerRegistry: "0x0000000000000000000000000000000000000000",
     BlankAccount_Impl_v041: "0x0000000000000000000000000000000000000000",
+    // §1.13 — Address(0) until operator runs the gas-wallet upgrade task
+    // on Base Sepolia. Same dormant-prompt behavior as Eth Sepolia.
+    BlankAccount_Impl_gasWallet: "0x0000000000000000000000000000000000000000",
     SessionKeyValidator: "0x0000000000000000000000000000000000000000",
     // Canonical EIP-5564 singleton. Same on every chain.
     ERC5564Announcer: "0x55649E01B5Df198D18D95b5cc5051630cfD45564",

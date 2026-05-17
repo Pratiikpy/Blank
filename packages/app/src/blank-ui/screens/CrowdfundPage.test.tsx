@@ -284,7 +284,7 @@ describe("CrowdfundPage — 5-state phase machine (§15.x)", () => {
     usePublicClientMock.mockReturnValue({ readContract: readContractMock });
     const { findByText, container } = render(<CrowdfundPage />);
     await findByText("Refresh");
-    expect(container.textContent).toContain("Awaiting threshold-network verdict");
+    expect(container.textContent).toContain("Decrypting the goal-met answer");
   });
 
   it("STATUS_RELEASED -> 'released' phase shows 'Creator: claim release' CTA", async () => {
@@ -517,10 +517,10 @@ describe("CrowdfundPage — refund flow (prompt validation) (§15.x)", () => {
 });
 
 describe("CrowdfundPage — success terminal + pipeline + error (§15.x)", () => {
-  it("state.step === 'success' shows 'Done' card + Open Blank link", async () => {
+  it("state.step === 'success' shows 'Contribution submitted' card + Open Blank link", async () => {
     setHook({ step: "success" });
     const { findByText } = render(<CrowdfundPage />);
-    await findByText("Done");
+    await findByText("Contribution submitted");
     const link = (await findByText("Open Blank")) as HTMLAnchorElement;
     expect(link.getAttribute("href")).toBe("/app");
   });

@@ -39,6 +39,7 @@ const useClaimLinksMock = vi.hoisted(() => vi.fn());
 const toastErrorMock = vi.hoisted(() => vi.fn());
 const toastSuccessMock = vi.hoisted(() => vi.fn());
 const isAddressMock = vi.hoisted(() => vi.fn());
+const getEnsAddressMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/providers/ChainProvider", () => ({ useChain: useChainMock }));
 vi.mock("@/hooks/useClaimLinks", () => ({ useClaimLinks: useClaimLinksMock }));
@@ -49,6 +50,12 @@ vi.mock("@/components/payment/FhePipelineProgress", () => ({
   FhePipelineProgress: (props: { state: { phase: string } }) => (
     <div data-testid="fhe-pipeline-progress" data-phase={props.state.phase} />
   ),
+}));
+// §1.14 C7: ENS resolution via mainnet client. Mock the ensClient so
+// tests don't make real RPC calls; specific test cases override
+// getEnsAddressMock per case.
+vi.mock("@/lib/ens-client", () => ({
+  ensClient: { getEnsAddress: getEnsAddressMock },
 }));
 vi.mock("react-hot-toast", () => ({
   default: { error: toastErrorMock, success: toastSuccessMock },
@@ -93,6 +100,7 @@ beforeEach(() => {
   toastErrorMock.mockReset();
   toastSuccessMock.mockReset();
   isAddressMock.mockReset();
+  getEnsAddressMock.mockReset();
 
   useChainMock.mockReturnValue({
     contracts: { FHERC20Vault_USDC: VAULT_USDC },
@@ -104,6 +112,9 @@ beforeEach(() => {
 
   // Default: isAddress matches the standard 40-hex pattern.
   isAddressMock.mockImplementation((v: string) => /^0x[a-fA-F0-9]{40}$/.test(v));
+  // Default ENS lookup returns null (no name resolves) so specific
+  // tests can opt in by overriding getEnsAddressMock per case.
+  getEnsAddressMock.mockResolvedValue(null);
 
   writeTextMock = vi.fn().mockResolvedValue(undefined);
   Object.defineProperty(navigator, "clipboard", {
@@ -158,7 +169,7 @@ describe("CreateClaimLink — mode-pill switching + conditional fields (§15.x)"
       .find((b) => b.textContent?.includes("Anyone") && b.hasAttribute("aria-pressed")) as HTMLButtonElement;
     fireEvent.click(bearerPill);
     expect(queryByPlaceholderText("alice@example.com")).toBeNull();
-    expect(queryByPlaceholderText("0x... or alice.eth")).toBeNull();
+    expect(queryByPlaceholderText("0x… or alice.eth")).toBeNull();
   });
 
   it("clicking 'Address' (AddressBound) reveals address input + hides email input", () => {
@@ -166,7 +177,7 @@ describe("CreateClaimLink — mode-pill switching + conditional fields (§15.x)"
     const addrPill = Array.from(container.querySelectorAll("button"))
       .find((b) => b.textContent?.includes("Address") && b.hasAttribute("aria-pressed")) as HTMLButtonElement;
     fireEvent.click(addrPill);
-    expect(queryByPlaceholderText("0x... or alice.eth")).not.toBeNull();
+    expect(queryByPlaceholderText("0x… or alice.eth")).not.toBeNull();
     expect(queryByPlaceholderText("alice@example.com")).toBeNull();
   });
 
@@ -207,11 +218,30 @@ describe("CreateClaimLink — validation cascade (§15.x)", () => {
     expect(container.textContent).toContain("Enter a valid email");
   });
 
-  it("CRITICAL EmailBound LAX validator: 'a@' passes (real validation deferred to claim-time EIP-712)", () => {
+  it("§1.14 C12: 'a@' REJECTED by the tighter regex (no domain after the @)", () => {
+    // Audit-fix update: the prior lax check (`indexOf("@") < 1`) accepted
+    // "a@" because the @ was at index 1. The new regex
+    // /^[^\s@]+@[^\s@]+\.[^\s@]+$/ requires a non-empty domain with a
+    // dot, rejecting "a@" + "@b" + "a@b" (no TLD).
     const { container, getByPlaceholderText } = render(<CreateClaimLink />);
     fireEvent.change(getByPlaceholderText("10.00"), { target: { value: "10" } });
     fireEvent.change(getByPlaceholderText("alice@example.com"), { target: { value: "a@" } });
-    // Lax check is email.indexOf("@") < 1 -> "a@" has @ at index 1, passes.
+    expect(container.textContent).toContain("Enter a valid email");
+  });
+
+  it("§1.14 C12: 'a@b' (no TLD) REJECTED — regex requires the dot", () => {
+    const { container, getByPlaceholderText } = render(<CreateClaimLink />);
+    fireEvent.change(getByPlaceholderText("10.00"), { target: { value: "10" } });
+    fireEvent.change(getByPlaceholderText("alice@example.com"), { target: { value: "a@b" } });
+    expect(container.textContent).toContain("Enter a valid email");
+  });
+
+  it("§1.14 C12: 'alice@example.com' ACCEPTED", () => {
+    const { container, getByPlaceholderText } = render(<CreateClaimLink />);
+    fireEvent.change(getByPlaceholderText("10.00"), { target: { value: "10" } });
+    fireEvent.change(getByPlaceholderText("alice@example.com"), {
+      target: { value: "alice@example.com" },
+    });
     expect(container.textContent).not.toContain("Enter a valid email");
   });
 
@@ -235,7 +265,7 @@ describe("CreateClaimLink — validation cascade (§15.x)", () => {
       .find((b) => b.textContent?.includes("Address") && b.hasAttribute("aria-pressed")) as HTMLButtonElement;
     fireEvent.click(addrPill);
     fireEvent.change(getByPlaceholderText("10.00"), { target: { value: "10" } });
-    fireEvent.change(getByPlaceholderText("0x... or alice.eth"), { target: { value: "garbage" } });
+    fireEvent.change(getByPlaceholderText("0x… or alice.eth"), { target: { value: "garbage" } });
     expect(container.textContent).toContain("Enter a valid address");
   });
 
@@ -245,7 +275,7 @@ describe("CreateClaimLink — validation cascade (§15.x)", () => {
       .find((b) => b.textContent?.includes("Address") && b.hasAttribute("aria-pressed")) as HTMLButtonElement;
     fireEvent.click(addrPill);
     fireEvent.change(getByPlaceholderText("10.00"), { target: { value: "10" } });
-    fireEvent.change(getByPlaceholderText("0x... or alice.eth"), { target: { value: VALID_ADDR } });
+    fireEvent.change(getByPlaceholderText("0x… or alice.eth"), { target: { value: VALID_ADDR } });
     expect(container.textContent).not.toContain("Enter a valid address");
     const btn = getByText("Create link").closest("button") as HTMLButtonElement;
     expect(btn.disabled).toBe(false);
@@ -338,7 +368,7 @@ describe("CreateClaimLink — handleCreate discriminated dispatch (§15.x)", () 
       .find((b) => b.textContent?.includes("Address") && b.hasAttribute("aria-pressed")) as HTMLButtonElement;
     fireEvent.click(addrPill);
     fireEvent.change(getByPlaceholderText("10.00"), { target: { value: "10" } });
-    fireEvent.change(getByPlaceholderText("0x... or alice.eth"), { target: { value: VALID_ADDR } });
+    fireEvent.change(getByPlaceholderText("0x… or alice.eth"), { target: { value: VALID_ADDR } });
     await act(async () => {
       fireEvent.click(getByText("Create link"));
       await Promise.resolve();

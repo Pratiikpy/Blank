@@ -184,9 +184,15 @@ describe("_setActiveChainForShim", () => {
 // replaced them with real hooks WITHOUT updating the callers' optimistic
 // access patterns would surface here.
 describe("static stub exports", () => {
-  it("useCoingeckoUsdPrice returns { data: 1.0, isLoading: false, error: null }", () => {
+  it("useCoingeckoUsdPrice returns the intentional stub shape with __BLANK_INTENTIONAL_STUB__ marker (§1.14 G3)", () => {
     const { result } = renderHook(() => useCoingeckoUsdPrice());
-    expect(result.current).toEqual({ data: 1.0, isLoading: false, error: null });
+    expect(result.current.data).toBe(1.0);
+    expect(result.current.isLoading).toBe(false);
+    expect(result.current.error).toBe(null);
+    // Marker proves a real oracle replacement is still pending; if a
+    // future mainnet implementation lands, this assertion forces an
+    // update + a conscious decision about backwards compat.
+    expect(result.current.__BLANK_INTENTIONAL_STUB__).toBe(true);
   });
 
   it("CofheProvider is a passthrough (renders children verbatim)", () => {

@@ -153,8 +153,8 @@ export default function CrowdfundPage() {
     return (
       <CenterCard>
         <IconBubble color="bg-emerald-50" icon={<CheckCircle2 size={32} className="text-emerald-600" />} />
-        <h1 className="text-2xl font-heading font-semibold mb-3">Done</h1>
-        <p className="text-[var(--text-secondary)] mb-6">Your encrypted contribution / action is on-chain.</p>
+        <h1 className="text-2xl font-heading font-semibold mb-3">Contribution submitted</h1>
+        <p className="text-[var(--text-secondary)] mb-6">Your encrypted contribution is on-chain. Amount stays private until the campaign closes.</p>
         <a href="/app" className="inline-block px-6 h-12 leading-[3rem] rounded-2xl bg-[#1D1D1F] text-white font-medium">
           Open Blank
         </a>
@@ -209,8 +209,8 @@ export default function CrowdfundPage() {
 
       {phase === "needsPublish" && (
         <SimpleAction
-          headline="Awaiting threshold-network verdict"
-          body="The on-chain encrypted comparison is ready. Anyone can publish the decrypted result by re-running the close call."
+          headline="Decrypting the goal-met answer"
+          body="The encrypted comparison finished on-chain. Fhenix is decrypting the verdict (goal hit or missed). This usually takes 10-30 seconds. Refresh after a moment."
           ctaLabel="Refresh"
           isProcessing={false}
           onClick={() => location.reload()}
@@ -220,7 +220,7 @@ export default function CrowdfundPage() {
       {phase === "released" && (
         <SimpleAction
           headline="Goal met. Campaign succeeded"
-          body="The creator can pull the entire pool. Contributors get whatever the creator promised off-chain."
+          body="The creator can pull the entire pool. The reward you'll receive is whatever the creator listed when launching the campaign."
           ctaLabel="Creator: claim release"
           isProcessing={state.isProcessing}
           onClick={() => claimRelease(campaignId)}

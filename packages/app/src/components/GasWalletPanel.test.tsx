@@ -14,6 +14,7 @@ import { render, fireEvent, waitFor, act } from "@testing-library/react";
 const useEffectiveAddressMock = vi.hoisted(() => vi.fn());
 const useChainMock = vi.hoisted(() => vi.fn());
 const usePublicClientMock = vi.hoisted(() => vi.fn());
+const useUnifiedWriteMock = vi.hoisted(() => vi.fn());
 const toastSuccessMock = vi.hoisted(() => vi.fn());
 const toastErrorMock = vi.hoisted(() => vi.fn());
 
@@ -25,6 +26,12 @@ vi.mock("@/providers/ChainProvider", () => ({
 }));
 vi.mock("wagmi", () => ({
   usePublicClient: usePublicClientMock,
+}));
+vi.mock("@/hooks/useUnifiedWrite", () => ({
+  useUnifiedWrite: useUnifiedWriteMock,
+}));
+vi.mock("@/lib/abis", () => ({
+  BlankAccountAbi: [],
 }));
 vi.mock("react-hot-toast", () => ({
   default: { success: toastSuccessMock, error: toastErrorMock },
@@ -38,14 +45,26 @@ import { GasWalletPanel } from "./GasWalletPanel";
 const SMART_ACCOUNT = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const ENTRY_POINT = "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108";
 
+const NEW_IMPL = "0xc0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ff";
+const OLD_IMPL = "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef";
+const ZERO_IMPL = "0x0000000000000000000000000000000000000000";
+
 let readContractMock: ReturnType<typeof vi.fn>;
 let getBalanceMock: ReturnType<typeof vi.fn>;
+let getStorageAtMock: ReturnType<typeof vi.fn>;
+let unifiedWriteMock: ReturnType<typeof vi.fn>;
 let writeTextMock: ReturnType<typeof vi.fn>;
+
+function implAsSlot(addr: string): string {
+  // EIP-1967 stores the impl address right-aligned in a 32-byte slot.
+  return "0x" + "0".repeat(24) + addr.slice(2).toLowerCase();
+}
 
 beforeEach(() => {
   useEffectiveAddressMock.mockReset();
   useChainMock.mockReset();
   usePublicClientMock.mockReset();
+  useUnifiedWriteMock.mockReset();
   toastSuccessMock.mockReset();
   toastErrorMock.mockReset();
 
@@ -56,15 +75,24 @@ beforeEach(() => {
       name: "Ethereum Sepolia",
       explorerUrl: "https://sepolia.etherscan.io",
     },
-    contracts: { EntryPoint: ENTRY_POINT },
+    // Default: gas-wallet impl NOT deployed (zero address). Tests that
+    // exercise the upgrade prompt override per case.
+    contracts: { EntryPoint: ENTRY_POINT, BlankAccount_Impl_gasWallet: ZERO_IMPL },
   });
 
   readContractMock = vi.fn().mockResolvedValue(0n);
   getBalanceMock = vi.fn().mockResolvedValue(0n);
+  // Default: getStorageAt returns the OLD impl as a 32-byte slot. Tests
+  // that need a "match" or a counterfactual account override.
+  getStorageAtMock = vi.fn().mockResolvedValue(implAsSlot(OLD_IMPL));
   usePublicClientMock.mockReturnValue({
     readContract: readContractMock,
     getBalance: getBalanceMock,
+    getStorageAt: getStorageAtMock,
   });
+
+  unifiedWriteMock = vi.fn().mockResolvedValue("0xtxhash");
+  useUnifiedWriteMock.mockReturnValue({ unifiedWrite: unifiedWriteMock });
 
   writeTextMock = vi.fn().mockResolvedValue(undefined);
   Object.defineProperty(navigator, "clipboard", {
@@ -131,6 +159,7 @@ describe("GasWalletPanel — live balance read", () => {
     usePublicClientMock.mockReturnValue({
       readContract: readContractMock,
       getBalance: getBalanceMock,
+      getStorageAt: getStorageAtMock,
     });
     const { findByTestId } = render(<GasWalletPanel />);
     const deposit = await findByTestId("gas-wallet-deposit");
@@ -143,6 +172,7 @@ describe("GasWalletPanel — live balance read", () => {
     usePublicClientMock.mockReturnValue({
       readContract: readContractMock,
       getBalance: getBalanceMock,
+      getStorageAt: getStorageAtMock,
     });
     const { findByTestId } = render(<GasWalletPanel />);
     await waitFor(async () => {
@@ -156,6 +186,7 @@ describe("GasWalletPanel — live balance read", () => {
     usePublicClientMock.mockReturnValue({
       readContract: readContractMock,
       getBalance: getBalanceMock,
+      getStorageAt: getStorageAtMock,
     });
     const { findByText } = render(<GasWalletPanel />);
     await findByText(/Self-paying mode/i);
@@ -202,9 +233,125 @@ describe("GasWalletPanel — refresh", () => {
     usePublicClientMock.mockReturnValue({
       readContract: readContractMock,
       getBalance: getBalanceMock,
+      getStorageAt: getStorageAtMock,
     });
     const { findByText } = render(<GasWalletPanel />);
     expect(await findByText(/Couldn't read balance/i)).toBeDefined();
+  });
+});
+
+describe("GasWalletPanel — §1.13 self-upgrade prompt", () => {
+  it("dormant when BlankAccount_Impl_gasWallet is 0x0 (impl not deployed yet)", async () => {
+    useChainMock.mockReturnValue({
+      activeChain: {
+        id: 11155111,
+        name: "Ethereum Sepolia",
+        explorerUrl: "https://sepolia.etherscan.io",
+      },
+      contracts: { EntryPoint: ENTRY_POINT, BlankAccount_Impl_gasWallet: ZERO_IMPL },
+    });
+    const { findByTestId, queryByLabelText } = render(<GasWalletPanel />);
+    await findByTestId("gas-wallet-address");
+    expect(queryByLabelText("Account upgrade available")).toBeNull();
+  });
+
+  it("dormant when proxy already points at the new impl (current === expected)", async () => {
+    useChainMock.mockReturnValue({
+      activeChain: {
+        id: 11155111,
+        name: "Ethereum Sepolia",
+        explorerUrl: "https://sepolia.etherscan.io",
+      },
+      contracts: { EntryPoint: ENTRY_POINT, BlankAccount_Impl_gasWallet: NEW_IMPL },
+    });
+    getStorageAtMock.mockResolvedValue(implAsSlot(NEW_IMPL));
+    const { findByTestId, queryByLabelText } = render(<GasWalletPanel />);
+    await findByTestId("gas-wallet-address");
+    // Wait one tick to make sure the read resolves.
+    await new Promise((r) => setTimeout(r, 30));
+    expect(queryByLabelText("Account upgrade available")).toBeNull();
+  });
+
+  it("VISIBLE when impl is deployed AND proxy points at older impl", async () => {
+    useChainMock.mockReturnValue({
+      activeChain: {
+        id: 11155111,
+        name: "Ethereum Sepolia",
+        explorerUrl: "https://sepolia.etherscan.io",
+      },
+      contracts: { EntryPoint: ENTRY_POINT, BlankAccount_Impl_gasWallet: NEW_IMPL },
+    });
+    getStorageAtMock.mockResolvedValue(implAsSlot(OLD_IMPL));
+    const { findByLabelText } = render(<GasWalletPanel />);
+    expect(await findByLabelText("Account upgrade available")).toBeDefined();
+  });
+
+  it("CTA click fires upgradeToAndCall(newImpl, '0x') via unifiedWrite", async () => {
+    useChainMock.mockReturnValue({
+      activeChain: {
+        id: 11155111,
+        name: "Ethereum Sepolia",
+        explorerUrl: "https://sepolia.etherscan.io",
+      },
+      contracts: { EntryPoint: ENTRY_POINT, BlankAccount_Impl_gasWallet: NEW_IMPL },
+    });
+    getStorageAtMock.mockResolvedValue(implAsSlot(OLD_IMPL));
+    const { findByLabelText } = render(<GasWalletPanel />);
+    const btn = await findByLabelText("Upgrade smart account to gas-wallet implementation");
+    await act(async () => {
+      fireEvent.click(btn);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(unifiedWriteMock).toHaveBeenCalled();
+    const args = unifiedWriteMock.mock.calls[0][0];
+    expect(args.address).toBe(SMART_ACCOUNT);
+    expect(args.functionName).toBe("upgradeToAndCall");
+    expect(args.args[0]).toBe(NEW_IMPL);
+    expect(args.args[1]).toBe("0x");
+  });
+
+  it("upgrade success -> toast.success + refresh", async () => {
+    useChainMock.mockReturnValue({
+      activeChain: {
+        id: 11155111,
+        name: "Ethereum Sepolia",
+        explorerUrl: "https://sepolia.etherscan.io",
+      },
+      contracts: { EntryPoint: ENTRY_POINT, BlankAccount_Impl_gasWallet: NEW_IMPL },
+    });
+    getStorageAtMock.mockResolvedValue(implAsSlot(OLD_IMPL));
+    const { findByLabelText } = render(<GasWalletPanel />);
+    const btn = await findByLabelText("Upgrade smart account to gas-wallet implementation");
+    await act(async () => {
+      fireEvent.click(btn);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(toastSuccessMock).toHaveBeenCalled());
+    const msg = toastSuccessMock.mock.calls[0][0];
+    expect(msg).toMatch(/upgraded/i);
+  });
+
+  it("upgrade failure -> toast.error with the failure reason", async () => {
+    useChainMock.mockReturnValue({
+      activeChain: {
+        id: 11155111,
+        name: "Ethereum Sepolia",
+        explorerUrl: "https://sepolia.etherscan.io",
+      },
+      contracts: { EntryPoint: ENTRY_POINT, BlankAccount_Impl_gasWallet: NEW_IMPL },
+    });
+    getStorageAtMock.mockResolvedValue(implAsSlot(OLD_IMPL));
+    unifiedWriteMock.mockRejectedValue(new Error("user rejected"));
+    const { findByLabelText } = render(<GasWalletPanel />);
+    const btn = await findByLabelText("Upgrade smart account to gas-wallet implementation");
+    await act(async () => {
+      fireEvent.click(btn);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(toastErrorMock).toHaveBeenCalled());
   });
 });
 
