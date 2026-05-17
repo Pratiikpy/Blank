@@ -119,6 +119,10 @@ const EXPECTED: ExpectedCoverage[] = [
   // The proof is the labeled burner appearing in burner-list.
   { phasePrefix: "P18 Burners · burner local create", chainIds: BOTH, requiresRealTx: false, desc: "Alice types label, clicks Create, burner row appears in data-testid=burner-list. On-chain backup gated (BurnerRegistry undeployed)." },
 
+  // ─── Phase 19: Inheritance (principal side) ──────────────────
+  { phasePrefix: "P19 Inheritance · Alice setHeir(Bob, 7d)", chainIds: BOTH, requiresRealTx: true, desc: "Alice designates Bob as heir with 7-day inactivity period via /app/inheritance modal" },
+  { phasePrefix: "P19 Inheritance · Alice heartbeat", chainIds: BOTH, requiresRealTx: true, desc: "Alice performs immediate heartbeat check-in via Active Plan 'Check In Now' CTA" },
+
   // ─── Phase 13: read-only screen render sweep ──────────────────
   { phasePrefix: "P13 Render Sweep · Dashboard", chainIds: BOTH, requiresRealTx: false, desc: "Dashboard h1 visible + screenshot" },
   { phasePrefix: "P13 Render Sweep · History", chainIds: BOTH, requiresRealTx: false, desc: "History list page render check" },
