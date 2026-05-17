@@ -277,6 +277,16 @@ contract GroupManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     ) external nonReentrant {
         require(isMember[groupId][msg.sender], "GroupManager: not a member");
         require(isMember[groupId][with_], "GroupManager: counterparty not a member");
+        // Reject self-settle. A self → self transfer is a no-op for
+        // the vault (FHE.select clamps to balance) but the debt math
+        // below still mutates _debts[msg.sender] twice in sequence:
+        //   1. subtract min(actual, debt[self]) — possibly to 0
+        //   2. add actual — sets debt[self] to `actual`
+        // For a member with zero pre-existing debt, this LETS THEM
+        // INVENT a debt of `actual` USDC against themselves — no
+        // counterparty credit, no off-setting entry, just corruption
+        // of the group's debt-sum-to-zero invariant.
+        require(with_ != msg.sender, "GroupManager: cannot settle with yourself");
 
         // #187 per-edge mutex: prevent two callers from settling the SAME
         // (groupId, payer, payee) edge in the SAME block. Without this, the

@@ -1205,6 +1205,32 @@ describe("GroupManager", () => {
   //
   // We also verify the happy path untouched: a normal settle in an unseeded
   // edge succeeds, confirming we didn't break the normal flow.
+  // CRITICAL: regression pin for the self-settle debt-corruption bug
+  // found in the /goal-session contract audit. settleDebt didn't
+  // reject with_ == msg.sender. A self-settle is a no-op for the
+  // vault (FHE.select clamps to balance, returning min(bal, requested)),
+  // but the debt math sequence mutates _debts[msg.sender] twice:
+  //   step 1: _debts[self] -= min(actual, _debts[self])  → can be 0
+  //   step 2: _debts[self] += actual                      → set to actual
+  // So a member with ZERO existing debt could 'settle with self' for
+  // any amount and end up owing that amount, violating the group's
+  // debt-sum-to-zero invariant without a corresponding credit anywhere.
+  //
+  // Fix: require(with_ != msg.sender). Vault → vault self-transfer
+  // is rejected upfront.
+  it("settleDebt rejects with_ == msg.sender (debt-corruption bug)", async () => {
+    const ctx = await loadFixture(deployBlankFixture);
+    await shield(ctx, ctx.alice, usdc(200));
+    await approveHub(ctx, ctx.alice, await ctx.groupManager.getAddress());
+    await ctx.groupManager.connect(ctx.alice).createGroup("Solo test", [ctx.bob.address]);
+    const encSelf = await encUint64(ctx, ctx.alice, usdc(50));
+    await expect(
+      ctx.groupManager
+        .connect(ctx.alice)
+        .settleDebt(0, ctx.alice.address, await ctx.vault.getAddress(), encSelf),
+    ).to.be.revertedWith("GroupManager: cannot settle with yourself");
+  });
+
   it("settleDebt blocks a second same-block settle on the same debt edge (#187)", async () => {
     const ctx = await loadFixture(deployBlankFixture);
 
