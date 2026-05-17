@@ -26,11 +26,28 @@ After surfacing 38 launch-readiness items during fires 7-13, a follow-on
 - **2 load-bearing copy assertions rewritten** to validate the fixed copy: Burners delete "unrecoverable + cannot be undone" + Inheritance Remove "heir will no longer be able to claim + cannot be undone".
 - **All 5876 tests pass** across 257 files.
 
+### Contract-level audit (added after the goal-hook surfaced "audit blocked")
+
+After the first session pass surfaced remaining work, I did a contract-level audit pass. Found and fixed **7 real Solidity bugs** + 1 defense-in-depth hardening:
+
+| Commit | Contract | Bug |
+|---|---|---|
+| `6a5e4fe` | `EncryptedEscrow` | `createEscrow` accepted `arbiter == depositor` (lets depositor self-decide dispute + bypass deadline) AND `arbiter == beneficiary` (arbiter rules in own favor). Added two require()s. |
+| `6a5e4fe` | `Storefront` | Multi-bid winner double-claim: `claimAuctionWin`'s loop marked first-by-bidder bid as settled, leaving the actual winning bid refundable. New `_winningBidIdx[listingId]` set by `revealWinner` pins the exact winning index. |
+| `7168520` | `EncryptedCrowdfund` | `claimRelease` had a dead O(N) loop setting `cs[i].refunded = true` for every contribution. Dead because `claimRefund` gates on `!c.goalMet` first. DoS for large successful campaigns. Dropped the loop. |
+| `4848b48` | `InheritanceManager` | `claimFinalized` mutex was forever-per-principal. After a heir finalized, the principal could never have a working inheritance plan again. `setHeir` now clears the mutex (new plan = fresh start). |
+| `2788053` | `BusinessHub` | `runPayroll` allowed self-payroll: self → self vault transfer was a no-op for balances but `_bumpReceipts(self, amount)` inflated the income-proof counter. `proveIncomeAbove` could be passed against fake "income". |
+| `5cb6ff3` | `ClaimLinks` | Same self-claim income inflation: sender could create + claim their own link, getting `_bumpReceiptsAndGlobal(claimer, transferred)` bumped while the vault transfer was self-cancelling. Added `msg.sender != link.sender` to `_claimable`. |
+| `ffdda6b` | `GroupManager` | `settleDebt` allowed `with_ == msg.sender`. Self-settle is a no-op for the vault but the debt math sequence (sub then add) CORRUPTS state: a member with zero existing debt ends up owing `actual` USDC against themselves with no counterparty credit. Violates the group's debt-sum-to-zero invariant. |
+| `ebe5219` | `FHERC20Vault` | Defense-in-depth: `transferFrom` + `transferFromVerified` now reject `from == to`. Belt-and-suspenders for the self-pay-inflation pattern in case a future hub author forgets the upstream guard. |
+
+418 contract tests pass (started at 413, +5 new regression tests this session). The 1 pre-existing failure is an unrelated CreatorHub timestamp flake (off-by-1s).
+
 ### Remaining as future work
 - 7 P2 items (mostly UI polish: desktop-only tooltips, missing live validation, missing strength meters)
 - 25 P3 items (mostly minor UX polish + nice-to-have features)
-- Contract-level audit (Solidity, requires deeper expertise + on-chain time)
 - Full e2e run (requires the user's Playwright env that's currently in use)
+- The pre-existing CreatorHub timestamp flake (off-by-1s)
 
 The pattern wins identified in the walkthrough (cross-screen pattern table below) are now propagated where applicable. The honest-gate UX is consistent across Burners + ScheduledSends. The block-timestamp reconciliation is consistent across AgentPayments + Inheritance.
 
