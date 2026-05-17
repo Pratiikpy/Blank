@@ -140,6 +140,14 @@ const EXPECTED: ExpectedCoverage[] = [
   // configured, the spec captures a real on-chain submission hash.
   { phasePrefix: "P22 AgentPayments · derive + submit", chainIds: BOTH, requiresRealTx: false, desc: "Alice picks payroll template, asks agent, reviews ECDSA attestation, submits to Bob. Captures both backend-available + backend-unavailable paths." },
 
+  // ─── Phase 23: Onboarding (real first-time passkey) ──────────
+  // requiresRealTx=false: BlankAccount is CREATE2-derived lazily.
+  // Onboarding itself produces a passkey in IndexedDB + the
+  // Dashboard renders, but no on-chain tx fires until the first
+  // UserOp from any other phase. The proof here is the user-
+  // facing flow + Dashboard landing.
+  { phasePrefix: "P23 Onboarding · first-time passkey create", chainIds: BOTH, requiresRealTx: false, desc: "Fresh browser → 4-step carousel → WalletChoiceCard → PasskeyCreationModal → Dashboard. The ONLY spec exercising the real user-driven passkey path (others use _testImportPasskey shortcut)." },
+
   // ─── Phase 13: read-only screen render sweep ──────────────────
   { phasePrefix: "P13 Render Sweep · Dashboard", chainIds: BOTH, requiresRealTx: false, desc: "Dashboard h1 visible + screenshot" },
   { phasePrefix: "P13 Render Sweep · History", chainIds: BOTH, requiresRealTx: false, desc: "History list page render check" },

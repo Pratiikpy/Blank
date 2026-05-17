@@ -45,7 +45,7 @@ Status legend:
 | `/app/claim-link` | `CreateClaimLink.tsx` | Covered | P5 deep-link create | 3 modes (Public/AddressBound/PasscodeBound). |
 | `/app/sell` | `CreateListing.tsx` | Covered | P5 deep-link create | Auction with 3-bid sequence. |
 | `/app/fundraise` | `CreateCampaign.tsx` | Covered | P5 deep-link create | Campaign create + P6 contribute. |
-| `/onboarding` | `Onboarding.tsx` | Gap (action) | — | First-time onboarding — passkey creation flow. Currently bypassed by `_testImportPasskey`. Needs UI-driven assertion the create-passkey path also works. |
+| `/onboarding` | `Onboarding.tsx` | Covered (real user path) | P23 onboarding | Fresh browser → 4-step carousel → WalletChoiceCard → PasskeyCreationModal → real createPasskey (PBKDF2 250k + AES-GCM-P256) → Dashboard. Only spec without `_testImportPasskey` shortcut. |
 | `/claim/:id` | `ClaimLinkPage.tsx` | Covered | P6 deep-link consume | Bob claims all 3 modes. |
 | `/shop/:slug/:id` | `StorefrontPage.tsx` | Covered | P6 deep-link consume | 3-bid auction. |
 | `/fund/:chainId/:id` | `CrowdfundPage.tsx` | Covered | P6 deep-link consume | Cumulative contributions. |
@@ -109,6 +109,16 @@ Each `/loop 1m` fire ships ONE gap closure:
 
 Per-screen findings from reading the code as a judge would inspect the running app. These are NOT spec gaps — they're polish/UX issues a real reviewer would notice. Each one is a launch-readiness item, not a coverage hole.
 
+### Onboarding (real first-time path — fire 12)
+- **Praise:** **password-manager dismissal attributes** on both inputs (`data-lpignore="true"`, `data-1p-ignore="true"`, `name="blank-new-passphrase"`). 1Password + LastPass + Bitwarden won't try to auto-fill the passphrase field, preventing the common bug where a saved login fills both passphrase + confirm with mismatched values. Subtle UX correctness.
+- **Praise:** **per-address onboarding completion flag** (`STORAGE_KEYS.onboardingComplete(address)`, line 49). Shared-browser users don't skip each other's onboarding. Solves a real multi-tenant footgun.
+- **Praise:** **no-recovery disclosure is explicit** ("Lose it and you lose access — there's no recovery without a guardian setup", PasskeyCreationModal:206). Not buried, not optional. The right level of friction for a self-custodial flow.
+- **`P1` "Guardian setup" referenced but not clickable + not implemented.** The disclosure says "no recovery without a guardian setup" but the Onboarding has no link to set up guardians + the feature doesn't appear to exist yet. Either ship guardian-setup OR drop the mention. Telling a user "you can prevent total loss with guardians" then giving them no way to do it is worse than not mentioning it.
+- **`P2` No passphrase strength meter.** 8-char minimum is enforced but nothing flags "password", "12345678", "abcdefgh" as catastrophically weak. zxcvbn (~20KB gzipped) would catch the top 99% of bad picks. With "your funds are unrecoverable without this passphrase" stakes, a meter is table stakes.
+- **`P2` "Browse" alt path leads back to landing with no explanation.** A confused first-time judge clicks Browse → lands on landing → tries to navigate to /app → re-prompted with Onboarding → loops. Add an inline note: "Browse mode is read-only — to send/receive, return here and create a passkey."
+- **`P3` No way to import existing passkey from another device.** First-time experience assumes "I'm setting up here for the first time". A judge testing cross-device flow has no path. The Burners "Recover from chain" pattern (Phase 6.2) would be the analog.
+- **`P3` MetaMask install link opens new tab + no return-handoff.** User clicks, installs MM, returns to find the same Onboarding state. Add a "I just installed MetaMask, refresh" CTA or auto-detect the extension via `window.ethereum`.
+
 ### Agent Payments (`/app/agents` — fire 11)
 - **Praise:** the **block-timestamp reconciliation for attestation expiry** is excellent (line 122). Instead of trusting `Date.now()`, the screen uses `blockTimestamp ?? now` so the countdown matches what the contract will actually compare against. This is the fix the Inheritance screen's countdown needs (see P1 in Inheritance section).
 - **Praise:** the **30-second safety margin on expiry** (`tooCloseToExpiry`, line 126) prevents the user from clicking Submit when a tx that would arrive after expiry. Block-inclusion time + buffer. Subtle correctness win.
@@ -157,8 +167,9 @@ Per-screen findings from reading the code as a judge would inspect the running a
 - **Fire 9 — Gifts + walkthrough:** phases/20-gifts.spec.ts covers Alice creating $5 envelope for Bob with encrypted message + Bob claiming via Received tab. 2 passkey UserOps via separate contexts. Walkthrough surfaced **a fairness issue**: `Math.random()` in `computeRandomSplits` is biased + predictable; not a fund-loss bug but a transparency concern.
 - **Fire 10 — ScheduledSends gate + walkthrough:** phases/21-scheduled-sends.spec.ts captures the honest-gate UX (SessionKeyValidator undeployed → amber banner + hidden Create). Walkthrough explicitly **praises** this gate pattern as the standard for other gated screens. Flagged daily-cron demo cadence + native `confirm()` reuse.
 - **Fire 11 — AgentPayments + walkthrough:** phases/22-agent-payments.spec.ts covers Alice picking payroll template → Ask agent → review ECDSA attestation → encrypt + submit. Backend-unavailable path handled gracefully (no LLM key on deployment). Walkthrough **praises** block-timestamp reconciliation for attestation expiry — this is the pattern Inheritance needs to fix its P1 client-clock bug.
-- **Gaps closed:** 19 of 22 (10 read-only + 7 action + 1 partial + 2 local-only/gate)
-- **Suite-covered screens:** 37 of 40 (92.5%, with /app/swap partial + /app/burners local-only + /app/scheduled gate-only + /app/agents backend-dep)
-- **Remaining action gaps:** 2 (Onboarding, Bridge-as-OOS)
-- **Launch-readiness items logged:** 24 (P1×2, P2×6, P3×16) — Burners + Inheritance + Gifts + ScheduledSends + AgentPayments
+- **Fire 12 — Onboarding real first-time + walkthrough:** phases/23-onboarding.spec.ts is the ONLY spec without `_testImportPasskey`. Fresh browser → 4-step carousel → WalletChoiceCard → PasskeyCreationModal → real PBKDF2(250k) + AES-GCM-P256 keygen → IndexedDB write → BlankApp R5-C gate flips → Dashboard. Walkthrough surfaced **a P1**: "guardian setup" mentioned in disclosure but feature doesn't exist — telling users about a safety net that isn't there is worse than not mentioning it.
+- **Gaps closed:** 20 of 22 (10 read-only + 8 action + 1 partial + 2 local-only/gate)
+- **Suite-covered screens:** 38 of 40 (95%, with /app/swap partial + /app/burners local-only + /app/scheduled gate-only + /app/agents backend-dep)
+- **Remaining action gaps:** 1 (Bridge-as-OOS)
+- **Launch-readiness items logged:** 31 (P1×3, P2×8, P3×20) — Burners + Inheritance + Gifts + ScheduledSends + AgentPayments + Onboarding
 - **After plan complete:** 39 of 40 covered (97.5% — `/app/bridge` declared out of scope)
