@@ -1,10 +1,15 @@
 # Final results — CROSS-CHAIN PARITY
 
-**Date:** 2026-05-17 (Base) / 2026-05-18 (Eth)
-**Result: Both chains 40 pass / 0 fail / 4 skip / 44 total — cell-for-cell parity.**
+**Date:** 2026-05-17 (Base) / 2026-05-18 (Eth + EmailBound)
+**Result: Both chains 40+ pass / 0 fail / 4 skip — cell-for-cell parity.**
 
-- Base Sepolia log: [`truly-final-base-sepolia-40-pass.log`](truly-final-base-sepolia-40-pass.log)
-- Eth Sepolia log: [`truly-final-eth-sepolia-40-pass.log`](truly-final-eth-sepolia-40-pass.log)
+Latest Base run (with EmailBound mode added): **42 pass / 0 fail /
+4 skip / 46 total**. 31 happy-path tx hashes independently verified
+status=0x1 + 11 negative-case reverts via eth_call.
+
+- Base Sepolia (40-cell): [`truly-final-base-sepolia-40-pass.log`](truly-final-base-sepolia-40-pass.log)
+- Base Sepolia (42-cell, w/ EmailBound): [`sweep-base-emailbound-42-pass.log`](sweep-base-emailbound-42-pass.log)
+- Eth Sepolia (40-cell): [`truly-final-eth-sepolia-40-pass.log`](truly-final-eth-sepolia-40-pass.log)
 
 The honest count after five distinct fix-classes for "the verification
 was lying" bugs surfaced this session. Every passing line is a real
