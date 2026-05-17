@@ -763,6 +763,43 @@ describe("BusinessHub", () => {
     await mock_expectPlaintext(ctx.bob.provider, totalReceivedHandle, usdc(100));
   });
 
+  // CRITICAL: regression pin for the self-payroll income-inflation bug
+  // found in the /goal-session contract audit. runPayroll previously
+  // accepted msg.sender in the employees array. The transfer was a
+  // no-op net (self→self), but _bumpReceipts(self, amount) still
+  // incremented the per-user "received" counter that proveIncomeAbove
+  // reads. A malicious user could payroll themselves to inflate their
+  // proven income across the threshold of any verifier check.
+  //
+  // Fix: require(employees[i] != msg.sender) inside the loop. Mirror
+  // of the same guard already in sendPayment + batchSend.
+  it("runPayroll rejects self-payroll (income-proof inflation bug)", async () => {
+    const ctx = await loadFixture(deployBlankFixture);
+    await shield(ctx, ctx.alice, usdc(1_000));
+    await approveHub(ctx, ctx.alice, await ctx.businessHub.getAddress());
+
+    // Self-only batch must revert.
+    const encSelf = await encUint64(ctx, ctx.alice, usdc(100));
+    await expect(
+      ctx.businessHub.connect(ctx.alice).runPayroll(
+        [ctx.alice.address],
+        await ctx.vault.getAddress(),
+        [encSelf],
+      ),
+    ).to.be.revertedWith("BusinessHub: cannot payroll self");
+
+    // Mixed batch with self in any position must also revert (per-iteration check).
+    const encA = await encUint64(ctx, ctx.alice, usdc(50));
+    const encB = await encUint64(ctx, ctx.alice, usdc(50));
+    await expect(
+      ctx.businessHub.connect(ctx.alice).runPayroll(
+        [ctx.bob.address, ctx.alice.address],
+        await ctx.vault.getAddress(),
+        [encA, encB],
+      ),
+    ).to.be.revertedWith("BusinessHub: cannot payroll self");
+  });
+
   // #213 — Only the named client can call payInvoiceFinalize. Previously
   // anyone with the decryption signature could finalize, which let a random
   // third-party flip the invoice status. The defense-in-depth check here

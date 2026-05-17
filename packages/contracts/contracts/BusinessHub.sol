@@ -868,6 +868,14 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         IFHERC20Vault v = IFHERC20Vault(vault);
         for (uint256 i = 0; i < count; i++) {
             require(employees[i] != address(0), "BusinessHub: zero address");
+            // Reject self-payroll. A self→self transfer is a no-op for
+            // the vault balance but _bumpReceipts(self, amount) below
+            // still increments the per-user "received" counter. That
+            // counter is read by PaymentReceipts.proveIncomeAbove,
+            // letting a malicious user inflate their proven income by
+            // payrolling themselves. Mirror sendPayment + batchSend
+            // which already enforce recipient != msg.sender.
+            require(employees[i] != msg.sender, "BusinessHub: cannot payroll self");
             // Verify encrypted input here (msg.sender = employer) before cross-contract call
             euint64 verifiedSalary = FHE.asEuint64(salaries[i]);
             FHE.allowTransient(verifiedSalary, vault);
