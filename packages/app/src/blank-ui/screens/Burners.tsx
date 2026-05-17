@@ -360,6 +360,21 @@ export default function Burners() {
           </div>
         )}
 
+        {/* On-chain backup gate — visible explainer for why the cloud
+            icons are disabled. The per-button `title` tooltip is
+            hover-only (desktop) so mobile users had no way to see why
+            backup wasn't available. This banner makes the constraint
+            obvious for everyone. */}
+        {!registryDeployed && (
+          <div className="rounded-2xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 p-4 text-sm text-amber-900 dark:text-amber-200">
+            <strong className="font-semibold">On-chain backup isn't available on {activeChain.name} yet.</strong>{" "}
+            BurnerRegistry hasn't shipped on this network. Each burner's
+            salt stays in this browser only — clear site data or delete
+            the burner and you lose the private key. We'll enable
+            cloud-backup as soon as the registry deploys.
+          </div>
+        )}
+
         {/* Burner list */}
         {burners.length === 0 ? (
           <div className="rounded-[2rem] glass-card-static">

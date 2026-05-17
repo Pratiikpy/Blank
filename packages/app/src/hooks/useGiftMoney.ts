@@ -90,11 +90,23 @@ export function computeRandomSplits(totalAmount: string, recipientCount: number)
     return Array(recipientCount).fill(equal);
   }
 
-  // Allocate minimum to each, then randomly distribute the remainder
+  // Allocate minimum to each, then randomly distribute the remainder.
+  // Use crypto.getRandomValues instead of Math.random — for a "random
+  // split" feature, observers who can predict Math.random's seed could
+  // reconstruct the share each recipient gets before they claim. CSPRNG
+  // closes that transparency-of-fairness gap. Cost: ~zero, same math.
   const remainder = total - minTotal;
+  const cutCount = recipientCount - 1;
   const cuts: number[] = [];
-  for (let i = 0; i < recipientCount - 1; i++) {
-    cuts.push(Math.random() * remainder);
+  if (cutCount > 0) {
+    const buf = new Uint32Array(cutCount);
+    crypto.getRandomValues(buf);
+    // Map each uint32 to a uniform [0, remainder) float. Dividing by
+    // 2^32 gives a value in [0, 1) without bias for non-power-of-2
+    // ranges (we're scaling to `remainder`, not bucketing into ints).
+    for (let i = 0; i < cutCount; i++) {
+      cuts.push((buf[i] / 0x1_0000_0000) * remainder);
+    }
   }
   cuts.sort((a, b) => a - b);
 

@@ -463,7 +463,20 @@ export default function InheritancePlanning() {
   };
 
   const handleRemoveBeneficiary = async () => {
-    if (!window.confirm("Remove inheritance plan? This will deactivate your dead man's switch.")) return;
+    // Native confirm() is visually inconsistent with the rest of the
+    // app's modals but it IS dismissible + blocking + accessible to
+    // screen readers + works on every platform. Worth keeping until a
+    // shared confirm-modal component lands. The copy here is explicit
+    // about consequences so the user can't misread "remove" as
+    // "pause".
+    if (
+      !window.confirm(
+        "Remove inheritance plan?\n\n" +
+        "Your heir will no longer be able to claim your funds, even if you stop checking in. " +
+        "If you change your mind later, you'll need to set up a new plan from scratch + wait through the inactivity period again.\n\n" +
+        "This cannot be undone.",
+      )
+    ) return;
     await removeHeir();
   };
 
