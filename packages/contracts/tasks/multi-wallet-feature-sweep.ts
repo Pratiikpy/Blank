@@ -1500,6 +1500,86 @@ task(
   }
   console.log("");
 
+  // ─── 16a. StealthPayments — Carol sends a stealth payment ──────
+  console.log("[Feature 16a] StealthPayments — Carol sends 0.3 USDC stealthly to Dave");
+  const StealthPayments = deployments.StealthPayments;
+  if (!StealthPayments || !cofheClient) {
+    results.push({ feature: "stealth_send", persona: "Carol", status: "skip", error: !StealthPayments ? "StealthPayments not deployed" : "cofhe client unavailable" });
+  } else {
+    try {
+      const carolWallet = createWalletClient({
+        account: privateKeyToAccount(personas[2]!.privKey),
+        chain,
+        transport: http(rpcUrl),
+      });
+      const stealthAmount = parseUnits("0.3", 6);
+      // StealthPayments uses the underlying ERC20 (TestUSDC), not the vault.
+      // It calls underlying.safeTransferFrom(msg.sender, address(this), amount)
+      // so Carol must approve TestUSDC for StealthPayments.
+      const apHash = await carolWallet.writeContract({
+        address: TestUSDC as `0x${string}`,
+        abi: [
+          { name: "approve", type: "function", stateMutability: "nonpayable", inputs: [{ name: "spender", type: "address" }, { name: "amount", type: "uint256" }], outputs: [{ type: "bool" }] },
+        ],
+        functionName: "approve",
+        args: [StealthPayments as `0x${string}`, stealthAmount],
+      });
+      await publicClient.waitForTransactionReceipt({ hash: apHash, confirmations: 1 });
+
+      // Encrypt Dave's address as the stealth recipient.
+      // Encryptable.address is the cofhe SDK shape for InEaddress.
+      const [encRecipient] = (await cofheClient
+        .encryptInputs([Encryptable.address(personas[3]!.address)])
+        .execute()) as Array<{ ctHash: bigint; securityZone: number; utype: number; signature: Hex }>;
+
+      // Claim code: random 32 bytes; claimCodeHash = keccak(claimCode || recipient).
+      const claimCodeBytes = new Uint8Array(32);
+      const codeSeed = keccak256(toBytes(`wave4-stealth-${Date.now()}`));
+      for (let i = 0; i < 32; i++) claimCodeBytes[i] = parseInt(codeSeed.slice(2 + i * 2, 4 + i * 2), 16);
+      const claimCodeHex = ("0x" + Array.from(claimCodeBytes).map((b) => b.toString(16).padStart(2, "0")).join("")) as Hex;
+      const claimCodeHash = keccak256(encodePacked(["bytes32", "address"], [claimCodeHex, personas[3]!.address]));
+
+      const stealthHash = await withRetry("stealth_send", () => carolWallet.writeContract({
+        address: StealthPayments as `0x${string}`,
+        abi: [
+          {
+            name: "sendStealth",
+            type: "function",
+            stateMutability: "nonpayable",
+            inputs: [
+              { name: "plaintextAmount", type: "uint256" },
+              {
+                name: "encRecipient",
+                type: "tuple",
+                components: [
+                  { name: "ctHash", type: "uint256" },
+                  { name: "securityZone", type: "uint8" },
+                  { name: "utype", type: "uint8" },
+                  { name: "signature", type: "bytes" },
+                ],
+              },
+              { name: "claimCodeHash", type: "bytes32" },
+              { name: "vault", type: "address" },
+              { name: "note", type: "string" },
+            ],
+            outputs: [{ type: "uint256" }],
+          },
+        ],
+        functionName: "sendStealth",
+        args: [stealthAmount, encRecipient, claimCodeHash, Vault as `0x${string}`, "wave4 sweep stealth"],
+        gas: 5_000_000n,
+      }));
+      await publicClient.waitForTransactionReceipt({ hash: stealthHash, confirmations: 1 });
+      console.log(`  Carol→Dave (stealth): sendStealth ok  tx=${stealthHash}`);
+      results.push({ feature: "stealth_send", persona: "Carol", status: "pass", txHash: stealthHash });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message.slice(0, 250) : String(err);
+      console.log(`  Carol→Dave: sendStealth FAILED ${msg}`);
+      results.push({ feature: "stealth_send", persona: "Carol", status: "fail", error: msg });
+    }
+  }
+  console.log("");
+
   // ─── 17. NEGATIVE: unauthorized escrow release rejected ───────
   // Dave (not the escrow depositor, not the arbiter) tries to call
   // approveRelease on escrow id 0. Must revert.

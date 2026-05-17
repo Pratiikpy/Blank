@@ -102,14 +102,22 @@ async function driveSendFlow(
     }
   }
 
+  // Advance from SendAmount → SendConfirm. The button label depends on
+  // the current state machine (Continue / Review / Next / Send / Send X
+  // USDC); match any of those that's enabled and visible.
   const confirmBtn = page
-    .locator("button").filter({ hasText: /^Send/i })
+    .locator("button:visible:not([disabled])")
+    .filter({ hasText: /^(Continue|Review|Next|Send)/i })
     .last();
+  await confirmBtn.waitFor({ state: "visible", timeout: 15_000 });
   await confirmBtn.click();
 
-  // Step 3: confirm screen — final "Send" button.
+  // Step 3: confirm screen. SendConfirm's button text is "Confirm & Send"
+  // in the happy state; widen to also match "Send", "Confirm", or
+  // "Continue stealth send" in case of mode toggles.
   const finalSendBtn = page
-    .locator("button").filter({ hasText: /^Confirm/i })
+    .locator("button:visible:not([disabled])")
+    .filter({ hasText: /Confirm.*Send|Send to stealth|Continue stealth send|^Send/i })
     .last();
   await finalSendBtn.waitFor({ state: "visible", timeout: 15_000 });
   await finalSendBtn.click();
