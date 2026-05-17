@@ -127,6 +127,12 @@ const EXPECTED: ExpectedCoverage[] = [
   { phasePrefix: "P20 Gifts · Alice createGift", chainIds: BOTH, requiresRealTx: true, desc: "Alice creates $5 USDC gift envelope for Bob with encrypted message" },
   { phasePrefix: "P20 Gifts · Bob claimGift", chainIds: BOTH, requiresRealTx: true, desc: "Bob claims Alice's pending envelope via Received tab → Claim CTA" },
 
+  // ─── Phase 21: Scheduled sends (validator-undeployed gate) ──
+  // requiresRealTx=false: SessionKeyValidator is 0x0000...0000 in
+  // constants.ts:221 → screen renders honest gate banner instead
+  // of the Create button. Spec captures the gate-state render.
+  { phasePrefix: "P21 Scheduled · scheduled gate", chainIds: BOTH, requiresRealTx: false, desc: "Honest gate banner visible + Create button correctly hidden. SessionKeyValidator deploy unblocks the full flow." },
+
   // ─── Phase 13: read-only screen render sweep ──────────────────
   { phasePrefix: "P13 Render Sweep · Dashboard", chainIds: BOTH, requiresRealTx: false, desc: "Dashboard h1 visible + screenshot" },
   { phasePrefix: "P13 Render Sweep · History", chainIds: BOTH, requiresRealTx: false, desc: "History list page render check" },

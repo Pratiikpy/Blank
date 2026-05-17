@@ -36,7 +36,7 @@ Status legend:
 | `/app/proofs` | `Proofs.tsx` | Covered | P7 income-proof | Auto-publish ON regression pin. |
 | `/app/privacy` | `Privacy.tsx` | Covered (read-only) | P13 render sweep | h1-visible + screenshot. |
 | `/app/gifts` | `Gifts.tsx` | Covered (action) | P20 gifts | Alice creates $5 envelope for Bob with encrypted message + Bob claims via Received tab. 2 passkey UserOps. |
-| `/app/scheduled` | `ScheduledSends.tsx` | Gap (action) | — | Scheduled sends — passkey-signed schedule create + cron tick. |
+| `/app/scheduled` | `ScheduledSends.tsx` | Covered (honest-gate) | P21 scheduled | SessionKeyValidator undeployed → screen renders honest amber gate banner + hides Create button. Spec captures gate-state. Full create-scope flow unlocks when validator ships. |
 | `/app/agents` | `AgentPayments.tsx` | Gap (action) | — | Agent payments — passkey-signed agent allowance + spend. |
 | `/app/analytics` | `Analytics.tsx` | Covered (read-only) | P13 render sweep | h1-visible + screenshot. |
 | `/app/profile` | `Profile.tsx` | Covered (read-only) | P13 render sweep | h1-visible + screenshot. |
@@ -109,6 +109,13 @@ Each `/loop 1m` fire ships ONE gap closure:
 
 Per-screen findings from reading the code as a judge would inspect the running app. These are NOT spec gaps — they're polish/UX issues a real reviewer would notice. Each one is a launch-readiness item, not a coverage hole.
 
+### Scheduled sends (`/app/scheduled` — fire 10)
+- **Praise:** the **honest-gate UX** is the right pattern. When SessionKeyValidator is undeployed, the screen shows a full amber AlertTriangle banner ("Scheduled sends aren't available on {chain.name} yet — try switching to a different network from the chain selector"). The Create button is hidden, not greyed. Compare to Burners (`title=` tooltip hidden on mobile) and DEX swap (no upfront warning) — this is the standard other gated screens should adopt.
+- **`P2` Chain selector isn't reachable from the gate banner.** Banner says "switch from the chain selector" but on mobile that selector lives inside the "More" sheet — 2-3 taps away. Inline a `<button>` "Switch chain" directly in the banner that opens the selector for one-tap discovery.
+- **`P3` Daily cron at 00:00 UTC is too slow for judge replay.** Cron-cadence disclosure card transparently says "fires daily at 00:00 UTC (Vercel Hobby tier limit)". A judge running through the suite at 09:00 UTC schedules a send + sees nothing fire for 15 hours. For demo runs, expose a "Fire now (server-trigger)" debug button OR temporarily bump cadence to every 15 minutes via vercel.json before judge replay window.
+- **`P3` Stub-mode banner persists correctly (good).** When the backend returns `stub:true`, the screen sets `stubModeDetected` state — survives toast-fade. Worth keeping; toast-only would have been a P1 trust bug.
+- **`P3` Revoke uses native `confirm()` again.** Same pattern as Inheritance Remove Plan. Visually inconsistent with rest of app.
+
 ### Gifts (`/app/gifts` — fire 9)
 - **`P2` `Math.random()` for random splits.** `computeRandomSplits` in `useGiftMoney.ts:97` uses `cuts.push(Math.random() * remainder)`. Math.random is biased + predictable. For "split this $X gift randomly among N friends" the contract enforces the resulting distribution, but observers of the JS execution can predict the outcome before submit. Not a fund-loss bug; a transparency-of-fairness issue. Fix: `crypto.getRandomValues(new Uint32Array(N))` for unbiased uniform.
 - **`P2` Expired tooltip is desktop-only (line 809).** Same pattern as Burners P2: `title={isExpired ? "Envelope expired..."}`. Mobile users tap the greyed Expired button and get no explanation. Fix: inline disabled-reason chip.
@@ -140,8 +147,9 @@ Per-screen findings from reading the code as a judge would inspect the running a
 - **Fire 7 — Burners + judge-walkthrough pivot:** phases/18-burners.spec.ts covers Alice creating a labeled local burner. BurnerRegistry deployment gap surfaced honestly. **Pivot:** each subsequent fire ALSO logs launch-readiness observations in the new "Judge-walkthrough observations" section above. P1=launch blocker, P2=mobile/UX issue, P3=polish.
 - **Fire 8 — Inheritance + walkthrough:** phases/19-inheritance.spec.ts covers Alice setting Bob as heir (7-day inactivity) + immediate heartbeat check-in. 2 passkey UserOps. Heir-side claim flow needs 7-day wait → documented OOS for headless. Walkthrough surfaced **a new P1**: client-clock-based countdown can mislead the user into thinking they have time when they don't.
 - **Fire 9 — Gifts + walkthrough:** phases/20-gifts.spec.ts covers Alice creating $5 envelope for Bob with encrypted message + Bob claiming via Received tab. 2 passkey UserOps via separate contexts. Walkthrough surfaced **a fairness issue**: `Math.random()` in `computeRandomSplits` is biased + predictable; not a fund-loss bug but a transparency concern.
-- **Gaps closed:** 17 of 22 (10 read-only + 6 action + 1 partial + 1 local-only)
-- **Suite-covered screens:** 35 of 40 (87.5%, with /app/swap partial + /app/burners local-only)
-- **Remaining action gaps:** 4 (ScheduledSends, AgentPayments, Onboarding, Bridge-as-OOS)
-- **Launch-readiness items logged:** 14 (P1×2, P2×4, P3×8) — Burners + Inheritance + Gifts
+- **Fire 10 — ScheduledSends gate + walkthrough:** phases/21-scheduled-sends.spec.ts captures the honest-gate UX (SessionKeyValidator undeployed → amber banner + hidden Create). Walkthrough explicitly **praises** this gate pattern as the standard for other gated screens. Flagged daily-cron demo cadence + native `confirm()` reuse.
+- **Gaps closed:** 18 of 22 (10 read-only + 6 action + 1 partial + 2 local-only/gate)
+- **Suite-covered screens:** 36 of 40 (90%, with /app/swap partial + /app/burners local-only + /app/scheduled gate-only)
+- **Remaining action gaps:** 3 (AgentPayments, Onboarding, Bridge-as-OOS)
+- **Launch-readiness items logged:** 18 (P1×2, P2×5, P3×11) — Burners + Inheritance + Gifts + ScheduledSends
 - **After plan complete:** 39 of 40 covered (97.5% — `/app/bridge` declared out of scope)
