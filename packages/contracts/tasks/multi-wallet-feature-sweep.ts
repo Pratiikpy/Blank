@@ -2024,6 +2024,43 @@ task(
   }
   console.log("");
 
+  // ─── 21a. NEGATIVE: gift replay — Bob claims same envelope twice
+  // The happy-path second-leg already claimed the envelope. A second
+  // claim from Bob on the same envelopeId must revert ("not active").
+  console.log("[Negative 21a] gift_claim replay — same envelope twice should revert");
+  if (!GiftMoney) {
+    results.push({ feature: "neg_gift_replay", persona: "Bob", status: "skip", error: "GiftMoney not deployed" });
+  } else {
+    await expectRevert("Bob replays claim", "neg_gift_replay", "Bob", async () => {
+      // The most-recent envelope (nextEnvelopeId-1) was just claimed by
+      // Bob in the second-leg. Claiming again should hit the "envelope
+      // not active" guard (it's marked inactive on first claim).
+      const nextEid = (await publicClient.readContract({
+        address: GiftMoney as `0x${string}`,
+        abi: [{ name: "nextEnvelopeId", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] }],
+        functionName: "nextEnvelopeId",
+      })) as bigint;
+      const targetId = nextEid > 0n ? nextEid - 1n : 0n;
+      await publicClient.simulateContract({
+        account: privateKeyToAccount(personas[1]!.privKey),
+        address: GiftMoney as `0x${string}`,
+        abi: [
+          {
+            name: "claimGift",
+            type: "function",
+            stateMutability: "nonpayable",
+            inputs: [{ name: "envelopeId", type: "uint256" }],
+            outputs: [],
+          },
+        ],
+        functionName: "claimGift",
+        args: [targetId],
+        gas: 2_000_000n,
+      });
+    });
+  }
+  console.log("");
+
   // ─── 21. NEGATIVE: GiftMoney claim from non-recipient rejected ─
   // Carol tries to claim Alice's gift (which was sent to Bob).
   console.log("[Negative 21] claimGift by non-recipient — should revert");
