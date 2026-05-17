@@ -967,13 +967,17 @@ task(
         .encryptInputs([Encryptable.uint64(parseUnits("0.2", 6))])
         .execute()) as Array<{ ctHash: bigint; securityZone: number; utype: number; signature: Hex }>;
 
-      // AddressBound: secretHash = keccak256(DOMAIN || uint8(1) || secret)
+      // LinkMode enum: Bearer=0, EmailBound=1, AddressBound=2
+      // secretHash = keccak256(DOMAIN || uint8(mode) || secret)
       const DOMAIN_AB = keccak256(toBytes("BLANK_CLAIM_v1"));
       const secretSeed = keccak256(toBytes(`wave4-sweep-addrbound-${Date.now()}`));
       const ABsecretBytes = new Uint8Array(32);
       for (let i = 0; i < 32; i++) ABsecretBytes[i] = parseInt(secretSeed.slice(2 + i * 2, 4 + i * 2), 16);
       const ABsecretHex = ("0x" + Array.from(ABsecretBytes).map((b) => b.toString(16).padStart(2, "0")).join("")) as Hex;
-      const ABsecretHash = keccak256(encodePacked(["bytes32", "uint8", "bytes32"], [DOMAIN_AB, 1, ABsecretHex]));
+      // mode=2 (AddressBound) — was 1 (EmailBound) by mistake, causing
+      // claimAddressBound to revert with "wrong mode" because the link
+      // was actually created as EmailBound.
+      const ABsecretHash = keccak256(encodePacked(["bytes32", "uint8", "bytes32"], [DOMAIN_AB, 2, ABsecretHex]));
 
       // Pre-read for AddressBound link too
       const abLinkIdPreCreate = (await publicClient.readContract({
@@ -1014,7 +1018,7 @@ task(
           Vault as `0x${string}`,
           encAddrLink,
           ABsecretHash,
-          1, // AddressBound
+          2, // LinkMode.AddressBound (Bearer=0, EmailBound=1, AddressBound=2)
           personas[2]!.address, // Carol only
           0n,
           "wave4 sweep AddressBound link",
