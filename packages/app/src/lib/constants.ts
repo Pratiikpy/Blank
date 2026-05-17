@@ -211,10 +211,11 @@ export const CONTRACTS_BY_CHAIN: Record<SupportedChainId, ContractMap> = {
     // --network eth-sepolia`. Frontend treats address(0) as "upgrade
     // unavailable" so the UpgradeBanner gracefully hides.
     BlankAccount_Impl_v041: "0x0000000000000000000000000000000000000000",
-    // §1.13 — Address(0) until operator runs
-    // `pnpm hardhat deploy-upgrade-blankaccount-gas-wallet` on this chain.
-    // Until then the GasWalletPanel's self-upgrade prompt stays hidden.
-    BlankAccount_Impl_gasWallet: "0x0000000000000000000000000000000000000000",
+    // §1.13 deployed 2026-05-17. Triggers the GasWalletPanel self-
+    // upgrade prompt for any existing proxy still pointing at the
+    // pre-gas-wallet impl. Once a user upgrades, their receive()
+    // auto-deposits ETH from any source (CEX, hardware, EOA).
+    BlankAccount_Impl_gasWallet: "0x1A4C16230D8D113A146914Ce00Da7AD20B007743",
     // Address(0) until operator runs `pnpm hardhat deploy-session-key-validator
     // --network eth-sepolia`. ScheduledSends gracefully hides when unset.
     SessionKeyValidator: "0x0000000000000000000000000000000000000000",
@@ -261,9 +262,8 @@ export const CONTRACTS_BY_CHAIN: Record<SupportedChainId, ContractMap> = {
     // See note on Sepolia entry above. Same TODO.
     BurnerRegistry: "0x0000000000000000000000000000000000000000",
     BlankAccount_Impl_v041: "0x0000000000000000000000000000000000000000",
-    // §1.13 — Address(0) until operator runs the gas-wallet upgrade task
-    // on Base Sepolia. Same dormant-prompt behavior as Eth Sepolia.
-    BlankAccount_Impl_gasWallet: "0x0000000000000000000000000000000000000000",
+    // §1.13 deployed 2026-05-17. Same shape as Eth Sepolia.
+    BlankAccount_Impl_gasWallet: "0x02FDeFB3331c4907501260DF8a4584Bd6D920ADd",
     SessionKeyValidator: "0x0000000000000000000000000000000000000000",
     // Canonical EIP-5564 singleton. Same on every chain.
     ERC5564Announcer: "0x55649E01B5Df198D18D95b5cc5051630cfD45564",

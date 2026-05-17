@@ -13,7 +13,6 @@ import { useEffectiveAddress } from "@/hooks/useEffectiveAddress";
 import { cn } from "@/lib/cn";
 import { FhePipelineProgress } from "@/components/payment/FhePipelineProgress";
 
-const STATUS_OPEN = 0;
 const STATUS_CLOSED = 1;
 const STATUS_RELEASED = 2;
 const STATUS_REFUNDING = 3;

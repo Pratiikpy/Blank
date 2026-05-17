@@ -6,7 +6,7 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import {
   Tag, Gavel, HandCoins, Copy, Check, AlertCircle, ShoppingBag,
-  RefreshCw, Loader2, XCircle, ExternalLink,
+  RefreshCw, Loader2, XCircle,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { keccak256, stringToBytes } from "viem";

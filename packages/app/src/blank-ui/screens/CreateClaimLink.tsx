@@ -1,12 +1,12 @@
 import { useState, useMemo, useEffect, useCallback } from "react";
-import { Link2, Mail, AtSign, Lock, Copy, Check, AlertCircle, Loader2, RefreshCw, ExternalLink, RotateCcw } from "lucide-react";
+import { Link2, Mail, AtSign, Lock, Copy, Check, AlertCircle, Loader2, RefreshCw, RotateCcw } from "lucide-react";
 import toast from "react-hot-toast";
 import { isAddress, type Address } from "viem";
 
 import { useClaimLinks, type CreateLinkInput } from "@/hooks/useClaimLinks";
 import { useChain } from "@/providers/ChainProvider";
 import { useEffectiveAddress } from "@/hooks/useEffectiveAddress";
-import { MODE, type LinkMode, buildClaimUrl } from "@/lib/claim-links";
+import { MODE, type LinkMode } from "@/lib/claim-links";
 import { cn } from "@/lib/cn";
 import { FhePipelineProgress } from "@/components/payment/FhePipelineProgress";
 import { ensClient } from "@/lib/ens-client";
@@ -44,7 +44,7 @@ function deriveStatus(record: SentLinkRecord): SentLinkStatus {
 }
 
 export default function CreateClaimLink() {
-  const { contracts, activeChainId, activeChain } = useChain();
+  const { contracts, activeChain } = useChain();
   const { effectiveAddress } = useEffectiveAddress();
   const { state, pipeline, createLink, refund, fetchSentLinks, fetchLink, reset } = useClaimLinks();
 

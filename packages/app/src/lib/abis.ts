@@ -654,6 +654,10 @@ export const EncryptedCrowdfundAbi = [
     { name: "contributor", type: "address" },
     { name: "refunded", type: "bool" },
   ], stateMutability: "view" },
+  // §1.15 B4b — creator-side reader for the "Your campaigns" section.
+  { type: "function", name: "getCreatorCampaigns", inputs: [
+    { name: "creator", type: "address" },
+  ], outputs: [{ name: "", type: "uint256[]" }], stateMutability: "view" },
   { type: "event", name: "CampaignCreated", inputs: [
     { name: "campaignId", type: "uint256", indexed: true },
     { name: "creator", type: "address", indexed: true },

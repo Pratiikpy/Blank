@@ -56,5 +56,16 @@
   "EventHub_Impl_p1p2": "0x9B5ea7087EAE7fEf632b0bB2C4B9f9E8d1376391",
   "BusinessHub_Impl_p5": "0x02c36D87DC5Ec0930D7C9dB5e448519F86f438E7",
   "InheritanceManager_Impl_p5": "0x05945d2b6676d21aB3918f077e94d9362267457C",
-  "BusinessHub_RouterApproved_base-sepolia": "0x94cC0AaC535CCDB3C01d6787D6413C739ae12bc4"
+  "BusinessHub_RouterApproved_base-sepolia": "0x94cC0AaC535CCDB3C01d6787D6413C739ae12bc4",
+  "ClaimLinks_Impl": "0x4045b135Ce20Ead1399Bb4d27286A4023FB69573",
+  "ClaimLinks": "0x2eD78815299C2B1F2cBd2313CF763B56A0654665",
+  "Storefront_Impl": "0xe3681C53D73253C47B43C543E7C15c3FF9b31594",
+  "Storefront": "0xeA8a38f25ECF9Cc8C9240aafb35b561D14Dfd419",
+  "EncryptedCrowdfund_Impl": "0x9410a6c19ff99ac96a5406fc11eecD0Cd29d3a51",
+  "EncryptedCrowdfund": "0x0F21705575e2CC83dC410AE2af6973B150a4183C",
+  "EncryptedEscrow_Impl": "0xE9156007f8625A245A97D37b642b3C386BdD0AA5",
+  "EncryptedEscrow": "0x6414742D2da28eCEf06D79b82F406B6b8ab3e421",
+  "BlankAccount_Impl_gasWallet": "0x02FDeFB3331c4907501260DF8a4584Bd6D920ADd",
+  "EncryptedCrowdfund_Impl_secV2": "0xF6361068175e6E15eB295077091B5d4E688D26d5",
+  "Storefront_Impl_secV2": "0x81D3b8BEA4bDF0EbC5a99324991F9e8ef9c8dc1c"
 }
