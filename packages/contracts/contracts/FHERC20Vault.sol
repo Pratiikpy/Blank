@@ -312,6 +312,16 @@ contract FHERC20Vault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         InEuint64 memory encAmount
     ) external nonReentrant returns (euint64) {
         require(to != address(0), "FHERC20Vault: transfer to zero address");
+        // Defense-in-depth: reject from == to. transferVerified already
+        // rejects to == msg.sender; transferFrom (used by hubs that
+        // pre-verified the encrypted input) needs an analogous guard.
+        // Without it, a hub that forgets its own self-transfer check
+        // (or an adversary calling the vault directly) can burn
+        // allowance with no net balance change AND, more dangerously,
+        // trigger any caller-side bookkeeping (income counter bumps,
+        // event emissions) on a fake self-transfer. Same shape as the
+        // BusinessHub.runPayroll + ClaimLinks self-claim fixes.
+        require(from != to, "FHERC20Vault: from and to are the same");
 
         _ensureInitialized(from);
         _ensureInitialized(to);
@@ -336,6 +346,8 @@ contract FHERC20Vault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         euint64 amount
     ) external nonReentrant returns (euint64) {
         require(to != address(0), "FHERC20Vault: transfer to zero address");
+        // See transferFrom for rationale — same defense-in-depth guard.
+        require(from != to, "FHERC20Vault: from and to are the same");
 
         _ensureInitialized(from);
         _ensureInitialized(to);
