@@ -104,13 +104,48 @@ export async function shieldUsdc(
   // validates the amount internally, so we don't lose any safety.
   // Same duplicate-element story as the input — there are TWO
   // Deposit-to-vault buttons. Filter by visibility. dispatchEvent
-  // bypasses Playwright's actionability check (which sometimes
-  // hangs on stable-but-busy buttons during React re-renders).
+  // bypasses Playwright's actionability check.
+  //
+  // RETRY LOOP: the shield onClick handler routes through smartAccount
+  // .status — if status is still "loading" at click time, the call
+  // falls through to the EOA branch (no passphrase prompt). The AA
+  // resolver is an async RPC roundtrip after every component mount,
+  // so we may need a couple of attempts. After each click, poll for
+  // the passphrase modal; if it doesn't appear within 5s, click again.
   const shieldBtn = page.locator('button[aria-label="Deposit to vault"]:visible').first();
+  const passphraseInput = page.locator('input[type="password"][placeholder*="assphrase" i]').first();
   await shieldBtn.waitFor({ state: "visible", timeout: 10_000 });
-  await shieldBtn.dispatchEvent("click");
 
-  await enterPassphrase(page, passphrase);
+  let modalAppeared = false;
+  for (let attempt = 0; attempt < 6; attempt++) {
+    await shieldBtn.dispatchEvent("click");
+    try {
+      await passphraseInput.waitFor({ state: "visible", timeout: 5_000 });
+      modalAppeared = true;
+      break;
+    } catch {
+      // Wait for the smartAccount resolver to finish, then retry.
+      await page.waitForTimeout(3_000);
+    }
+  }
+  if (!modalAppeared) {
+    throw new Error(
+      "shieldUsdc: passphrase prompt never appeared after 6 click attempts. " +
+        "Likely smartAccount.status stayed in 'loading' — check that the Dashboard " +
+        "greeting shows the truncated AA address and useEffectiveAddress is working.",
+    );
+  }
+
+  // Modal is already visible from the retry loop above. Focus first
+  // (some modals delay enabling the input until the open-animation
+  // completes), then fill + submit. dispatchEvent on submit to skip
+  // actionability for the same reason as the Deposit button.
+  await passphraseInput.click({ timeout: 5_000 }).catch(() => undefined);
+  await passphraseInput.fill(passphrase, { timeout: 10_000 });
+  const submit = page.locator('button:has-text("Submit"), button:has-text("Sign")').first();
+  await submit
+    .dispatchEvent("click")
+    .catch(() => passphraseInput.press("Enter"));
   // The shield flow surfaces success via a toast ('Shielded X USDC
   // via smart wallet!'), NOT an /tx/0x... explorer link. Wait for the
   // toast text to confirm + return a synthetic hash since downstream
