@@ -77,12 +77,30 @@ async function driveSendFlow(
     .first();
   await continueBtn.click();
 
-  // Step 2: amount input on SendAmount.
-  const amountInput = page
-    .locator('input[placeholder="0.00"]')
-    .first();
-  await amountInput.waitFor({ state: "visible", timeout: 15_000 });
-  await amountInput.fill(amountUsdc);
+  // Step 2: amount input on SendAmount. The screen uses either a
+  // plaintext `<input placeholder="0.00">` (legacy / wider viewport)
+  // or a virtual NumericKeypad (current default) with one
+  // `<button aria-label="1">..."9","0",".","Backspace">` per digit.
+  // Probe both: prefer the input; fall back to clicking the keypad.
+  const amountInput = page.locator('input[placeholder="0.00"]').first();
+  const amountInputVisible = await amountInput
+    .waitFor({ state: "visible", timeout: 5_000 })
+    .then(() => true)
+    .catch(() => false);
+
+  if (amountInputVisible) {
+    await amountInput.fill(amountUsdc);
+  } else {
+    // Numeric keypad path — click each character of `amountUsdc`.
+    // A button with aria-label="<digit-or-dot>" exists per key.
+    for (const ch of amountUsdc) {
+      const key = page
+        .locator(`button[aria-label="${ch}"]:visible`)
+        .first();
+      await key.waitFor({ state: "visible", timeout: 10_000 });
+      await key.click();
+    }
+  }
 
   const confirmBtn = page
     .locator("button").filter({ hasText: /^Send/i })
@@ -108,6 +126,10 @@ test.describe("Phase 2 — P2P encrypted payments", () => {
   test.describe.configure({ mode: "serial" });
 
   test("happy path: Alice sends 5 USDC encrypted to Bob", async ({ browser, baseURL }) => {
+    // AA UserOp roundtrip = up to ~120s per tx on Sepolia under load. Shield
+    // is one tx, send is another. Default 300s isn't enough for two of those
+    // back-to-back plus all the navigation + encryption overhead.
+    test.setTimeout(720_000);
     const chain = chainContextFromProject();
     const url = baseURL ?? "http://localhost:3000";
     const alice = PERSONAS.Alice;
@@ -136,6 +158,21 @@ test.describe("Phase 2 — P2P encrypted payments", () => {
       baseURL: url,
     });
     const alicePage = await aliceCtx.newPage();
+    // Surface page-side errors so any silent failure during shield / send
+    // turns into a real test signal instead of "test timed out" with no
+    // clue why.
+    alicePage.on("console", (m) => {
+      const t = m.text();
+      if (
+        m.type() === "error" ||
+        /shield|relay|userop|revert|fail|error|aa\d{2}/i.test(t)
+      ) {
+        console.log(`[alice console:${m.type()}] ${t.slice(0, 300)}`);
+      }
+    });
+    alicePage.on("pageerror", (e) => {
+      console.log(`[alice pageerror] ${e.message}`);
+    });
     await alicePage.goto("/");
     await setActiveChain(alicePage, chain.chainId);
     await injectPasskey(alicePage, alice, chain.chainId);

@@ -373,6 +373,7 @@ task(
 
   // ─── 4. Group — Alice creates a group, all four added ──────────
   console.log("[Feature 4] Group — Alice creates a group with all 4 personas");
+  let createdGroupId: bigint | null = null;
   try {
     const aliceWallet = createWalletClient({
       account: privateKeyToAccount(personas[0]!.privKey),
@@ -401,10 +402,84 @@ task(
     await publicClient.waitForTransactionReceipt({ hash: groupHash, confirmations: 1 });
     console.log(`  Alice: createGroup ok  tx=${groupHash}`);
     results.push({ feature: "createGroup", persona: "Alice", status: "pass", txHash: groupHash });
+
+    // Capture the just-created groupId so the settleDebt second-leg can use it.
+    const nextGid = (await publicClient.readContract({
+      address: GroupManager as `0x${string}`,
+      abi: [{ name: "nextGroupId", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] }],
+      functionName: "nextGroupId",
+    })) as bigint;
+    createdGroupId = nextGid > 0n ? nextGid - 1n : 0n;
   } catch (err) {
     const msg = err instanceof Error ? err.message.slice(0, 200) : String(err);
     console.log(`  Alice: createGroup FAILED ${msg}`);
     results.push({ feature: "createGroup", persona: "Alice", status: "fail", error: msg });
+  }
+  console.log("");
+
+  // ─── 4b. Group second-leg — Bob settles a debt with Carol ──────
+  console.log("[Feature 4b] settleDebt — Bob → Carol (0.1 USDC)");
+  if (createdGroupId === null || !cofheClient) {
+    results.push({ feature: "settleDebt", persona: "Bob", status: "skip", error: "no group or cofhe unavailable" });
+  } else {
+    try {
+      const bobWallet = createWalletClient({
+        account: privateKeyToAccount(personas[1]!.privKey),
+        chain,
+        transport: http(rpcUrl),
+      });
+      // Approve GroupManager on the vault
+      const apHash = await bobWallet.writeContract({
+        address: Vault as `0x${string}`,
+        abi: [
+          { name: "approvePlaintext", type: "function", stateMutability: "nonpayable", inputs: [{ name: "spender", type: "address" }, { name: "amount", type: "uint64" }], outputs: [] },
+        ],
+        functionName: "approvePlaintext",
+        args: [GroupManager as `0x${string}`, MAX_U64],
+      });
+      await publicClient.waitForTransactionReceipt({ hash: apHash, confirmations: 1 });
+
+      const [encSettle] = (await cofheClient
+        .encryptInputs([Encryptable.uint64(parseUnits("0.1", 6))])
+        .execute()) as Array<{ ctHash: bigint; securityZone: number; utype: number; signature: Hex }>;
+
+      const settleHash = await withRetry("settleDebt", () => bobWallet.writeContract({
+        address: GroupManager as `0x${string}`,
+        abi: [
+          {
+            name: "settleDebt",
+            type: "function",
+            stateMutability: "nonpayable",
+            inputs: [
+              { name: "groupId", type: "uint256" },
+              { name: "with_", type: "address" },
+              { name: "vault", type: "address" },
+              {
+                name: "encAmount",
+                type: "tuple",
+                components: [
+                  { name: "ctHash", type: "uint256" },
+                  { name: "securityZone", type: "uint8" },
+                  { name: "utype", type: "uint8" },
+                  { name: "signature", type: "bytes" },
+                ],
+              },
+            ],
+            outputs: [],
+          },
+        ],
+        functionName: "settleDebt",
+        args: [createdGroupId, personas[2]!.address, Vault as `0x${string}`, encSettle],
+        gas: 5_000_000n,
+      }));
+      await publicClient.waitForTransactionReceipt({ hash: settleHash, confirmations: 1 });
+      console.log(`  Bob→Carol in group ${createdGroupId}: settleDebt ok  tx=${settleHash}`);
+      results.push({ feature: "settleDebt", persona: "Bob", status: "pass", txHash: settleHash });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message.slice(0, 250) : String(err);
+      console.log(`  Bob→Carol: settleDebt FAILED ${msg}`);
+      results.push({ feature: "settleDebt", persona: "Bob", status: "fail", error: msg });
+    }
   }
   console.log("");
 
@@ -576,6 +651,68 @@ task(
       await publicClient.waitForTransactionReceipt({ hash: escrowHash, confirmations: 1 });
       console.log(`  Alice→Bob (arb=Carol): escrow ok  tx=${escrowHash}`);
       results.push({ feature: "escrow_create", persona: "Alice", status: "pass", txHash: escrowHash });
+
+      // Second-leg flow: Bob marks delivered, Alice approves release.
+      try {
+        const nextEid = (await publicClient.readContract({
+          address: EncryptedEscrow as `0x${string}`,
+          abi: [{ name: "nextEscrowId", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] }],
+          functionName: "nextEscrowId",
+        })) as bigint;
+        const justCreatedEid = nextEid > 0n ? nextEid - 1n : 0n;
+        const bobWallet = createWalletClient({
+          account: privateKeyToAccount(personas[1]!.privKey),
+          chain,
+          transport: http(rpcUrl),
+        });
+        const markHash = await bobWallet.writeContract({
+          address: EncryptedEscrow as `0x${string}`,
+          abi: [
+            {
+              name: "markDelivered",
+              type: "function",
+              stateMutability: "nonpayable",
+              inputs: [{ name: "escrowId", type: "uint256" }],
+              outputs: [],
+            },
+          ],
+          functionName: "markDelivered",
+          args: [justCreatedEid],
+          gas: 2_000_000n,
+        });
+        await publicClient.waitForTransactionReceipt({ hash: markHash, confirmations: 1 });
+        console.log(`  Bob: markDelivered escrow #${justCreatedEid} ok  tx=${markHash}`);
+        results.push({ feature: "escrow_markDelivered", persona: "Bob", status: "pass", txHash: markHash });
+
+        // Alice now approves release.
+        const aliceWallet2 = createWalletClient({
+          account: privateKeyToAccount(personas[0]!.privKey),
+          chain,
+          transport: http(rpcUrl),
+        });
+        const releaseHash = await aliceWallet2.writeContract({
+          address: EncryptedEscrow as `0x${string}`,
+          abi: [
+            {
+              name: "approveRelease",
+              type: "function",
+              stateMutability: "nonpayable",
+              inputs: [{ name: "escrowId", type: "uint256" }],
+              outputs: [],
+            },
+          ],
+          functionName: "approveRelease",
+          args: [justCreatedEid],
+          gas: 5_000_000n,
+        });
+        await publicClient.waitForTransactionReceipt({ hash: releaseHash, confirmations: 1 });
+        console.log(`  Alice: approveRelease escrow #${justCreatedEid} ok  tx=${releaseHash}`);
+        results.push({ feature: "escrow_approveRelease", persona: "Alice", status: "pass", txHash: releaseHash });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message.slice(0, 250) : String(err);
+        console.log(`  escrow 2nd-leg FAILED ${msg}`);
+        results.push({ feature: "escrow_2nd_leg", persona: "Bob/Alice", status: "fail", error: msg });
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message.slice(0, 250) : String(err);
       console.log(`  Alice→Bob: escrow FAILED ${msg}`);
