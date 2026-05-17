@@ -59,9 +59,12 @@ needing manual re-runs.
 
 ## Base Sepolia results (latest run)
 
-**31 pass / 0 fail / 4 skip** (latest verified run with all six
-second-leg flows). The 4 skips are intentional — faucet no-ops when
-personas are already funded from a prior run.
+**38 pass / 0 fail / 4 skip** — the strongest run yet, with **all
+seven second-leg consume flows** (gift, settleDebt, escrow ×2,
+storefront_buy, claim_link bearer, claim_link AddressBound, stealth)
+plus **9 verified negative-case reverts** and **all 17 happy-path
+features** across 4 distinct wallets. The 4 skips are intentional —
+faucet no-ops when personas are already funded from a prior run.
 
 Now includes the full second-leg consume flows:
 - `gift_claim` — Bob actually claims Alice's envelope
@@ -113,7 +116,50 @@ escrow_approveRelease    0x3ff898b3f5ac751be50b305d12b61e295b72ea54d4ee83ea0d113
 claim_link_claim (Dave)  0x95aa735f14c1137f6c6dcb7566f73b13396f909e5f38b9fdfadf630c1c229243
 storefront_buy (Carol)   0x0842bea1f27087e4658393bfa898b92877e34d054b064bae57c4194aed69438d
 stealth_send (Carol→Dave) 0x627e3935e3dbe6f97471392817c76d293977b4e266f35aef07e651775242ec72
+
+# 38/42 run (all features + 7 second-legs + 9 negatives, Base Sepolia):
+shield Alice              0xf0efeebaec05d2bcfa71754a9df0d728f640de42bd4c0de9db3fcf0d8f2d9b4f
+shield Bob                0x9906da6e7e6d7ad7676dc50deca1131c181d5fcd5dd00a45cc63d69f9c3c74f9
+shield Carol              0xddc587681ca6a1123f46b069019f01148a55d127f59c03858a9e36f3207f2eda
+shield Dave               0x15bce9b76ce15644e55689815c340f50baa74730b27e92af7e26e0f0f29293ca
+pay Alice→Bob             0xe73f223581be8a8b1c59a3a3a8c0216e0baebc785995ea70fe8c65bdb880a53e
+pay Carol→Dave            0x90cf83a8f54b463cc69607f2896404b820d5e14007b75326ec584df3fe1e6d71
+createGroup               0x43335d736cb73ad404ee4dc579d4e5e5d2bb308e2e0fa87b9d0efbbb23dbcb5b
+settleDebt (Bob→Carol)    0xb73afd64aa7ff5f3bd266894444eecf60d37b5c85b5c9e4a14f9614373541cd3
+gift_send                 0x3a06d15334a47ad250aa9a509e96be3dd7ed2aef33d824a3ac0e2ce7098c5424
+gift_claim (Bob)          0x9bccb68f9c0894370a1fd7b2dd399ae791b55e8521c0e804d31372ba6f530d86
+escrow_create             0xc7414da7c0b90c5782284e259e2713932429a23182856c4541204aa2e9e3ee8b
+escrow_markDelivered      0x181755d3390c4ad4f2d89aa7268330b9386c93c0d75e2834b95449faff0d9b1a
+escrow_approveRelease     0x654dc9e3dbd145964224578ed7d028e6051941aff00a91474fa6e6a31192269e
+claim_link_create (bearer)0x7faaaf8cbdbcd59223cd9f0cd4d2056f720cf1c9ba3b0b115109db17f3dec142
+claim_link_addr_bound     0x763b0a9e1b049032d588193c0fbf5843486124e46a8088164601ccb156cd9894
+addr_bound_claim (Carol)  0x225da6713ab9ab6779e80537b131cd4da6f3998c68a1dd51f02bec9f7a3030e8
+claim_link_claim (Dave)   0x829ca15ea918bcdca7d5ee7fd8a12dd3e47f37c15f5378ab5123972571753fd4
+inheritance_setHeir       0xe82968795c76aa930861ec859f348458861d85f9b731ba23b020a1b07f1c5f20
+storefront_listing        0x586f4aa24ca729e1118adcedc37f9d4e04b59fa6abdc224386c665dd080662a0
+storefront_buy (Carol)    0x6ecfcc6cca2b066dfae18fcffe26c00a7107e45e17dc6a08684d90817b7148cb
+crowdfund_create          0x9a9482861f55736327eed26915b3296e6f9c6c1ca75f264d4dfa7667e0054235
+p2p_offer                 0xdfd1bf2dffd943e70be1a77c68323ff9dcf11d4b47db11bc5910a27309661124
+runPayroll                0x8437827342882e6131a19c37557ff1a762fa6f03a9c7300a7392e4d1354adff5
+requestUnshield           0x46aaebb7b1e4c143fb0f0130527512a51228bdc17058874ce79817fbfe84feca
+creator_setProfile        0xa1555d53887857bc18796e770ae504539514a322f2c40d1a3ec7f49b027bca00
+creator_support           0x280c929ba860e1ad0169ff28cafee838a5c4d7eb73e59d8ecf6191017a555237
+crowdfund_contribute      0x6eaba00f6892624a26ce9b6dfce8cd346c24f89412b324ebc9c28307f94c42ac
+stealth_send (Carol→Dave) 0xbbeba09a11ec639a1db80c7bb949e4b2d3ee58d29a42acd62f202da1f9263693
+stealth_claim (Dave)      0xa92c914df4f174ddaccc1765d1419dcff804f44f5944d1f3b87a40dab7e0ca1d
 ```
+
+All 9 negative cases reverted on Base Sepolia with the expected
+reason strings:
+  PaymentHub: invalid recipient        (self-pay)
+  GroupManager: not a member           (non-member addExpense)
+  ClaimLinks: expired                  (wrong-secret bearer claim)
+  EncryptedEscrow: not depositor       (non-depositor approveRelease)
+  CreatorHub: cannot self-tip          (creator self-tip)
+  ClaimLinks: expired                  (AddressBound wrong caller)
+  FHERC20Vault: amount must be > 0     (shield zero amount)
+  P2PExchange: same token              (offer with tokenGive == tokenWant)
+  GiftMoney: not a recipient           (gift claim by non-recipient)
 
 ## Eth Sepolia results (latest run with retry wrapper + stealth + 2nd-leg)
 
