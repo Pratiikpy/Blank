@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from "react";
-import { useReadContract, usePublicClient } from "wagmi";
+import { useReadContract, usePublicClient, useAccount } from "wagmi";
 import { useUnifiedWrite } from "./useUnifiedWrite";
 import { parseUnits, formatUnits, encodeFunctionData } from "viem";
 import toast from "react-hot-toast";
@@ -54,6 +54,7 @@ export function useShield() {
   // this, smart-wallet users see $0 USDC (we'd be reading the EOA's balance
   // not the smart account's). Same fix as useEncryptedBalance.
   const { effectiveAddress: address, smartAccount } = useEffectiveAddress();
+  const { address: eoaAddress } = useAccount();
 
   // Read public USDC balance — refetchInterval polls every 5s for fresh data.
   // `chainId` is passed explicitly so passkey-only users (no EOA → no wagmi
@@ -236,6 +237,18 @@ export function useShield() {
       return null;
     }
     const amountWei = parseUnits(amount, 6);
+
+    // Passkey-only users have NO EOA (wagmi useAccount.address is null
+    // but useEffectiveAddress returns smartAccount.account.address).
+    // If the smart account is still resolving (status='loading'), the
+    // original code fell through to the EOA path which silently
+    // returned null with no UI feedback — user clicked Deposit, saw
+    // nothing happen. Surface this case clearly + wait briefly.
+    const isPasskeyOnly = !eoaAddress && smartAccount.status !== "no-passkey";
+    if (isPasskeyOnly && smartAccount.status !== "ready") {
+      toast.error("Wallet still loading — try again in a moment");
+      return null;
+    }
 
     // ─── Smart-account path ──────────────────────────────────────────
     if (smartAccount.status === "ready" && smartAccount.account) {
