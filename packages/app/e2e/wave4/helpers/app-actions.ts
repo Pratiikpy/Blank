@@ -74,8 +74,13 @@ export async function enterPassphrase(page: Page, passphrase: string): Promise<v
   // the input.
   // :visible filter — multiple stale modals can be in the DOM if the
   // caller hit a retry loop above.
+  // 120s budget: send flows trigger TWO prompts back-to-back (approve
+  // first, then sendPayment), and the approve step can take 30–60s on
+  // Sepolia. The full chain (approve UserOp + bundler + mine + send
+  // prompt) can land 60–90s after the Confirm click, so 30s was too
+  // short for send flows even though it works for shield-only paths.
   const input = page.locator('input[type="password"][placeholder*="assphrase" i]:visible').first();
-  await input.waitFor({ state: "visible", timeout: 30_000 });
+  await input.waitFor({ state: "visible", timeout: 120_000 });
   // Set value via the React 18 native setter + dispatch input event —
   // see shieldUsdc for the rationale (modal re-render races detach
   // Playwright element handles mid-type). Submit button label is
