@@ -9,7 +9,11 @@
     "contracts:deploy:base-sepolia": "pnpm --filter @blankpay/contracts deploy:base-sepolia",
     "app:dev": "pnpm --filter @blankpay/app dev",
     "app:build": "pnpm --filter @blankpay/app build",
-    "e2e": "pnpm --filter @blankpay/app e2e:wave4",
+    "e2e": "pnpm --filter @blankpay/app e2e:all",
+    "e2e:wave4": "pnpm --filter @blankpay/app e2e:wave4",
+    "e2e:audit": "pnpm --filter @blankpay/app e2e:audit",
+    "e2e:preflight": "pnpm --filter @blankpay/app e2e:preflight",
+    "e2e:summary": "pnpm --filter @blankpay/app e2e:summary",
     "clean": "pnpm -r clean"
   },
   "engines": {

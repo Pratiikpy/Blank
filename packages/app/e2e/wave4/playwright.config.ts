@@ -47,6 +47,19 @@ export default defineConfig({
     actionTimeout: 30_000,
     navigationTimeout: 60_000,
   },
+  // Auto-start vite so `pnpm e2e` works on a fresh checkout. Playwright
+  // reuses an already-running dev server (good for local dev where the
+  // dev box already has vite up), spins one up otherwise (CI / cloud
+  // headless / clean-checkout judges).
+  webServer: {
+    command: "pnpm dev",
+    cwd: path.resolve(__dirname, "../.."),
+    url: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173",
+    reuseExistingServer: true,
+    timeout: 120_000, // first-time vite build can take a while on cold cache
+    stdout: "pipe",
+    stderr: "pipe",
+  },
   projects: [
     {
       name: "eth-sepolia-desktop",
