@@ -77,10 +77,14 @@ export async function shieldUsdc(
     .waitFor({ state: "visible", timeout: 30_000 });
   await page.waitForTimeout(5_000);
 
-  // Target the Shield input via its aria-label (stable across copy
-  // changes). Fall back to placeholder if needed.
+  // Dashboard renders TWO inputs with aria-label="Shield amount" —
+  // one inside the desktop section (line 373) and one inside the
+  // mobile-friendly bottom block (line 779). For desktop viewport,
+  // only one is visible. .first() may pick the hidden mobile one,
+  // and fill() then times out on the visibility check. Use :visible
+  // pseudo to skip the hidden duplicate.
   const amountInput = page
-    .locator('input[aria-label="Shield amount"]')
+    .locator('input[aria-label="Shield amount"]:visible')
     .first();
   await amountInput.waitFor({ state: "visible", timeout: 30_000 });
   await amountInput.fill(amountUsdc);
@@ -98,7 +102,11 @@ export async function shieldUsdc(
   // overlay. dispatchEvent skips the actionability check and just
   // fires the React onClick handler directly. The handler still
   // validates the amount internally, so we don't lose any safety.
-  const shieldBtn = page.locator('button[aria-label="Deposit to vault"]').first();
+  // Same duplicate-element story as the input — there are TWO
+  // Deposit-to-vault buttons. Filter by visibility. dispatchEvent
+  // bypasses Playwright's actionability check (which sometimes
+  // hangs on stable-but-busy buttons during React re-renders).
+  const shieldBtn = page.locator('button[aria-label="Deposit to vault"]:visible').first();
   await shieldBtn.waitFor({ state: "visible", timeout: 10_000 });
   await shieldBtn.dispatchEvent("click");
 
