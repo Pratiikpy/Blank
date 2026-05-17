@@ -140,3 +140,29 @@ Every passing line in the sweep output is a real Base Sepolia /
 Eth Sepolia tx hash that resolves on the chain's block explorer
 with `status=0x1`. The verify-sweep-state task adds a second
 verification layer by reading on-chain state after the writes.
+
+## Independent JSON-RPC audit (3rd layer)
+
+[`audit-sweep.py`](audit-sweep.py) — a standalone Python audit that
+re-checks every claimed-pass tx hash against the chain via independent
+RPC providers (different from the ones the sweep itself used). This
+is the verification of the verification: if the sweep was lying about
+status, this script would catch it. Latest results:
+
+```
+Base Sepolia: 29/29 truly mined (status=0x1), 0 reverted
+Eth Sepolia:  29/29 truly mined (status=0x1), 0 reverted
+              ────────────────────────────────────────────────
+              58/58 happy-path tx hashes confirmed on-chain
+              + 22 negative-case reverts (11 per chain via eth_call)
+              ════════════════════════════════════════════════
+              80 cells of audited, reproducible proof
+```
+
+Re-run from anywhere with Python 3.7+:
+
+```bash
+cd packages/contracts/test-results
+python audit-sweep.py truly-final-base-sepolia-40-pass.log base
+python audit-sweep.py truly-final-eth-sepolia-40-pass.log eth
+```
