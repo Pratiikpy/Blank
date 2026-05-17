@@ -87,7 +87,7 @@ test.describe("Phase 19 — Inheritance (principal side)", () => {
     await snap(alice.page, shot, "inheritance-landing-no-plan");
 
     // No-plan state shows a "Set Up Inheritance Plan" CTA. Click it.
-    const setupBtn = alice.page.locator('button:has-text(/^Set Up Inheritance Plan/i)');
+    const setupBtn = alice.page.locator("button").filter({ hasText: /^Set Up Inheritance Plan/i });
     await setupBtn.waitFor({ state: "visible", timeout: 10_000 });
     await setupBtn.click();
     await snap(alice.page, shot, "set-heir-modal-opened");
@@ -106,7 +106,7 @@ test.describe("Phase 19 — Inheritance (principal side)", () => {
     ).toBeVisible({ timeout: 5_000 });
 
     // Submit "Set Heir".
-    const setHeirBtn = alice.page.locator('button:has-text(/^Set Heir/i)');
+    const setHeirBtn = alice.page.locator("button").filter({ hasText: /^Set Heir/i });
     await setHeirBtn.click();
     await enterPassphrase(alice.page, PERSONAS.Alice.passphrase);
     await snap(alice.page, shot, "set-heir-encrypting");
@@ -133,7 +133,7 @@ test.describe("Phase 19 — Inheritance (principal side)", () => {
     // After setHeir, the screen flips to the "Active Plan" view
     // with a "Check In Now" button. Tap it; UserOp #2 (heartbeat)
     // fires.
-    const checkInBtn = alice.page.locator('button:has-text(/^Check In Now/i)');
+    const checkInBtn = alice.page.locator("button").filter({ hasText: /^Check In Now/i });
     await checkInBtn.waitFor({ state: "visible", timeout: 30_000 });
     await snap(alice.page, shot, "active-plan-view");
     await checkInBtn.click();

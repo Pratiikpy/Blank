@@ -108,7 +108,7 @@ test.describe("Phase 3 — business tools", () => {
     });
 
     const newInvoiceBtn = alice.page
-      .locator('button:has-text(/^New invoice/i), button:has-text(/^\\+ Invoice/i), button:has-text(/^Create invoice/i)')
+      .locator("buttonbuttonbutton").filter({ hasText: /^Create invoice/i })
       .first();
     await newInvoiceBtn.click();
 
@@ -126,7 +126,7 @@ test.describe("Phase 3 — business tools", () => {
 
     // — Step 3: submit invoice creation.
     await alice.page
-      .locator('button:has-text(/^Create/i), button:has-text(/^Submit/i), button:has-text(/^Send invoice/i)')
+      .locator("buttonbuttonbutton").filter({ hasText: /^Send invoice/i })
       .last()
       .click();
     await enterPassphrase(alice.page, PERSONAS.Alice.passphrase);
@@ -155,7 +155,7 @@ test.describe("Phase 3 — business tools", () => {
     await bob.page.goto(previewHref);
 
     const payBtn = bob.page
-      .locator('button:has-text(/^Pay/i)')
+      .locator("button").filter({ hasText: /^Pay/i })
       .first();
     await payBtn.waitFor({ state: "visible", timeout: 30_000 });
     await snap(bob.page, bobShot, "before-pay");
@@ -226,7 +226,7 @@ test.describe("Phase 3 — business tools", () => {
     // placeholder="0xabc..., 0xdef..., 0x123..." for addresses and
     // placeholder="5000, 8000, 3500" for amounts.
     const newPayrollBtn = alice.page
-      .locator('button:has-text(/^New payroll/i), button:has-text(/^Run payroll/i), button:has-text(/^\\+ Payroll/i)')
+      .locator("buttonbuttonbutton").filter({ hasText: /^\\+ Payroll/i })
       .first();
     await newPayrollBtn.click().catch(() => {
       // Some builds open the form inline without a separate "New" button.
@@ -242,7 +242,7 @@ test.describe("Phase 3 — business tools", () => {
     await snap(alice.page, shot, "payroll-filled");
 
     await alice.page
-      .locator('button:has-text(/^Run payroll/i), button:has-text(/^Submit/i)')
+      .locator("buttonbutton").filter({ hasText: /^Submit/i })
       .last()
       .click();
     await enterPassphrase(alice.page, PERSONAS.Alice.passphrase);

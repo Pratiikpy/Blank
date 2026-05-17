@@ -118,7 +118,7 @@ test.describe("Phase 4 — escrow", () => {
     await snap(alice.page, aliceShot, "escrow-tab-open");
 
     const newEscrowBtn = alice.page
-      .locator('button:has-text(/^New Escrow/i), button:has-text(/^\\+ Escrow/i), button:has-text(/^Create escrow/i)')
+      .locator("buttonbuttonbutton").filter({ hasText: /^Create escrow/i })
       .first();
     await newEscrowBtn.click();
 
@@ -138,7 +138,7 @@ test.describe("Phase 4 — escrow", () => {
     await snap(alice.page, aliceShot, "escrow-modal-filled");
 
     await alice.page
-      .locator('button:has-text(/^Create/i), button:has-text(/^Submit/i)')
+      .locator("buttonbutton").filter({ hasText: /^Submit/i })
       .last()
       .click();
     await enterPassphrase(alice.page, PERSONAS.Alice.passphrase);
@@ -161,7 +161,7 @@ test.describe("Phase 4 — escrow", () => {
     await snap(bob.page, bobShot, "escrow-mine-list");
 
     const markDeliveredBtn = bob.page
-      .locator('button:has-text(/Mark.*delivered/i), button:has-text(/^Deliver/i)')
+      .locator("button").filter({ hasText: /Mark.*delivered|^Deliver/i })
       .first();
     await markDeliveredBtn.waitFor({ state: "visible", timeout: 60_000 });
     await markDeliveredBtn.click();
@@ -177,7 +177,7 @@ test.describe("Phase 4 — escrow", () => {
     await snap(alice.page, aliceShot, "escrow-pending-release");
 
     const approveReleaseBtn = alice.page
-      .locator('button:has-text(/Approve.*release/i), button:has-text(/^Release/i)')
+      .locator("button").filter({ hasText: /Approve.*release|^Release/i })
       .first();
     await approveReleaseBtn.waitFor({ state: "visible", timeout: 60_000 });
     await approveReleaseBtn.click();

@@ -95,7 +95,7 @@ test.describe("Phase 23 — Onboarding (real first-time passkey)", () => {
     ];
 
     for (let i = 0; i < stepHeadings.length; i++) {
-      const nextBtn = page.locator('button:has-text(/^Next$/i)');
+      const nextBtn = page.locator("button").filter({ hasText: /^Next$/i });
       await nextBtn.click();
       await page.locator("h2", { hasText: stepHeadings[i] }).waitFor({ state: "visible", timeout: 5_000 });
       await snap(page, shot, `step-${i + 2}-${stepHeadings[i].source.slice(0, 16)}`);
@@ -105,7 +105,7 @@ test.describe("Phase 23 — Onboarding (real first-time passkey)", () => {
     // The "Next" button is hidden on the last step; the WalletChoiceCard
     // takes its place. Click the passkey CTA.
     const passkeyCta = page
-      .locator('button:has-text(/passkey|smart wallet|create.*account/i)')
+      .locator("button").filter({ hasText: /passkey|smart wallet|create.*account/i })
       .first();
     await passkeyCta.waitFor({ state: "visible", timeout: 10_000 });
     await snap(page, shot, "wallet-choice-card-visible");

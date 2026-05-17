@@ -118,7 +118,7 @@ test.describe("Phase 20 — Gift envelopes (Alice gifts Bob $5)", () => {
     await snap(alice.page, aliceShot, "message-typed");
 
     // Submit "Send Gift Envelope".
-    await alice.page.locator('button:has-text(/^Send Gift Envelope/i)').click();
+    await alice.page.locator("button").filter({ hasText: /^Send Gift Envelope/i }).click();
     await enterPassphrase(alice.page, PERSONAS.Alice.passphrase);
     await snap(alice.page, aliceShot, "gift-encrypting");
 
@@ -161,7 +161,7 @@ test.describe("Phase 20 — Gift envelopes (Alice gifts Bob $5)", () => {
 
     // The pending envelope from Alice should be in the list. The
     // green Claim button is enabled (non-expired).
-    const claimBtn = bob.page.locator('button:has-text(/^Claim$/i)').first();
+    const claimBtn = bob.page.locator("button").filter({ hasText: /^Claim$/i }).first();
     await claimBtn.waitFor({ state: "visible", timeout: 30_000 });
     await snap(bob.page, bobShot, "envelope-from-alice-visible");
     await claimBtn.click();

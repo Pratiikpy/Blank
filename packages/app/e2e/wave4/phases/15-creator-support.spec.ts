@@ -94,7 +94,7 @@ test.describe("Phase 15 — Creator Support", () => {
     // Click "Become a Creator" to open the create form. The button
     // text is in a <button onClick={() => setShowCreateForm(true)}>
     // — it sits inside the "Become a Creator" card.
-    const becomeBtn = bob.page.locator('button:has-text(/^Become a Creator/i)').first();
+    const becomeBtn = bob.page.locator("button").filter({ hasText: /^Become a Creator/i }).first();
     await becomeBtn.waitFor({ state: "visible", timeout: 10_000 });
     await becomeBtn.click();
     await snap(bob.page, bobShot, "become-creator-form-opened");
@@ -105,7 +105,7 @@ test.describe("Phase 15 — Creator Support", () => {
       .fill("Demo creator profile for judge-replay coverage.");
     await snap(bob.page, bobShot, "profile-form-filled");
 
-    await bob.page.locator('button:has-text(/^Create Profile/i)').click();
+    await bob.page.locator("button").filter({ hasText: /^Create Profile/i }).click();
     await enterPassphrase(bob.page, PERSONAS.Bob.passphrase);
     await snap(bob.page, bobShot, "profile-passphrase-entered");
 
@@ -169,7 +169,7 @@ test.describe("Phase 15 — Creator Support", () => {
     await snap(alice.page, aliceShot, "message-typed");
 
     // Click "Send $5 Support" button.
-    const sendBtn = alice.page.locator('button:has-text(/^Send \\$5 Support/i)');
+    const sendBtn = alice.page.locator("button").filter({ hasText: /^Send \\$5 Support/i });
     await sendBtn.waitFor({ state: "visible", timeout: 5_000 });
     await sendBtn.click();
     await snap(alice.page, aliceShot, "tip-submit-clicked");

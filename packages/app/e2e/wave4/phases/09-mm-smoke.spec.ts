@@ -128,7 +128,7 @@ test.describe("Phase 9 — MetaMask smoke (Dave EOA)", () => {
       // Click the Connect button. The dApp's wallet picker offers
       // MetaMask; clicking it triggers MM's connect popup.
       const connectBtn = dapp
-        .locator('button:has-text(/^Connect/i), button:has-text(/^Sign in/i)')
+        .locator("buttonbutton").filter({ hasText: /^Sign in/i })
         .first();
       await connectBtn.waitFor({ state: "visible", timeout: 30_000 });
       await connectBtn.click();
@@ -152,17 +152,17 @@ test.describe("Phase 9 — MetaMask smoke (Dave EOA)", () => {
         .locator('input[placeholder*="0x"]')
         .first()
         .fill(recipient);
-      await dapp.locator('button:has-text(/^Continue/i), button:has-text(/^Next/i)').first().click();
+      await dapp.locator("buttonbutton").filter({ hasText: /^Next/i }).first().click();
 
       // SendAmount → 0.01 USDC (small amount).
       await dapp.locator('input[placeholder="0.00"]').first().fill("0.01");
       await dapp
-        .locator('button:has-text(/^Continue/i), button:has-text(/^Review/i), button:has-text(/^Send/i)')
+        .locator("buttonbuttonbutton").filter({ hasText: /^Send/i })
         .last()
         .click();
 
       // SendConfirm → final Send → MM popup fires.
-      await dapp.locator('button:has-text(/^Send/i), button:has-text(/^Confirm/i)').last().click();
+      await dapp.locator("buttonbutton").filter({ hasText: /^Confirm/i }).last().click();
       const sendPopup = await waitForMmPopup(mm.context, 60_000).catch(() => null);
       if (sendPopup) {
         await confirmMmPopup(sendPopup, SHOTS_DIR, "mm-send");

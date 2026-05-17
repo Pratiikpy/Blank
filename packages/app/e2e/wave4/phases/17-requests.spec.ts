@@ -95,7 +95,7 @@ test.describe("Phase 17 — Payment Requests (Alice requests, Bob pays)", () => 
     // The button has a Plus icon + "Request" text; matching by the
     // class shape isn't robust, so target by the Plus-wrapping
     // button at the top right that says "Request".
-    const newRequestBtn = alice.page.locator('button:has-text(/^Request$/i)').first();
+    const newRequestBtn = alice.page.locator("button").filter({ hasText: /^Request$/i }).first();
     await newRequestBtn.waitFor({ state: "visible", timeout: 10_000 });
     await newRequestBtn.click();
     await snap(alice.page, aliceShot, "create-request-modal-opened");
@@ -113,7 +113,7 @@ test.describe("Phase 17 — Payment Requests (Alice requests, Bob pays)", () => 
     await snap(alice.page, aliceShot, "request-form-filled");
 
     // Submit Send Request.
-    await alice.page.locator('button:has-text(/^Send Request/i)').click();
+    await alice.page.locator("button").filter({ hasText: /^Send Request/i }).click();
     await enterPassphrase(alice.page, PERSONAS.Alice.passphrase);
     await snap(alice.page, aliceShot, "request-encrypting");
 
@@ -159,7 +159,7 @@ test.describe("Phase 17 — Payment Requests (Alice requests, Bob pays)", () => 
     await snap(bob.page, bobShot, "bob-sees-incoming-request");
 
     // Click Pay (emerald, with Send icon).
-    const payBtn = bob.page.locator('button:has-text(/^Pay$/i)').first();
+    const payBtn = bob.page.locator("button").filter({ hasText: /^Pay$/i }).first();
     await payBtn.waitFor({ state: "visible", timeout: 5_000 });
     await payBtn.click();
     await snap(bob.page, bobShot, "fulfill-modal-opened");
@@ -171,7 +171,7 @@ test.describe("Phase 17 — Payment Requests (Alice requests, Bob pays)", () => 
     await snap(bob.page, bobShot, "fulfill-amount-typed");
 
     // Click "Pay Now".
-    await bob.page.locator('button:has-text(/^Pay Now/i)').click();
+    await bob.page.locator("button").filter({ hasText: /^Pay Now/i }).click();
     await enterPassphrase(bob.page, PERSONAS.Bob.passphrase);
     await snap(bob.page, bobShot, "fulfill-encrypting");
 

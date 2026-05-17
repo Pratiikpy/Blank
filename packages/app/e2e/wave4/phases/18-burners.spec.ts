@@ -139,7 +139,7 @@ test.describe("Phase 18 — Burners (local create + chain-backup gap)", () => {
         await snap(alice.page, shot, "backup-modal-opened");
         await alice.page.locator('input[type="password"]').first().fill(PERSONAS.Alice.passphrase);
         await alice.page
-          .locator('button:has-text(/^Encrypt|Back up|Confirm/i)')
+          .locator("button").filter({ hasText: /^Encrypt|Back up|Confirm/i })
           .first()
           .click();
         await enterPassphrase(alice.page, PERSONAS.Alice.passphrase).catch(() => undefined);

@@ -181,7 +181,7 @@ test.describe("Phase 5 — public deep-link create", () => {
       if (mode.secondFactor) await mode.secondFactor(alice.page);
 
       await alice.page
-        .locator('button:has-text(/^Create link/i)')
+        .locator("button").filter({ hasText: /^Create link/i })
         .click();
       await enterPassphrase(alice.page, PERSONAS.Alice.passphrase);
 
@@ -244,7 +244,7 @@ test.describe("Phase 5 — public deep-link create", () => {
 
     await snap(alice.page, shot, "auction-form-filled");
 
-    await alice.page.locator('button:has-text(/^Create listing/i)').click();
+    await alice.page.locator("button").filter({ hasText: /^Create listing/i }).click();
     await enterPassphrase(alice.page, PERSONAS.Alice.passphrase);
     const txHash = await readTxHashFromSuccess(alice.page);
     const shareUrl = await readShareUrl(alice.page, "/shop/", url);
@@ -287,7 +287,7 @@ test.describe("Phase 5 — public deep-link create", () => {
 
     await snap(alice.page, shot, "campaign-form-filled");
 
-    await alice.page.locator('button:has-text(/^Launch campaign/i)').click();
+    await alice.page.locator("button").filter({ hasText: /^Launch campaign/i }).click();
     await enterPassphrase(alice.page, PERSONAS.Alice.passphrase);
     const txHash = await readTxHashFromSuccess(alice.page);
     const shareUrl = await readShareUrl(alice.page, "/fund/", url);

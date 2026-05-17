@@ -138,7 +138,7 @@ test.describe("Phase 6 — public deep-link consume", () => {
       // deterministic AA address IS the bound address, the page lets
       // him click Claim.
       const claimBtn = bob.page
-        .locator('button:has-text(/^Claim/i)')
+        .locator("button").filter({ hasText: /^Claim/i })
         .first();
       await claimBtn.waitFor({ state: "visible", timeout: 30_000 });
       await claimBtn.click();
@@ -199,7 +199,7 @@ test.describe("Phase 6 — public deep-link consume", () => {
       // The Auction view renders a BuyForm with placeholder "enter your max"
       // for the bid input + a "Place bid" CTA.
       await page.locator('input[placeholder="enter your max"]').fill(amount);
-      await page.locator('button:has-text(/^Place bid/i)').click();
+      await page.locator("button").filter({ hasText: /^Place bid/i }).click();
       await enterPassphrase(page, persona.passphrase);
       const txHash = await readTxHashFromSuccess(page);
       const shot = await snap(
@@ -287,7 +287,7 @@ test.describe("Phase 6 — public deep-link consume", () => {
         .first()
         .fill("30");
       await ctx.page
-        .locator('button:has-text(/^Contribute/i)')
+        .locator("button").filter({ hasText: /^Contribute/i })
         .click();
       await enterPassphrase(ctx.page, persona.passphrase);
       const txHash = await readTxHashFromSuccess(ctx.page);

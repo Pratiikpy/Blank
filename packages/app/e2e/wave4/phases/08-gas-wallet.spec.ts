@@ -213,16 +213,16 @@ test.describe("Phase 8 — gas wallet", () => {
     await snap(alicePage, shot, "self-pay-send-screen");
     await alicePage.locator('input[placeholder*="0x"]').first().fill(bobAddress);
     await alicePage
-      .locator('button:has-text(/^Continue/i), button:has-text(/^Next/i)')
+      .locator("buttonbutton").filter({ hasText: /^Next/i })
       .first()
       .click();
     await alicePage.locator('input[placeholder="0.00"]').first().fill("1");
     await alicePage
-      .locator('button:has-text(/^Continue/i), button:has-text(/^Review/i), button:has-text(/^Send/i)')
+      .locator("buttonbuttonbutton").filter({ hasText: /^Send/i })
       .last()
       .click();
     await alicePage
-      .locator('button:has-text(/^Send/i), button:has-text(/^Confirm/i)')
+      .locator("buttonbutton").filter({ hasText: /^Confirm/i })
       .last()
       .click();
 

@@ -108,7 +108,7 @@ test.describe("Phase 14 — Groups (Alice creates encrypted group with Bob + Car
     // Click the header Create button. The "Create" / "Create Group"
     // text varies between mobile + desktop, so match either.
     const createBtn = alice.page
-      .locator('button:has-text(/^Create/i)')
+      .locator("button").filter({ hasText: /^Create/i })
       .first();
     await createBtn.waitFor({ state: "visible", timeout: 10_000 });
     await createBtn.click();

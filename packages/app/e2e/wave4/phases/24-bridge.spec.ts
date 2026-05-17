@@ -124,7 +124,7 @@ test.describe("Phase 24 — Bridge (Circle CCTP V2)", () => {
     // area. statusLabel returns strings like "Start bridge",
     // "Approving USDC for the CCTP bridge…", etc.
     const startBtn = alice.page
-      .locator('button:has-text(/^(Start bridge|Bridge USDC|Approve|Continue)/i)')
+      .locator("button").filter({ hasText: /^(Start bridge|Bridge USDC|Approve|Continue)/i })
       .last();
     await startBtn.waitFor({ state: "visible", timeout: 5_000 });
     await startBtn.click();

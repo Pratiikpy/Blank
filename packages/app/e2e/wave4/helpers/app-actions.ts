@@ -43,27 +43,30 @@ export async function readTxHashFromSuccess(page: Page, timeoutMs = 90_000): Pro
   throw new Error("No tx-hash explorer link surfaced within timeout");
 }
 
-/** Shield plaintext USDC into the FHE vault via the SmartWallet's
- *  Fund-in card. Assumes the wallet has at least `amountUsdc` TestUSDC
- *  and the passphrase prompt fires once for the shield UserOp. */
+/** Shield plaintext USDC into the FHE vault. The actual shield UX is
+ *  on the Dashboard (/app), NOT SmartWallet (/app/wallet) — the shield
+ *  input has aria-label="Shield amount" and the submit button has
+ *  aria-label="Deposit to vault" with the text "Deposit". An earlier
+ *  version of this helper navigated to /app/wallet looking for a
+ *  "Shield" button that doesn't exist there. */
 export async function shieldUsdc(
   page: Page,
   amountUsdc: string,
   passphrase: string,
 ): Promise<{ txHash: string }> {
-  await page.goto("/app/wallet");
+  await page.goto("/app");
 
-  // Find the Fund-in amount input. The legacy SmartWallet renders a
-  // numeric input with placeholder around amount in USDC and a "Shield"
-  // submit button. Selectors here are deliberately loose so changes to
-  // the label copy don't break the test.
+  // Target the Shield input via its aria-label (stable across copy
+  // changes). Fall back to placeholder if needed.
   const amountInput = page
-    .locator('input[inputmode="decimal"]')
+    .locator('input[aria-label="Shield amount"]')
     .first();
   await amountInput.waitFor({ state: "visible", timeout: 30_000 });
   await amountInput.fill(amountUsdc);
 
-  const shieldBtn = page.locator('button:has-text(/^Shield/i)').first();
+  // The submit button has aria-label="Deposit to vault" and visible
+  // text "Deposit". Use aria-label — it's the stable contract.
+  const shieldBtn = page.locator('button[aria-label="Deposit to vault"]').first();
   await shieldBtn.click();
 
   await enterPassphrase(page, passphrase);

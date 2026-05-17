@@ -119,7 +119,7 @@ test.describe("Phase 7 — privacy primitives", () => {
       .fill("50");
     await snap(alice.page, shot, "proof-form-filled");
 
-    await alice.page.locator('button:has-text(/^Create proof/i)').click();
+    await alice.page.locator("button").filter({ hasText: /^Create proof/i }).click();
 
     // Auto-publish ON = 2 wallet popups. Pass passphrase twice.
     await enterPassphrase(alice.page, PERSONAS.Alice.passphrase);
@@ -252,7 +252,7 @@ test.describe("Phase 7 — privacy primitives", () => {
     // "Register meta-address" or "Set up stealth". A passphrase is
     // typed to encrypt the spending key locally.
     const setupBtn = bob.page
-      .locator('button:has-text(/^Register/i), button:has-text(/^Set up stealth/i), button:has-text(/^Generate/i)')
+      .locator("buttonbuttonbutton").filter({ hasText: /^Generate/i })
       .first();
     await setupBtn.waitFor({ state: "visible", timeout: 30_000 });
     await setupBtn.click();
@@ -306,7 +306,7 @@ test.describe("Phase 7 — privacy primitives", () => {
       .fill("5");
 
     await alice.page
-      .locator('button:has-text(/^Send/i), button:has-text(/^Pay/i)')
+      .locator("buttonbutton").filter({ hasText: /^Pay/i })
       .last()
       .click();
     await enterPassphrase(alice.page, PERSONAS.Alice.passphrase);
