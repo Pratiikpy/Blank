@@ -9,6 +9,62 @@ import type { Page } from "@playwright/test";
 //  behind, so callers don't have to re-derive selectors.
 // ──────────────────────────────────────────────────────────────────
 
+/** Skip-if-already-funded faucet drip. Deterministic personas reuse the
+ *  same addresses across runs, so the faucet's per-address 5/hour limit
+ *  blocks re-runs hard. Probe the on-chain USDC balance via a public RPC
+ *  first; only call /api/faucet/usdc when balance is under the threshold.
+ *  Returns a synthetic 0x-hash when the drip was skipped (callers only
+ *  need "balance is now sufficient" downstream). */
+const FAUCET_USDC_BY_CHAIN: Record<number, string> = {
+  11155111: "0x16369CD4B9533795dCdc0D67DB3E4c621ef97D68",
+  84532: "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+};
+const FAUCET_RPC_BY_CHAIN: Record<number, string> = {
+  11155111: "https://ethereum-sepolia.publicnode.com",
+  84532: "https://sepolia.base.org",
+};
+const FAUCET_SKIP_THRESHOLD = 50_000_000n; // 50 USDC (6 decimals)
+
+export async function faucetUsdcIfNeeded(
+  page: Page,
+  address: string,
+  chainId: number,
+  baseURL: string,
+): Promise<string> {
+  const usdc = FAUCET_USDC_BY_CHAIN[chainId];
+  const rpc = FAUCET_RPC_BY_CHAIN[chainId];
+  if (usdc && rpc) {
+    try {
+      const data = `0x70a08231${address.replace(/^0x/, "").padStart(64, "0")}`;
+      const r = await page.request.post(rpc, {
+        data: { jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to: usdc, data }, "latest"] },
+        timeout: 15_000,
+      });
+      if (r.ok()) {
+        const b = (await r.json()) as { result?: string };
+        if (b.result) {
+          const bal = BigInt(b.result);
+          if (bal >= FAUCET_SKIP_THRESHOLD) {
+            return `0x${"0".repeat(64)}`; // synthetic — already funded
+          }
+        }
+      }
+    } catch {
+      /* fall through to the faucet call */
+    }
+  }
+  const res = await page.request.post(`${baseURL}/api/faucet/usdc`, {
+    data: { address, chainId },
+    timeout: 60_000,
+  });
+  if (!res.ok()) {
+    throw new Error(`Faucet failed: ${res.status()} (body: ${await res.text().catch(() => "?")})`);
+  }
+  const body = (await res.json()) as { ok: boolean; hash?: string; error?: string };
+  if (!body.ok) throw new Error(`Faucet ok=false: ${body.error ?? "unknown"}`);
+  return body.hash!;
+}
+
 /** Type the passphrase into the modal prompt + submit. The app uses
  *  the PassphrasePrompt component which renders an input + a Submit
  *  button when the user has to sign a UserOp. */

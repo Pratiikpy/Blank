@@ -8,7 +8,7 @@ import {
 } from "../fixtures/wallets";
 import { snap, resetCounter } from "../helpers/screenshot";
 import { recordProof } from "../helpers/testing-todo";
-import { enterPassphrase, readTxHashFromSuccess, shieldUsdc } from "../helpers/app-actions";
+import { enterPassphrase, readTxHashFromSuccess, shieldUsdc, faucetUsdcIfNeeded } from "../helpers/app-actions";
 
 // ──────────────────────────────────────────────────────────────────
 //  Phase 7 — privacy primitives.
@@ -47,14 +47,7 @@ function chainContextFromProject(): { chainId: number; chainName: string; viewpo
 }
 
 async function faucetUsdc(page: Page, address: string, chainId: number, baseURL: string): Promise<string> {
-  const res = await page.request.post(`${baseURL}/api/faucet/usdc`, {
-    data: { address, chainId },
-    timeout: 60_000,
-  });
-  expect(res.ok()).toBe(true);
-  const body = (await res.json()) as { ok: boolean; hash?: string };
-  expect(body.ok).toBe(true);
-  return body.hash!;
+  return faucetUsdcIfNeeded(page, address, chainId, baseURL);
 }
 
 async function bringUp(

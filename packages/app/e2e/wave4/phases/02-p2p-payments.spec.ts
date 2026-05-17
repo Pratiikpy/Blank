@@ -8,7 +8,7 @@ import {
 } from "../fixtures/wallets";
 import { snap, resetCounter } from "../helpers/screenshot";
 import { recordProof } from "../helpers/testing-todo";
-import { enterPassphrase, readTxHashFromSuccess, shieldUsdc } from "../helpers/app-actions";
+import { enterPassphrase, faucetUsdcIfNeeded, readTxHashFromSuccess, shieldUsdc } from "../helpers/app-actions";
 
 // ──────────────────────────────────────────────────────────────────
 //  Phase 2 — P2P encrypted payments (Alice ↔ Bob).
@@ -46,15 +46,10 @@ function chainContextFromProject(): { chainId: number; chainName: string; viewpo
   };
 }
 
+// Faucet drip is now a shared helper that skips-if-funded — see
+// helpers/app-actions.ts. Re-export the call shape here for clarity.
 async function faucetUsdc(page: Page, address: string, chainId: number, baseURL: string): Promise<string> {
-  const res = await page.request.post(`${baseURL}/api/faucet/usdc`, {
-    data: { address, chainId },
-    timeout: 60_000,
-  });
-  expect(res.ok(), `Faucet failed: ${res.status()}`).toBe(true);
-  const body = (await res.json()) as { ok: boolean; hash?: string; error?: string };
-  expect(body.ok, body.error).toBe(true);
-  return body.hash!;
+  return faucetUsdcIfNeeded(page, address, chainId, baseURL);
 }
 
 // Drive a recipient picker + amount input → confirm → success.
