@@ -64,11 +64,22 @@ export default function ClaimLinkPage() {
     let cancelled = false;
     setLoadError(null);
     setOnChain(null);
-    if (!Number.isFinite(chainId) || !Number.isFinite(linkId)) {
+    // Reject non-integers AND non-finite. BigInt(1.5) throws a
+    // RangeError which the catch-block below classifies as transient
+    // ("retry?") — surfacing wrong-shape URLs as permanent errors up
+    // here is the correct user signal.
+    if (
+      !Number.isFinite(chainId) ||
+      !Number.isFinite(linkId) ||
+      !Number.isInteger(chainId) ||
+      !Number.isInteger(linkId) ||
+      linkId < 0 ||
+      chainId < 0
+    ) {
       setLoadError({
         kind: "permanent",
         headline: "Invalid link",
-        hint: "The chain id or link id in the URL isn't a valid number.",
+        hint: "The chain id or link id in the URL isn't a valid positive integer.",
         rawCause: "",
       });
       return;

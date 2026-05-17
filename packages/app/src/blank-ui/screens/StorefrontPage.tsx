@@ -72,8 +72,17 @@ export default function StorefrontPage() {
     let cancelled = false;
     setLoadError(null);
     setOnChain(null);
-    if (!Number.isFinite(chainId) || !Number.isFinite(listingId)) {
-      setLoadError({ kind: "permanent", headline: "Invalid URL", hint: "The chain id or listing id in the URL isn't a valid number.", rawCause: "" });
+    if (
+      !Number.isFinite(chainId) ||
+      !Number.isFinite(listingId) ||
+      !Number.isInteger(chainId) ||
+      !Number.isInteger(listingId) ||
+      chainId < 0 ||
+      listingId < 0
+    ) {
+      // Reject 1.5, 1e21, "abc", negative ids. Otherwise BigInt(1.5)
+      // throws RangeError that surfaces as a transient retry error.
+      setLoadError({ kind: "permanent", headline: "Invalid URL", hint: "The chain id or listing id in the URL isn't a valid positive integer.", rawCause: "" });
       return;
     }
     if (!(chainId in CONTRACTS_BY_CHAIN)) {

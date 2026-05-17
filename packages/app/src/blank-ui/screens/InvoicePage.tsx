@@ -177,8 +177,11 @@ export default function InvoicePage() {
   );
 
   // ── Loading & error states ───────────────────────────────────────
-  if (!Number.isFinite(invoiceId) || invoiceId < 0) {
-    return <Frame><CardError title="Invalid link" body="The invoice id in this URL isn't a number." /></Frame>;
+  if (!Number.isFinite(invoiceId) || !Number.isInteger(invoiceId) || invoiceId < 0) {
+    // Reject 1.5, 1e21, "abc", negatives. Otherwise BigInt(invoiceId)
+    // at line 96 throws RangeError caught only by the load effect and
+    // surfaced as a generic load error instead of the right UX signal.
+    return <Frame><CardError title="Invalid link" body="The invoice id in this URL isn't a valid positive integer." /></Frame>;
   }
   if (!isLinkChainSupported) {
     return <Frame><CardError title="Unsupported chain" body={`Chain ${linkChainId} isn't supported by Blank.`} /></Frame>;

@@ -50,8 +50,19 @@ export default function CrowdfundPage() {
     let cancelled = false;
     setLoadError(null);
     setOnChain(null);
-    if (!Number.isFinite(chainId) || !Number.isFinite(campaignId)) {
-      setLoadError({ kind: "permanent", headline: "Invalid URL", hint: "The chain id or campaign id in the URL isn't a valid number.", rawCause: "" });
+    if (
+      !Number.isFinite(chainId) ||
+      !Number.isFinite(campaignId) ||
+      !Number.isInteger(chainId) ||
+      !Number.isInteger(campaignId) ||
+      chainId < 0 ||
+      campaignId < 0
+    ) {
+      // Same hardening as ClaimLinkPage + StorefrontPage: reject 1.5,
+      // negatives, 1e21. BigInt() on a non-integer throws RangeError
+      // which the catch-block classifier turns into a transient
+      // "retry?" error — wrong UX signal for malformed URLs.
+      setLoadError({ kind: "permanent", headline: "Invalid URL", hint: "The chain id or campaign id in the URL isn't a valid positive integer.", rawCause: "" });
       return;
     }
     if (!(chainId in CONTRACTS_BY_CHAIN)) {
