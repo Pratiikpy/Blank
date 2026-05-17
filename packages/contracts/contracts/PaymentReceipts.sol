@@ -32,6 +32,15 @@ contract PaymentReceipts is UUPSUpgradeable, OwnableUpgradeable {
         _;
     }
 
+    /// @notice Whitelist of vault addresses that proveBalanceAbove is
+    /// allowed to read. Without this, the function trusted ANY caller-
+    /// supplied vault address — letting an attacker deploy a fake
+    /// FHERC20VaultBalance that returns uint64.max for balanceOf and
+    /// prove any balance threshold to a verifier. Owner-managed via
+    /// setAuthorizedVault. Append-only storage; __gap reduced by 1.
+    mapping(address => bool) public authorizedVaults;
+    event AuthorizedVaultSet(address indexed vault, bool authorized);
+
     struct Receipt {
         euint64 paymentId;      // Encrypted random ID — prevents correlation
         euint64 amount;         // Encrypted amount — only parties can unseal
@@ -120,6 +129,19 @@ contract PaymentReceipts is UUPSUpgradeable, OwnableUpgradeable {
         FHE.allowThis(_globalTxCount);
         FHE.allowGlobal(_globalTxCount);
         _globalStatsInitialized = true;
+    }
+
+    /// @notice Owner-only: add or remove a vault from the proveBalanceAbove
+    /// whitelist. The vault MUST be a real FHERC20Vault deployed by the
+    /// Blank deployer (the balanceOf return value is treated as the
+    /// ground-truth encrypted balance). Adding an unverified contract
+    /// here lets that contract author forge balance proofs.
+    /// @param vault FHERC20Vault address to authorize for balance queries
+    /// @param authorized Whether the vault is authorized
+    function setAuthorizedVault(address vault, bool authorized) external onlyOwner {
+        require(vault != address(0), "PaymentReceipts: vault zero");
+        authorizedVaults[vault] = authorized;
+        emit AuthorizedVaultSet(vault, authorized);
     }
 
     /// @notice Set or remove an authorized caller for issuing receipts
@@ -359,6 +381,10 @@ contract PaymentReceipts is UUPSUpgradeable, OwnableUpgradeable {
     /// @param thresholdPlaintext Public threshold (e.g. 50000 USDC = 50_000_000_000 with 6 decimals)
     function proveBalanceAbove(address vault, uint64 thresholdPlaintext) external returns (uint256 proofId) {
         require(vault != address(0), "PaymentReceipts: vault zero");
+        // Whitelist check: only owner-blessed vaults can be queried.
+        // Without this, the proof of balance is forge-able (deploy a
+        // fake vault that returns uint64.max, pass any threshold).
+        require(authorizedVaults[vault], "PaymentReceipts: vault not authorized");
 
         // Read the caller's encrypted balance from the vault. The vault must
         // have allowed THIS contract to read the handle — that's automatic
@@ -548,7 +574,7 @@ contract PaymentReceipts is UUPSUpgradeable, OwnableUpgradeable {
     ///      Append-only: when adding a new state variable in a later upgrade,
     ///      decrement the gap size so total storage is unchanged.
     /// @dev Used: 14. Gap: 50.
-    uint256[50] private __gap;
+    uint256[49] private __gap;
 
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 }

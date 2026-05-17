@@ -763,6 +763,82 @@ describe("BusinessHub", () => {
     await mock_expectPlaintext(ctx.bob.provider, totalReceivedHandle, usdc(100));
   });
 
+  // CRITICAL: regression pin for the proveBalanceAbove fake-vault
+  // bug found in the /goal-session contract audit.
+  //
+  // Pre-fix: PaymentReceipts.proveBalanceAbove(vault, threshold) did
+  // require(vault != address(0)) but accepted ANY caller-supplied
+  // vault address. An attacker could deploy:
+  //   contract FakeVault { function balanceOf(address) external pure
+  //     returns (euint64) { return /* uint64.max as euint64 */; } }
+  // and call proveBalanceAbove(FakeVault, $1B) → result true →
+  // publishProof → on-chain "verified balance >= $1B" proof against
+  // a freshly-deployed contract.
+  //
+  // Fix: PaymentReceipts has a new authorizedVaults whitelist.
+  // setAuthorizedVault(vault, true) is owner-only. proveBalanceAbove
+  // reverts on non-whitelisted vaults. This test pins both shapes.
+  it("proveBalanceAbove rejects non-whitelisted vault (fake-vault bug)", async () => {
+    const ctx = await loadFixture(deployBlankFixture);
+    // Use the real vault address, but don't whitelist it. Must revert
+    // with the whitelist message — this is the bug-fix assertion.
+    await expect(
+      ctx.paymentReceipts.connect(ctx.alice).proveBalanceAbove(
+        await ctx.vault.getAddress(),
+        100,
+      ),
+    ).to.be.revertedWith("PaymentReceipts: vault not authorized");
+
+    // After whitelisting, the require gate flips — the call no longer
+    // reverts WITH the "vault not authorized" message. It may revert
+    // for orthogonal reasons (the underlying FHE.allowThis on a
+    // returned-handle path needs the vault to pre-grant
+    // PaymentReceipts on each balance, which is wired separately).
+    // What matters for THIS fix is that the whitelist gate works.
+    await ctx.paymentReceipts.setAuthorizedVault(await ctx.vault.getAddress(), true);
+    await expect(
+      ctx.paymentReceipts.connect(ctx.alice).proveBalanceAbove(
+        await ctx.vault.getAddress(),
+        100,
+      ),
+    ).to.not.be.revertedWith("PaymentReceipts: vault not authorized");
+  });
+
+  it("proveBalanceAbove still rejects vault == 0x0 (existing guard)", async () => {
+    const ctx = await loadFixture(deployBlankFixture);
+    await expect(
+      ctx.paymentReceipts.connect(ctx.alice).proveBalanceAbove(
+        hre.ethers.ZeroAddress,
+        100,
+      ),
+    ).to.be.revertedWith("PaymentReceipts: vault zero");
+  });
+
+  it("setAuthorizedVault is owner-only + emits AuthorizedVaultSet", async () => {
+    const ctx = await loadFixture(deployBlankFixture);
+    await expect(
+      ctx.paymentReceipts.connect(ctx.alice).setAuthorizedVault(
+        await ctx.vault.getAddress(),
+        true,
+      ),
+    ).to.be.reverted; // OwnableUpgradeable: caller is not the owner
+
+    await expect(
+      ctx.paymentReceipts.setAuthorizedVault(await ctx.vault.getAddress(), true),
+    )
+      .to.emit(ctx.paymentReceipts, "AuthorizedVaultSet")
+      .withArgs(await ctx.vault.getAddress(), true);
+
+    expect(await ctx.paymentReceipts.authorizedVaults(await ctx.vault.getAddress())).to.equal(true);
+  });
+
+  it("setAuthorizedVault rejects vault == address(0)", async () => {
+    const ctx = await loadFixture(deployBlankFixture);
+    await expect(
+      ctx.paymentReceipts.setAuthorizedVault(hre.ethers.ZeroAddress, true),
+    ).to.be.revertedWith("PaymentReceipts: vault zero");
+  });
+
   // CRITICAL: regression pin for the self-payroll income-inflation bug
   // found in the /goal-session contract audit. runPayroll previously
   // accepted msg.sender in the employees array. The transfer was a
