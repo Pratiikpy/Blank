@@ -1068,6 +1068,129 @@ task(
   }
   console.log("");
 
+  // ─── 8e. EmailBound link — Carol creates, Dave knows email + claims
+  // Mode = EmailBound (1). Anyone who knows BOTH the secret AND the
+  // exact email hash can claim. The hash is computed off-chain so the
+  // contract never sees the email plaintext.
+  console.log("[Feature 8e] EmailBound claim link — Carol → email-only, 0.15 USDC");
+  if (!ClaimLinks || !cofheClient) {
+    results.push({ feature: "claim_link_email_bound", persona: "Carol", status: "skip", error: "ClaimLinks or cofhe unavailable" });
+    results.push({ feature: "claim_link_email_bound_claim", persona: "Dave", status: "skip", error: "depends on create" });
+  } else {
+    try {
+      await connectCofheAs(personas[2]!);
+      const [encEmailLink] = (await cofheClient
+        .encryptInputs([Encryptable.uint64(parseUnits("0.15", 6))])
+        .execute()) as Array<{ ctHash: bigint; securityZone: number; utype: number; signature: Hex }>;
+
+      // Approve ClaimLinks on the vault (Carol — different signer than Bob)
+      const carolWallet0 = createWalletClient({
+        account: privateKeyToAccount(personas[2]!.privKey),
+        chain,
+        transport: http(rpcUrl),
+      });
+      const apEbHash = await carolWallet0.writeContract({
+        address: Vault as `0x${string}`,
+        abi: [
+          { name: "approvePlaintext", type: "function", stateMutability: "nonpayable", inputs: [{ name: "spender", type: "address" }, { name: "amount", type: "uint64" }], outputs: [] },
+        ],
+        functionName: "approvePlaintext",
+        args: [ClaimLinks as `0x${string}`, MAX_U64],
+      });
+      await waitOk(apEbHash, "apEbHash");
+
+      const DOMAIN_EB = keccak256(toBytes("BLANK_CLAIM_v1"));
+      const ebSecretSeed = keccak256(toBytes(`wave4-sweep-emailbound-${Date.now()}`));
+      const ebSecretBytes = new Uint8Array(32);
+      for (let i = 0; i < 32; i++) ebSecretBytes[i] = parseInt(ebSecretSeed.slice(2 + i * 2, 4 + i * 2), 16);
+      const ebSecretHex = ("0x" + Array.from(ebSecretBytes).map((b) => b.toString(16).padStart(2, "0")).join("")) as Hex;
+      const ebEmailHash = keccak256(toBytes("dave@wave4-sweep.example"));
+      // secretHash = keccak256(DOMAIN || uint8(1=EmailBound) || secret || emailHash)
+      const ebSecretHash = keccak256(
+        encodePacked(["bytes32", "uint8", "bytes32", "bytes32"], [DOMAIN_EB, 1, ebSecretHex, ebEmailHash]),
+      );
+
+      const linkEBHash = await withRetry("claim_link_eb_create", () => carolWallet0.writeContract({
+        address: ClaimLinks as `0x${string}`,
+        abi: [
+          {
+            name: "createLink",
+            type: "function",
+            stateMutability: "nonpayable",
+            inputs: [
+              { name: "vault", type: "address" },
+              {
+                name: "encAmount",
+                type: "tuple",
+                components: [
+                  { name: "ctHash", type: "uint256" },
+                  { name: "securityZone", type: "uint8" },
+                  { name: "utype", type: "uint8" },
+                  { name: "signature", type: "bytes" },
+                ],
+              },
+              { name: "secretHash", type: "bytes32" },
+              { name: "mode", type: "uint8" },
+              { name: "boundAddress", type: "address" },
+              { name: "expirySeconds", type: "uint256" },
+              { name: "note", type: "string" },
+            ],
+            outputs: [{ type: "uint256" }],
+          },
+        ],
+        functionName: "createLink",
+        args: [
+          Vault as `0x${string}`,
+          encEmailLink,
+          ebSecretHash,
+          1, // EmailBound
+          "0x0000000000000000000000000000000000000000",
+          0n,
+          "wave4 sweep EmailBound link",
+        ],
+        gas: 5_000_000n,
+      }));
+      await waitOk(linkEBHash, "linkEBHash");
+      console.log(`  Carol: EmailBound createLink ok  tx=${linkEBHash}`);
+      results.push({ feature: "claim_link_email_bound", persona: "Carol", status: "pass", txHash: linkEBHash });
+
+      // Dave claims with the same secret + emailHash
+      const justCreatedEB = await extractIdFromReceipt(linkEBHash, ClaimLinks, SIG.LinkCreated);
+      const daveWalletEB = createWalletClient({
+        account: privateKeyToAccount(personas[3]!.privKey),
+        chain,
+        transport: http(rpcUrl),
+      });
+      const claimEBHash = await withRetry("claim_link_eb_claim", () => daveWalletEB.writeContract({
+        address: ClaimLinks as `0x${string}`,
+        abi: [
+          {
+            name: "claimEmailBound",
+            type: "function",
+            stateMutability: "nonpayable",
+            inputs: [
+              { name: "linkId", type: "uint256" },
+              { name: "secret", type: "bytes32" },
+              { name: "emailHash", type: "bytes32" },
+            ],
+            outputs: [],
+          },
+        ],
+        functionName: "claimEmailBound",
+        args: [justCreatedEB, ebSecretHex, ebEmailHash],
+        gas: 5_000_000n,
+      }));
+      await waitOk(claimEBHash, "claimEBHash");
+      console.log(`  Dave: claimEmailBound link #${justCreatedEB} ok  tx=${claimEBHash}`);
+      results.push({ feature: "claim_link_email_bound_claim", persona: "Dave", status: "pass", txHash: claimEBHash });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message.slice(0, 250) : String(err);
+      console.log(`  EmailBound flow FAILED ${msg}`);
+      results.push({ feature: "claim_link_email_bound", persona: "Carol", status: "fail", error: msg });
+    }
+  }
+  console.log("");
+
   // ─── 8d. NEGATIVE: AddressBound claim by WRONG address rejected
   console.log("[Negative 8d] AddressBound claim by non-bound address — should revert");
   if (!ClaimLinks) {
