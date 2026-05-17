@@ -131,6 +131,27 @@ task(
     return { name, privKey, address: acct.address };
   });
 
+  // Wait for receipt AND throw on revert. viem's waitForTransactionReceipt
+  // returns the receipt regardless of status — receipt.status === "reverted"
+  // is the actual on-chain failure signal. Without this check, the sweep
+  // was silently accepting reverted txs as "pass" because the hash
+  // returned by writeContract was just the broadcast hash, not a
+  // success signal. Caught when verify-sweep-state showed group 24
+  // didn't have our personas — the settleDebt tx had reverted on-chain
+  // with status=0x0 but the sweep printed "ok" because we never checked.
+  async function waitOk(hash: `0x${string}`, label: string) {
+    const receipt = await publicClient.waitForTransactionReceipt({
+      hash,
+      confirmations: 1,
+    });
+    if (receipt.status === "reverted") {
+      throw new Error(
+        `${label}: tx reverted on-chain (status=reverted) — hash=${hash}`,
+      );
+    }
+    return receipt;
+  }
+
   // Retry wrapper for writeContract — Sepolia publicnode RPC throws
   // "Missing or invalid parameters" on ~4% of back-to-back submissions
   // (some nonce/encoding race in the RPC layer; always succeeds on retry).
@@ -270,7 +291,7 @@ task(
           functionName: "approve",
           args: [Vault as `0x${string}`, SHIELD_AMOUNT],
         });
-        await publicClient.waitForTransactionReceipt({ hash: approveHash, confirmations: 1 });
+        await waitOk(approveHash, "approveHash");
 
         // shield(amount) — plaintext amount (uint256), vault encrypts internally.
         // Manual gas because the FHE precompile inside _balances[..] = FHE.add(..)
@@ -284,7 +305,7 @@ task(
           args: [SHIELD_AMOUNT],
           gas: 5_000_000n,
         }));
-        await publicClient.waitForTransactionReceipt({ hash: shieldHash, confirmations: 1 });
+        await waitOk(shieldHash, "shieldHash");
         console.log(`  ${p.name}: shield ok  approve=${approveHash}  shield=${shieldHash}`);
         results.push({ feature: "shield", persona: p.name, status: "pass", txHash: shieldHash });
       } catch (err) {
@@ -323,7 +344,7 @@ task(
           functionName: "approvePlaintext",
           args: [PaymentHub as `0x${string}`, MAX_U64],
         });
-        await publicClient.waitForTransactionReceipt({ hash: apHash, confirmations: 1 });
+        await waitOk(apHash, "apHash");
 
         // Encrypt the pay amount
         const [encAmount] = (await cofheClient
@@ -359,7 +380,7 @@ task(
           args: [to.address, Vault as `0x${string}`, encAmount, `wave4 sweep ${from.name}→${to.name}`],
           gas: 5_000_000n,
         }));
-        await publicClient.waitForTransactionReceipt({ hash: payHash, confirmations: 1 });
+        await waitOk(payHash, "payHash");
         console.log(`  ${from.name}→${to.name}: pay ok  tx=${payHash}`);
         results.push({ feature: `pay_${from.name}_${to.name}`, persona: from.name, status: "pass", txHash: payHash });
       } catch (err) {
@@ -399,7 +420,7 @@ task(
       args: [memberAddresses, "Wave 4 Sweep"],
       gas: 5_000_000n,
     });
-    await publicClient.waitForTransactionReceipt({ hash: groupHash, confirmations: 1 });
+    await waitOk(groupHash, "groupHash");
     console.log(`  Alice: createGroup ok  tx=${groupHash}`);
     results.push({ feature: "createGroup", persona: "Alice", status: "pass", txHash: groupHash });
 
@@ -437,7 +458,7 @@ task(
         functionName: "approvePlaintext",
         args: [GroupManager as `0x${string}`, MAX_U64],
       });
-      await publicClient.waitForTransactionReceipt({ hash: apHash, confirmations: 1 });
+      await waitOk(apHash, "apHash");
 
       const [encSettle] = (await cofheClient
         .encryptInputs([Encryptable.uint64(parseUnits("0.1", 6))])
@@ -472,7 +493,7 @@ task(
         args: [createdGroupId, personas[2]!.address, Vault as `0x${string}`, encSettle],
         gas: 5_000_000n,
       }));
-      await publicClient.waitForTransactionReceipt({ hash: settleHash, confirmations: 1 });
+      await waitOk(settleHash, "settleHash");
       console.log(`  Bob→Carol in group ${createdGroupId}: settleDebt ok  tx=${settleHash}`);
       results.push({ feature: "settleDebt", persona: "Bob", status: "pass", txHash: settleHash });
     } catch (err) {
@@ -504,7 +525,7 @@ task(
         functionName: "approvePlaintext",
         args: [GiftMoney as `0x${string}`, MAX_U64],
       });
-      await publicClient.waitForTransactionReceipt({ hash: apHash, confirmations: 1 });
+      await waitOk(apHash, "apHash");
 
       const [encGift] = (await cofheClient
         .encryptInputs([Encryptable.uint64(PAY_AMOUNT)])
@@ -540,7 +561,7 @@ task(
         args: [personas[1]!.address, Vault as `0x${string}`, encGift, 0, "wave4 sweep gift"],
         gas: 5_000_000n,
       });
-      await publicClient.waitForTransactionReceipt({ hash: giftHash, confirmations: 1 });
+      await waitOk(giftHash, "giftHash");
       console.log(`  Alice→Bob: gift ok  tx=${giftHash}`);
       results.push({ feature: "gift_send", persona: "Alice", status: "pass", txHash: giftHash });
 
@@ -575,7 +596,7 @@ task(
           args: [justCreatedId],
           gas: 5_000_000n,
         });
-        await publicClient.waitForTransactionReceipt({ hash: claimHash, confirmations: 1 });
+        await waitOk(claimHash, "claimHash");
         console.log(`  Bob: claimGift #${justCreatedId} ok  tx=${claimHash}`);
         results.push({ feature: "gift_claim", persona: "Bob", status: "pass", txHash: claimHash });
       } catch (err) {
@@ -612,7 +633,7 @@ task(
         functionName: "approvePlaintext",
         args: [EncryptedEscrow as `0x${string}`, MAX_U64],
       });
-      await publicClient.waitForTransactionReceipt({ hash: apHash, confirmations: 1 });
+      await waitOk(apHash, "apHash");
 
       const [encEscrow] = (await cofheClient
         .encryptInputs([Encryptable.uint64(parseUnits("2", 6))])
@@ -648,7 +669,7 @@ task(
         args: [personas[1]!.address, Vault as `0x${string}`, encEscrow, personas[2]!.address, "wave4 sweep escrow"],
         gas: 5_000_000n,
       }));
-      await publicClient.waitForTransactionReceipt({ hash: escrowHash, confirmations: 1 });
+      await waitOk(escrowHash, "escrowHash");
       console.log(`  Alice→Bob (arb=Carol): escrow ok  tx=${escrowHash}`);
       results.push({ feature: "escrow_create", persona: "Alice", status: "pass", txHash: escrowHash });
 
@@ -680,7 +701,7 @@ task(
           args: [justCreatedEid],
           gas: 2_000_000n,
         });
-        await publicClient.waitForTransactionReceipt({ hash: markHash, confirmations: 1 });
+        await waitOk(markHash, "markHash");
         console.log(`  Bob: markDelivered escrow #${justCreatedEid} ok  tx=${markHash}`);
         results.push({ feature: "escrow_markDelivered", persona: "Bob", status: "pass", txHash: markHash });
 
@@ -705,7 +726,7 @@ task(
           args: [justCreatedEid],
           gas: 5_000_000n,
         });
-        await publicClient.waitForTransactionReceipt({ hash: releaseHash, confirmations: 1 });
+        await waitOk(releaseHash, "releaseHash");
         console.log(`  Alice: approveRelease escrow #${justCreatedEid} ok  tx=${releaseHash}`);
         results.push({ feature: "escrow_approveRelease", persona: "Alice", status: "pass", txHash: releaseHash });
       } catch (err) {
@@ -746,7 +767,7 @@ task(
         functionName: "approvePlaintext",
         args: [ClaimLinks as `0x${string}`, MAX_U64],
       });
-      await publicClient.waitForTransactionReceipt({ hash: apHash, confirmations: 1 });
+      await waitOk(apHash, "apHash");
 
       const [encLink] = (await cofheClient
         .encryptInputs([Encryptable.uint64(parseUnits("0.5", 6))])
@@ -801,7 +822,7 @@ task(
         ],
         gas: 5_000_000n,
       });
-      await publicClient.waitForTransactionReceipt({ hash: linkHash, confirmations: 1 });
+      await waitOk(linkHash, "linkHash");
       console.log(`  Bob: createLink ok  tx=${linkHash}`);
       results.push({ feature: "claim_link_create", persona: "Bob", status: "pass", txHash: linkHash });
 
@@ -888,7 +909,7 @@ task(
         ],
         gas: 5_000_000n,
       }));
-      await publicClient.waitForTransactionReceipt({ hash: linkABHash, confirmations: 1 });
+      await waitOk(linkABHash, "linkABHash");
       console.log(`  Bob: AddressBound createLink (bound=Carol) ok  tx=${linkABHash}`);
       results.push({ feature: "claim_link_addr_bound", persona: "Bob", status: "pass", txHash: linkABHash });
 
@@ -923,7 +944,7 @@ task(
         args: [justCreatedAB, ABsecretHex],
         gas: 5_000_000n,
       }));
-      await publicClient.waitForTransactionReceipt({ hash: claimABHash, confirmations: 1 });
+      await waitOk(claimABHash, "claimABHash");
       console.log(`  Carol: claimAddressBound link #${justCreatedAB} ok  tx=${claimABHash}`);
       results.push({ feature: "claim_link_addr_bound_claim", persona: "Carol", status: "pass", txHash: claimABHash });
     } catch (err) {
@@ -1002,7 +1023,7 @@ task(
         args: [bearerLinkId, bearerSecretHex!],
         gas: 5_000_000n,
       }));
-      await publicClient.waitForTransactionReceipt({ hash: claimHash, confirmations: 1 });
+      await waitOk(claimHash, "claimHash");
       console.log(`  Dave: claimBearer link #${bearerLinkId} ok  tx=${claimHash}`);
       results.push({ feature: "claim_link_claim", persona: "Dave", status: "pass", txHash: claimHash });
     } catch (err) {
@@ -1042,7 +1063,7 @@ task(
         functionName: "setHeir",
         args: [personas[3]!.address, 90n * 24n * 60n * 60n], // 90 days
       });
-      await publicClient.waitForTransactionReceipt({ hash: heirHash, confirmations: 1 });
+      await waitOk(heirHash, "heirHash");
       console.log(`  Carol→Dave: setHeir ok  tx=${heirHash}`);
       results.push({ feature: "inheritance_setHeir", persona: "Carol", status: "pass", txHash: heirHash });
     } catch (err) {
@@ -1108,7 +1129,7 @@ task(
         ],
         gas: 5_000_000n,
       });
-      await publicClient.waitForTransactionReceipt({ hash: listingHash, confirmations: 1 });
+      await waitOk(listingHash, "listingHash");
       console.log(`  Alice: createListing ok  tx=${listingHash}`);
       results.push({ feature: "storefront_listing", persona: "Alice", status: "pass", txHash: listingHash });
 
@@ -1134,7 +1155,7 @@ task(
           functionName: "approvePlaintext",
           args: [Storefront as `0x${string}`, MAX_U64],
         });
-        await publicClient.waitForTransactionReceipt({ hash: apHash, confirmations: 1 });
+        await waitOk(apHash, "apHash");
         const [encBuy] = (await cofheClient
           .encryptInputs([Encryptable.uint64(parseUnits("3", 6))])
           .execute()) as Array<{ ctHash: bigint; securityZone: number; utype: number; signature: Hex }>;
@@ -1167,7 +1188,7 @@ task(
           args: [justListed, encBuy, deliveryNoteHash],
           gas: 5_000_000n,
         }));
-        await publicClient.waitForTransactionReceipt({ hash: buyHash, confirmations: 1 });
+        await waitOk(buyHash, "buyHash");
         console.log(`  Carol: buyFixed listing #${justListed} ok  tx=${buyHash}`);
         results.push({ feature: "storefront_buy", persona: "Carol", status: "pass", txHash: buyHash });
       } catch (err) {
@@ -1234,7 +1255,7 @@ task(
         ],
         gas: 5_000_000n,
       });
-      await publicClient.waitForTransactionReceipt({ hash: cfHash, confirmations: 1 });
+      await waitOk(cfHash, "cfHash");
       console.log(`  Dave: createCampaign ok  tx=${cfHash}`);
       results.push({ feature: "crowdfund_create", persona: "Dave", status: "pass", txHash: cfHash });
     } catch (err) {
@@ -1272,7 +1293,7 @@ task(
         functionName: "approve",
         args: [P2PExchange as `0x${string}`, parseUnits("5", 6)],
       });
-      await publicClient.waitForTransactionReceipt({ hash: apHash, confirmations: 1 });
+      await waitOk(apHash, "apHash");
 
       const offerHash = await carolWallet.writeContract({
         address: P2PExchange as `0x${string}`,
@@ -1301,7 +1322,7 @@ task(
         ],
         gas: 2_000_000n,
       });
-      await publicClient.waitForTransactionReceipt({ hash: offerHash, confirmations: 1 });
+      await waitOk(offerHash, "offerHash");
       console.log(`  Carol: createOffer ok  tx=${offerHash}`);
       results.push({ feature: "p2p_offer", persona: "Carol", status: "pass", txHash: offerHash });
     } catch (err) {
@@ -1333,7 +1354,7 @@ task(
         functionName: "approvePlaintext",
         args: [BusinessHub as `0x${string}`, MAX_U64],
       });
-      await publicClient.waitForTransactionReceipt({ hash: apHash, confirmations: 1 });
+      await waitOk(apHash, "apHash");
       // Encrypt three salaries in parallel
       const salaries = (await cofheClient
         .encryptInputs([
@@ -1374,7 +1395,7 @@ task(
         ],
         gas: 10_000_000n,
       });
-      await publicClient.waitForTransactionReceipt({ hash: payrollHash, confirmations: 1 });
+      await waitOk(payrollHash, "payrollHash");
       console.log(`  Alice → 3 employees: runPayroll ok  tx=${payrollHash}`);
       results.push({ feature: "runPayroll", persona: "Alice", status: "pass", txHash: payrollHash });
     } catch (err) {
@@ -1425,7 +1446,7 @@ task(
         args: [encUnshield],
         gas: 5_000_000n,
       });
-      await publicClient.waitForTransactionReceipt({ hash: unshieldHash, confirmations: 1 });
+      await waitOk(unshieldHash, "unshieldHash");
       console.log(`  Bob: requestUnshield ok  tx=${unshieldHash}`);
       results.push({ feature: "requestUnshield", persona: "Bob", status: "pass", txHash: unshieldHash });
     } catch (err) {
@@ -1470,7 +1491,7 @@ task(
         args: ["Bob the Creator", "Wave4 sweep profile", 1_000_000n, 5_000_000n, 25_000_000n],
         gas: 5_000_000n,
       });
-      await publicClient.waitForTransactionReceipt({ hash: profileHash, confirmations: 1 });
+      await waitOk(profileHash, "profileHash");
       console.log(`  Bob: setProfile ok  tx=${profileHash}`);
       results.push({ feature: "creator_setProfile", persona: "Bob", status: "pass", txHash: profileHash });
 
@@ -1489,7 +1510,7 @@ task(
         functionName: "approvePlaintext",
         args: [CreatorHub as `0x${string}`, MAX_U64],
       });
-      await publicClient.waitForTransactionReceipt({ hash: apHash, confirmations: 1 });
+      await waitOk(apHash, "apHash");
 
       const [encTip] = (await cofheClient
         .encryptInputs([Encryptable.uint64(parseUnits("0.2", 6))])
@@ -1523,7 +1544,7 @@ task(
         args: [personas[1]!.address, Vault as `0x${string}`, encTip, "wave4 sweep tip"],
         gas: 5_000_000n,
       });
-      await publicClient.waitForTransactionReceipt({ hash: supportHash, confirmations: 1 });
+      await waitOk(supportHash, "supportHash");
       console.log(`  Alice→Bob: support ok  tx=${supportHash}`);
       results.push({ feature: "creator_support", persona: "Alice", status: "pass", txHash: supportHash });
     } catch (err) {
@@ -1559,7 +1580,7 @@ task(
         functionName: "approvePlaintext",
         args: [Crowdfund as `0x${string}`, MAX_U64],
       });
-      await publicClient.waitForTransactionReceipt({ hash: apHash, confirmations: 1 });
+      await waitOk(apHash, "apHash");
 
       const [encPledge] = (await cofheClient
         .encryptInputs([Encryptable.uint64(parseUnits("1", 6))])
@@ -1600,7 +1621,7 @@ task(
         args: [targetCampaignId, encPledge],
         gas: 5_000_000n,
       });
-      await publicClient.waitForTransactionReceipt({ hash: contributeHash, confirmations: 1 });
+      await waitOk(contributeHash, "contributeHash");
       console.log(`  Carol: contribute to campaign ${targetCampaignId} ok  tx=${contributeHash}`);
       results.push({ feature: "crowdfund_contribute", persona: "Carol", status: "pass", txHash: contributeHash });
     } catch (err) {
@@ -1797,7 +1818,7 @@ task(
         functionName: "approve",
         args: [StealthPayments as `0x${string}`, stealthAmount],
       });
-      await publicClient.waitForTransactionReceipt({ hash: apHash, confirmations: 1 });
+      await waitOk(apHash, "apHash");
 
       // Encrypt Dave's address as the stealth recipient.
       // Encryptable.address is the cofhe SDK shape for InEaddress.
@@ -1842,7 +1863,7 @@ task(
         args: [stealthAmount, encRecipient, claimCodeHash, Vault as `0x${string}`, "wave4 sweep stealth"],
         gas: 5_000_000n,
       }));
-      await publicClient.waitForTransactionReceipt({ hash: stealthHash, confirmations: 1 });
+      await waitOk(stealthHash, "stealthHash");
       console.log(`  Carol→Dave (stealth): sendStealth ok  tx=${stealthHash}`);
       results.push({ feature: "stealth_send", persona: "Carol", status: "pass", txHash: stealthHash });
 
@@ -1879,7 +1900,7 @@ task(
           args: [justCreatedTid, claimCodeHex],
           gas: 5_000_000n,
         }));
-        await publicClient.waitForTransactionReceipt({ hash: claimStealthHash, confirmations: 1 });
+        await waitOk(claimStealthHash, "claimStealthHash");
         console.log(`  Dave: claimStealth #${justCreatedTid} ok  tx=${claimStealthHash}`);
         results.push({ feature: "stealth_claim", persona: "Dave", status: "pass", txHash: claimStealthHash });
       } catch (err) {
