@@ -721,6 +721,11 @@ task(
   }
   console.log("");
 
+  // Hoist secret/linkId from the create-link step out to the outer scope
+  // so the second-leg (Dave claims Bob's bearer link) can read both.
+  let bearerLinkId: bigint | null = null;
+  let bearerSecretHex: Hex | null = null;
+
   // ─── 8. Claim link — Bob creates a bearer link ─────────────────
   console.log("[Feature 8] Claim link — Bob creates a bearer link (5 USDC)");
   const ClaimLinks = deployments.ClaimLinks;
@@ -799,10 +804,59 @@ task(
       await publicClient.waitForTransactionReceipt({ hash: linkHash, confirmations: 1 });
       console.log(`  Bob: createLink ok  tx=${linkHash}`);
       results.push({ feature: "claim_link_create", persona: "Bob", status: "pass", txHash: linkHash });
+
+      // Capture linkId + secret for the Dave-claims-Bob's-link second-leg.
+      const nextLinkId = (await publicClient.readContract({
+        address: ClaimLinks as `0x${string}`,
+        abi: [{ name: "nextLinkId", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] }],
+        functionName: "nextLinkId",
+      })) as bigint;
+      bearerLinkId = nextLinkId > 0n ? nextLinkId - 1n : 0n;
+      bearerSecretHex = secretHex;
     } catch (err) {
       const msg = err instanceof Error ? err.message.slice(0, 250) : String(err);
       console.log(`  Bob: createLink FAILED ${msg}`);
       results.push({ feature: "claim_link_create", persona: "Bob", status: "fail", error: msg });
+    }
+  }
+  console.log("");
+
+  // ─── 8b. Claim link — Dave claims Bob's bearer link ────────────
+  console.log("[Feature 8b] Dave claims Bob's bearer link");
+  if (!ClaimLinks || bearerLinkId === null || !bearerSecretHex) {
+    results.push({ feature: "claim_link_claim", persona: "Dave", status: "skip", error: "no link to claim" });
+  } else {
+    try {
+      const daveWallet = createWalletClient({
+        account: privateKeyToAccount(personas[3]!.privKey),
+        chain,
+        transport: http(rpcUrl),
+      });
+      const claimHash = await withRetry("claim_bearer", () => daveWallet.writeContract({
+        address: ClaimLinks as `0x${string}`,
+        abi: [
+          {
+            name: "claimBearer",
+            type: "function",
+            stateMutability: "nonpayable",
+            inputs: [
+              { name: "linkId", type: "uint256" },
+              { name: "secret", type: "bytes32" },
+            ],
+            outputs: [],
+          },
+        ],
+        functionName: "claimBearer",
+        args: [bearerLinkId, bearerSecretHex!],
+        gas: 5_000_000n,
+      }));
+      await publicClient.waitForTransactionReceipt({ hash: claimHash, confirmations: 1 });
+      console.log(`  Dave: claimBearer link #${bearerLinkId} ok  tx=${claimHash}`);
+      results.push({ feature: "claim_link_claim", persona: "Dave", status: "pass", txHash: claimHash });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message.slice(0, 250) : String(err);
+      console.log(`  Dave: claimBearer FAILED ${msg}`);
+      results.push({ feature: "claim_link_claim", persona: "Dave", status: "fail", error: msg });
     }
   }
   console.log("");
@@ -1541,12 +1595,15 @@ task(
     // (zero) secret on linkId 0. The contract should reject either
     // "no such link" or "bad secret" — either revert reason is correct.
     await expectRevert("wrong-secret claim", "neg_wrong_secret_claim", "Dave", async () => {
+      // Use the just-created bearer link if available, else try id 0.
+      // Wrong secret = all zeros (will not hash to the stored secretHash).
+      const targetId = bearerLinkId ?? 0n;
       await publicClient.simulateContract({
         account: privateKeyToAccount(personas[3]!.privKey),
         address: ClaimLinks as `0x${string}`,
         abi: [
           {
-            name: "claim",
+            name: "claimBearer",
             type: "function",
             stateMutability: "nonpayable",
             inputs: [
@@ -1556,8 +1613,8 @@ task(
             outputs: [],
           },
         ],
-        functionName: "claim",
-        args: [0n, "0x0000000000000000000000000000000000000000000000000000000000000000"],
+        functionName: "claimBearer",
+        args: [targetId, "0x0000000000000000000000000000000000000000000000000000000000000000"],
         gas: 5_000_000n,
       });
     });
