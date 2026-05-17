@@ -65,17 +65,24 @@ export async function shieldUsdc(
   // surfaced after Phase 1 worked.
   //
   // Wait for the Dashboard Shield section to be present (stable label).
-  // Then give the smartAccount resolution a few extra seconds — the
-  // shield onClick path reads smartAccount.status which transitions
-  // from "loading" → "ready" via an async RPC roundtrip after mount.
-  // Without this grace period the click may race the AA resolver and
-  // fall through to the EOA path (which returns null for passkey-only
-  // users without prompting).
+  // Also wait for smartAccount.status === "ready" — without this the
+  // shield onClick falls through to the EOA path which returns null
+  // silently for passkey-only users (no passphrase prompt). Use the
+  // "Get Test USDC" button as the readiness signal: it's disabled
+  // when handleMint can't run (no contracts loaded, etc.) and enables
+  // once useMint is wired (which requires effectiveAddress = AA).
   await page
     .locator("text=/DEPOSIT TO PRIVATE WALLET/i")
     .first()
     .waitFor({ state: "visible", timeout: 30_000 });
-  await page.waitForTimeout(5_000);
+  await page
+    .locator('button[aria-label="Get test USDC"]:not([disabled])')
+    .first()
+    .waitFor({ state: "visible", timeout: 30_000 })
+    .catch(() => undefined);
+  // Extra buffer — useShield's internal smartAccount.status check can
+  // be timing-sensitive even after the visible signals.
+  await page.waitForTimeout(8_000);
 
   // Dashboard renders TWO inputs with aria-label="Shield amount" —
   // one inside the desktop section (line 373) and one inside the
