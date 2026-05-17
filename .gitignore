@@ -35,6 +35,8 @@ docs/*
 # but keep screenshots — the README references them
 !docs/screenshots/
 !docs/screenshots/**
+# and the judge-replay coverage audit (tracked by design)
+!docs/JUDGE_REPLAY_AUDIT.md
 
 # Dev artifacts
 memory/
