@@ -108,6 +108,10 @@ const EXPECTED: ExpectedCoverage[] = [
   // when the swap form proves reachable + the quote engine fires.
   { phasePrefix: "P16 Swap DEX · DEX form", chainIds: BOTH, requiresRealTx: false, desc: "Alice picks WETH→USDC, attempts 0.0001 swap; captures whichever outcome (real tx if WETH funded, otherwise error/gate state with documented note)" },
 
+  // ─── Phase 17: Payment Requests (multi-party 2-tx) ───────────
+  { phasePrefix: "P17 Requests · Alice createRequest", chainIds: BOTH, requiresRealTx: true, desc: "Alice creates encrypted $7 payment request from Bob via /app/requests" },
+  { phasePrefix: "P17 Requests · Bob fulfillRequest", chainIds: BOTH, requiresRealTx: true, desc: "Bob fulfills Alice's request via Incoming tab → Pay → Pay Now" },
+
   // ─── Phase 13: read-only screen render sweep ──────────────────
   { phasePrefix: "P13 Render Sweep · Dashboard", chainIds: BOTH, requiresRealTx: false, desc: "Dashboard h1 visible + screenshot" },
   { phasePrefix: "P13 Render Sweep · History", chainIds: BOTH, requiresRealTx: false, desc: "History list page render check" },
