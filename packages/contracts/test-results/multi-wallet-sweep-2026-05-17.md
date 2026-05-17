@@ -59,9 +59,9 @@ needing manual re-runs.
 
 ## Base Sepolia results (latest run)
 
-**29 pass / 0 fail / 4 skip** (latest verified run). The 4 skips
-are intentional — faucet no-ops when personas are already funded
-from a prior run.
+**31 pass / 0 fail / 4 skip** (latest verified run with all six
+second-leg flows). The 4 skips are intentional — faucet no-ops when
+personas are already funded from a prior run.
 
 Now includes the full second-leg consume flows:
 - `gift_claim` — Bob actually claims Alice's envelope
@@ -103,6 +103,16 @@ settleDebt (Bob→Carol)   0xe2a1c2c10f28391c43fa76582e0a1fb2c2c1bae6d398dfbe7f8
 escrow_markDelivered     0x9a29bc1a15d9dc47d5f192853876fa3b791cffb647d8effeb553de3bd4f44e57
 escrow_approveRelease    0xa1d8eaaabed2691cf94b7a84f59987253fdde718a6aab7c8907e4f7381d3a89e
 gift_claim (Bob)         0x4994c31a0bafd1310f0d0bc75f79e69df96e55268f81ff643d88f9d10d795075
+
+# Final run with all 6 second-leg flows (commit 547fcea + later):
+shield Alice             0xf4240e40ad48dc125abb5911d1d4d6fc52d1cbbd9340ba60b676ef207c84fdaf
+settleDebt (Bob→Carol)   0x32700a2e94dd65173e3e6f8579b55e738e0804e6b9788271de55b210565db099
+gift_claim (Bob)         0xf33e51a8830c1e5b35e80380faa4e71aca6406d0f9ea1adb237f33449a786aea
+escrow_markDelivered     0x5782d6092994c1b82a12a8985bd397bad441c64e8dbae38def355aeeae641625
+escrow_approveRelease    0x3ff898b3f5ac751be50b305d12b61e295b72ea54d4ee83ea0d113b4d195f16af
+claim_link_claim (Dave)  0x95aa735f14c1137f6c6dcb7566f73b13396f909e5f38b9fdfadf630c1c229243
+storefront_buy (Carol)   0x0842bea1f27087e4658393bfa898b92877e34d054b064bae57c4194aed69438d
+stealth_send (Carol→Dave) 0x627e3935e3dbe6f97471392817c76d293977b4e266f35aef07e651775242ec72
 ```
 
 ## Eth Sepolia results (latest run with retry wrapper + stealth + 2nd-leg)
