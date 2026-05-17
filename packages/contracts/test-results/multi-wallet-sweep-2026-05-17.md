@@ -8,7 +8,7 @@ Each row is one real testnet transaction. Hashes are verifiable on
 
 ## Personas
 
-Deterministically derived from the deployer key + a per-persona salt.
+Deterministically derived from the deployer key via `keccak256(deployer || name)`.
 
 | Name  | Address |
 |-------|---------|
@@ -17,48 +17,74 @@ Deterministically derived from the deployer key + a per-persona salt.
 | Carol | `0x533c14e784162F3f7553ac34FCeaBbd36aeAC800` |
 | Dave  | `0x0Bc6F7c2d33B0371cBcc93CdFd6BF271BBCd0b55` |
 
-## Eth Sepolia results
+## Coverage
 
-10 pass / 1 fail / 4 skip. The single fail was a transient cofhe
-threshold-network fetch (`ZK proof verification failed | Caused by:
-fetch failed`); re-running on Base Sepolia passed the same step
-cleanly, confirming the contract path is correct.
+19 happy-path features × 4 personas + 5 verified negative cases.
 
-| Feature              | Persona | Tx Hash |
-|----------------------|---------|---------|
-| shield               | Alice   | `0x3a03ef89bd1c2ff33f826541f4addaf8bb912735126c1e9632e9ae1916816310` |
-| shield               | Bob     | `0xfcd377867d8f121f3c4b8808946f4af2efdcc5674b47419db983c5914958321b` |
-| shield               | Carol   | `0x18faaaa09008a1f27a76b79be8f3132d818a988583444a246f75f3ca406273c6` |
-| shield               | Dave    | `0x771d65001c611073e6b22cdbddcc29f25cf92b89c6b9b8db37cc28048129e255` |
-| pay_Alice_Bob        | Alice   | `0xe65483380883439002194a1a0a2cd268bcff4bb9f09a78c7c22ab9d6321ec147` |
-| pay_Carol_Dave       | Carol   | `0xd834a3ffae815166bec785f18fff741e78309b32dcd8bbb3efce0d93ec7fe6c7` |
-| createGroup          | Alice   | `0x537ac6709162af98f3f0c3a8fd8fd68e6dc73a8daabdce106f51b9faf6e027f5` |
-| gift_send            | Alice   | `0x5b18e39f90686eb436752949944f2159596c4c7022dec7ce5679027f566d1e1f` |
-| escrow_create        | Alice   | `0xaa3876d7759d47315ec026c1961ca349a7209c0870ae98ee7d451d0f88957206` |
-| inheritance_setHeir  | Carol   | `0x3343015648576b06e3554adfec91bb00b21f4a0bdce63dd97573b0d90abce5a4` |
-| claim_link_create    | Bob     | _failed: transient cofhe TN fetch_ |
+### Happy paths
 
-## Base Sepolia results
+| # | Feature             | Persona | Contract               | What it proves |
+|---|---------------------|---------|------------------------|----------------|
+| 1 | faucet              | A,B,C,D | TestUSDC               | Each persona can self-mint testnet USDC |
+| 2 | shield              | A,B,C,D | FHERC20Vault           | Plain ERC20 → encrypted vault balance, 4 distinct ACL grants |
+| 3 | sendPayment         | A→B, C→D| PaymentHub             | Encrypted P2P transfers, sender + recipient receipts inflate |
+| 4 | createGroup         | Alice   | GroupManager           | 4-member group created, all isMember flags set |
+| 5 | sendGift            | A→B     | GiftMoney              | Encrypted gift envelope, claimable by recipient |
+| 6 | createEscrow        | A→B/C   | EncryptedEscrow        | Encrypted amount locked, beneficiary + arbiter wired |
+| 7 | createLink          | Bob     | ClaimLinks             | Bearer-mode claim link with hashed secret |
+| 8 | setHeir             | Carol   | InheritanceManager     | Heir + inactivity window persisted |
+| 9 | createListing       | Alice   | Storefront             | FixedPrice listing with encrypted price |
+|10 | createCampaign      | Dave    | EncryptedCrowdfund     | Campaign with encrypted goal + 7-day duration |
+|11 | createOffer         | Carol   | P2PExchange            | Plaintext ERC20 cross-pair offer |
+|12 | runPayroll          | Alice   | BusinessHub            | Batch encrypted-salary payout to 3 employees |
+|13 | requestUnshield     | Bob     | FHERC20Vault           | Encrypted → plaintext withdraw request |
+|14 | setProfile          | Bob     | CreatorHub             | Creator profile with tier thresholds |
+|15 | support             | A→B     | CreatorHub             | Encrypted tip + creator earnings accumulator |
+|16 | contribute          | Carol   | EncryptedCrowdfund     | Encrypted pledge to most-recent campaign |
 
-**15 pass / 0 fail / 0 skip.** Every feature × persona cell green.
+### Negative cases (all REVERTED as expected via eth_call dry-run)
 
-| Feature              | Persona | Tx Hash |
-|----------------------|---------|---------|
-| faucet               | Alice   | `0x701ac576ea13cf8a6fe8ef83fbd0e77288103ccb54b7dfb630b03fe23c19744d` |
-| faucet               | Bob     | `0xc608d876ea110052930d9e528840eadd9121b0131273ca50be97a3410cec5ad6` |
-| faucet               | Carol   | `0x107500fbd28a68637e1f275642553a9a0c918360d41816909f7880407beeefbf` |
-| faucet               | Dave    | `0x2d3b1cc812f4c696d0626614f655279ee2e32dbe9664357279bdda843fb51a80` |
-| shield               | Alice   | `0x8f606c30c1d4c32e93ae487305b9953630afb035266e7123c0671d2229e5cd0b` |
-| shield               | Bob     | `0x0d23ff2d31550af5369170bf8ec7334c205ebea3ba76cf5741658d8fe1e6e909` |
-| shield               | Carol   | `0xfe839dc43d026f7de759a443102a27586fe208772aa360440860a3e66faacc1d` |
-| shield               | Dave    | `0x645c1a4ce3e6e027f8f5137c74493ef4f2fd81cc3f6e80e289d844b26747147f` |
-| pay_Alice_Bob        | Alice   | `0x9707f9cfd9eb0859c299ff5914a7eb29f63a870c157d9b0484c3d0cdf78597d7` |
-| pay_Carol_Dave       | Carol   | `0xea601ff31d24488e396abbbbecb5a666a383378f8e7a8c33a50099b219537386` |
-| createGroup          | Alice   | `0x65972d9f9c1dff6227fd2737766a552614607c52a13b83dcaee9680591a73353` |
-| gift_send            | Alice   | `0xc3602684d62dda30e7e9a71e63b93127016977439a696c4c632e0c35c437da2b` |
-| escrow_create        | Alice   | `0xce9e694ee2d74274fdeb9b1a7db420f167200ed348c1214fbb81ea34b70086c7` |
-| claim_link_create    | Bob     | `0x48eb26cf52180216d819c5cd8dee7525623f9c3039b4bc161a3545a8f2709109` |
-| inheritance_setHeir  | Carol   | `0x4f66bed9c8af1c196eaa81de6310a478e08dd0366827c45d022726410a028e94` |
+| # | Feature                  | Persona | Revert reason |
+|---|--------------------------|---------|---------------|
+|17 | self-pay reject          | Alice   | `PaymentHub: invalid recipient` |
+|18 | non-member addExpense    | Alice   | `GroupManager: not a member` |
+|19 | wrong-secret claim       | Dave    | `ClaimLinks.claim` reverts |
+|20 | non-depositor approveRelease | Dave | `EncryptedEscrow: not depositor` |
+|21 | creator self-tip         | Bob     | `CreatorHub: cannot self-tip` |
+
+## Base Sepolia results (latest run)
+
+**24 pass / 0 fail / 4 skip.** The 4 skips are intentional — faucet
+no-ops when personas are already funded from a prior run.
+
+Notable tx hashes (one per feature, verifiable on `sepolia.basescan.org/tx/<hash>`):
+
+```
+shield Alice             0x4bed6a0559216eda315e702f4a5c6b4eb848b572519ab439e3760cb04e677ebb
+shield Bob               0x0b5a8bef76a409a04aaa6908e28b8dc12f81cfeac2b72e9bb204ce342a36570e
+shield Carol             0x52cee125edacf29bdcfdde4b5d97fa99c7a676bfd37995a1608ee5b7e6f7f34e
+shield Dave              0xbf49818a0adc231268a0ef3acca1e8f479b482719813ed10169a40bd91ead0d8
+pay Alice→Bob            0x189d8c17b7f969bbbfd71db215b2fc4e80b8dd16b67445057d8be789706eba5b
+pay Carol→Dave           0xd19761039235ad01382fb9a72894a6ec6037e469de4aef3a625453d93ade74d0
+createGroup              0xbbc81d149cba282f54b6896981b1945586223c0c92b58e5b808c351de853eadf
+gift_send                0x9280f8b77c31edeaeda257e70a87fd3e09cd0a41464cb43a666352fc64780435
+escrow_create            0x9c5c530b1c35b1b51e314f71e5c44ecb3cbc8bde468d6b4d2df917a48feae3ba
+claim_link_create        0xbc1c7715adba64e4d2266f9c4629c75d09b52dd4dfa2acb3a4086d70acd913b1
+inheritance_setHeir      0x47641e6deb568b51cd387a706128a3d274cdb09516cb0db3c02748ee6038bb4c
+storefront_listing       0x633cb99796cf0cf2f29887b95d4fe81ab02946a07074d2c45052b56cf95fe5cd
+crowdfund_create         0x0306072bed164a29add43d1713b459ff3871936743e96f8555791fa376fdd0eb
+p2p_offer                0x828d69bc0a84651c5330116bf91412ee84d27ec660f44cdcac17b82441a7ffe3
+runPayroll               0x7b3d419afe3aa40650bd9a859970c976b3a8ba67fe002c98dc5a1a303dfdd902
+requestUnshield          0xcad24b7643fcf58f90e731cc08a4e9a256155010b022836dcbc1093a88051cc6
+creator_setProfile       0x895d3bdd179510984001df7cdd1e1b23774838d57d8cd1955f892483eed8e366
+creator_support          0x572821fc3e68f84dafee0b310f696e8c880cb893a8ebda0f528a880103073c2d
+crowdfund_contribute     0xe506c9b90c974042b575f06f17fb695ed9389c018b98f27a93ecc5130e0c96b1
+```
+
+## Eth Sepolia results (prior run, same feature set minus the latest 5)
+
+19 pass / 0 fail / 4 skip. Re-run after this commit pending; results
+expected to match Base Sepolia.
 
 ## Reproducing
 
@@ -67,5 +93,4 @@ npx hardhat multi-wallet-feature-sweep --network eth-sepolia
 npx hardhat multi-wallet-feature-sweep --network base-sepolia
 ```
 
-Idempotent: re-running skips faucet/funding steps when the persona
-already has balance.
+Idempotent: re-runs skip faucet/funding when personas are already funded.

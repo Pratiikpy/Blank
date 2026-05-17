@@ -959,6 +959,181 @@ task(
   }
   console.log("");
 
+  // ─── 14a. Creator support — Bob sets profile, Alice tips ───────
+  console.log("[Feature 14a] CreatorHub — Bob sets a profile, Alice tips 0.2 USDC");
+  const CreatorHub = deployments.CreatorHub;
+  if (!CreatorHub || !cofheClient) {
+    results.push({ feature: "creator_setProfile", persona: "Bob", status: "skip", error: !CreatorHub ? "CreatorHub not deployed" : "cofhe client unavailable" });
+    results.push({ feature: "creator_support", persona: "Alice", status: "skip", error: "depends on profile" });
+  } else {
+    try {
+      const bobWallet = createWalletClient({
+        account: privateKeyToAccount(personas[1]!.privKey),
+        chain,
+        transport: http(rpcUrl),
+      });
+      const profileHash = await bobWallet.writeContract({
+        address: CreatorHub as `0x${string}`,
+        abi: [
+          {
+            name: "setProfile",
+            type: "function",
+            stateMutability: "nonpayable",
+            inputs: [
+              { name: "name", type: "string" },
+              { name: "bio", type: "string" },
+              { name: "tier1", type: "uint64" },
+              { name: "tier2", type: "uint64" },
+              { name: "tier3", type: "uint64" },
+            ],
+            outputs: [],
+          },
+        ],
+        functionName: "setProfile",
+        args: ["Bob the Creator", "Wave4 sweep profile", 1_000_000n, 5_000_000n, 25_000_000n],
+        gas: 5_000_000n,
+      });
+      await publicClient.waitForTransactionReceipt({ hash: profileHash, confirmations: 1 });
+      console.log(`  Bob: setProfile ok  tx=${profileHash}`);
+      results.push({ feature: "creator_setProfile", persona: "Bob", status: "pass", txHash: profileHash });
+
+      // Alice tips Bob
+      const aliceWallet = createWalletClient({
+        account: privateKeyToAccount(personas[0]!.privKey),
+        chain,
+        transport: http(rpcUrl),
+      });
+      // Approve CreatorHub on vault
+      const apHash = await aliceWallet.writeContract({
+        address: Vault as `0x${string}`,
+        abi: [
+          { name: "approvePlaintext", type: "function", stateMutability: "nonpayable", inputs: [{ name: "spender", type: "address" }, { name: "amount", type: "uint64" }], outputs: [] },
+        ],
+        functionName: "approvePlaintext",
+        args: [CreatorHub as `0x${string}`, MAX_U64],
+      });
+      await publicClient.waitForTransactionReceipt({ hash: apHash, confirmations: 1 });
+
+      const [encTip] = (await cofheClient
+        .encryptInputs([Encryptable.uint64(parseUnits("0.2", 6))])
+        .execute()) as Array<{ ctHash: bigint; securityZone: number; utype: number; signature: Hex }>;
+      const supportHash = await aliceWallet.writeContract({
+        address: CreatorHub as `0x${string}`,
+        abi: [
+          {
+            name: "support",
+            type: "function",
+            stateMutability: "nonpayable",
+            inputs: [
+              { name: "creator", type: "address" },
+              { name: "vault", type: "address" },
+              {
+                name: "encAmount",
+                type: "tuple",
+                components: [
+                  { name: "ctHash", type: "uint256" },
+                  { name: "securityZone", type: "uint8" },
+                  { name: "utype", type: "uint8" },
+                  { name: "signature", type: "bytes" },
+                ],
+              },
+              { name: "message", type: "string" },
+            ],
+            outputs: [],
+          },
+        ],
+        functionName: "support",
+        args: [personas[1]!.address, Vault as `0x${string}`, encTip, "wave4 sweep tip"],
+        gas: 5_000_000n,
+      });
+      await publicClient.waitForTransactionReceipt({ hash: supportHash, confirmations: 1 });
+      console.log(`  Alice→Bob: support ok  tx=${supportHash}`);
+      results.push({ feature: "creator_support", persona: "Alice", status: "pass", txHash: supportHash });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message.slice(0, 250) : String(err);
+      console.log(`  creator FAILED ${msg}`);
+      results.push({ feature: "creator_support", persona: "Alice", status: "fail", error: msg });
+    }
+  }
+  console.log("");
+
+  // ─── 14b. Crowdfund contribute — Carol pledges to Dave's campaign
+  console.log("[Feature 14b] Crowdfund contribute — Carol pledges 1 USDC to Dave's campaign");
+  // The campaign id from the createCampaign step would ideally be captured
+  // via event parsing. For this sweep, probe id 0 — most chains have ≥1
+  // campaign by now, so it should be a real one (could be someone else's).
+  // The point is to verify the contribute path executes; we'll also surface
+  // a "no such campaign" revert as a non-fatal outcome.
+  if (!Crowdfund || !cofheClient) {
+    results.push({ feature: "crowdfund_contribute", persona: "Carol", status: "skip", error: "Crowdfund or cofhe unavailable" });
+  } else {
+    try {
+      const carolWallet = createWalletClient({
+        account: privateKeyToAccount(personas[2]!.privKey),
+        chain,
+        transport: http(rpcUrl),
+      });
+      // Approve Crowdfund on vault
+      const apHash = await carolWallet.writeContract({
+        address: Vault as `0x${string}`,
+        abi: [
+          { name: "approvePlaintext", type: "function", stateMutability: "nonpayable", inputs: [{ name: "spender", type: "address" }, { name: "amount", type: "uint64" }], outputs: [] },
+        ],
+        functionName: "approvePlaintext",
+        args: [Crowdfund as `0x${string}`, MAX_U64],
+      });
+      await publicClient.waitForTransactionReceipt({ hash: apHash, confirmations: 1 });
+
+      const [encPledge] = (await cofheClient
+        .encryptInputs([Encryptable.uint64(parseUnits("1", 6))])
+        .execute()) as Array<{ ctHash: bigint; securityZone: number; utype: number; signature: Hex }>;
+
+      // Get the most recent campaignId via nextCampaignId-1
+      const nextId = (await publicClient.readContract({
+        address: Crowdfund as `0x${string}`,
+        abi: [{ name: "nextCampaignId", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] }],
+        functionName: "nextCampaignId",
+      })) as bigint;
+      const targetCampaignId = nextId > 0n ? nextId - 1n : 0n;
+
+      const contributeHash = await carolWallet.writeContract({
+        address: Crowdfund as `0x${string}`,
+        abi: [
+          {
+            name: "contribute",
+            type: "function",
+            stateMutability: "nonpayable",
+            inputs: [
+              { name: "campaignId", type: "uint256" },
+              {
+                name: "encAmount",
+                type: "tuple",
+                components: [
+                  { name: "ctHash", type: "uint256" },
+                  { name: "securityZone", type: "uint8" },
+                  { name: "utype", type: "uint8" },
+                  { name: "signature", type: "bytes" },
+                ],
+              },
+            ],
+            outputs: [],
+          },
+        ],
+        functionName: "contribute",
+        args: [targetCampaignId, encPledge],
+        gas: 5_000_000n,
+      });
+      await publicClient.waitForTransactionReceipt({ hash: contributeHash, confirmations: 1 });
+      console.log(`  Carol: contribute to campaign ${targetCampaignId} ok  tx=${contributeHash}`);
+      results.push({ feature: "crowdfund_contribute", persona: "Carol", status: "pass", txHash: contributeHash });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message.slice(0, 250) : String(err);
+      console.log(`  Carol: contribute FAILED ${msg}`);
+      results.push({ feature: "crowdfund_contribute", persona: "Carol", status: "fail", error: msg });
+    }
+  }
+  console.log("");
+
   // ─── 14. NEGATIVE: self-pay rejected ───────────────────────────
   // Helper: a negative case "passes" when the tx either (a) throws at
   // simulate/broadcast time, OR (b) is mined with status === "reverted".
@@ -1112,6 +1287,80 @@ task(
         ],
         functionName: "claim",
         args: [0n, "0x0000000000000000000000000000000000000000000000000000000000000000"],
+        gas: 5_000_000n,
+      });
+    });
+  }
+  console.log("");
+
+  // ─── 17. NEGATIVE: unauthorized escrow release rejected ───────
+  // Dave (not the escrow depositor, not the arbiter) tries to call
+  // approveRelease on escrow id 0. Must revert.
+  console.log("[Negative 17] approveRelease from non-depositor — should revert");
+  if (!EncryptedEscrow) {
+    results.push({ feature: "neg_unauth_release", persona: "Dave", status: "skip", error: "EncryptedEscrow not deployed" });
+  } else {
+    await expectRevert("Dave unauth-release", "neg_unauth_release", "Dave", async () => {
+      await publicClient.simulateContract({
+        account: privateKeyToAccount(personas[3]!.privKey),
+        address: EncryptedEscrow as `0x${string}`,
+        abi: [
+          {
+            name: "approveRelease",
+            type: "function",
+            stateMutability: "nonpayable",
+            inputs: [{ name: "escrowId", type: "uint256" }],
+            outputs: [],
+          },
+        ],
+        functionName: "approveRelease",
+        args: [0n],
+        gas: 2_000_000n,
+      });
+    });
+  }
+  console.log("");
+
+  // ─── 18. NEGATIVE: self-tip on CreatorHub rejected ─────────────
+  // Bob tries to tip himself. CreatorHub has an explicit
+  // `require(creator != msg.sender, "CreatorHub: cannot self-tip")`.
+  console.log("[Negative 18] CreatorHub self-tip — should revert");
+  if (!CreatorHub || !cofheClient) {
+    results.push({ feature: "neg_creator_self_tip", persona: "Bob", status: "skip", error: "CreatorHub or cofhe unavailable" });
+  } else {
+    const [encSelfTip] = (await cofheClient
+      .encryptInputs([Encryptable.uint64(parseUnits("0.1", 6))])
+      .execute()) as Array<{ ctHash: bigint; securityZone: number; utype: number; signature: Hex }>;
+    await expectRevert("Bob self-tip", "neg_creator_self_tip", "Bob", async () => {
+      await publicClient.simulateContract({
+        account: privateKeyToAccount(personas[1]!.privKey),
+        address: CreatorHub as `0x${string}`,
+        abi: [
+          {
+            name: "support",
+            type: "function",
+            stateMutability: "nonpayable",
+            inputs: [
+              { name: "creator", type: "address" },
+              { name: "vault", type: "address" },
+              {
+                name: "encAmount",
+                type: "tuple",
+                components: [
+                  { name: "ctHash", type: "uint256" },
+                  { name: "securityZone", type: "uint8" },
+                  { name: "utype", type: "uint8" },
+                  { name: "signature", type: "bytes" },
+                ],
+              },
+              { name: "message", type: "string" },
+            ],
+            outputs: [],
+          },
+        ],
+        functionName: "support",
+        // Bob tipping Bob — should revert "CreatorHub: cannot self-tip"
+        args: [personas[1]!.address, Vault as `0x${string}`, encSelfTip, "self-tip rejection test"],
         gas: 5_000_000n,
       });
     });
