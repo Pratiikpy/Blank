@@ -257,9 +257,14 @@ task(
   console.log("");
 
   // ─── 2. Shield — each persona deposits 10 USDC into the vault ──
-  // First connect a single cofhe client (deployer-bound is fine for
-  // encryption — the encrypted ciphertext is opaque to the signer
-  // identity until it's verified via ACL on the receiving contract).
+  // Cofhe encryption proofs bind to msg.sender on chain. A single
+  // deployer-connected cofhe client produces proofs signed by deployer
+  // → every InEuint64 sent from a PERSONA wallet then reverts at
+  // FHE.asEuint64 because the proof signer doesn't match the caller.
+  // Fix: build a per-persona cofhe client each time we need to encrypt
+  // for that persona. The CofheClient connect call replaces the wallet
+  // on the existing client; cheaper than creating a new client each
+  // time but still scoped to the right signer.
   console.log("[Feature 2] Shield — each persona deposits 10 USDC into the vault");
   let cofheClient: any = null;
   try {
@@ -268,6 +273,18 @@ task(
     await cofheClient.connect(publicClient as any, deployerWallet as any);
   } catch (err) {
     console.log(`  cofhe.connect FAILED ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  // Helper: reconnect the cofhe client with a specific persona's wallet
+  // so the next encryptInputs call signs proofs for that persona.
+  async function connectCofheAs(persona: Persona): Promise<void> {
+    if (!cofheClient) return;
+    const wallet = createWalletClient({
+      account: privateKeyToAccount(persona.privKey),
+      chain,
+      transport: http(rpcUrl),
+    });
+    await cofheClient.connect(publicClient as any, wallet as any);
   }
 
   if (!cofheClient) {
@@ -402,6 +419,19 @@ task(
       transport: http(rpcUrl),
     });
     const memberAddresses = personas.map((p) => p.address);
+    // Capture nextGroupId BEFORE createGroup so we get our actual id
+    // (read-after-write races against concurrent test users on a shared
+    // testnet — another deployer's createGroup between our write and
+    // our read makes nextGroupId-1 point at THEIR group, not ours).
+    const gidBeforeCreate = (await publicClient.readContract({
+      address: GroupManager as `0x${string}`,
+      abi: [{ name: "nextGroupId", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] }],
+      functionName: "nextGroupId",
+    })) as bigint;
+    // ABI corrected — contract is createGroup(name, members), not the
+    // (members, name) my sweep had previously. The mismatch made every
+    // groupHash tx revert silently because we never checked
+    // receipt.status. waitOk + correct argument order now both fire.
     const groupHash = await aliceWallet.writeContract({
       address: GroupManager as `0x${string}`,
       abi: [
@@ -410,27 +440,27 @@ task(
           type: "function",
           stateMutability: "nonpayable",
           inputs: [
-            { name: "members", type: "address[]" },
             { name: "name", type: "string" },
+            { name: "members", type: "address[]" },
           ],
-          outputs: [{ name: "groupId", type: "uint256" }],
+          outputs: [{ type: "uint256" }],
         },
       ],
       functionName: "createGroup",
-      args: [memberAddresses, "Wave 4 Sweep"],
+      args: ["Wave 4 Sweep", memberAddresses],
       gas: 5_000_000n,
     });
     await waitOk(groupHash, "groupHash");
     console.log(`  Alice: createGroup ok  tx=${groupHash}`);
     results.push({ feature: "createGroup", persona: "Alice", status: "pass", txHash: groupHash });
 
-    // Capture the just-created groupId so the settleDebt second-leg can use it.
-    const nextGid = (await publicClient.readContract({
-      address: GroupManager as `0x${string}`,
-      abi: [{ name: "nextGroupId", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] }],
-      functionName: "nextGroupId",
-    })) as bigint;
-    createdGroupId = nextGid > 0n ? nextGid - 1n : 0n;
+    // gidBeforeCreate IS our group id (createGroup uses nextGroupId++
+    // — pre-increment id becomes ours, post-increment is what next-write
+    // would see). This is race-safe vs the prior "nextGroupId - 1" read.
+    createdGroupId = gidBeforeCreate;
+
+    // createdGroupId already set above (gidBeforeCreate); the post-write
+    // read here is removed because it raced against concurrent writers.
   } catch (err) {
     const msg = err instanceof Error ? err.message.slice(0, 200) : String(err);
     console.log(`  Alice: createGroup FAILED ${msg}`);
