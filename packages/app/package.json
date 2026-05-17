@@ -14,6 +14,7 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "e2e:wave4": "playwright test --config=e2e/wave4/playwright.config.ts",
+    "e2e:audit": "tsx e2e/wave4/scripts/proof-gap-audit.ts",
     "check:imports": "node scripts/check-imports.mjs"
   },
   "dependencies": {
