@@ -49,6 +49,7 @@ const READ_ONLY_SCREENS: ScreenTarget[] = [
   { route: "/app/profile", tag: "Profile", note: "ENS-driven profile — handle, avatar, public bio." },
   { route: "/app/settings", tag: "Settings", note: "App settings — currency, language, biometrics, advanced." },
   { route: "/app/help", tag: "Help", note: "Help center — FAQ, contact, security docs." },
+  { route: "/app/receive", tag: "Receive", note: "Receive screen — QR code + address copy + pay-link generation. Caught in self-audit during fire 14 (originally missed from P13 list)." },
   {
     route: "/tx/0x0000000000000000000000000000000000000000000000000000000000000001",
     tag: "TransactionDetail",

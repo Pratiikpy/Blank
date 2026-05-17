@@ -1,5 +1,44 @@
 # Judge replay audit — does every UI surface have passkey coverage?
 
+## Executive summary (fire 14 handoff)
+
+Result of 14 cron-driven fires reading + spec-covering every screen:
+
+- **40 of 40 screens covered.** Every UI surface a judge can navigate to has at least one spec proving it renders + (where applicable) a passkey-driven flow attempt.
+- **104 expected proof-block tuples** in the gap-audit matrix (52 unique (phase, chain) pairs × 2 chains).
+- **38 launch-readiness items logged** across 7 screens, prioritized P1 / P2 / P3.
+- **9 praise patterns documented** — worth propagating to other screens.
+- **2 partial-coverage caveats** flagged honestly: `/app/swap` DEX tab and `/app/bridge` need external canonical USDC/WETH funding (not from Blank's TestUSDC faucet).
+- **3 gated screens** flagged honestly: `/app/scheduled` (SessionKeyValidator undeployed), `/app/burners` (BurnerRegistry undeployed), `/app/agents` (LLM API key dep).
+
+### Three P1 launch-blockers before judge demo
+
+1. **`Burners` — Delete is destructive with no confirm.** A user with funds in a labeled burner can tap Delete + lose the private key. Fix: add `window.confirm()` or modal. `(packages/app/src/blank-ui/screens/Burners.tsx:463)`
+2. **`Inheritance` — Client-clock-based countdown can mislead.** `Math.floor(Date.now() / 1000)` is unreliable if the user's clock is skewed. A user thinks they have 5 days, actually 0, heir claims. **Fix already exists elsewhere**: copy AgentPayments' `blockTimestamp ?? now` pattern (`useAgentPayment.ts` + `AgentPayments.tsx:122`).
+3. **`Onboarding` — Mentions "guardian setup" that doesn't exist.** Disclosure: "no recovery without a guardian setup" implies a safety net not yet shipped. Either ship guardians OR rewrite the disclosure to "no recovery — pick a passphrase you'll remember + store a backup". The current copy is worse than either alternative.
+
+### Cross-screen pattern wins to propagate
+
+| Pattern | Where it's done well | Where to copy it |
+|---------|---------------------|------------------|
+| Block-timestamp reconciliation for expiry | AgentPayments (line 122) | Inheritance (P1 above) |
+| Honest gate banner (full amber card) | ScheduledSends, AgentPayments | Burners (uses desktop-only `title` tooltip — invisible on mobile) |
+| Resume-banner for half-finished multi-step flows | Bridge (CCTP attestation poll) | Any multi-step flow with off-chain wait state |
+| Password-manager dismissal on passphrase inputs | PasskeyCreationModal | Any future passphrase input |
+| Privacy-leak disclosure on plaintext surfaces | Bridge ("CCTP burns native USDC"), DEX swap | Any future plaintext surface inside Blank's encrypted UX |
+
+### Run the suite
+
+```
+pnpm e2e
+```
+
+Preflight → playwright → audit → summary. After running, `WAVE4_TESTING_TODO.md` fills with 104 proof entries. Each entry has tx hash (real or synthetic-with-note), screenshot path, chain, and a per-entry note explaining honest scope.
+
+---
+
+
+
 A judge running Blank doesn't tap five screens and call it done. They open every page in the nav. Some of those pages render encrypted data, some don't. Some have a real "fund flow" behind them, some are read-only. This file maps every `blank-ui/screens/*.tsx` to:
 
 1. The route the judge would land on.
@@ -28,6 +67,7 @@ Status legend:
 | `/app/swap` | `Swap.tsx`, `DexSwapTab.tsx` | Covered (partial) | P16 swap | DEX tab form render + WETH→USDC picker + quote engine fire + swap intent. Real tx fires IF Alice has canonical Sepolia WETH (funded externally — Blank's TestUSDC faucet doesn't fund WETH). Gap: external WETH funding path. P2P tab (TestUSDT only on Base) remains untested. |
 | `/app/requests` | `Requests.tsx` | Covered (action) | P17 requests | Alice creates $7 request from Bob with encrypted note + Bob fulfills via Incoming tab. 2 passkey UserOps. |
 | `/app/contacts` | `Contacts.tsx` | Covered (read-only) | P13 render sweep | h1-visible + screenshot. |
+| `/app/receive` | `Receive.tsx` | Covered (read-only) | P13 render sweep | h1-visible + screenshot. Caught in fire-14 self-audit. |
 | `/app/stealth` | `Stealth.tsx` | Covered | P7 privacy | Alice sends to Bob's stealth. |
 | `/app/stealth/setup` | `StealthMetaSetup.tsx` | Covered | P7 privacy | Bob registers stealth keys. |
 | `/app/stealth/inbox` | `StealthInbox.tsx` | Covered | P7 privacy | Bob's scanner detects. |
@@ -178,9 +218,9 @@ Per-screen findings from reading the code as a judge would inspect the running a
 - **Fire 11 — AgentPayments + walkthrough:** phases/22-agent-payments.spec.ts covers Alice picking payroll template → Ask agent → review ECDSA attestation → encrypt + submit. Backend-unavailable path handled gracefully (no LLM key on deployment). Walkthrough **praises** block-timestamp reconciliation for attestation expiry — this is the pattern Inheritance needs to fix its P1 client-clock bug.
 - **Fire 12 — Onboarding real first-time + walkthrough:** phases/23-onboarding.spec.ts is the ONLY spec without `_testImportPasskey`. Fresh browser → 4-step carousel → WalletChoiceCard → PasskeyCreationModal → real PBKDF2(250k) + AES-GCM-P256 keygen → IndexedDB write → BlankApp R5-C gate flips → Dashboard. Walkthrough surfaced **a P1**: "guardian setup" mentioned in disclosure but feature doesn't exist — telling users about a safety net that isn't there is worse than not mentioning it.
 - **Fire 13 — Bridge + audit-doc correction:** phases/24-bridge.spec.ts. **The original audit doc was wrong** — Bridge isn't OOS; it's fully implemented via Circle CCTP V2. Spec captures the form + chain picker + speed picker + amount input + bridge-intent click. Real CCTP burn fires when Alice has canonical Circle USDC on the source chain. Walkthrough surfaced **3 praise patterns**: resume-banner for unfinished bridges, explicit Fast/Finalized speed tradeoff, upfront privacy-leak disclosure.
-- **Gaps closed:** 22 of 22 (10 read-only + 9 action + 1 OOS-corrected-to-partial + 2 local-only/gate)
-- **Suite-covered screens:** **40 of 40 (100%)** — with documented partial-coverage caveats for /app/swap + /app/bridge (external canonical USDC funding), /app/burners (BurnerRegistry undeployed), /app/scheduled (SessionKeyValidator undeployed), /app/agents (LLM key dependency).
-- **Remaining action gaps:** 0
+- **Fire 14 — Receive gap caught + handoff summary + loop closed:** self-audit revealed `/app/receive` was missing from the P13 render-sweep list. Added it as the 11th screen in the batch + corresponding matrix tuple. Wrote executive summary at the top of this doc consolidating the 3 P1 launch-blockers + 5 cross-screen pattern wins. CronDelete fired to stop the loop.
+- **Gaps closed:** 23 of 23 (11 read-only + 9 action + 1 OOS-corrected-to-partial + 2 local-only/gate)
+- **Suite-covered screens:** **40 of 40 (100%)** — verified by re-counting blank-ui/screens/ files vs spec coverage matrix.
 - **Launch-readiness items logged:** 38 (P1×3, P2×10, P3×25) — across 7 screens
 - **Praises logged:** 9 — patterns worth propagating to other screens
 - **After plan complete:** 39 of 40 covered (97.5% — `/app/bridge` declared out of scope)

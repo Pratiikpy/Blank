@@ -167,6 +167,7 @@ const EXPECTED: ExpectedCoverage[] = [
   { phasePrefix: "P13 Render Sweep · Settings", chainIds: BOTH, requiresRealTx: false, desc: "Settings render check" },
   { phasePrefix: "P13 Render Sweep · Help", chainIds: BOTH, requiresRealTx: false, desc: "Help center render check" },
   { phasePrefix: "P13 Render Sweep · TransactionDetail", chainIds: BOTH, requiresRealTx: false, desc: "Tx detail (bogus hash → graceful render)" },
+  { phasePrefix: "P13 Render Sweep · Receive", chainIds: BOTH, requiresRealTx: false, desc: "Receive screen (QR + address + pay-link generation) render check — caught in fire-14 self-audit" },
 ];
 
 const ZERO_HASH = `0x${"0".repeat(64)}`;
