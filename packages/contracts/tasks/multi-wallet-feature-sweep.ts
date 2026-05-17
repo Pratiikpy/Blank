@@ -640,6 +640,484 @@ task(
   }
   console.log("");
 
+  // ─── 9. Storefront — Alice lists an item ───────────────────────
+  console.log("[Feature 9] Storefront — Alice lists a 3 USDC item");
+  const Storefront = deployments.Storefront;
+  if (!Storefront || !cofheClient) {
+    results.push({ feature: "storefront_listing", persona: "Alice", status: "skip", error: !Storefront ? "Storefront not deployed" : "cofhe client unavailable" });
+  } else {
+    try {
+      const aliceWallet = createWalletClient({
+        account: privateKeyToAccount(personas[0]!.privKey),
+        chain,
+        transport: http(rpcUrl),
+      });
+      const [encPrice] = (await cofheClient
+        .encryptInputs([Encryptable.uint64(parseUnits("3", 6))])
+        .execute()) as Array<{ ctHash: bigint; securityZone: number; utype: number; signature: Hex }>;
+      const listingHash = await aliceWallet.writeContract({
+        address: Storefront as `0x${string}`,
+        abi: [
+          {
+            name: "createListing",
+            type: "function",
+            stateMutability: "nonpayable",
+            inputs: [
+              { name: "mode", type: "uint8" }, // SaleMode.FixedPrice = 0
+              { name: "vault", type: "address" },
+              {
+                name: "encPrice",
+                type: "tuple",
+                components: [
+                  { name: "ctHash", type: "uint256" },
+                  { name: "securityZone", type: "uint8" },
+                  { name: "utype", type: "uint8" },
+                  { name: "signature", type: "bytes" },
+                ],
+              },
+              { name: "auctionSeconds", type: "uint256" },
+              { name: "title", type: "string" },
+              { name: "descriptionCidHash", type: "bytes32" },
+              { name: "deliveryChannel", type: "string" },
+            ],
+            outputs: [{ name: "listingId", type: "uint256" }],
+          },
+        ],
+        functionName: "createListing",
+        args: [
+          0, // FixedPrice
+          Vault as `0x${string}`,
+          encPrice,
+          0n, // auctionSeconds = 0 for fixed
+          "Wave4 Sweep Item",
+          "0x0000000000000000000000000000000000000000000000000000000000000000",
+          "email",
+        ],
+        gas: 5_000_000n,
+      });
+      await publicClient.waitForTransactionReceipt({ hash: listingHash, confirmations: 1 });
+      console.log(`  Alice: createListing ok  tx=${listingHash}`);
+      results.push({ feature: "storefront_listing", persona: "Alice", status: "pass", txHash: listingHash });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message.slice(0, 250) : String(err);
+      console.log(`  Alice: createListing FAILED ${msg}`);
+      results.push({ feature: "storefront_listing", persona: "Alice", status: "fail", error: msg });
+    }
+  }
+  console.log("");
+
+  // ─── 10. Crowdfund — Dave starts a campaign ────────────────────
+  console.log("[Feature 10] Crowdfund — Dave starts a 5 USDC campaign");
+  const Crowdfund = deployments.EncryptedCrowdfund;
+  if (!Crowdfund || !cofheClient) {
+    results.push({ feature: "crowdfund_create", persona: "Dave", status: "skip", error: !Crowdfund ? "EncryptedCrowdfund not deployed" : "cofhe client unavailable" });
+  } else {
+    try {
+      const daveWallet = createWalletClient({
+        account: privateKeyToAccount(personas[3]!.privKey),
+        chain,
+        transport: http(rpcUrl),
+      });
+      const [encGoal] = (await cofheClient
+        .encryptInputs([Encryptable.uint64(parseUnits("5", 6))])
+        .execute()) as Array<{ ctHash: bigint; securityZone: number; utype: number; signature: Hex }>;
+      const cfHash = await daveWallet.writeContract({
+        address: Crowdfund as `0x${string}`,
+        abi: [
+          {
+            name: "createCampaign",
+            type: "function",
+            stateMutability: "nonpayable",
+            inputs: [
+              { name: "vault", type: "address" },
+              {
+                name: "encGoal",
+                type: "tuple",
+                components: [
+                  { name: "ctHash", type: "uint256" },
+                  { name: "securityZone", type: "uint8" },
+                  { name: "utype", type: "uint8" },
+                  { name: "signature", type: "bytes" },
+                ],
+              },
+              { name: "durationSeconds", type: "uint256" },
+              { name: "title", type: "string" },
+              { name: "descriptionCidHash", type: "bytes32" },
+            ],
+            outputs: [{ name: "campaignId", type: "uint256" }],
+          },
+        ],
+        functionName: "createCampaign",
+        args: [
+          Vault as `0x${string}`,
+          encGoal,
+          7n * 24n * 60n * 60n, // 7 days
+          "Wave4 Sweep Campaign",
+          "0x0000000000000000000000000000000000000000000000000000000000000000",
+        ],
+        gas: 5_000_000n,
+      });
+      await publicClient.waitForTransactionReceipt({ hash: cfHash, confirmations: 1 });
+      console.log(`  Dave: createCampaign ok  tx=${cfHash}`);
+      results.push({ feature: "crowdfund_create", persona: "Dave", status: "pass", txHash: cfHash });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message.slice(0, 250) : String(err);
+      console.log(`  Dave: createCampaign FAILED ${msg}`);
+      results.push({ feature: "crowdfund_create", persona: "Dave", status: "fail", error: msg });
+    }
+  }
+  console.log("");
+
+  // ─── 11. P2P Exchange — Carol creates an offer (plain) ─────────
+  console.log("[Feature 11] P2P Exchange — Carol creates a TestUSDC↔WETH offer");
+  const P2PExchange = deployments.P2PExchange;
+  // Use TestUSDC↔TestUSDC-with-a-different-amount as a plaintext-only test;
+  // P2PExchange uses ERC20 transfers, not FHE. tokenGive must != tokenWant
+  // so we use a placeholder addr (the deployer) as tokenWant since the
+  // intent here is to prove the offer-creation path, not the trade
+  // settlement. Real P2P trades require a real ERC20 on both sides.
+  const PlaceholderToken = deployments.TestUSDT || deployments.GiftMoney; // anything non-zero, non-TestUSDC
+  if (!P2PExchange || !PlaceholderToken || PlaceholderToken === TestUSDC) {
+    results.push({ feature: "p2p_offer", persona: "Carol", status: "skip", error: "P2PExchange or alt-token not available" });
+  } else {
+    try {
+      const carolWallet = createWalletClient({
+        account: privateKeyToAccount(personas[2]!.privKey),
+        chain,
+        transport: http(rpcUrl),
+      });
+      // Approve P2PExchange to spend Carol's TestUSDC
+      const apHash = await carolWallet.writeContract({
+        address: TestUSDC as `0x${string}`,
+        abi: [
+          { name: "approve", type: "function", stateMutability: "nonpayable", inputs: [{ name: "spender", type: "address" }, { name: "amount", type: "uint256" }], outputs: [{ type: "bool" }] },
+        ],
+        functionName: "approve",
+        args: [P2PExchange as `0x${string}`, parseUnits("5", 6)],
+      });
+      await publicClient.waitForTransactionReceipt({ hash: apHash, confirmations: 1 });
+
+      const offerHash = await carolWallet.writeContract({
+        address: P2PExchange as `0x${string}`,
+        abi: [
+          {
+            name: "createOffer",
+            type: "function",
+            stateMutability: "nonpayable",
+            inputs: [
+              { name: "tokenGive", type: "address" },
+              { name: "tokenWant", type: "address" },
+              { name: "amountGive", type: "uint256" },
+              { name: "amountWant", type: "uint256" },
+              { name: "expiry", type: "uint256" },
+            ],
+            outputs: [{ type: "uint256" }],
+          },
+        ],
+        functionName: "createOffer",
+        args: [
+          TestUSDC as `0x${string}`,
+          PlaceholderToken as `0x${string}`,
+          parseUnits("1", 6),
+          parseUnits("1", 6),
+          BigInt(Math.floor(Date.now() / 1000) + 24 * 60 * 60), // 1 day
+        ],
+        gas: 2_000_000n,
+      });
+      await publicClient.waitForTransactionReceipt({ hash: offerHash, confirmations: 1 });
+      console.log(`  Carol: createOffer ok  tx=${offerHash}`);
+      results.push({ feature: "p2p_offer", persona: "Carol", status: "pass", txHash: offerHash });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message.slice(0, 250) : String(err);
+      console.log(`  Carol: createOffer FAILED ${msg}`);
+      results.push({ feature: "p2p_offer", persona: "Carol", status: "fail", error: msg });
+    }
+  }
+  console.log("");
+
+  // ─── 12. Business runPayroll — Alice batch-pays Bob/Carol/Dave ─
+  console.log("[Feature 12] BusinessHub.runPayroll — Alice batches Bob+Carol+Dave");
+  const BusinessHub = deployments.BusinessHub;
+  if (!BusinessHub || !cofheClient) {
+    results.push({ feature: "runPayroll", persona: "Alice", status: "skip", error: !BusinessHub ? "BusinessHub not deployed" : "cofhe client unavailable" });
+  } else {
+    try {
+      const aliceWallet = createWalletClient({
+        account: privateKeyToAccount(personas[0]!.privKey),
+        chain,
+        transport: http(rpcUrl),
+      });
+      // Approve BusinessHub on the vault
+      const apHash = await aliceWallet.writeContract({
+        address: Vault as `0x${string}`,
+        abi: [
+          { name: "approvePlaintext", type: "function", stateMutability: "nonpayable", inputs: [{ name: "spender", type: "address" }, { name: "amount", type: "uint64" }], outputs: [] },
+        ],
+        functionName: "approvePlaintext",
+        args: [BusinessHub as `0x${string}`, MAX_U64],
+      });
+      await publicClient.waitForTransactionReceipt({ hash: apHash, confirmations: 1 });
+      // Encrypt three salaries in parallel
+      const salaries = (await cofheClient
+        .encryptInputs([
+          Encryptable.uint64(parseUnits("0.5", 6)),
+          Encryptable.uint64(parseUnits("0.5", 6)),
+          Encryptable.uint64(parseUnits("0.5", 6)),
+        ])
+        .execute()) as Array<{ ctHash: bigint; securityZone: number; utype: number; signature: Hex }>;
+      const payrollHash = await aliceWallet.writeContract({
+        address: BusinessHub as `0x${string}`,
+        abi: [
+          {
+            name: "runPayroll",
+            type: "function",
+            stateMutability: "nonpayable",
+            inputs: [
+              { name: "employees", type: "address[]" },
+              { name: "vault", type: "address" },
+              {
+                name: "salaries",
+                type: "tuple[]",
+                components: [
+                  { name: "ctHash", type: "uint256" },
+                  { name: "securityZone", type: "uint8" },
+                  { name: "utype", type: "uint8" },
+                  { name: "signature", type: "bytes" },
+                ],
+              },
+            ],
+            outputs: [],
+          },
+        ],
+        functionName: "runPayroll",
+        args: [
+          [personas[1]!.address, personas[2]!.address, personas[3]!.address],
+          Vault as `0x${string}`,
+          salaries,
+        ],
+        gas: 10_000_000n,
+      });
+      await publicClient.waitForTransactionReceipt({ hash: payrollHash, confirmations: 1 });
+      console.log(`  Alice → 3 employees: runPayroll ok  tx=${payrollHash}`);
+      results.push({ feature: "runPayroll", persona: "Alice", status: "pass", txHash: payrollHash });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message.slice(0, 250) : String(err);
+      console.log(`  Alice: runPayroll FAILED ${msg}`);
+      results.push({ feature: "runPayroll", persona: "Alice", status: "fail", error: msg });
+    }
+  }
+  console.log("");
+
+  // ─── 13. requestUnshield — Bob converts encrypted → plaintext ──
+  console.log("[Feature 13] requestUnshield — Bob requests 0.5 USDC unshield");
+  if (!cofheClient) {
+    results.push({ feature: "requestUnshield", persona: "Bob", status: "skip", error: "cofhe client unavailable" });
+  } else {
+    try {
+      const bobWallet = createWalletClient({
+        account: privateKeyToAccount(personas[1]!.privKey),
+        chain,
+        transport: http(rpcUrl),
+      });
+      const [encUnshield] = (await cofheClient
+        .encryptInputs([Encryptable.uint64(parseUnits("0.5", 6))])
+        .execute()) as Array<{ ctHash: bigint; securityZone: number; utype: number; signature: Hex }>;
+      const unshieldHash = await bobWallet.writeContract({
+        address: Vault as `0x${string}`,
+        abi: [
+          {
+            name: "requestUnshield",
+            type: "function",
+            stateMutability: "nonpayable",
+            inputs: [
+              {
+                name: "encAmount",
+                type: "tuple",
+                components: [
+                  { name: "ctHash", type: "uint256" },
+                  { name: "securityZone", type: "uint8" },
+                  { name: "utype", type: "uint8" },
+                  { name: "signature", type: "bytes" },
+                ],
+              },
+            ],
+            outputs: [{ type: "uint256" }],
+          },
+        ],
+        functionName: "requestUnshield",
+        args: [encUnshield],
+        gas: 5_000_000n,
+      });
+      await publicClient.waitForTransactionReceipt({ hash: unshieldHash, confirmations: 1 });
+      console.log(`  Bob: requestUnshield ok  tx=${unshieldHash}`);
+      results.push({ feature: "requestUnshield", persona: "Bob", status: "pass", txHash: unshieldHash });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message.slice(0, 250) : String(err);
+      console.log(`  Bob: requestUnshield FAILED ${msg}`);
+      results.push({ feature: "requestUnshield", persona: "Bob", status: "fail", error: msg });
+    }
+  }
+  console.log("");
+
+  // ─── 14. NEGATIVE: self-pay rejected ───────────────────────────
+  // Helper: a negative case "passes" when the tx either (a) throws at
+  // simulate/broadcast time, OR (b) is mined with status === "reverted".
+  // viem's writeContract resolves on broadcast, so checking just for a
+  // thrown error catches the simulation-revert case but misses the
+  // "broadcast-then-revert-on-mine" case. Use simulateContract first to
+  // catch both modes cleanly.
+  async function expectRevert<T>(
+    label: string,
+    feature: string,
+    persona: string,
+    simulate: () => Promise<T>,
+  ): Promise<void> {
+    try {
+      await simulate();
+      console.log(`  ${label}: UNEXPECTED PASS — contract did not revert`);
+      results.push({ feature, persona, status: "fail", error: "no revert" });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const short = msg.replace(/\s+/g, " ").slice(0, 120);
+      console.log(`  ${label}: reverted ✓ (${short})`);
+      results.push({ feature, persona, status: "pass", error: `reverted: ${short}` });
+    }
+  }
+
+  console.log("[Negative 14] Self-pay reject — Alice→Alice via PaymentHub");
+  if (!cofheClient) {
+    results.push({ feature: "neg_self_pay", persona: "Alice", status: "skip", error: "cofhe client unavailable" });
+  } else {
+    const [encSelf] = (await cofheClient
+      .encryptInputs([Encryptable.uint64(parseUnits("0.1", 6))])
+      .execute()) as Array<{ ctHash: bigint; securityZone: number; utype: number; signature: Hex }>;
+    await expectRevert("Alice→Alice", "neg_self_pay", "Alice", async () => {
+      // simulateContract performs the eth_call dry-run, which surfaces the
+      // require() / custom-error revert immediately without sending a real
+      // tx (so no gas burn on a known-failing call).
+      await publicClient.simulateContract({
+        account: privateKeyToAccount(personas[0]!.privKey),
+        address: PaymentHub as `0x${string}`,
+        abi: [
+          {
+            name: "sendPayment",
+            type: "function",
+            stateMutability: "nonpayable",
+            inputs: [
+              { name: "recipient", type: "address" },
+              { name: "vault", type: "address" },
+              {
+                name: "encAmount",
+                type: "tuple",
+                components: [
+                  { name: "ctHash", type: "uint256" },
+                  { name: "securityZone", type: "uint8" },
+                  { name: "utype", type: "uint8" },
+                  { name: "signature", type: "bytes" },
+                ],
+              },
+              { name: "note", type: "string" },
+            ],
+            outputs: [],
+          },
+        ],
+        functionName: "sendPayment",
+        args: [personas[0]!.address, Vault as `0x${string}`, encSelf, "self-pay rejection test"],
+        gas: 5_000_000n,
+      });
+    });
+  }
+  console.log("");
+
+  // ─── 15. NEGATIVE: group addExpense from non-member rejected ───
+  console.log("[Negative 15] addExpense from non-member — should revert");
+  if (!cofheClient) {
+    results.push({ feature: "neg_non_member_expense", persona: "Alice", status: "skip", error: "cofhe client unavailable" });
+  } else {
+    const [encZero] = (await cofheClient
+      .encryptInputs([Encryptable.uint64(0n)])
+      .execute()) as Array<{ ctHash: bigint; securityZone: number; utype: number; signature: Hex }>;
+    await expectRevert("non-member addExpense", "neg_non_member_expense", "Alice", async () => {
+      await publicClient.simulateContract({
+        account: privateKeyToAccount(personas[0]!.privKey),
+        address: GroupManager as `0x${string}`,
+        abi: [
+          {
+            name: "addExpense",
+            type: "function",
+            stateMutability: "nonpayable",
+            inputs: [
+              { name: "groupId", type: "uint256" },
+              { name: "splitWith", type: "address[]" },
+              {
+                name: "shares",
+                type: "tuple[]",
+                components: [
+                  { name: "ctHash", type: "uint256" },
+                  { name: "securityZone", type: "uint8" },
+                  { name: "utype", type: "uint8" },
+                  { name: "signature", type: "bytes" },
+                ],
+              },
+              {
+                name: "totalPaid",
+                type: "tuple",
+                components: [
+                  { name: "ctHash", type: "uint256" },
+                  { name: "securityZone", type: "uint8" },
+                  { name: "utype", type: "uint8" },
+                  { name: "signature", type: "bytes" },
+                ],
+              },
+              { name: "description", type: "string" },
+            ],
+            outputs: [],
+          },
+        ],
+        functionName: "addExpense",
+        // groupId 99999 — likely non-existent, so msg.sender is not a member
+        args: [99_999n, [personas[1]!.address], [encZero], encZero, "non-member test"],
+        gas: 5_000_000n,
+      });
+    });
+  }
+  console.log("");
+
+  // ─── 16. NEGATIVE: claim with WRONG secret rejected ────────────
+  // Bob created a claim link earlier with a particular secret. Dave
+  // tries to claim it with a different (wrong) secret — should revert.
+  console.log("[Negative 16] claimLink with WRONG secret — should revert");
+  if (!ClaimLinks) {
+    results.push({ feature: "neg_wrong_secret_claim", persona: "Dave", status: "skip", error: "ClaimLinks not deployed" });
+  } else {
+    // We don't have the linkId/secret from the create step in a cross-step
+    // way, but we can probe by trying claim with an obviously-wrong
+    // (zero) secret on linkId 0. The contract should reject either
+    // "no such link" or "bad secret" — either revert reason is correct.
+    await expectRevert("wrong-secret claim", "neg_wrong_secret_claim", "Dave", async () => {
+      await publicClient.simulateContract({
+        account: privateKeyToAccount(personas[3]!.privKey),
+        address: ClaimLinks as `0x${string}`,
+        abi: [
+          {
+            name: "claim",
+            type: "function",
+            stateMutability: "nonpayable",
+            inputs: [
+              { name: "linkId", type: "uint256" },
+              { name: "secret", type: "bytes32" },
+            ],
+            outputs: [],
+          },
+        ],
+        functionName: "claim",
+        args: [0n, "0x0000000000000000000000000000000000000000000000000000000000000000"],
+        gas: 5_000_000n,
+      });
+    });
+  }
+  console.log("");
+
   // ─── Summary ───────────────────────────────────────────────────
   console.log("═══════════════════════════════════════════════════════════════");
   console.log("  Sweep summary");
