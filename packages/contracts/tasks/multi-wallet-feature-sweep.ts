@@ -131,6 +131,48 @@ task(
     return { name, privKey, address: acct.address };
   });
 
+  // Extract the indexed-id from a creation event log. Walks the receipt
+  // logs for an event whose topic[0] matches `eventSelector` AND whose
+  // emitter is `contractAddr`. Returns the id from topic[1]. This is
+  // race-safe vs the prior "read nextId" approach because we read OUR
+  // OWN tx's logs — guaranteed to be the id we just minted, no matter
+  // what other deployers do to the counter concurrently.
+  async function extractIdFromReceipt(
+    hash: `0x${string}`,
+    contractAddr: string,
+    eventSelector: `0x${string}`,
+  ): Promise<bigint> {
+    const receipt = await publicClient.getTransactionReceipt({ hash });
+    for (const log of receipt.logs) {
+      if (
+        log.address.toLowerCase() === contractAddr.toLowerCase() &&
+        log.topics[0]?.toLowerCase() === eventSelector.toLowerCase() &&
+        log.topics[1]
+      ) {
+        return BigInt(log.topics[1]);
+      }
+    }
+    throw new Error(
+      `extractIdFromReceipt: no matching event ${eventSelector} from ${contractAddr} in ${hash}`,
+    );
+  }
+
+  // Pre-computed event selectors (keccak256 of the canonical event sig)
+  // Used to extract the just-minted id from the create tx receipt.
+  // These are race-safe because we're reading OUR tx's logs.
+  const SIG = {
+    LinkCreated:     keccak256(toBytes("LinkCreated(uint256,address,address,uint8,address,uint256,string)")),
+    EnvelopeCreated: keccak256(toBytes("EnvelopeCreated(uint256,address,address,uint256,string,uint256)")),
+    EscrowCreated:   keccak256(toBytes("EscrowCreated(uint256,address,address,address,uint256)")),
+    ListingCreated:  keccak256(toBytes("ListingCreated(uint256,address,uint8,address,uint256,string)")),
+    GroupCreated:    keccak256(toBytes("GroupCreated(uint256,string,address[],uint256)")),
+    StealthSent:     keccak256(toBytes("StealthSent(uint256,address,bytes32,address,string,uint256)")),
+    CampaignCreated: keccak256(toBytes("CampaignCreated(uint256,address,address,uint256,string)")),
+  };
+  // Defensive: log selectors at startup so a wrong canonical sig is
+  // visible (won't match any logs and the extractor throws clearly).
+  void SIG;
+
   // Wait for receipt AND throw on revert. viem's waitForTransactionReceipt
   // returns the receipt regardless of status — receipt.status === "reverted"
   // is the actual on-chain failure signal. Without this check, the sweep
@@ -455,10 +497,8 @@ task(
     console.log(`  Alice: createGroup ok  tx=${groupHash}`);
     results.push({ feature: "createGroup", persona: "Alice", status: "pass", txHash: groupHash });
 
-    // gidBeforeCreate IS our group id (createGroup uses nextGroupId++
-    // — pre-increment id becomes ours, post-increment is what next-write
-    // would see). This is race-safe vs the prior "nextGroupId - 1" read.
-    createdGroupId = gidBeforeCreate;
+    // Extract real groupId from GroupCreated event log — race-safe.
+    createdGroupId = await extractIdFromReceipt(groupHash, GroupManager, SIG.GroupCreated);
 
     // createdGroupId already set above (gidBeforeCreate); the post-write
     // read here is removed because it raced against concurrent writers.
@@ -618,8 +658,8 @@ task(
       // is (nextEnvelopeId - 1). This proves the create→claim flow works
       // end-to-end with two distinct wallets, not just the create call.
       try {
-        // Race-safe: use the pre-create id captured above.
-        const justCreatedId = envIdPreCreate;
+        // Race-safe: extract envelopeId from EnvelopeCreated event log.
+        const justCreatedId = await extractIdFromReceipt(giftHash, GiftMoney, SIG.EnvelopeCreated);
         const bobWallet = createWalletClient({
           account: privateKeyToAccount(personas[1]!.privKey),
           chain,
@@ -739,8 +779,8 @@ task(
 
       // Second-leg flow: Bob marks delivered, Alice approves release.
       try {
-        // Race-safe: use the pre-create id captured above.
-        const justCreatedEid = escrowIdPreCreate;
+        // Race-safe: extract escrowId from EscrowCreated event log.
+        const justCreatedEid = await extractIdFromReceipt(escrowHash, EncryptedEscrow, SIG.EscrowCreated);
         const bobWallet = createWalletClient({
           account: privateKeyToAccount(personas[1]!.privKey),
           chain,
@@ -895,10 +935,9 @@ task(
       console.log(`  Bob: createLink ok  tx=${linkHash}`);
       results.push({ feature: "claim_link_create", persona: "Bob", status: "pass", txHash: linkHash });
 
-      // bearerLinkId IS linkIdPreCreate (createLink uses nextLinkId++,
-      // so pre-increment value is what was just minted). Race-safe vs
-      // concurrent writers on the same contract.
-      bearerLinkId = linkIdPreCreate;
+      // Use the LinkCreated event log to extract the real id we just
+      // minted. Race-safe regardless of concurrent writes.
+      bearerLinkId = await extractIdFromReceipt(linkHash, ClaimLinks, SIG.LinkCreated);
       bearerSecretHex = secretHex;
     } catch (err) {
       const msg = err instanceof Error ? err.message.slice(0, 250) : String(err);
@@ -987,8 +1026,9 @@ task(
       results.push({ feature: "claim_link_addr_bound", persona: "Bob", status: "pass", txHash: linkABHash });
 
       // Carol claims via claimAddressBound
-      // Race-safe: use the pre-create id we captured above.
-      const justCreatedAB = abLinkIdPreCreate;
+      // Race-safe: extract the real linkId from the AddressBound
+      // createLink tx's LinkCreated event log.
+      const justCreatedAB = await extractIdFromReceipt(linkABHash, ClaimLinks, SIG.LinkCreated);
 
       const carolWallet = createWalletClient({
         account: privateKeyToAccount(personas[2]!.privKey),
@@ -1211,8 +1251,8 @@ task(
 
       // Second-leg: Carol buys Alice's just-created listing for 3 USDC.
       try {
-        // Race-safe: use the pre-create listing id captured above.
-        const justListed = listingIdPreCreate;
+        // Race-safe: extract listingId from ListingCreated event log.
+        const justListed = await extractIdFromReceipt(listingHash, Storefront, SIG.ListingCreated);
         const carolWallet = createWalletClient({
           account: privateKeyToAccount(personas[2]!.privKey),
           chain,
@@ -1958,8 +1998,8 @@ task(
       // Dave learns the claim code out-of-band (e.g., from Carol over a side
       // channel); the contract hashes claimCode || recipient to verify.
       try {
-        // Race-safe: use the pre-create transfer id captured above.
-        const justCreatedTid = transferIdPreCreate;
+        // Race-safe: extract transferId from StealthSent event log.
+        const justCreatedTid = await extractIdFromReceipt(stealthHash, StealthPayments, SIG.StealthSent);
         const daveWallet = createWalletClient({
           account: privateKeyToAccount(personas[3]!.privKey),
           chain,
