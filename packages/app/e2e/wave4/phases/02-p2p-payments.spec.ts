@@ -69,9 +69,11 @@ async function driveSendFlow(
   await recipientInput.waitFor({ state: "visible", timeout: 30_000 });
   await recipientInput.fill(recipientAddress);
 
-  // The continue/next button advances to SendAmount.
+  // The continue/next button advances to SendAmount. SendContacts uses
+  // the label "Continue" (see src/blank-ui/screens/SendContacts.tsx);
+  // the wider regex covers any future rename to "Next".
   const continueBtn = page
-    .locator("button").filter({ hasText: /^Next/i })
+    .locator("button").filter({ hasText: /^(Continue|Next)/i })
     .first();
   await continueBtn.click();
 
