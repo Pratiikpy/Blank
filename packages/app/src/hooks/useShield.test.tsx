@@ -498,6 +498,47 @@ describe("useShield — mintTestUSDT (§15.x)", () => {
 //  shield — EOA path
 // ───────────────────────────────────────────────────────────
 
+// CRITICAL: regression pin for the passkey-only-still-loading bug
+// found by running the wave4 e2e end-to-end. Before this fix, a
+// passkey-only user clicking Deposit while smartAccount.status was
+// still "loading" got ZERO visible feedback — the function fell
+// through to the EOA path which returned null silently (no toast,
+// no error, no spinner state change). User clicks → nothing happens.
+//
+// After fix: explicit toast + null return when isPasskeyOnly &&
+// status !== "ready". Verified against the same useShield/
+// useUnifiedWrite shape that affects every contract-write hook.
+describe("useShield — passkey-only-still-loading guard (e2e fix)", () => {
+  it("passkey-only user + smartAccount loading -> 'Wallet still loading' toast + null", async () => {
+    // Test fixture: address resolved (effectiveAddress), but status
+    // is still 'loading'. useEffectiveAddress mock returns the AA
+    // address as effectiveAddress regardless of status, so we mock
+    // it directly here.
+    useEffectiveAddressMock.mockReturnValue({
+      effectiveAddress: "0xa0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0",
+      smartAccount: {
+        status: "loading",
+        account: null,
+        sendBatchUserOp: vi.fn(),
+        sendUserOp: vi.fn(),
+      },
+      eoa: undefined,
+      isSmartAccount: false,
+    });
+    const { result } = renderHook(() => useShield());
+    let r: unknown;
+    await act(async () => {
+      r = await result.current.shield("10");
+    });
+    expect(toastErrorMock).toHaveBeenCalledWith(
+      "Wallet still loading — try again in a moment",
+    );
+    expect(r).toBeNull();
+    // Critical: no contract write attempted (no silent fallthrough).
+    expect(unifiedWriteAndWaitMock).toHaveBeenCalledTimes(0);
+  });
+});
+
 describe("useShield — shield EOA path (§15.x)", () => {
   it("empty amount -> 'Enter an amount' toast + null", async () => {
     const { result } = renderHook(() => useShield());
