@@ -1969,6 +1969,92 @@ task(
   }
   console.log("");
 
+  // ─── 19. NEGATIVE: shield with zero amount rejected ───────────
+  console.log("[Negative 19] shield with amount=0 — should revert");
+  await expectRevert("shield zero", "neg_shield_zero", "Alice", async () => {
+    await publicClient.simulateContract({
+      account: privateKeyToAccount(personas[0]!.privKey),
+      address: Vault as `0x${string}`,
+      abi: [
+        { name: "shield", type: "function", stateMutability: "nonpayable", inputs: [{ name: "amount", type: "uint256" }], outputs: [] },
+      ],
+      functionName: "shield",
+      args: [0n],
+      gas: 2_000_000n,
+    });
+  });
+  console.log("");
+
+  // ─── 20. NEGATIVE: P2PExchange offer with same-token rejected ─
+  console.log("[Negative 20] createOffer with same tokenGive/tokenWant — should revert");
+  if (!P2PExchange) {
+    results.push({ feature: "neg_p2p_same_token", persona: "Carol", status: "skip", error: "P2PExchange not deployed" });
+  } else {
+    await expectRevert("same-token offer", "neg_p2p_same_token", "Carol", async () => {
+      await publicClient.simulateContract({
+        account: privateKeyToAccount(personas[2]!.privKey),
+        address: P2PExchange as `0x${string}`,
+        abi: [
+          {
+            name: "createOffer",
+            type: "function",
+            stateMutability: "nonpayable",
+            inputs: [
+              { name: "tokenGive", type: "address" },
+              { name: "tokenWant", type: "address" },
+              { name: "amountGive", type: "uint256" },
+              { name: "amountWant", type: "uint256" },
+              { name: "expiry", type: "uint256" },
+            ],
+            outputs: [{ type: "uint256" }],
+          },
+        ],
+        functionName: "createOffer",
+        // tokenGive == tokenWant — must revert "P2PExchange: same token"
+        args: [
+          TestUSDC as `0x${string}`,
+          TestUSDC as `0x${string}`,
+          parseUnits("1", 6),
+          parseUnits("1", 6),
+          BigInt(Math.floor(Date.now() / 1000) + 3600),
+        ],
+        gas: 2_000_000n,
+      });
+    });
+  }
+  console.log("");
+
+  // ─── 21. NEGATIVE: GiftMoney claim from non-recipient rejected ─
+  // Carol tries to claim Alice's gift (which was sent to Bob).
+  console.log("[Negative 21] claimGift by non-recipient — should revert");
+  if (!GiftMoney) {
+    results.push({ feature: "neg_gift_wrong_recipient", persona: "Carol", status: "skip", error: "GiftMoney not deployed" });
+  } else {
+    await expectRevert("Carol claims Bob's gift", "neg_gift_wrong_recipient", "Carol", async () => {
+      // Use any old envelope id — Carol is never the recipient of any of
+      // them since the sweep only sends gifts Alice → Bob. The contract
+      // either rejects with "not recipient" or with "envelope not active"
+      // (already claimed by Bob in the 2nd-leg); both count.
+      await publicClient.simulateContract({
+        account: privateKeyToAccount(personas[2]!.privKey),
+        address: GiftMoney as `0x${string}`,
+        abi: [
+          {
+            name: "claimGift",
+            type: "function",
+            stateMutability: "nonpayable",
+            inputs: [{ name: "envelopeId", type: "uint256" }],
+            outputs: [],
+          },
+        ],
+        functionName: "claimGift",
+        args: [0n],
+        gas: 2_000_000n,
+      });
+    });
+  }
+  console.log("");
+
   // ─── Summary ───────────────────────────────────────────────────
   console.log("═══════════════════════════════════════════════════════════════");
   console.log("  Sweep summary");
