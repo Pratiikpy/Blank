@@ -105,13 +105,11 @@ escrow_approveRelease    0xa1d8eaaabed2691cf94b7a84f59987253fdde718a6aab7c8907e4
 gift_claim (Bob)         0x4994c31a0bafd1310f0d0bc75f79e69df96e55268f81ff643d88f9d10d795075
 ```
 
-## Eth Sepolia results (latest extended run)
+## Eth Sepolia results (latest run with retry wrapper + stealth + 2nd-leg)
 
-**23 pass / 1 fail / 4 skip.** The single fail was a transient
-publicnode RPC `Missing or invalid parameters` on
-`escrow_create` (nonce-race symptom under back-to-back submission);
-the same call passed cleanly on Base Sepolia and on prior Eth Sepolia
-runs. Not a contract bug.
+**29 pass / 0 fail / 4 skip.** Matches Base Sepolia exactly. The
+retry wrapper closed the publicnode-RPC flake gap that earlier runs
+hit on shield + escrow + pay.
 
 ```
 shield Alice             0xbd5ae993c532454c9c78e17f29d7ba55050404de9ae7ca5f5a647b010f001114
