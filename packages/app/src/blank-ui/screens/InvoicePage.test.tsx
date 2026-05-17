@@ -164,7 +164,9 @@ describe("InvoicePage — load-error matrix (§15.x)", () => {
     useParamsMock.mockReturnValue({ chainId: String(ETH_SEPOLIA), invoiceId: "xyz" });
     const { findByText, container } = render(<InvoicePage />);
     await findByText("Invalid link");
-    expect(container.textContent).toContain("isn't a number");
+    // URL-param hardening (commit e587a69) tightened the gate to also
+    // reject non-integers + negatives; the user-visible copy changed.
+    expect(container.textContent).toContain("isn't a valid positive integer");
   });
 
   it("negative invoiceId -> 'Invalid link' card", async () => {
