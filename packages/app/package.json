@@ -13,6 +13,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
+    "e2e:wave4": "playwright test --config=e2e/wave4/playwright.config.ts",
     "check:imports": "node scripts/check-imports.mjs"
   },
   "dependencies": {
