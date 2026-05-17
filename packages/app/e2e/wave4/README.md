@@ -2,6 +2,28 @@
 
 Reproducible cloud-headless run where any judge sees every shipped Wave 4 feature working end-to-end on chain with proof.
 
+## Judge replay guide
+
+```
+git clone <repo> && cd <repo>
+pnpm install
+pnpm e2e
+```
+
+That single command runs the full chain:
+
+1. **preflight** — verifies Node ≥ 20, both RPCs reachable, all 9 Wave 4 deployments present per chain. Fails fast with a clear list if anything is missing.
+2. **wave4** — boots Vite via Playwright's `webServer`, then runs the 9 phases on Eth Sepolia + Base Sepolia. Mobile sweep (`features/wave4-mobile.spec.ts`) runs alongside at 375×812.
+3. **audit** — compares the auto-block in `WAVE4_TESTING_TODO.md` to the 27-tuple coverage matrix in `scripts/proof-gap-audit.ts`. Exits non-zero if any (phase, chainId) is missing.
+4. **summary** — prints the final report: tx-hash counts (real vs synthetic), URL artifacts by surface kind, screenshot + video counts, and the absolute paths to the HTML/JSON reports.
+
+`pnpm e2e` exits 0 only when every gate passes. The proof block under `WAVE4_TESTING_TODO.md` is the artifact a judge inspects after the run.
+
+### Opt-in extras
+
+- `TEST_METAMASK=1` enables Phase 9 (MetaMask EOA smoke). Requires the MM extension dist at `e2e/fixtures/metamask/ext/` and a real display (xvfb-run on CI).
+- `PRIVATE_KEY=...` is consumed by Phase 8's external-EOA gas-deposit step. Without it the Dave-funds-Alice step skips, the self-pay UserOp still runs against existing AA balance.
+
 ## Stopping conditions (the hard gate)
 
 Every shipped feature must hit ALL or it's not "covered":
@@ -73,23 +95,31 @@ Any phase failing = not done. Any feature without a tx hash + screenshot = not c
 
 ```
 e2e/wave4/
-  playwright.config.ts           # 2-chain × 2-viewport projects, 5-min timeout, video on
+  playwright.config.ts           # 2-chain × 2-viewport projects, 5-min timeout, video on, webServer auto-start
   README.md                      # this file
   fixtures/
     wallets.ts                   # 4 personas (Alice/Bob/Carol passkey + Dave MM)
   helpers/
     screenshot.ts                # snap(page, ctx, label) — auto-named PNG
     testing-todo.ts              # recordProof(entry) — appends to WAVE4_TESTING_TODO.md
-  phases/
+    app-actions.ts               # enterPassphrase, readTxHashFromSuccess, shieldUsdc
+  phases/                        # desktop project testMatch (1280×800)
     01-bootstrap.spec.ts         # spawn personas, faucet TestUSDC
-    02-p2p-payments.spec.ts
-    03-business.spec.ts
-    04-escrow.spec.ts
-    05-deep-link-create.spec.ts
-    06-deep-link-consume.spec.ts
-    07-privacy.spec.ts
-    08-gas-wallet.spec.ts
-    09-mm-smoke.spec.ts
+    02-p2p-payments.spec.ts      # happy + over-balance negative
+    03-business.spec.ts          # invoice + payroll batch
+    04-escrow.spec.ts            # create + delivered + release
+    05-deep-link-create.spec.ts  # 3 claim modes + auction + crowdfund (URL handoff via recordProof)
+    06-deep-link-consume.spec.ts # Bob claims + 3-bid auction + cumulative contributions + F1 verify-error
+    07-privacy.spec.ts           # income-proof viral artifact + stealth scanner
+    08-gas-wallet.spec.ts        # external-EOA → AA receive() → self-pay UserOp
+    09-mm-smoke.spec.ts          # MetaMask EOA Send (opt-in via TEST_METAMASK=1)
+    11-negative-cases.spec.ts    # §1.14 A4 / §1.2 / C4 audit-fix regression pins
+  features/                      # mobile project testMatch (375×812 iPhone 13)
+    wave4-mobile.spec.ts         # BottomNav + More sheet + mobile P2P + public-surface reachability
+  scripts/
+    preflight.ts                 # RPC + deployments + Node version + Vite info
+    proof-gap-audit.ts           # 27-tuple × 2-chain coverage matrix
+    summary.ts                   # final report (counts + paths)
 ```
 
 Artifacts land under `packages/app/test-results/wave4-{shots,artifacts,html,results.json}`.

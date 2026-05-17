@@ -25,7 +25,7 @@ export async function enterPassphrase(page: Page, passphrase: string): Promise<v
 }
 
 /** Poll the on-chain explorer link the success state surfaces. Returns
- *  the tx hash extracted from a link of the form `*/tx/<0xhex>`. */
+ *  the tx hash extracted from a link href that contains "/tx/0x...". */
 export async function readTxHashFromSuccess(page: Page, timeoutMs = 90_000): Promise<string> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
