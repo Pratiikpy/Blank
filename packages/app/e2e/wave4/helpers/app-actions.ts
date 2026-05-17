@@ -72,11 +72,17 @@ export async function enterPassphrase(page: Page, passphrase: string): Promise<v
   // The prompt overlay is conditionally rendered; wait up to 30s for
   // it to appear. Pre-existing tests use placeholder="Passphrase" on
   // the input.
-  const input = page.locator('input[type="password"][placeholder*="assphrase" i]').first();
+  // :visible filter — multiple stale modals can be in the DOM if the
+  // caller hit a retry loop above.
+  const input = page.locator('input[type="password"][placeholder*="assphrase" i]:visible').first();
   await input.waitFor({ state: "visible", timeout: 30_000 });
-  await input.fill(passphrase);
-  // Submit via Enter or the visible Submit button.
-  const submit = page.locator('button:has-text("Submit"), button:has-text("Sign")').first();
+  // focus + keyboard.type instead of .fill() — fill() races the modal's
+  // open animation and gets stuck on the editability gate; focus + type
+  // bypasses that. Submit button label is "Unlock" (NOT Submit/Sign).
+  await input.focus().catch(() => undefined);
+  await page.waitForTimeout(200);
+  await page.keyboard.type(passphrase);
+  const submit = page.locator('button:visible').filter({ hasText: /^Unlock$/i }).first();
   await submit.click({ timeout: 5_000 }).catch(() => input.press("Enter"));
 }
 
@@ -176,7 +182,11 @@ export async function shieldUsdc(
   // so we may need a couple of attempts. After each click, poll for
   // the passphrase modal; if it doesn't appear within 5s, click again.
   const shieldBtn = page.locator('button[aria-label="Deposit to vault"]:visible').first();
-  const passphraseInput = page.locator('input[type="password"][placeholder*="assphrase" i]').first();
+  // :visible filter — if multiple Shield clicks queued during the AA
+  // resolver's "loading" state, multiple PassphrasePrompt modals can
+  // mount briefly. .first() without :visible can pick the stale hidden
+  // one, then .fill() times out on the editability check.
+  const passphraseInput = page.locator('input[type="password"][placeholder*="assphrase" i]:visible').first();
   await shieldBtn.waitFor({ state: "visible", timeout: 10_000 });
 
   let modalAppeared = false;
@@ -199,15 +209,21 @@ export async function shieldUsdc(
     );
   }
 
-  // Modal is already visible from the retry loop above. Focus first
-  // (some modals delay enabling the input until the open-animation
-  // completes), then fill + submit. dispatchEvent on submit to skip
-  // actionability for the same reason as the Deposit button.
-  await passphraseInput.click({ timeout: 5_000 }).catch(() => undefined);
-  await passphraseInput.fill(passphrase, { timeout: 10_000 });
-  const submit = page.locator('button:has-text("Submit"), button:has-text("Sign")').first();
+  // Modal is open. The PassphrasePrompt modal has a 150ms fade-in
+  // animation + a 30ms input-focus setTimeout — fill() races with the
+  // open animation and gets stuck on the editability gate. Use focus
+  // + page.keyboard.type which doesn't go through the editability
+  // check. Then submit via the visible "Unlock" button (NOT Submit/
+  // Sign — see src/components/PassphrasePrompt.tsx line 215).
+  await passphraseInput.focus().catch(() => undefined);
+  await page.waitForTimeout(200);
+  await page.keyboard.type(passphrase);
+  const submit = page
+    .locator('button:visible')
+    .filter({ hasText: /^Unlock$/i })
+    .first();
   await submit
-    .dispatchEvent("click")
+    .click({ timeout: 5_000 })
     .catch(() => passphraseInput.press("Enter"));
   // The shield flow surfaces success via a toast ('Shielded X USDC
   // via smart wallet!'), NOT an /tx/0x... explorer link. Wait for the
