@@ -161,11 +161,46 @@ reason strings:
   P2PExchange: same token              (offer with tokenGive == tokenWant)
   GiftMoney: not a recipient           (gift claim by non-recipient)
 
-## Eth Sepolia results (latest run with retry wrapper + stealth + 2nd-leg)
+## Eth Sepolia results (latest run — all features + 7 2nd-legs + 9 negatives)
 
-**29 pass / 0 fail / 4 skip.** Matches Base Sepolia exactly. The
-retry wrapper closed the publicnode-RPC flake gap that earlier runs
-hit on shield + escrow + pay.
+**38 pass / 0 fail / 4 skip.** Cross-chain parity achieved — Eth
+Sepolia now matches Base Sepolia exactly cell-for-cell. The retry
+wrapper closed the publicnode-RPC flake gap so this is fully reliable.
+
+```
+shield Alice              0x13b5a1816cf7614ce5e1360ca20099007e61c1941ec3823bda234ee40657713c
+shield Bob                0x098806846089d53b31d033ad9cb7f1fad50cd01a5beb9fddc112eaaf4f91c674
+shield Carol              0x240634b635b4e376de2e557733f3556dd5c30ffdca8bf342c5a7f6bd8e707120
+shield Dave               0x6bf700400ef7bdb1d7551d2d85c08eac00605ba4f27f6bdb949c0dc3ae0e2af4
+pay Alice→Bob             0xc9980972e0672da88e8abf2e79800fb1723490a58ca8a32cfda943f6983debf4
+pay Carol→Dave            0x5c17b3c41514b6285f2f201ab601831ae05af5842eb08a441d1a2678c0f886b4
+createGroup               0x5f7c1b8ffa285126ac5ec9fdb57533aad84ebdfc6aaa607b3e535d31d5f0ff99
+settleDebt (Bob→Carol)    0x6045fe9e8778ca23a0d61dac3c7348402c1b8d65c1abe88a808974b35d257570
+gift_send                 0x6fdb66129bf03509a412e37460a511014264605a1e66e75e0576e511f4018a2e
+gift_claim (Bob)          0x6e1d39424ff65b22428366445b13f75eb5caf63688fd48b9bde0ace8940ce441
+escrow_create             0xb4c71d4d9b5c77060159ef89a99f2a461fa3172d8aabdaa47b9cd11ffa9166b9
+escrow_markDelivered      0xcda81a384d8428e19ceec004762b13eeec99f33c863d49091cf9487afdc120de
+escrow_approveRelease     0xcc8148d08700b1a8ea67fcb8ba14c1d9799c70032757d042e9811bfc662d307a
+claim_link_create (bearer)0x165d27f64b1807a890f022690138423c18ed402d4db4189896bfc7e17ba676b1
+claim_link_addr_bound     0x23042da549bb1fef4942eb4d5dd4f87c37c6b00c7a7643baefb3ca70f819de3a
+addr_bound_claim (Carol)  0x0bb5495ac4badcc8fabddbac2d094ed735fa2df4f053b9ef20982326f6d9d1d9
+claim_link_claim (Dave)   0xfdc95adede87b9e64e5d2c076d4665874d3be0a64e617f87430c427957490620
+inheritance_setHeir       0x7e64e81786654fe87e20ed9366fc76e8af278248928834aae27d5aa955cb76e1
+storefront_listing        0x0aa6d592713a1abf4d9e02e6aa5ebecfeb52e169bd2c3e0f56f383c14e048977
+storefront_buy (Carol)    0x3bbf202ee776b49fcba70c4a031400ec2e0fc63122815c4da3a9bf8c06762e8f
+crowdfund_create          0x6759181f65324fbf7f769faef527288cce20a5bddead628c6a550aca4f888b2e
+p2p_offer                 0x9ddf7c2401c36831c4690f8b0bd9748a7d784b3059dd7ca059a974a5badb7b5d
+runPayroll                0x78ce45835ac8e5e4f6db54ec40b25952834ac6f146a308429c61504da58efbf4
+requestUnshield           0x47a03927266904c0cb6050e0978743a6cd261ff88962c225d115baea529a86a4
+creator_setProfile        0x374bfa4efc412a6b8621ec449a3d3d5f4f6f2ae43bcf8b4eb66abcab55608374
+creator_support           0xfc7e5d450c6d77ee626f76dfc7f015280ad53a3c582aa47d9044b08f0ea75342
+crowdfund_contribute      0x284678cab3a28ce6734aa968b737cfabeb901162cf6f6d4e1d2bf1ca1705dfe9
+stealth_send (Carol→Dave) 0xccc091cc270ffff5feb2eb83027a0aab0bfc62f644af617eedddf05acbe5483e
+stealth_claim (Dave)      0xa12140645919ea675d4c2817f83fcd4959bf97db4fa8cffb3a612168fd351da4
+```
+
+All 9 negative cases reverted on Eth Sepolia with the expected
+reason strings (same as Base Sepolia).
 
 ```
 shield Alice             0xbd5ae993c532454c9c78e17f29d7ba55050404de9ae7ca5f5a647b010f001114

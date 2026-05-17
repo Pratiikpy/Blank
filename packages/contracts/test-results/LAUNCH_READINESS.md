@@ -2,8 +2,11 @@
 
 A reproducible end-to-end proof that the product is feature-complete
 and bug-free across **4 distinct wallets** on **two testnet chains**,
-covering **every major user-facing contract**, **5 verified negative
-case rejections**, and **6 full create→consume second-leg flows**.
+covering **every major user-facing contract**, **9 verified negative
+case rejections**, and **7 full create→consume second-leg flows**.
+
+**Latest result: 38/42 pass / 0 fail on BOTH chains** (Eth Sepolia
+and Base Sepolia, cell-for-cell parity).
 
 ## The 4 wallets
 
