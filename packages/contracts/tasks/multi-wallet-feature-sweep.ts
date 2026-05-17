@@ -821,6 +821,158 @@ task(
   }
   console.log("");
 
+  // ─── 8c. AddressBound link — Bob creates a Carol-only link ─────
+  // Mode = AddressBound (1). Only msg.sender == boundAddress can claim,
+  // even with the secret. Use a small amount so we don't drain Bob's
+  // remaining encrypted balance.
+  console.log("[Feature 8c] AddressBound claim link — Bob → Carol-only, 0.2 USDC");
+  if (!ClaimLinks || !cofheClient) {
+    results.push({ feature: "claim_link_addr_bound", persona: "Bob", status: "skip", error: "ClaimLinks or cofhe unavailable" });
+    results.push({ feature: "claim_link_addr_bound_claim", persona: "Carol", status: "skip", error: "depends on create" });
+  } else {
+    try {
+      const bobWallet = createWalletClient({
+        account: privateKeyToAccount(personas[1]!.privKey),
+        chain,
+        transport: http(rpcUrl),
+      });
+      const [encAddrLink] = (await cofheClient
+        .encryptInputs([Encryptable.uint64(parseUnits("0.2", 6))])
+        .execute()) as Array<{ ctHash: bigint; securityZone: number; utype: number; signature: Hex }>;
+
+      // AddressBound: secretHash = keccak256(DOMAIN || uint8(1) || secret)
+      const DOMAIN_AB = keccak256(toBytes("BLANK_CLAIM_v1"));
+      const secretSeed = keccak256(toBytes(`wave4-sweep-addrbound-${Date.now()}`));
+      const ABsecretBytes = new Uint8Array(32);
+      for (let i = 0; i < 32; i++) ABsecretBytes[i] = parseInt(secretSeed.slice(2 + i * 2, 4 + i * 2), 16);
+      const ABsecretHex = ("0x" + Array.from(ABsecretBytes).map((b) => b.toString(16).padStart(2, "0")).join("")) as Hex;
+      const ABsecretHash = keccak256(encodePacked(["bytes32", "uint8", "bytes32"], [DOMAIN_AB, 1, ABsecretHex]));
+
+      const linkABHash = await withRetry("claim_link_ab_create", () => bobWallet.writeContract({
+        address: ClaimLinks as `0x${string}`,
+        abi: [
+          {
+            name: "createLink",
+            type: "function",
+            stateMutability: "nonpayable",
+            inputs: [
+              { name: "vault", type: "address" },
+              {
+                name: "encAmount",
+                type: "tuple",
+                components: [
+                  { name: "ctHash", type: "uint256" },
+                  { name: "securityZone", type: "uint8" },
+                  { name: "utype", type: "uint8" },
+                  { name: "signature", type: "bytes" },
+                ],
+              },
+              { name: "secretHash", type: "bytes32" },
+              { name: "mode", type: "uint8" },
+              { name: "boundAddress", type: "address" },
+              { name: "expirySeconds", type: "uint256" },
+              { name: "note", type: "string" },
+            ],
+            outputs: [{ name: "linkId", type: "uint256" }],
+          },
+        ],
+        functionName: "createLink",
+        args: [
+          Vault as `0x${string}`,
+          encAddrLink,
+          ABsecretHash,
+          1, // AddressBound
+          personas[2]!.address, // Carol only
+          0n,
+          "wave4 sweep AddressBound link",
+        ],
+        gas: 5_000_000n,
+      }));
+      await publicClient.waitForTransactionReceipt({ hash: linkABHash, confirmations: 1 });
+      console.log(`  Bob: AddressBound createLink (bound=Carol) ok  tx=${linkABHash}`);
+      results.push({ feature: "claim_link_addr_bound", persona: "Bob", status: "pass", txHash: linkABHash });
+
+      // Carol claims via claimAddressBound
+      const nextLinkId2 = (await publicClient.readContract({
+        address: ClaimLinks as `0x${string}`,
+        abi: [{ name: "nextLinkId", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] }],
+        functionName: "nextLinkId",
+      })) as bigint;
+      const justCreatedAB = nextLinkId2 > 0n ? nextLinkId2 - 1n : 0n;
+
+      const carolWallet = createWalletClient({
+        account: privateKeyToAccount(personas[2]!.privKey),
+        chain,
+        transport: http(rpcUrl),
+      });
+      const claimABHash = await withRetry("claim_link_ab_claim", () => carolWallet.writeContract({
+        address: ClaimLinks as `0x${string}`,
+        abi: [
+          {
+            name: "claimAddressBound",
+            type: "function",
+            stateMutability: "nonpayable",
+            inputs: [
+              { name: "linkId", type: "uint256" },
+              { name: "secret", type: "bytes32" },
+            ],
+            outputs: [],
+          },
+        ],
+        functionName: "claimAddressBound",
+        args: [justCreatedAB, ABsecretHex],
+        gas: 5_000_000n,
+      }));
+      await publicClient.waitForTransactionReceipt({ hash: claimABHash, confirmations: 1 });
+      console.log(`  Carol: claimAddressBound link #${justCreatedAB} ok  tx=${claimABHash}`);
+      results.push({ feature: "claim_link_addr_bound_claim", persona: "Carol", status: "pass", txHash: claimABHash });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message.slice(0, 250) : String(err);
+      console.log(`  AddressBound flow FAILED ${msg}`);
+      results.push({ feature: "claim_link_addr_bound", persona: "Bob", status: "fail", error: msg });
+    }
+  }
+  console.log("");
+
+  // ─── 8d. NEGATIVE: AddressBound claim by WRONG address rejected
+  console.log("[Negative 8d] AddressBound claim by non-bound address — should revert");
+  if (!ClaimLinks) {
+    results.push({ feature: "neg_addr_bound_wrong_caller", persona: "Dave", status: "skip", error: "ClaimLinks not deployed" });
+  } else {
+    // Dave tries to claim Carol's AddressBound link. Should revert
+    // "ClaimLinks: not bound address" even with the secret.
+    await expectRevert("Dave claims Carol's link", "neg_addr_bound_wrong_caller", "Dave", async () => {
+      // Use nextLinkId-1 which is the just-created AddressBound link
+      const nextLinkId3 = (await publicClient.readContract({
+        address: ClaimLinks as `0x${string}`,
+        abi: [{ name: "nextLinkId", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] }],
+        functionName: "nextLinkId",
+      })) as bigint;
+      const targetId = nextLinkId3 > 0n ? nextLinkId3 - 1n : 0n;
+      await publicClient.simulateContract({
+        account: privateKeyToAccount(personas[3]!.privKey),
+        address: ClaimLinks as `0x${string}`,
+        abi: [
+          {
+            name: "claimAddressBound",
+            type: "function",
+            stateMutability: "nonpayable",
+            inputs: [
+              { name: "linkId", type: "uint256" },
+              { name: "secret", type: "bytes32" },
+            ],
+            outputs: [],
+          },
+        ],
+        functionName: "claimAddressBound",
+        // Even with arbitrary secret, Dave is not the bound address (Carol is).
+        args: [targetId, "0x1111111111111111111111111111111111111111111111111111111111111111"],
+        gas: 5_000_000n,
+      });
+    });
+  }
+  console.log("");
+
   // ─── 8b. Claim link — Dave claims Bob's bearer link ────────────
   console.log("[Feature 8b] Dave claims Bob's bearer link");
   if (!ClaimLinks || bearerLinkId === null || !bearerSecretHex) {
