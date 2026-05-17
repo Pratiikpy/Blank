@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useReadContract } from "wagmi";
+import { useReadContract, usePublicClient } from "wagmi";
 import {
   Clock,
   AlertTriangle,
@@ -218,7 +218,27 @@ function HeirAssignmentCard({
   designatedAt: string;
   onSelect: (principal: string) => void;
 }) {
-  const { contracts } = useChain();
+  const { contracts, activeChainId } = useChain();
+  const publicClient = usePublicClient({ chainId: activeChainId });
+
+  // Block-timestamp reconciliation — same pattern as the main screen
+  // (and useAgentPayment). Without this, an heir with a skewed client
+  // clock could see "still 5 days remaining" when the principal's
+  // inactivity window has already closed (or vice versa).
+  const [blockTimestamp, setBlockTimestamp] = useState<number | null>(null);
+  useEffect(() => {
+    if (!publicClient) return;
+    let cancelled = false;
+    const fetchTs = async () => {
+      try {
+        const block = await publicClient.getBlock({ blockTag: "latest" });
+        if (!cancelled) setBlockTimestamp(Number(block.timestamp));
+      } catch { /* stale ts ok for countdown */ }
+    };
+    fetchTs();
+    const id = setInterval(fetchTs, 10_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [publicClient]);
 
   const { data: principalPlanData } = useReadContract({
     address: contracts.InheritanceManager,
@@ -239,7 +259,9 @@ function HeirAssignmentCard({
     isActive &&
     !!principalPlan &&
     principalPlan[0].toLowerCase() !== "0x0000000000000000000000000000000000000000";
-  const nowSeconds = Math.floor(Date.now() / 1000);
+  // Prefer on-chain block.timestamp; fall back to client clock only
+  // until the first fetch resolves (typically < 1s).
+  const nowSeconds = blockTimestamp ?? Math.floor(Date.now() / 1000);
   const inactivityPeriod = Number(principalPlan?.[1] ?? 0n);
   const lastHeartbeat = Number(principalPlan?.[2] ?? 0n);
   const claimStartedAt = Number(principalPlan?.[3] ?? 0n);
@@ -318,7 +340,7 @@ function HeirAssignmentCard({
 // ---------------------------------------------------------------
 
 export default function InheritancePlanning() {
-  const { plan, setHeir, setVaults, heartbeat, removeHeir, startClaim, finalizeClaim, isProcessing } = useInheritance();
+  const { plan, setHeir, setVaults, heartbeat, removeHeir, startClaim, finalizeClaim, isProcessing, blockTimestamp } = useInheritance();
   const { contracts } = useChain();
   const { effectiveAddress } = useEffectiveAddress();
   const availableVaults = buildAvailableVaults(contracts);
@@ -401,14 +423,20 @@ export default function InheritancePlanning() {
     ? ownerClaimStartedAt + CHALLENGE_PERIOD_SECONDS
     : 0;
   const ownerClaimGraceRemainingSeconds = ownerClaimChallengeEndsAt > 0
-    ? Math.max(0, ownerClaimChallengeEndsAt - Math.floor(Date.now() / 1000))
+    ? Math.max(0, ownerClaimChallengeEndsAt - (blockTimestamp ?? Math.floor(Date.now() / 1000)))
     : 0;
   const finalizeBlockedByGrace = ownerClaimStartedAt > 0 && ownerClaimGraceRemainingSeconds > 0;
   const finalizeBlockedNoClaim = ownerClaimStartedAt === 0 && isValidClaimOwner;
 
   // Derived state from real plan
   const isActive = plan?.active ?? false;
-  const nowSeconds = Math.floor(Date.now() / 1000);
+  // Prefer the on-chain block.timestamp the contract will actually compare
+  // against. Fall back to client clock only when the first block fetch
+  // hasn't resolved yet (typically < 1s after mount). This matches the
+  // AgentPayments expiry-reconciliation pattern and prevents a skewed
+  // device clock from showing "5 days left" when the heir can already
+  // claim (or vice versa).
+  const nowSeconds = blockTimestamp ?? Math.floor(Date.now() / 1000);
   const daysSinceCheckin = plan && plan.lastHeartbeat > 0
     ? Math.max(0, Math.floor((nowSeconds - plan.lastHeartbeat) / 86400))
     : 0;

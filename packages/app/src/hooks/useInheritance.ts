@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useReadContract, usePublicClient } from "wagmi";
 import { useEffectiveAddress } from "./useEffectiveAddress";
 import { useUnifiedWrite } from "./useUnifiedWrite";
@@ -28,6 +28,34 @@ export function useInheritance() {
   const publicClient = usePublicClient({ chainId: activeChainId });
   const { unifiedWrite, unifiedWriteAndWait } = useUnifiedWrite();
   const [isProcessing, setIsProcessing] = useState(false);
+
+  // Block-timestamp reference for the dead-man-switch countdown. The
+  // contract compares `block.timestamp` against `lastHeartbeat +
+  // inactivityPeriod` — a skewed client clock can show "5 days left"
+  // when the heir can actually claim NOW (or vice versa: show
+  // "claimable" when the contract still rejects). High-stakes screen,
+  // so we mirror the AgentPayments expiry-reconciliation pattern.
+  // Refetch every 10s; consumers fall back to Date.now() if null.
+  const [blockTimestamp, setBlockTimestamp] = useState<number | null>(null);
+  useEffect(() => {
+    if (!publicClient) return;
+    let cancelled = false;
+    const fetchTs = async () => {
+      try {
+        const block = await publicClient.getBlock({ blockTag: "latest" });
+        if (!cancelled) setBlockTimestamp(Number(block.timestamp));
+      } catch {
+        /* noop — stale ts is fine for countdown display, the contract
+           check at write-time is the source of truth */
+      }
+    };
+    fetchTs();
+    const id = setInterval(fetchTs, 10_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [publicClient]);
 
   // §1.6 of BEST_VERSION_FULL_PLAN: useCofheEncryptAndWriteContract was a
   // stub that threw "Use writeContractAsync directly with Encryptable values".
@@ -405,5 +433,10 @@ export function useInheritance() {
     startClaim,
     finalizeClaim,
     refetchPlan,
+    /** Latest on-chain block.timestamp from the active chain, refreshed
+     *  every 10s. Consumers use this as the reference clock for
+     *  countdown displays to avoid client-clock-skew misrepresenting
+     *  remaining inactivity time. Null until first fetch resolves. */
+    blockTimestamp,
   };
 }

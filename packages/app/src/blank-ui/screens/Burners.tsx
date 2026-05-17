@@ -230,11 +230,16 @@ export default function Burners() {
   };
 
   const onDelete = (b: BurnerWithAddress) => {
-    if (
-      !confirm(
-        `Delete "${b.label}"? The address still exists on-chain (it's deterministic from your passkey + salt) but you'll lose the label. Funds in it stay safe.`,
-      )
-    ) {
+    // The burner's private key is derived from (passkey + salt). The
+    // salt is stored only in IndexedDB unless the user backed up to
+    // chain via BurnerRegistry. Without that backup, deleting the
+    // local record means the salt is gone forever + any funds at this
+    // address become unrecoverable. The previous copy ("Funds in it
+    // stay safe") understated this risk; rewrite to match reality.
+    const warning = registryDeployed
+      ? `Delete "${b.label}"?\n\nIf you haven't backed this burner up to chain, you'll permanently lose the salt — and any funds at ${b.address ?? "this address"} will become unrecoverable. Back up first if you're unsure.\n\nThis cannot be undone.`
+      : `Delete "${b.label}"?\n\nThis burner's salt is stored only in this browser. On-chain backup isn't deployed on this network yet, so deleting now means the salt is gone forever + any funds at ${b.address ?? "this address"} become unrecoverable.\n\nThis cannot be undone.`;
+    if (!confirm(warning)) {
       return;
     }
     deleteBurner(b.id);
