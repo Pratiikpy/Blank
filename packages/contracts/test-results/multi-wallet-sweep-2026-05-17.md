@@ -19,7 +19,11 @@ Deterministically derived from the deployer key via `keccak256(deployer || name)
 
 ## Coverage
 
-19 happy-path features × 4 personas + 5 verified negative cases.
+20 happy-path features × 4 personas + 5 verified negative cases.
+Now includes one full second-leg flow (create→consume) and a retry
+wrapper around the most RPC-throttle-prone calls (shield / pay /
+escrow_create) so the sweep tolerates publicnode flake without
+needing manual re-runs.
 
 ### Happy paths
 
@@ -41,6 +45,7 @@ Deterministically derived from the deployer key via `keccak256(deployer || name)
 |14 | setProfile          | Bob     | CreatorHub             | Creator profile with tier thresholds |
 |15 | support             | A→B     | CreatorHub             | Encrypted tip + creator earnings accumulator |
 |16 | contribute          | Carol   | EncryptedCrowdfund     | Encrypted pledge to most-recent campaign |
+|17 | claimGift           | Bob     | GiftMoney              | Second-leg: Bob claims the envelope Alice just sent |
 
 ### Negative cases (all REVERTED as expected via eth_call dry-run)
 
@@ -54,8 +59,9 @@ Deterministically derived from the deployer key via `keccak256(deployer || name)
 
 ## Base Sepolia results (latest run)
 
-**24 pass / 0 fail / 4 skip.** The 4 skips are intentional — faucet
-no-ops when personas are already funded from a prior run.
+**25 pass / 0 fail / 4 skip.** The 4 skips are intentional — faucet
+no-ops when personas are already funded from a prior run. The 25th
+pass is the new `gift_claim` second-leg flow.
 
 Notable tx hashes (one per feature, verifiable on `sepolia.basescan.org/tx/<hash>`):
 
@@ -67,7 +73,8 @@ shield Dave              0xbf49818a0adc231268a0ef3acca1e8f479b482719813ed10169a4
 pay Alice→Bob            0x189d8c17b7f969bbbfd71db215b2fc4e80b8dd16b67445057d8be789706eba5b
 pay Carol→Dave           0xd19761039235ad01382fb9a72894a6ec6037e469de4aef3a625453d93ade74d0
 createGroup              0xbbc81d149cba282f54b6896981b1945586223c0c92b58e5b808c351de853eadf
-gift_send                0x9280f8b77c31edeaeda257e70a87fd3e09cd0a41464cb43a666352fc64780435
+gift_send                0x6898c64668ca866a65fce03cb6bd877f2cc617f408a434a1683c52b61ba4e0e6
+gift_claim               0xd05773cda6b64dfdd68087d6d87ac91bf625ce9d09a386d625523813812d53e7
 escrow_create            0x9c5c530b1c35b1b51e314f71e5c44ecb3cbc8bde468d6b4d2df917a48feae3ba
 claim_link_create        0xbc1c7715adba64e4d2266f9c4629c75d09b52dd4dfa2acb3a4086d70acd913b1
 inheritance_setHeir      0x47641e6deb568b51cd387a706128a3d274cdb09516cb0db3c02748ee6038bb4c
