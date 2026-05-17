@@ -254,11 +254,16 @@ contract EncryptedCrowdfund is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
 
         _bumpReceiptsAndGlobal(c.creator, paid);
 
-        // Mark all contributions as "refunded" (i.e. settled — they paid the creator).
-        Contribution[] storage cs = _contributions[campaignId];
-        for (uint256 i = 0; i < cs.length; i++) {
-            cs[i].refunded = true;
-        }
+        // NB: previously this loop walked all contributions and set
+        // cs[i].refunded = true to mark them "settled-via-release".
+        // The flag is dead on the success path — claimRefund already
+        // gates on `require(!c.goalMet)` first, so the refunded check
+        // at line 280 is unreachable when goalMet=true. The loop was
+        // pure cost: O(contributors) SSTORE writes that made
+        // claimRelease unable to settle large successful campaigns
+        // (~5-10k gas per iteration × thousands of contributors
+        // exceeds block gas). Dropping the loop closes that DoS;
+        // goalMet remains the source of truth for refund eligibility.
 
         emit CampaignReleased(campaignId, c.creator);
         try eventHub.emitActivity(c.creator, address(0), "crowdfund_released", c.title, campaignId) {} catch {}
