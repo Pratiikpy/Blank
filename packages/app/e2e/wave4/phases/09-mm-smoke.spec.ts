@@ -80,7 +80,7 @@ test.describe("Phase 9 — MetaMask smoke (Dave EOA)", () => {
 
   test("Dave connects MM, drives a basic Send, captures tx hash", async ({ baseURL }) => {
     const chain = chainContextFromProject();
-    const url = baseURL ?? "http://localhost:5173";
+    const url = baseURL ?? "http://localhost:3000";
     const chainSlug = chain.chainKey === "ETH_SEPOLIA" ? "eth-sepolia" : "base-sepolia";
 
     // — Skip gracefully if MM extension dist isn't present OR the

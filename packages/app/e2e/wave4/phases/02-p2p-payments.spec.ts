@@ -112,7 +112,7 @@ test.describe("Phase 2 — P2P encrypted payments", () => {
 
   test("happy path: Alice sends 5 USDC encrypted to Bob", async ({ browser, baseURL }) => {
     const chain = chainContextFromProject();
-    const url = baseURL ?? "http://localhost:5173";
+    const url = baseURL ?? "http://localhost:3000";
     const alice = PERSONAS.Alice;
     const bob = PERSONAS.Bob;
     const chainSlug = chain.chainKey === "ETH_SEPOLIA" ? "eth-sepolia" : "base-sepolia";
@@ -190,7 +190,7 @@ test.describe("Phase 2 — P2P encrypted payments", () => {
     // humanizeWriteError maps that to a user-friendly toast/error and
     // the success state is never reached.
     const chain = chainContextFromProject();
-    const url = baseURL ?? "http://localhost:5173";
+    const url = baseURL ?? "http://localhost:3000";
     const alice = PERSONAS.Alice;
     const bob = PERSONAS.Bob;
     const chainSlug = chain.chainKey === "ETH_SEPOLIA" ? "eth-sepolia" : "base-sepolia";

@@ -126,7 +126,7 @@ export async function spawnWallet(
 ): Promise<{ context: BrowserContext; page: Page; pubX: string; pubY: string }> {
   const context = await browser.newContext({
     viewport: opts.viewport ?? { width: 1280, height: 800 },
-    baseURL: opts.baseURL ?? "http://localhost:5173",
+    baseURL: opts.baseURL ?? "http://localhost:3000",
   });
   const page = await context.newPage();
   // Land on / first so Vite resolves the passkey lib's module graph.

@@ -22,7 +22,7 @@ import { recordProof } from "../helpers/testing-todo";
 //
 //  Pre-conditions:
 //    • App dev server reachable at PLAYWRIGHT_BASE_URL (default
-//      http://localhost:5173)
+//      http://localhost:3000)
 //    • /api/faucet/usdc endpoint reachable (works on the Vercel
 //      deploy; for localhost, `vercel dev` must be running to
 //      proxy /api/* — falls back to "deployer key" path on the
@@ -168,7 +168,7 @@ test.describe("Phase 1 — bootstrap (faucet 3 passkey personas per chain)", () 
       const persona = PERSONAS[personaKey];
       if (!persona) throw new Error(`Unknown persona: ${personaKey}`);
 
-      const out = await bootstrapPersona(browser, persona, chain, baseURL ?? "http://localhost:5173");
+      const out = await bootstrapPersona(browser, persona, chain, baseURL ?? "http://localhost:3000");
 
       // Record proof — one entry per (persona × chain).
       recordProof({

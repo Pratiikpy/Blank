@@ -101,7 +101,7 @@ test.describe("Phase 8 — gas wallet", () => {
     baseURL,
   }) => {
     const chain = chainContextFromProject();
-    const url = baseURL ?? "http://localhost:5173";
+    const url = baseURL ?? "http://localhost:3000";
     const chainSlug = chain.chainKey === "ETH_SEPOLIA" ? "eth-sepolia" : "base-sepolia";
 
     // Spawn Alice + a throwaway Bob (just for the recipient address

@@ -77,7 +77,7 @@ test.describe("Phase 15 — Creator Support", () => {
     baseURL,
   }) => {
     const chain = chainContextFromProject();
-    const url = baseURL ?? "http://localhost:5173";
+    const url = baseURL ?? "http://localhost:3000";
     const chainSlug = chain.chainKey === "ETH_SEPOLIA" ? "eth-sepolia" : "base-sepolia";
 
     const bob = await bringUp(browser, PERSONAS.Bob, chain.chainId, url);

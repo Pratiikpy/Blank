@@ -163,7 +163,7 @@ async function main(): Promise<void> {
 
   // ─── Informational: Vite dev server reachability ────────────────
   try {
-    const res = await fetch("http://localhost:5173", { signal: AbortSignal.timeout(2_000) });
+    const res = await fetch("http://localhost:3000", { signal: AbortSignal.timeout(2_000) });
     pushCheck({
       name: "Vite dev server (informational)",
       required: false,

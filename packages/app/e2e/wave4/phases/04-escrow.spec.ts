@@ -94,7 +94,7 @@ test.describe("Phase 4 — escrow", () => {
     baseURL,
   }) => {
     const chain = chainContextFromProject();
-    const url = baseURL ?? "http://localhost:5173";
+    const url = baseURL ?? "http://localhost:3000";
     const chainSlug = chain.chainKey === "ETH_SEPOLIA" ? "eth-sepolia" : "base-sepolia";
 
     // — Pre-spawn Bob + Carol to capture their addresses.

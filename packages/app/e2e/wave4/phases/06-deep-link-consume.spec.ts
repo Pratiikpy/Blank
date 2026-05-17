@@ -101,7 +101,7 @@ test.describe("Phase 6 — public deep-link consume", () => {
 
   test("Bob claims the 3 claim links Alice created", async ({ browser, baseURL }) => {
     const chain = chainContextFromProject();
-    const url = baseURL ?? "http://localhost:5173";
+    const url = baseURL ?? "http://localhost:3000";
     const chainSlug = chain.chainKey === "ETH_SEPOLIA" ? "eth-sepolia" : "base-sepolia";
     const bob = await bringUp(browser, PERSONAS.Bob, chain.chainId, url);
     const shot = { phase: "06-deep-link-consume", persona: "bob", chain: chainSlug, viewport: chain.viewport };
@@ -169,7 +169,7 @@ test.describe("Phase 6 — public deep-link consume", () => {
     baseURL,
   }) => {
     const chain = chainContextFromProject();
-    const url = baseURL ?? "http://localhost:5173";
+    const url = baseURL ?? "http://localhost:3000";
     const chainSlug = chain.chainKey === "ETH_SEPOLIA" ? "eth-sepolia" : "base-sepolia";
     const auctionUrl = readArtifactURL("listing auction", chain.chainId);
 
@@ -257,7 +257,7 @@ test.describe("Phase 6 — public deep-link consume", () => {
 
   test("Crowdfund: Bob + Carol each contribute to Alice's campaign", async ({ browser, baseURL }) => {
     const chain = chainContextFromProject();
-    const url = baseURL ?? "http://localhost:5173";
+    const url = baseURL ?? "http://localhost:3000";
     const chainSlug = chain.chainKey === "ETH_SEPOLIA" ? "eth-sepolia" : "base-sepolia";
     const campaignUrl = readArtifactURL("campaign create", chain.chainId);
 
@@ -315,7 +315,7 @@ test.describe("Phase 6 — public deep-link consume", () => {
     baseURL,
   }) => {
     const chain = chainContextFromProject();
-    const url = baseURL ?? "http://localhost:5173";
+    const url = baseURL ?? "http://localhost:3000";
     const chainSlug = chain.chainKey === "ETH_SEPOLIA" ? "eth-sepolia" : "base-sepolia";
 
     // No passkey needed for the public verify page; spawn a fresh

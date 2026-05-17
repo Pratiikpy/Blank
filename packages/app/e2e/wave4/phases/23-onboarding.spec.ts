@@ -58,7 +58,7 @@ test.describe("Phase 23 — Onboarding (real first-time passkey)", () => {
     baseURL,
   }) => {
     const chain = chainContextFromProject();
-    const url = baseURL ?? "http://localhost:5173";
+    const url = baseURL ?? "http://localhost:3000";
     const chainSlug = chain.chainKey === "ETH_SEPOLIA" ? "eth-sepolia" : "base-sepolia";
 
     // Fresh context — NO injectPasskey() call. This is the whole

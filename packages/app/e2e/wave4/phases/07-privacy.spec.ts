@@ -82,7 +82,7 @@ test.describe("Phase 7 — privacy primitives", () => {
     baseURL,
   }) => {
     const chain = chainContextFromProject();
-    const url = baseURL ?? "http://localhost:5173";
+    const url = baseURL ?? "http://localhost:3000";
     const chainSlug = chain.chainKey === "ETH_SEPOLIA" ? "eth-sepolia" : "base-sepolia";
     const alice = await bringUp(browser, PERSONAS.Alice, chain.chainId, url);
     const shot = { phase: "07-privacy", persona: "alice", chain: chainSlug, viewport: chain.viewport };
@@ -232,7 +232,7 @@ test.describe("Phase 7 — privacy primitives", () => {
     baseURL,
   }) => {
     const chain = chainContextFromProject();
-    const url = baseURL ?? "http://localhost:5173";
+    const url = baseURL ?? "http://localhost:3000";
     const chainSlug = chain.chainKey === "ETH_SEPOLIA" ? "eth-sepolia" : "base-sepolia";
 
     const bob = await bringUp(browser, PERSONAS.Bob, chain.chainId, url);

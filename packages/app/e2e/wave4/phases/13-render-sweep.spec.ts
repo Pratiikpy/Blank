@@ -95,7 +95,7 @@ test.describe("Phase 13 — read-only screen render sweep", () => {
     baseURL,
   }) => {
     const chain = chainContextFromProject();
-    const url = baseURL ?? "http://localhost:5173";
+    const url = baseURL ?? "http://localhost:3000";
     const chainSlug = chain.chainKey === "ETH_SEPOLIA" ? "eth-sepolia" : "base-sepolia";
     const { page, context } = await bringUp(browser, chain.chainId, url);
     const shot = { phase: "13-render-sweep", persona: "alice", chain: chainSlug, viewport: chain.viewport };

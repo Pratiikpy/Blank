@@ -93,7 +93,7 @@ test.describe("Phase 12 — mobile sweep", () => {
 
   test("Mobile BottomNav + More sheet render and respond to taps", async ({ browser, baseURL }) => {
     const chain = chainContextFromProject();
-    const url = baseURL ?? "http://localhost:5173";
+    const url = baseURL ?? "http://localhost:3000";
     const chainSlug = chain.chainKey === "ETH_SEPOLIA" ? "eth-sepolia" : "base-sepolia";
 
     const alice = await bringUpMobile(browser, PERSONAS.Alice, chain.chainId, url);
@@ -153,7 +153,7 @@ test.describe("Phase 12 — mobile sweep", () => {
     baseURL,
   }) => {
     const chain = chainContextFromProject();
-    const url = baseURL ?? "http://localhost:5173";
+    const url = baseURL ?? "http://localhost:3000";
     const chainSlug = chain.chainKey === "ETH_SEPOLIA" ? "eth-sepolia" : "base-sepolia";
 
     const alice = await bringUpMobile(browser, PERSONAS.Alice, chain.chainId, url);
@@ -228,7 +228,7 @@ test.describe("Phase 12 — mobile sweep", () => {
     baseURL,
   }) => {
     const chain = chainContextFromProject();
-    const url = baseURL ?? "http://localhost:5173";
+    const url = baseURL ?? "http://localhost:3000";
     const chainSlug = chain.chainKey === "ETH_SEPOLIA" ? "eth-sepolia" : "base-sepolia";
 
     // Look for any phase-5 recorded URL on this chain. Prefer claim

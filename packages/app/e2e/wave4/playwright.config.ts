@@ -40,7 +40,7 @@ export default defineConfig({
   ],
   outputDir: path.resolve(__dirname, "../../test-results/wave4-artifacts"),
   use: {
-    baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173",
+    baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000",
     trace: "retain-on-failure",
     video: "on",
     screenshot: "only-on-failure", // explicit screenshots happen via the helper
@@ -54,7 +54,7 @@ export default defineConfig({
   webServer: {
     command: "pnpm dev",
     cwd: path.resolve(__dirname, "../.."),
-    url: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173",
+    url: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000",
     reuseExistingServer: true,
     timeout: 120_000, // first-time vite build can take a while on cold cache
     stdout: "pipe",
