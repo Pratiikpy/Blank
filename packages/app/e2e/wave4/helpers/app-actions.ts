@@ -76,12 +76,18 @@ export async function enterPassphrase(page: Page, passphrase: string): Promise<v
   // caller hit a retry loop above.
   const input = page.locator('input[type="password"][placeholder*="assphrase" i]:visible').first();
   await input.waitFor({ state: "visible", timeout: 30_000 });
-  // focus + keyboard.type instead of .fill() — fill() races the modal's
-  // open animation and gets stuck on the editability gate; focus + type
-  // bypasses that. Submit button label is "Unlock" (NOT Submit/Sign).
-  await input.focus().catch(() => undefined);
-  await page.waitForTimeout(200);
-  await page.keyboard.type(passphrase);
+  // Set value via the React 18 native setter + dispatch input event —
+  // see shieldUsdc for the rationale (modal re-render races detach
+  // Playwright element handles mid-type). Submit button label is
+  // "Unlock" (NOT Submit/Sign).
+  await input.evaluate((el, value) => {
+    const setter = Object.getOwnPropertyDescriptor(
+      window.HTMLInputElement.prototype,
+      "value",
+    )?.set;
+    if (setter) setter.call(el, value);
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  }, passphrase);
   const submit = page.locator('button:visible').filter({ hasText: /^Unlock$/i }).first();
   await submit.click({ timeout: 5_000 }).catch(() => input.press("Enter"));
 }
@@ -209,15 +215,20 @@ export async function shieldUsdc(
     );
   }
 
-  // Modal is open. The PassphrasePrompt modal has a 150ms fade-in
-  // animation + a 30ms input-focus setTimeout — fill() races with the
-  // open animation and gets stuck on the editability gate. Use focus
-  // + page.keyboard.type which doesn't go through the editability
-  // check. Then submit via the visible "Unlock" button (NOT Submit/
-  // Sign — see src/components/PassphrasePrompt.tsx line 215).
-  await passphraseInput.focus().catch(() => undefined);
-  await page.waitForTimeout(200);
-  await page.keyboard.type(passphrase);
+  // Modal is open. fill() / pressSequentially / keyboard.type all hang
+  // here — the React modal queues multiple resolvers and rapidly
+  // mounts/unmounts inputs, detaching Playwright's element handles
+  // mid-type. Set the value directly via the React 18 native setter,
+  // then dispatch an "input" event so React's onChange fires. This is
+  // the same trick Cypress uses for re-render-heavy controlled inputs.
+  await passphraseInput.evaluate((el, value) => {
+    const setter = Object.getOwnPropertyDescriptor(
+      window.HTMLInputElement.prototype,
+      "value",
+    )?.set;
+    if (setter) setter.call(el, value);
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  }, passphrase);
   const submit = page
     .locator('button:visible')
     .filter({ hasText: /^Unlock$/i })
