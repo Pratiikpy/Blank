@@ -1,7 +1,10 @@
-# Final results — Base Sepolia 40/44 PASS / 0 FAIL
+# Final results — CROSS-CHAIN PARITY
 
-**Date:** 2026-05-17
-**Run log:** [`truly-final-base-sepolia-40-pass.log`](truly-final-base-sepolia-40-pass.log)
+**Date:** 2026-05-17 (Base) / 2026-05-18 (Eth)
+**Result: Both chains 40 pass / 0 fail / 4 skip / 44 total — cell-for-cell parity.**
+
+- Base Sepolia log: [`truly-final-base-sepolia-40-pass.log`](truly-final-base-sepolia-40-pass.log)
+- Eth Sepolia log: [`truly-final-eth-sepolia-40-pass.log`](truly-final-eth-sepolia-40-pass.log)
 
 The honest count after five distinct fix-classes for "the verification
 was lying" bugs surfaced this session. Every passing line is a real
@@ -83,6 +86,44 @@ JSON-RPC `eth_getTransactionReceipt` audit).
 | 10 | gift replay (Bob claims same envelope twice) | `GiftMoney: already opened` |
 | 11 | gift wrong recipient | `GiftMoney: not a recipient` |
 
+## Eth Sepolia tx hashes (mirror coverage; all 17 happy paths +
+## 7 second-leg flows + 10 negatives)
+
+```
+shield Alice              0x2d235c830f93fb1e20d05db486777a480f1154ea0dcf3289768e965785eca021
+shield Bob                0xa8a9c426c5136b4b4cc368eae77609b76fdcc0f02527a5c107720349370fdf3f
+shield Carol              0xec79d0e94f3e20d7ce3e0385ef18b03edb303eb816ca5963946bb5261475d19d
+shield Dave               0x4e31411ea41dc9e92218783c03408d69e3725ad4cb08d98eb40aa46fcc0e6a00
+pay Alice→Bob             0xbba480f582ae0be4c90ce1d6a9d9005e39f61f575f4fbec3bdfb861e77d69af7
+pay Carol→Dave            0x683d2e7662935f9c4b8ccaa35a85c7f343c5859710714aeaaf167bca269567d6
+createGroup               0x82eb63af192ceeab429b2ba46a58893fa215b597bfd2af5d5d39537cc5007251
+settleDebt (group 1)      0x6ad3edb4ac7babbf706f1497e7fe4bbc4a85e33f3c1bba6942bd323196521538
+gift_send                 0x04e316c107b3aec93126e4ec2807ab909b6bd345e229e7391f3cfe6a741b9396
+gift_claim (envelope #0)  0x9dc7eba0ac8eef8601cc703a1b2076e6a881e002fcd02133b942fee559cbf5d5
+escrow_create             0x18535d6453934348f99d5bb945ff8b26486483c732ba9a539934b5c56596811d
+escrow_markDelivered (#0) 0x2b5443e13e1d6aaeeee208286bdca89794ced8f509af460fad1dc26398dca610
+escrow_approveRelease     0x8c8929faa5fd0b23ef1f910f0274b756e968068c9c7ca690a69d7db04e9c26e9
+claim_link_create (bearer)0xa41afb275be2ae48c275d3b6b046aecbf76e4636f4ae4f9189834b85ad032715
+claim_link_addr_bound     0x4a394b1007ce1b1c7d000a3b1a431e773f4c8d01858be7881ad45c4998136721
+addr_bound_claim (link #3)0x389cc2778420c806f69081c6488b84913642fb3da2179d442d8f9b6c2461fabe
+claim_link_claim (link #2)0xf02aa72012a9e0d24a358fa68ad2fb6274b47ff0a2a1fd0bf7c9f7c28ef19b1e
+inheritance_setHeir       0xe3655a2936ef80408ccbd8123a25805534895d9ff76db31b869c3d274656cb8f
+storefront_listing        0x196ff1ea2ca7b2c7c6d8b12c92f2f1e88b5ce131a4f276e641d5417cf8285acb
+storefront_buy (#0)       0x1cef77aaf615f9967b4f70658063718e60c31381cb89063835e60dc4d8827bb1
+crowdfund_create          0x8ebeb15f77bbc843d84c455e3658a1cd8616d7d5dbe06b2f85c345c412e92566
+p2p_offer                 0xdfa66eb79a813ac041ae29204802f083510a60a63d913b5da64580261062a736
+runPayroll                0xadfdac28257f86d4546d7baee55255feb563460ba92fcbb31b33760cc661749c
+requestUnshield           0xbc7f078d312f57d6a6f09b5d15d1e73be167f299dcd61deb7bcb34828a9f0daa
+creator_setProfile        0xb7d45cd51888742880882d2991231dfb25669eb6097895748773bbe7a4fbe4d5
+creator_support           0x9bb1f98b05a08ffaef960f866b22a0febbefd677ac048ead05eabf782aed8461
+crowdfund_contribute      0xc5b17b07428163c9f87be3f7e67d68c1da2b7fdc90326f2ef692553e6dde401f
+stealth_send              0x90e3fab4d5998a17bf135460cac241648dd9688473846553fdb59ee3f20609a6
+stealth_claim             0x47a1bc1977d41002dc92b0b63ac58245570bf146fefa98039e00677a3c643fe4
+```
+
+Every Eth Sepolia tx verifiable at `sepolia.etherscan.io/tx/<hash>`
+with `status=1 (success)`.
+
 ## Reproducing
 
 ```bash
@@ -90,6 +131,7 @@ cd packages/contracts
 npx hardhat multi-wallet-feature-sweep --network base-sepolia
 npx hardhat multi-wallet-feature-sweep --network eth-sepolia
 npx hardhat verify-sweep-state --network base-sepolia
+npx hardhat verify-sweep-state --network eth-sepolia
 ```
 
 Idempotent: re-runs skip funding when personas are already topped up.

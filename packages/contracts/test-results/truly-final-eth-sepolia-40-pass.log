@@ -1,0 +1,171 @@
+═══════════════════════════════════════════════════════════════
+  Wave 4 · multi-wallet feature sweep
+═══════════════════════════════════════════════════════════════
+  Network:   eth-sepolia (chain 11155111)
+  Deployer:  0xb860513A3C5348C46cF52a573Fd743bA03c2c53F
+  Alice     0xa695888b60067636Ca7627C9993e6C21a175C6af
+  Bob       0xCc4D90A639Af04e5ee349C582870AD91f77e93CA
+  Carol     0x533c14e784162F3f7553ac34FCeaBbd36aeAC800
+  Dave      0x0Bc6F7c2d33B0371cBcc93CdFd6BF271BBCd0b55
+═══════════════════════════════════════════════════════════════
+
+[Step 0] Funding personas with ETH for gas...
+  Alice: already has 3987418311952754 wei, skipping
+  Bob: already has 3993332701516436 wei, skipping
+  Carol: already has 3989075472669738 wei, skipping
+  Dave: already has 3996506370415955 wei, skipping
+
+[Feature 1] Faucet — each persona mints TestUSDC
+  Alice: already funded (9890000000)
+  Bob: already funded (9900000000)
+  Carol: already funded (9900000000)
+  Dave: already funded (9910000000)
+
+[Feature 2] Shield — each persona deposits 10 USDC into the vault
+  Alice: shield ok  approve=0xb740033eb1e61a925266752b43ec31ea940277a5b6c24a8cc548e2a883354827  shield=0x2d235c830f93fb1e20d05db486777a480f1154ea0dcf3289768e965785eca021
+  Bob: shield ok  approve=0xd9b91bb80d24301ef64b16eb5d6fca338afc30b86631ac515208db75a80ae6cd  shield=0xa8a9c426c5136b4b4cc368eae77609b76fdcc0f02527a5c107720349370fdf3f
+  Carol: shield ok  approve=0x62b5f62328819354adbcca4df6a3adad8d86546cf3fd929c342e0d88afe9cd98  shield=0xec79d0e94f3e20d7ce3e0385ef18b03edb303eb816ca5963946bb5261475d19d
+  Dave: shield ok  approve=0x5edd874fe07b7bfaa2d9e4a3fb750f643453341f8cd9f41f4a5b729ee00d489e  shield=0x4e31411ea41dc9e92218783c03408d69e3725ad4cb08d98eb40aa46fcc0e6a00
+
+[Feature 3] P2P — Alice→Bob and Carol→Dave (1 USDC each)
+  Alice→Bob: pay ok  tx=0xbba480f582ae0be4c90ce1d6a9d9005e39f61f575f4fbec3bdfb861e77d69af7
+  Carol→Dave: pay ok  tx=0x683d2e7662935f9c4b8ccaa35a85c7f343c5859710714aeaaf167bca269567d6
+
+[Feature 4] Group — Alice creates a group with all 4 personas
+  Alice: createGroup ok  tx=0x82eb63af192ceeab429b2ba46a58893fa215b597bfd2af5d5d39537cc5007251
+
+[Feature 4b] settleDebt — Bob → Carol (0.1 USDC)
+  Bob→Carol in group 1: settleDebt ok  tx=0x6ad3edb4ac7babbf706f1497e7fe4bbc4a85e33f3c1bba6942bd323196521538
+
+[Feature 5] Gift envelope — Alice creates, Bob claims
+  Alice→Bob: gift ok  tx=0x04e316c107b3aec93126e4ec2807ab909b6bd345e229e7391f3cfe6a741b9396
+  Bob: claimGift #0 ok  tx=0x9dc7eba0ac8eef8601cc703a1b2076e6a881e002fcd02133b942fee559cbf5d5
+
+[Feature 7] Escrow — Alice creates escrow → Bob beneficiary, Carol arbiter
+  Alice→Bob (arb=Carol): escrow ok  tx=0x18535d6453934348f99d5bb945ff8b26486483c732ba9a539934b5c56596811d
+  Bob: markDelivered escrow #0 ok  tx=0x2b5443e13e1d6aaeeee208286bdca89794ced8f509af460fad1dc26398dca610
+  Alice: approveRelease escrow #0 ok  tx=0x8c8929faa5fd0b23ef1f910f0274b756e968068c9c7ca690a69d7db04e9c26e9
+
+[Feature 8] Claim link — Bob creates a bearer link (5 USDC)
+  Bob: createLink ok  tx=0xa41afb275be2ae48c275d3b6b046aecbf76e4636f4ae4f9189834b85ad032715
+
+[Feature 8c] AddressBound claim link — Bob → Carol-only, 0.2 USDC
+  Bob: AddressBound createLink (bound=Carol) ok  tx=0x4a394b1007ce1b1c7d000a3b1a431e773f4c8d01858be7881ad45c4998136721
+  Carol: claimAddressBound link #3 ok  tx=0x389cc2778420c806f69081c6488b84913642fb3da2179d442d8f9b6c2461fabe
+
+[Negative 8d] AddressBound claim by non-bound address — should revert
+  Dave claims Carol's link: reverted ✓ (The contract function "claimAddressBound" reverted with the following reason: ClaimLinks: already claimed Contract Call:)
+
+[Feature 8b] Dave claims Bob's bearer link
+  Dave: claimBearer link #2 ok  tx=0xf02aa72012a9e0d24a358fa68ad2fb6274b47ff0a2a1fd0bf7c9f7c28ef19b1e
+
+[Feature 6] Inheritance — Carol sets Dave as heir
+  Carol→Dave: setHeir ok  tx=0xe3655a2936ef80408ccbd8123a25805534895d9ff76db31b869c3d274656cb8f
+
+[Feature 9] Storefront — Alice lists a 3 USDC item
+  Alice: createListing ok  tx=0x196ff1ea2ca7b2c7c6d8b12c92f2f1e88b5ce131a4f276e641d5417cf8285acb
+  Carol: buyFixed listing #0 ok  tx=0x1cef77aaf615f9967b4f70658063718e60c31381cb89063835e60dc4d8827bb1
+
+[Feature 10] Crowdfund — Dave starts a 5 USDC campaign
+  Dave: createCampaign ok  tx=0x8ebeb15f77bbc843d84c455e3658a1cd8616d7d5dbe06b2f85c345c412e92566
+
+[Feature 11] P2P Exchange — Carol creates a TestUSDC↔WETH offer
+  Carol: createOffer ok  tx=0xdfa66eb79a813ac041ae29204802f083510a60a63d913b5da64580261062a736
+
+[Feature 12] BusinessHub.runPayroll — Alice batches Bob+Carol+Dave
+  Alice → 3 employees: runPayroll ok  tx=0xadfdac28257f86d4546d7baee55255feb563460ba92fcbb31b33760cc661749c
+
+[Feature 13] requestUnshield — Bob requests 0.5 USDC unshield
+  Bob: requestUnshield ok  tx=0xbc7f078d312f57d6a6f09b5d15d1e73be167f299dcd61deb7bcb34828a9f0daa
+
+[Feature 14a] CreatorHub — Bob sets a profile, Alice tips 0.2 USDC
+  Bob: setProfile ok  tx=0xb7d45cd51888742880882d2991231dfb25669eb6097895748773bbe7a4fbe4d5
+  Alice→Bob: support ok  tx=0x9bb1f98b05a08ffaef960f866b22a0febbefd677ac048ead05eabf782aed8461
+
+[Feature 14b] Crowdfund contribute — Carol pledges 1 USDC to Dave's campaign
+  Carol: contribute to campaign 0 ok  tx=0xc5b17b07428163c9f87be3f7e67d68c1da2b7fdc90326f2ef692553e6dde401f
+
+[Negative 14] Self-pay reject — Alice→Alice via PaymentHub
+  Alice→Alice: reverted ✓ (The contract function "sendPayment" reverted with the following reason: PaymentHub: invalid recipient Contract Call: add)
+
+[Negative 15] addExpense from non-member — should revert
+  non-member addExpense: reverted ✓ (The contract function "addExpense" reverted with the following reason: GroupManager: not a member Contract Call: address)
+
+[Negative 16] claimLink with WRONG secret — should revert
+  wrong-secret claim: reverted ✓ (The contract function "claimBearer" reverted with the following reason: ClaimLinks: already claimed Contract Call: addre)
+
+[Feature 16a] StealthPayments — Carol sends 0.3 USDC stealthly to Dave
+  Carol→Dave (stealth): sendStealth ok  tx=0x90e3fab4d5998a17bf135460cac241648dd9688473846553fdb59ee3f20609a6
+  Dave: claimStealth #0 ok  tx=0x47a1bc1977d41002dc92b0b63ac58245570bf146fefa98039e00677a3c643fe4
+
+[Negative 17] approveRelease from non-depositor — should revert
+  Dave unauth-release: reverted ✓ (The contract function "approveRelease" reverted with the following reason: EncryptedEscrow: not active Contract Call: ad)
+
+[Negative 18] CreatorHub self-tip — should revert
+  Bob self-tip: reverted ✓ (The contract function "support" reverted with the following reason: CreatorHub: cannot self-tip Contract Call: address: )
+
+[Negative 19] shield with amount=0 — should revert
+  shield zero: reverted ✓ (The contract function "shield" reverted with the following reason: FHERC20Vault: amount must be > 0 Contract Call: addre)
+
+[Negative 20] createOffer with same tokenGive/tokenWant — should revert
+  same-token offer: reverted ✓ (The contract function "createOffer" reverted with the following reason: P2PExchange: same token Contract Call: address: )
+
+[Negative 21b] runPayroll with empty employee list — should revert
+  empty payroll: reverted ✓ (The contract function "runPayroll" reverted with the following reason: BusinessHub: invalid batch size Contract Call: ad)
+
+[Negative 21a] gift_claim replay — same envelope twice should revert
+  Bob replays claim: reverted ✓ (The contract function "claimGift" reverted with the following reason: GiftMoney: already opened Contract Call: address: )
+
+[Negative 21] claimGift by non-recipient — should revert
+  Carol claims Bob's gift: reverted ✓ (The contract function "claimGift" reverted with the following reason: GiftMoney: not a recipient Contract Call: address:)
+
+═══════════════════════════════════════════════════════════════
+  Sweep summary
+═══════════════════════════════════════════════════════════════
+  · faucet               Alice  
+  · faucet               Bob    
+  · faucet               Carol  
+  · faucet               Dave   
+  ✓ shield               Alice  0x2d235c830f93fb1e20d05db486777a480f1154ea0dcf3289768e965785eca021
+  ✓ shield               Bob    0xa8a9c426c5136b4b4cc368eae77609b76fdcc0f02527a5c107720349370fdf3f
+  ✓ shield               Carol  0xec79d0e94f3e20d7ce3e0385ef18b03edb303eb816ca5963946bb5261475d19d
+  ✓ shield               Dave   0x4e31411ea41dc9e92218783c03408d69e3725ad4cb08d98eb40aa46fcc0e6a00
+  ✓ pay_Alice_Bob        Alice  0xbba480f582ae0be4c90ce1d6a9d9005e39f61f575f4fbec3bdfb861e77d69af7
+  ✓ pay_Carol_Dave       Carol  0x683d2e7662935f9c4b8ccaa35a85c7f343c5859710714aeaaf167bca269567d6
+  ✓ createGroup          Alice  0x82eb63af192ceeab429b2ba46a58893fa215b597bfd2af5d5d39537cc5007251
+  ✓ settleDebt           Bob    0x6ad3edb4ac7babbf706f1497e7fe4bbc4a85e33f3c1bba6942bd323196521538
+  ✓ gift_send            Alice  0x04e316c107b3aec93126e4ec2807ab909b6bd345e229e7391f3cfe6a741b9396
+  ✓ gift_claim           Bob    0x9dc7eba0ac8eef8601cc703a1b2076e6a881e002fcd02133b942fee559cbf5d5
+  ✓ escrow_create        Alice  0x18535d6453934348f99d5bb945ff8b26486483c732ba9a539934b5c56596811d
+  ✓ escrow_markDelivered Bob    0x2b5443e13e1d6aaeeee208286bdca89794ced8f509af460fad1dc26398dca610
+  ✓ escrow_approveRelease Alice  0x8c8929faa5fd0b23ef1f910f0274b756e968068c9c7ca690a69d7db04e9c26e9
+  ✓ claim_link_create    Bob    0xa41afb275be2ae48c275d3b6b046aecbf76e4636f4ae4f9189834b85ad032715
+  ✓ claim_link_addr_bound Bob    0x4a394b1007ce1b1c7d000a3b1a431e773f4c8d01858be7881ad45c4998136721
+  ✓ claim_link_addr_bound_claim Carol  0x389cc2778420c806f69081c6488b84913642fb3da2179d442d8f9b6c2461fabe
+  ✓ neg_addr_bound_wrong_caller Dave   reverted: The contract function "claimAddressBound" reverted with the following reason: ClaimLinks: already claimed Contract Call:
+  ✓ claim_link_claim     Dave   0xf02aa72012a9e0d24a358fa68ad2fb6274b47ff0a2a1fd0bf7c9f7c28ef19b1e
+  ✓ inheritance_setHeir  Carol  0xe3655a2936ef80408ccbd8123a25805534895d9ff76db31b869c3d274656cb8f
+  ✓ storefront_listing   Alice  0x196ff1ea2ca7b2c7c6d8b12c92f2f1e88b5ce131a4f276e641d5417cf8285acb
+  ✓ storefront_buy       Carol  0x1cef77aaf615f9967b4f70658063718e60c31381cb89063835e60dc4d8827bb1
+  ✓ crowdfund_create     Dave   0x8ebeb15f77bbc843d84c455e3658a1cd8616d7d5dbe06b2f85c345c412e92566
+  ✓ p2p_offer            Carol  0xdfa66eb79a813ac041ae29204802f083510a60a63d913b5da64580261062a736
+  ✓ runPayroll           Alice  0xadfdac28257f86d4546d7baee55255feb563460ba92fcbb31b33760cc661749c
+  ✓ requestUnshield      Bob    0xbc7f078d312f57d6a6f09b5d15d1e73be167f299dcd61deb7bcb34828a9f0daa
+  ✓ creator_setProfile   Bob    0xb7d45cd51888742880882d2991231dfb25669eb6097895748773bbe7a4fbe4d5
+  ✓ creator_support      Alice  0x9bb1f98b05a08ffaef960f866b22a0febbefd677ac048ead05eabf782aed8461
+  ✓ crowdfund_contribute Carol  0xc5b17b07428163c9f87be3f7e67d68c1da2b7fdc90326f2ef692553e6dde401f
+  ✓ neg_self_pay         Alice  reverted: The contract function "sendPayment" reverted with the following reason: PaymentHub: invalid recipient Contract Call: add
+  ✓ neg_non_member_expense Alice  reverted: The contract function "addExpense" reverted with the following reason: GroupManager: not a member Contract Call: address
+  ✓ neg_wrong_secret_claim Dave   reverted: The contract function "claimBearer" reverted with the following reason: ClaimLinks: already claimed Contract Call: addre
+  ✓ stealth_send         Carol  0x90e3fab4d5998a17bf135460cac241648dd9688473846553fdb59ee3f20609a6
+  ✓ stealth_claim        Dave   0x47a1bc1977d41002dc92b0b63ac58245570bf146fefa98039e00677a3c643fe4
+  ✓ neg_unauth_release   Dave   reverted: The contract function "approveRelease" reverted with the following reason: EncryptedEscrow: not active Contract Call: ad
+  ✓ neg_creator_self_tip Bob    reverted: The contract function "support" reverted with the following reason: CreatorHub: cannot self-tip Contract Call: address: 
+  ✓ neg_shield_zero      Alice  reverted: The contract function "shield" reverted with the following reason: FHERC20Vault: amount must be > 0 Contract Call: addre
+  ✓ neg_p2p_same_token   Carol  reverted: The contract function "createOffer" reverted with the following reason: P2PExchange: same token Contract Call: address: 
+  ✓ neg_payroll_empty_batch Alice  reverted: The contract function "runPayroll" reverted with the following reason: BusinessHub: invalid batch size Contract Call: ad
+  ✓ neg_gift_replay      Bob    reverted: The contract function "claimGift" reverted with the following reason: GiftMoney: already opened Contract Call: address: 
+  ✓ neg_gift_wrong_recipient Carol  reverted: The contract function "claimGift" reverted with the following reason: GiftMoney: not a recipient Contract Call: address:
+───────────────────────────────────────────────────────────────
+  40 pass · 0 fail · 4 skip · 44 total
+═══════════════════════════════════════════════════════════════
