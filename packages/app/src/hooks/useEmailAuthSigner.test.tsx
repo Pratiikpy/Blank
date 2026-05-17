@@ -223,10 +223,27 @@ describe("useEmailAuthSigner — EOA path (§15.x)", () => {
     expect(sig?.signerChainId).toBe(84532);
   });
 
-  it("EOA path: effectiveAddress set BUT wagmiAccount.address null -> returns null (no signMessage)", async () => {
+  it("EOA path: effectiveAddress set BUT wagmiAccount.address null AND smart-account NOT no-passkey -> throws 'still loading' (passkey-only-resolving guard)", async () => {
+    // Effective address resolved (cached) but neither wagmi EOA nor a ready
+    // smart account: surface explicitly instead of silently returning null.
+    // Pre-fix: returned null with no caller feedback; users hit a dead
+    // button. Post-fix: throws so the call site can show a toast.
     setEffective(EOA);
     setWagmiAccount(null);
-    setSmartAccount();
+    setSmartAccount({ status: "loading", account: null });
+    const { result } = renderHook(() => useEmailAuthSigner());
+    await expect(
+      act(async () => result.current.signEmailAuth("msg", 1)),
+    ).rejects.toThrow(/still loading/i);
+    expect(signMessageAsyncMock).toHaveBeenCalledTimes(0);
+  });
+
+  it("EOA path: effectiveAddress set, wagmi null, smart-account.status='no-passkey' -> returns null (truly degenerate, no path)", async () => {
+    // The one case where falling through to null is still correct: there
+    // is no passkey to wait for. effectiveAddress must be stale state.
+    setEffective(EOA);
+    setWagmiAccount(null);
+    setSmartAccount({ status: "no-passkey", account: null });
     const { result } = renderHook(() => useEmailAuthSigner());
     const sig = await act(async () =>
       result.current.signEmailAuth("msg", 1),

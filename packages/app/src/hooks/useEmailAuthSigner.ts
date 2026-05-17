@@ -76,6 +76,20 @@ export function useEmailAuthSigner(): UseEmailAuthSignerResult {
     async (message: string, signedAt: number): Promise<EmailAuthSignature | null> => {
       if (!effectiveAddress) return null;
 
+      // Same passkey-only-still-loading guard as useShield + useUnifiedWrite.
+      // Without this, a passkey-only user calling this during AA load
+      // resolution gets null silently — caller has no idea why the
+      // email-auth signature is missing. Surface explicitly.
+      if (
+        !isSmartAccount &&
+        !wagmiAccount.address &&
+        smartAccount.status !== "no-passkey"
+      ) {
+        throw new Error(
+          "Wallet still loading — try again in a moment (smart account resolving)",
+        );
+      }
+
       // ── Smart-account (passkey) path ──────────────────────────────────
       // BlankAccount.isValidSignature expects sig = abi.encode(uint256 r,
       // uint256 s) over the EIP-191 prefixed hash. We compute the hash
