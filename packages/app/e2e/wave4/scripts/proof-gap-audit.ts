@@ -95,6 +95,9 @@ const EXPECTED: ExpectedCoverage[] = [
   { phasePrefix: "P12 Mobile Sweep · mobile P2P", chainIds: BOTH, requiresRealTx: true, desc: "Mobile P2P send happy path" },
   { phasePrefix: "P12 Mobile Sweep · public surface", chainIds: BOTH, requiresRealTx: false, desc: "Mobile public-URL CTA reachability" },
 
+  // ─── Phase 14: Groups (encrypted group expense splits) ───────
+  { phasePrefix: "P14 Groups · group create", chainIds: BOTH, requiresRealTx: true, desc: "Alice creates encrypted group with Bob + Carol via /app/groups UI" },
+
   // ─── Phase 13: read-only screen render sweep ──────────────────
   { phasePrefix: "P13 Render Sweep · Dashboard", chainIds: BOTH, requiresRealTx: false, desc: "Dashboard h1 visible + screenshot" },
   { phasePrefix: "P13 Render Sweep · History", chainIds: BOTH, requiresRealTx: false, desc: "History list page render check" },

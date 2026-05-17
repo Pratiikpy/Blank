@@ -23,7 +23,7 @@ Status legend:
 | `/app/history` | `History.tsx` | Covered (read-only) | P13 render sweep | h1-visible + screenshot. |
 | `/app/explore` | `Explore.tsx` | Covered (read-only) | P13 render sweep | h1-visible + screenshot. |
 | `/app/business` | `BusinessTools.tsx` (Invoice + Payroll + Escrow tabs) | Covered | P3 invoice, P3 payroll, P4 escrow | All three tabs exercised. |
-| `/app/groups` | `Groups.tsx` | Gap (action) | — | Group splits — passkey-signed group create + contribution. Realistic Wave 4 demo flow. |
+| `/app/groups` | `Groups.tsx` | Covered (action — create only) | P14 groups | Alice creates group with Bob + Carol. Passkey-signed via /app/groups modal. Expense/vote/settle is a separate future fire. |
 | `/app/creators` | `CreatorSupport.tsx` | Gap (action) | — | Creator support tipping. Passkey-signed tip flow. |
 | `/app/swap` | `Swap.tsx`, `DexSwapTab.tsx` | Gap (action) | — | Encrypted swap via MockDEX. Passkey-signed swap. |
 | `/app/requests` | `Requests.tsx` | Gap (action) | — | Payment requests (encrypted invoices to specific wallets). |
@@ -109,7 +109,8 @@ Each `/loop 1m` fire ships ONE gap closure:
 
 - **Audit doc written:** fire 1
 - **Fire 2 — read-only render sweep landed:** phases/13-render-sweep.spec.ts covers Dashboard, History, Explore, Contacts, Privacy, Analytics, Profile, Settings, Help, TransactionDetail (10 screens × 2 chains = 20 proof entries, synthetic 0x0...0 hash, h1-visible assertion + screenshot per screen)
-- **Gaps closed:** 10 of 22 (all read-only)
-- **Suite-covered screens:** 28 of 40 (70%)
-- **Remaining action gaps:** 11 (Groups, CreatorSupport, Swap, Requests, Burners, Inheritance, Gifts, ScheduledSends, AgentPayments, Onboarding, Bridge-as-OOS)
+- **Fire 3 — Groups create:** phases/14-groups.spec.ts covers Alice creating an encrypted group with Bob + Carol via /app/groups modal. Passkey-signed createGroup UserOp.
+- **Gaps closed:** 11 of 22 (10 read-only + 1 action)
+- **Suite-covered screens:** 29 of 40 (72.5%)
+- **Remaining action gaps:** 10 (CreatorSupport, Swap, Requests, Burners, Inheritance, Gifts, ScheduledSends, AgentPayments, Onboarding, Bridge-as-OOS)
 - **After plan complete:** 39 of 40 covered (97.5% — `/app/bridge` declared out of scope)
