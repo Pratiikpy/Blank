@@ -81,10 +81,37 @@ creator_support          0x572821fc3e68f84dafee0b310f696e8c880cb893a8ebda0f528a8
 crowdfund_contribute     0xe506c9b90c974042b575f06f17fb695ed9389c018b98f27a93ecc5130e0c96b1
 ```
 
-## Eth Sepolia results (prior run, same feature set minus the latest 5)
+## Eth Sepolia results (latest extended run)
 
-19 pass / 0 fail / 4 skip. Re-run after this commit pending; results
-expected to match Base Sepolia.
+**23 pass / 1 fail / 4 skip.** The single fail was a transient
+publicnode RPC `Missing or invalid parameters` on
+`escrow_create` (nonce-race symptom under back-to-back submission);
+the same call passed cleanly on Base Sepolia and on prior Eth Sepolia
+runs. Not a contract bug.
+
+```
+shield Alice             0xbd5ae993c532454c9c78e17f29d7ba55050404de9ae7ca5f5a647b010f001114
+shield Bob               0xac7301a77b330611d9123d88121c17a997defd7f7d1e98a90c89b834ac607017
+shield Carol             0xd022ad119e579c705ead1ecd17ca77374daaecc021427e431df0a2f7a0f630d8
+shield Dave              0xcab6d551d6d25fa1b5edbd5a9283be8b4172e960c83470d90411bf32aee80025
+pay Alice→Bob            0x7d595045b73e60c8ffdb8136bc3f9c085e1d454c1109b27fe4a3cc79bf90064a
+pay Carol→Dave           0xe2b8501a8fbae2bbec1d9c5e96c1b64d51eb92ba3f9baa52f77e583221657e48
+createGroup              0xe4ab3229758987224dec336c859d3789ed6a787a45595457ff9e146f6e4797ca
+gift_send                0xa7c1eb982991718d9ef80be883311fe00918aeec3056d71ca3c71ccb1df90979
+claim_link_create        0xb95276f26a30535e3504a99798e69df0eeff3e69504b270e27f7098873991d9b
+inheritance_setHeir      0x34b147ea0498c53af23b53f4864865a328c71d8b5c88420ca9c7084c94ecb47b
+storefront_listing       0xedc653fe25013896ade6b95497af9f04bef940cbd9b4c173fa0383f50bee4abe
+crowdfund_create         0xf1cd904b5ad2b2075e5d824827d2ed404f5033d01febacaa10c5f79e5e496d95
+p2p_offer                0xf05176cd549abcfddcc83be253b580e83f09d90f9439ea737e6e979a323a517a
+runPayroll               0x256358b54c9dcacc0279956c30ed1dbefb511ee9fb838bada4ccf2309ae7fe50
+requestUnshield          0x2d8d70931d0ec16543e952f922a168aa865a2e91ce3ae70e5e443846d12ccaa2
+creator_setProfile       0xee4664e83170c6f149e0166ceb1a02884d45f53b18c56141a726f74af8ed2f1a
+creator_support          0xca8cba10714af4ec06b2ed63a6099db3c8e2e5775eced5d34b12b1b396b2c044
+crowdfund_contribute     0x455c6dcfcd018d8f78944ea77ff449a2090d7b8f75522c1ae0ee05a5c827808b
+```
+
+All 5 negative cases reverted with the expected reason strings on
+both chains.
 
 ## Reproducing
 
