@@ -199,7 +199,15 @@ contract EncryptedCrowdfund is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
         // value stays private; only "had at least one contribution" is public.
         require(_contributions[campaignId].length > 0, "Crowdfund: no contributions to close against");
 
+        // §1.14 A4: prevent zero-goal grief. Creator could set encGoal=0
+        // at create time so FHE.gte(raised, 0) is always true; victim
+        // contributes, creator claimRelease pulls funds. Fix is to AND
+        // a "goal is positive" check into the verdict. Both are encrypted
+        // booleans — neither leaks the actual goal amount. When goal is
+        // zero, reached is forced false and the campaign routes to refunds.
         ebool reached = FHE.gte(c.encRaised, c.encGoal);
+        ebool goalIsPositive = FHE.gt(c.encGoal, FHE.asEuint64(0));
+        reached = FHE.and(reached, goalIsPositive);
         FHE.allowThis(reached);
         FHE.allowSender(reached);
         FHE.allowPublic(reached);

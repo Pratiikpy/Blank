@@ -97,6 +97,12 @@ contract Storefront is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     /// @dev Auction config: minimum auction window (1 hour) + maximum (30 days).
     uint256 public constant MIN_AUCTION_SECONDS = 1 hours;
     uint256 public constant MAX_AUCTION_SECONDS = 30 days;
+    /// @dev §1.14 A7 — cap auction bid count to prevent DoS-by-spam.
+    ///      closeAuction iterates bids with FHE.select per bid; without
+    ///      a cap an attacker could exceed block gas limit and lock the
+    ///      auction permanently. 200 keeps closeAuction comfortably
+    ///      below 30M gas at EntryPoint v0.8 pricing.
+    uint256 public constant MAX_BIDS = 200;
 
     // ─── Events ───────────────────────────────────────────────────────
 
@@ -294,13 +300,31 @@ contract Storefront is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         require(l.mode == SaleMode.Auction, "Storefront: not Auction");
         require(block.timestamp < l.closesAt, "Storefront: auction closed");
         require(msg.sender != l.seller, "Storefront: seller cannot bid own auction");
+        // §1.14 A7: cap bid count to prevent DoS-by-spam. closeAuction
+        // walks the bid array with FHE.select per bid; without a cap an
+        // attacker could spam thousands of small bids and exceed the
+        // block gas limit, locking the auction forever. MAX_BIDS = 200
+        // keeps closeAuction well under typical block gas at v0.8
+        // EntryPoint pricing.
+        require(_bids[listingId].length < MAX_BIDS, "Storefront: bid cap reached");
 
         // Verify input under bidder.
         euint64 verifiedAmount = FHE.asEuint64(encAmount);
         FHE.allowTransient(verifiedAmount, l.vault);
 
+        // §1.14 A8: gate the locked amount via FHE.select(verifiedAmount
+        // >= l.encPrice). l.encPrice is the seller-set minimum bid for
+        // auctions (see Listing struct comment). Without this gate, a
+        // bidder could place 1 wei and still take an unclaimed auction.
+        // Bids below the min lock zero; the bidder spends gas but no
+        // tokens move, and the entry in _bids[] has amount=0 so the
+        // FHE-tournament selection won't pick it as winner.
+        ebool meetsMin = FHE.gte(verifiedAmount, l.encPrice);
+        euint64 effectiveAmount = FHE.select(meetsMin, verifiedAmount, FHE.asEuint64(0));
+        FHE.allowTransient(effectiveAmount, l.vault);
+
         // Move funds bidder → this contract.
-        euint64 locked = IFHERC20Vault(l.vault).transferFromVerified(msg.sender, address(this), verifiedAmount);
+        euint64 locked = IFHERC20Vault(l.vault).transferFromVerified(msg.sender, address(this), effectiveAmount);
         FHE.allowThis(locked);
         FHE.allowSender(locked);
 

@@ -370,4 +370,73 @@ describe("EncryptedCrowdfund", () => {
       ).to.be.reverted;
     });
   });
+
+  describe("§1.14 A4 — zero-goal grief prevention", () => {
+    it("CRITICAL: encGoal=0 with contributions still produces verdict=FALSE (no creator drain)", async () => {
+      // Attack: creator sets encGoal=0; victim contributes; without
+      // the goalIsPositive AND, FHE.gte(raised, 0) is true and creator
+      // could claimRelease the victim's funds.
+      // Fix: closeCampaign AND-s `FHE.gt(encGoal, 0)` into the verdict.
+      // Verdict goes to refunding instead.
+      const ctx = await loadFixture(deployFixture);
+      const encZeroGoal = await encUint64(ctx.client, ctx.alice, usdc(0));
+      await ctx.crowdfund.connect(ctx.alice).createCampaign(
+        await ctx.vault.getAddress(),
+        encZeroGoal,
+        3600,
+        "zero-goal-grief",
+        ZERO_BYTES32,
+      );
+
+      // Bob contributes $40.
+      const bob = await encUint64(ctx.client, ctx.bob, usdc(40));
+      await ctx.crowdfund.connect(ctx.bob).contribute(0, bob);
+
+      await time.increase(3601);
+      await ctx.crowdfund.connect(ctx.dave).closeCampaign(0);
+
+      const handle = await ctx.crowdfund.getGoalCheckHandle(0);
+      await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.dave);
+      const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutPermit().execute();
+
+      // The fix: verdict must be FALSE despite raised(40) >= goal(0).
+      expect(Boolean(proof.decryptedValue)).to.equal(false);
+
+      await ctx.crowdfund.connect(ctx.dave).publishCloseResult(
+        0, Boolean(proof.decryptedValue), proof.signature,
+      );
+      const c = await ctx.crowdfund.getCampaign(0);
+      expect(c.goalMet).to.equal(false);
+      expect(c.status).to.equal(STATUS_REFUNDING);
+
+      // Creator can't drain — claimRelease reverts on goalMet=false.
+      await expect(
+        ctx.crowdfund.connect(ctx.alice).claimRelease(0),
+      ).to.be.revertedWith("Crowdfund: goal not met");
+    });
+
+    it("positive encGoal still works (regression sanity)", async () => {
+      // The new goalIsPositive AND must not break legitimate campaigns.
+      const ctx = await loadFixture(deployFixture);
+      const encGoal = await encUint64(ctx.client, ctx.alice, usdc(50));
+      await ctx.crowdfund.connect(ctx.alice).createCampaign(
+        await ctx.vault.getAddress(),
+        encGoal,
+        3600,
+        "positive-goal",
+        ZERO_BYTES32,
+      );
+
+      const bob = await encUint64(ctx.client, ctx.bob, usdc(60));
+      await ctx.crowdfund.connect(ctx.bob).contribute(0, bob);
+
+      await time.increase(3601);
+      await ctx.crowdfund.connect(ctx.dave).closeCampaign(0);
+
+      const handle = await ctx.crowdfund.getGoalCheckHandle(0);
+      await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.dave);
+      const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutPermit().execute();
+      expect(Boolean(proof.decryptedValue)).to.equal(true);
+    });
+  });
 });
