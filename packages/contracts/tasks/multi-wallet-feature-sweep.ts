@@ -567,6 +567,12 @@ task(
       // Real signature is createEnvelope(vault, recipients[], shares[],
       // note, expiryTimestamp) — sendGift was the wrong selector name
       // and the wrong arg layout. Fixed both.
+      // Race-safe pre-read of nextEnvelopeId
+      const envIdPreCreate = (await publicClient.readContract({
+        address: GiftMoney as `0x${string}`,
+        abi: [{ name: "nextEnvelopeId", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] }],
+        functionName: "nextEnvelopeId",
+      })) as bigint;
       const giftHash = await aliceWallet.writeContract({
         address: GiftMoney as `0x${string}`,
         abi: [
@@ -612,12 +618,8 @@ task(
       // is (nextEnvelopeId - 1). This proves the create→claim flow works
       // end-to-end with two distinct wallets, not just the create call.
       try {
-        const nextId = (await publicClient.readContract({
-          address: GiftMoney as `0x${string}`,
-          abi: [{ name: "nextEnvelopeId", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] }],
-          functionName: "nextEnvelopeId",
-        })) as bigint;
-        const justCreatedId = nextId > 0n ? nextId - 1n : 0n;
+        // Race-safe: use the pre-create id captured above.
+        const justCreatedId = envIdPreCreate;
         const bobWallet = createWalletClient({
           account: privateKeyToAccount(personas[1]!.privKey),
           chain,
@@ -687,6 +689,12 @@ task(
       // before description and was missing deadline entirely. Contract
       // also requires deadline >= block.timestamp + 1 day, so use 7d.
       const escrowDeadline = BigInt(Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60);
+      // Race-safe pre-read of nextEscrowId
+      const escrowIdPreCreate = (await publicClient.readContract({
+        address: EncryptedEscrow as `0x${string}`,
+        abi: [{ name: "nextEscrowId", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] }],
+        functionName: "nextEscrowId",
+      })) as bigint;
       const escrowHash = await withRetry("escrow_create", () => aliceWallet.writeContract({
         address: EncryptedEscrow as `0x${string}`,
         abi: [
@@ -731,12 +739,8 @@ task(
 
       // Second-leg flow: Bob marks delivered, Alice approves release.
       try {
-        const nextEid = (await publicClient.readContract({
-          address: EncryptedEscrow as `0x${string}`,
-          abi: [{ name: "nextEscrowId", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] }],
-          functionName: "nextEscrowId",
-        })) as bigint;
-        const justCreatedEid = nextEid > 0n ? nextEid - 1n : 0n;
+        // Race-safe: use the pre-create id captured above.
+        const justCreatedEid = escrowIdPreCreate;
         const bobWallet = createWalletClient({
           account: privateKeyToAccount(personas[1]!.privKey),
           chain,
@@ -839,6 +843,14 @@ task(
       const secretHex = ("0x" + Array.from(secretBytes).map((b) => b.toString(16).padStart(2, "0")).join("")) as `0x${string}`;
       const secretHash = keccak256(encodePacked(["bytes32", "uint8", "bytes32"], [DOMAIN, 0, secretHex]));
 
+      // Pre-read nextLinkId before create to dodge race against
+      // concurrent createLink calls from other deployers on the shared
+      // testnet contract.
+      const linkIdPreCreate = (await publicClient.readContract({
+        address: ClaimLinks as `0x${string}`,
+        abi: [{ name: "nextLinkId", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] }],
+        functionName: "nextLinkId",
+      })) as bigint;
       const linkHash = await bobWallet.writeContract({
         address: ClaimLinks as `0x${string}`,
         abi: [
@@ -883,13 +895,10 @@ task(
       console.log(`  Bob: createLink ok  tx=${linkHash}`);
       results.push({ feature: "claim_link_create", persona: "Bob", status: "pass", txHash: linkHash });
 
-      // Capture linkId + secret for the Dave-claims-Bob's-link second-leg.
-      const nextLinkId = (await publicClient.readContract({
-        address: ClaimLinks as `0x${string}`,
-        abi: [{ name: "nextLinkId", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] }],
-        functionName: "nextLinkId",
-      })) as bigint;
-      bearerLinkId = nextLinkId > 0n ? nextLinkId - 1n : 0n;
+      // bearerLinkId IS linkIdPreCreate (createLink uses nextLinkId++,
+      // so pre-increment value is what was just minted). Race-safe vs
+      // concurrent writers on the same contract.
+      bearerLinkId = linkIdPreCreate;
       bearerSecretHex = secretHex;
     } catch (err) {
       const msg = err instanceof Error ? err.message.slice(0, 250) : String(err);
@@ -927,6 +936,12 @@ task(
       const ABsecretHex = ("0x" + Array.from(ABsecretBytes).map((b) => b.toString(16).padStart(2, "0")).join("")) as Hex;
       const ABsecretHash = keccak256(encodePacked(["bytes32", "uint8", "bytes32"], [DOMAIN_AB, 1, ABsecretHex]));
 
+      // Pre-read for AddressBound link too
+      const abLinkIdPreCreate = (await publicClient.readContract({
+        address: ClaimLinks as `0x${string}`,
+        abi: [{ name: "nextLinkId", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] }],
+        functionName: "nextLinkId",
+      })) as bigint;
       const linkABHash = await withRetry("claim_link_ab_create", () => bobWallet.writeContract({
         address: ClaimLinks as `0x${string}`,
         abi: [
@@ -972,12 +987,8 @@ task(
       results.push({ feature: "claim_link_addr_bound", persona: "Bob", status: "pass", txHash: linkABHash });
 
       // Carol claims via claimAddressBound
-      const nextLinkId2 = (await publicClient.readContract({
-        address: ClaimLinks as `0x${string}`,
-        abi: [{ name: "nextLinkId", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] }],
-        functionName: "nextLinkId",
-      })) as bigint;
-      const justCreatedAB = nextLinkId2 > 0n ? nextLinkId2 - 1n : 0n;
+      // Race-safe: use the pre-create id we captured above.
+      const justCreatedAB = abLinkIdPreCreate;
 
       const carolWallet = createWalletClient({
         account: privateKeyToAccount(personas[2]!.privKey),
@@ -1148,6 +1159,12 @@ task(
       const [encPrice] = (await cofheClient
         .encryptInputs([Encryptable.uint64(parseUnits("3", 6))])
         .execute()) as Array<{ ctHash: bigint; securityZone: number; utype: number; signature: Hex }>;
+      // Race-safe pre-read of nextListingId
+      const listingIdPreCreate = (await publicClient.readContract({
+        address: Storefront as `0x${string}`,
+        abi: [{ name: "nextListingId", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] }],
+        functionName: "nextListingId",
+      })) as bigint;
       const listingHash = await aliceWallet.writeContract({
         address: Storefront as `0x${string}`,
         abi: [
@@ -1194,12 +1211,8 @@ task(
 
       // Second-leg: Carol buys Alice's just-created listing for 3 USDC.
       try {
-        const nextLid = (await publicClient.readContract({
-          address: Storefront as `0x${string}`,
-          abi: [{ name: "nextListingId", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] }],
-          functionName: "nextListingId",
-        })) as bigint;
-        const justListed = nextLid > 0n ? nextLid - 1n : 0n;
+        // Race-safe: use the pre-create listing id captured above.
+        const justListed = listingIdPreCreate;
         const carolWallet = createWalletClient({
           account: privateKeyToAccount(personas[2]!.privKey),
           chain,
@@ -1901,6 +1914,12 @@ task(
       const claimCodeHex = ("0x" + Array.from(claimCodeBytes).map((b) => b.toString(16).padStart(2, "0")).join("")) as Hex;
       const claimCodeHash = keccak256(encodePacked(["bytes32", "address"], [claimCodeHex, personas[3]!.address]));
 
+      // Race-safe pre-read of nextTransferId
+      const transferIdPreCreate = (await publicClient.readContract({
+        address: StealthPayments as `0x${string}`,
+        abi: [{ name: "nextTransferId", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] }],
+        functionName: "nextTransferId",
+      })) as bigint;
       const stealthHash = await withRetry("stealth_send", () => carolWallet.writeContract({
         address: StealthPayments as `0x${string}`,
         abi: [
@@ -1939,12 +1958,8 @@ task(
       // Dave learns the claim code out-of-band (e.g., from Carol over a side
       // channel); the contract hashes claimCode || recipient to verify.
       try {
-        const nextTid = (await publicClient.readContract({
-          address: StealthPayments as `0x${string}`,
-          abi: [{ name: "nextTransferId", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] }],
-          functionName: "nextTransferId",
-        })) as bigint;
-        const justCreatedTid = nextTid > 0n ? nextTid - 1n : 0n;
+        // Race-safe: use the pre-create transfer id captured above.
+        const justCreatedTid = transferIdPreCreate;
         const daveWallet = createWalletClient({
           account: privateKeyToAccount(personas[3]!.privKey),
           chain,
