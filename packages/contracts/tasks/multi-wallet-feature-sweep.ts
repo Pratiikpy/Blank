@@ -2024,6 +2024,46 @@ task(
   }
   console.log("");
 
+  // ─── 21b. NEGATIVE: empty-batch runPayroll rejected ────────────
+  console.log("[Negative 21b] runPayroll with empty employee list — should revert");
+  if (!BusinessHub) {
+    results.push({ feature: "neg_payroll_empty_batch", persona: "Alice", status: "skip", error: "BusinessHub not deployed" });
+  } else {
+    await expectRevert("empty payroll", "neg_payroll_empty_batch", "Alice", async () => {
+      await publicClient.simulateContract({
+        account: privateKeyToAccount(personas[0]!.privKey),
+        address: BusinessHub as `0x${string}`,
+        abi: [
+          {
+            name: "runPayroll",
+            type: "function",
+            stateMutability: "nonpayable",
+            inputs: [
+              { name: "employees", type: "address[]" },
+              { name: "vault", type: "address" },
+              {
+                name: "salaries",
+                type: "tuple[]",
+                components: [
+                  { name: "ctHash", type: "uint256" },
+                  { name: "securityZone", type: "uint8" },
+                  { name: "utype", type: "uint8" },
+                  { name: "signature", type: "bytes" },
+                ],
+              },
+            ],
+            outputs: [],
+          },
+        ],
+        functionName: "runPayroll",
+        // Zero-length batch — must revert "BusinessHub: invalid batch size"
+        args: [[], Vault as `0x${string}`, []],
+        gas: 2_000_000n,
+      });
+    });
+  }
+  console.log("");
+
   // ─── 21a. NEGATIVE: gift replay — Bob claims same envelope twice
   // The happy-path second-leg already claimed the envelope. A second
   // claim from Bob on the same envelopeId must revert ("not active").
