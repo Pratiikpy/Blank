@@ -246,6 +246,16 @@ contract ClaimLinks is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         require(!link.refunded, "ClaimLinks: refunded");
         require(block.timestamp < link.expiryTimestamp, "ClaimLinks: expired");
         require(link.mode == expectedMode, "ClaimLinks: wrong mode");
+        // Reject self-claim. A sender claiming their own link is a
+        // no-op net for the vault (transferFrom self → contract +
+        // transferVerified contract → self), but _release calls
+        // _bumpReceiptsAndGlobal(claimer, transferred) which inflates
+        // the claimer's per-user "received" counter inside
+        // PaymentReceipts. That counter is what proveIncomeAbove
+        // reads, so a self-claim lets a user fake income they didn't
+        // actually receive. The sender already has refundLink for
+        // the legitimate "I want my funds back" case.
+        require(msg.sender != link.sender, "ClaimLinks: sender cannot self-claim");
     }
 
     function _release(uint256 linkId, ClaimLink storage link, address claimer) internal {

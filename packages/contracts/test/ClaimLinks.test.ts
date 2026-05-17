@@ -441,6 +441,60 @@ describe("ClaimLinks", () => {
     });
   });
 
+  // CRITICAL: regression pin for the self-claim income-inflation bug
+  // found in the /goal-session contract audit. ClaimLinks._release
+  // calls _bumpReceiptsAndGlobal(claimer, transferred) which increments
+  // PaymentReceipts._totalReceived[claimer]. proveIncomeAbove reads
+  // that counter. Without a self-claim guard, the sender of a link
+  // could claim their own link, get the funds bounced back to
+  // themselves (no net change), but have their "income" counter
+  // inflated by the link amount. Fix: reject msg.sender == link.sender
+  // in _claimable (shared by all three claim entry points).
+  describe("Self-claim rejection (income-proof inflation guard)", () => {
+    it("Bearer: sender cannot claim their own link", async () => {
+      const ctx = await loadFixture(deployFixture);
+      const secret = newSecret();
+      const enc = await encAmount(ctx.client, ctx.alice, usdc(7));
+      await ctx.claimLinks.connect(ctx.alice).createLink(
+        await ctx.vault.getAddress(),
+        enc,
+        bearerHash(secret),
+        MODE_BEARER,
+        hre.ethers.ZeroAddress,
+        3600,
+        "",
+      );
+      await expect(
+        ctx.claimLinks.connect(ctx.alice).claimBearer(0, secret),
+      ).to.be.revertedWith("ClaimLinks: sender cannot self-claim");
+      // Bob can still legitimately claim — sanity check the guard
+      // doesn't break the normal path.
+      await expect(
+        ctx.claimLinks.connect(ctx.bob).claimBearer(0, secret),
+      ).to.not.be.reverted;
+    });
+
+    it("AddressBound: sender cannot claim even when boundAddress=self", async () => {
+      const ctx = await loadFixture(deployFixture);
+      const secret = newSecret();
+      const enc = await encAmount(ctx.client, ctx.alice, usdc(7));
+      // Alice creates an AddressBound link to herself — the most
+      // direct attack shape.
+      await ctx.claimLinks.connect(ctx.alice).createLink(
+        await ctx.vault.getAddress(),
+        enc,
+        addressHash(secret),
+        MODE_ADDRESS,
+        ctx.alice.address,
+        3600,
+        "",
+      );
+      await expect(
+        ctx.claimLinks.connect(ctx.alice).claimAddressBound(0, secret),
+      ).to.be.revertedWith("ClaimLinks: sender cannot self-claim");
+    });
+  });
+
   describe("Expiry", () => {
     it("rejects claim after expiry", async () => {
       const ctx = await loadFixture(deployFixture);
