@@ -45,3 +45,4 @@ import "./fund-mm-test-wallet";
 import "./shield-mm-test-wallet";
 import "./deploy-upgrade-blankaccount-gas-wallet";
 import "./deploy-upgrade-wave4-security";
+import "./multi-wallet-feature-sweep";
