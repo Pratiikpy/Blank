@@ -10,6 +10,7 @@ import { broadcastAction } from "@/lib/cross-tab";
 import { invalidateBalanceQueries } from "@/lib/query-invalidation";
 import { log } from "@/lib/log";
 import toast from "react-hot-toast";
+import { toastMappedError } from "@/lib/error-messages";
 
 const MAX_UINT64 = BigInt("18446744073709551615"); // type(uint64).max
 
@@ -143,7 +144,7 @@ export function useInheritance() {
         await refetchPlan();
       } catch (err) {
         log.error("useInheritance.setHeir.threw", err instanceof Error ? err : new Error(String(err)));
-        toast.error(err instanceof Error ? err.message : "Failed to set heir");
+        toastMappedError(err);
       } finally {
         setIsProcessing(false);
       }
@@ -281,7 +282,7 @@ export function useInheritance() {
         toast.success("Vaults updated for inheritance plan!");
         await refetchPlan();
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Failed to set vaults");
+        toastMappedError(err);
       } finally {
         setIsProcessing(false);
       }
@@ -340,7 +341,7 @@ export function useInheritance() {
         toast.success("Claim started! Wait for the challenge period to finalize.");
         await refetchPlan();
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Failed to start claim");
+        toastMappedError(err);
       } finally {
         setIsProcessing(false);
       }
@@ -415,7 +416,7 @@ export function useInheritance() {
         toast.success("Claim finalized! Funds transferred.");
         await refetchPlan();
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Failed to finalize claim");
+        toastMappedError(err);
       } finally {
         setIsProcessing(false);
       }

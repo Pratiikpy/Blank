@@ -39,6 +39,7 @@ import {
 import { EmptyState } from "@/components/common/EmptyState";
 import { QRCodeSVG } from "qrcode.react";
 import toast from "react-hot-toast";
+import { toastMappedError } from "@/lib/error-messages";
 import { usePublicClient } from "wagmi";
 import { useBurnerAccounts, type BurnerWithAddress } from "@/hooks/useBurnerAccounts";
 import { useSmartAccount } from "@/hooks/useSmartAccount";
@@ -96,7 +97,7 @@ export default function Burners() {
       setNewLabel("");
       toast.success(`Created burner "${label}"`);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to create burner");
+      toastMappedError(err);
     } finally {
       setCreating(false);
     }
@@ -164,7 +165,7 @@ export default function Burners() {
       setBackupModal(null);
       setBackupPassphrase("");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Backup failed");
+      toastMappedError(err);
     } finally {
       setBackupBusy(false);
     }
@@ -223,7 +224,7 @@ export default function Burners() {
       setBackupModal(null);
       setBackupPassphrase("");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Recovery failed");
+      toastMappedError(err);
     } finally {
       setBackupBusy(false);
     }

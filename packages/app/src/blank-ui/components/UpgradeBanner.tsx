@@ -18,6 +18,7 @@ import { encodeFunctionData } from "viem";
 import { useBalance } from "wagmi";
 import { useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
+import { toastMappedError } from "@/lib/error-messages";
 import { useAccountVersion } from "@/hooks/useAccountVersion";
 import { useUnifiedWrite } from "@/hooks/useUnifiedWrite";
 import { useEffectiveAddress } from "@/hooks/useEffectiveAddress";
@@ -149,7 +150,7 @@ export function UpgradeBanner() {
       await queryClient.invalidateQueries({ queryKey: ["blank-account-impl"] });
       toast.success("Account upgraded. Session keys are now available");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Upgrade failed");
+      toastMappedError(err);
     } finally {
       setBusy(false);
     }

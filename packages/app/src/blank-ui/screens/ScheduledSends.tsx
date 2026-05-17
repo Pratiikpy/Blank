@@ -27,6 +27,7 @@ import {
   X,
 } from "lucide-react";
 import toast from "react-hot-toast";
+import { toastMappedError } from "@/lib/error-messages";
 import { type Address, encodeFunctionData, isAddress, parseUnits, zeroAddress } from "viem";
 import { usePublicClient } from "wagmi";
 import { useScheduledSends } from "@/hooks/useScheduledSends";
@@ -259,7 +260,7 @@ export default function ScheduledSends() {
       toast.success("Scheduled send authorized on chain");
       resetForm();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Create failed");
+      toastMappedError(err);
     } finally {
       setCreating(false);
     }
@@ -278,7 +279,7 @@ export default function ScheduledSends() {
       await revokeScope(sessionKey, paymasterMode);
       toast.success("Scheduled send revoked");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Revoke failed");
+      toastMappedError(err);
     } finally {
       setRevokingKey(null);
     }

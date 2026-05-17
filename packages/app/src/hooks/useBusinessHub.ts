@@ -7,6 +7,7 @@ import { useCofheEncrypt, useCofheConnection } from "@/lib/cofhe-shim";
 import { useCofheDecryptForTx } from "@/lib/cofhe-shim";
 import { Encryptable } from "@/lib/cofhe-shim";
 import toast from "react-hot-toast";
+import { toastMappedError } from "@/lib/error-messages";
 import { log } from "@/lib/log";
 import { MAX_UINT64, type EncryptedInput } from "@/lib/constants";
 import { useChain } from "@/providers/ChainProvider";
@@ -567,7 +568,7 @@ export function useBusinessHub() {
         }
       } catch (err) {
         setStepWithReset("error", 5000);
-        toast.error(err instanceof Error ? err.message : "Escrow failed");
+        toastMappedError(err);
       }
     },
     [address, connected, step, unifiedWrite, unifiedWriteAndWait, publicClient, contracts]
@@ -661,7 +662,7 @@ export function useBusinessHub() {
         setStepWithReset("success", 6000);
       } catch (err) {
         log.error("useBusinessHub.finalizeInvoice.error", err instanceof Error ? err : new Error(String(err)));
-        toast.error(err instanceof Error ? err.message : "Failed to finalize");
+        toastMappedError(err);
         setStepWithReset("error", 5000);
       }
     },
@@ -710,7 +711,7 @@ export function useBusinessHub() {
         toast.success("Marked as delivered!");
         setStepWithReset("success", 6000);
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Failed to mark delivered");
+        toastMappedError(err);
         setStepWithReset("error", 5000);
       }
     },
@@ -763,7 +764,7 @@ export function useBusinessHub() {
         toast.success("Escrow funds released!");
         setStepWithReset("success", 6000);
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Failed to release escrow");
+        toastMappedError(err);
         setStepWithReset("error", 5000);
       }
     },
@@ -814,7 +815,7 @@ export function useBusinessHub() {
         toast.success("Escrow disputed");
         setStepWithReset("success", 6000);
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Failed to dispute escrow");
+        toastMappedError(err);
         setStepWithReset("error", 5000);
       }
     },
@@ -1232,7 +1233,7 @@ export function useBusinessHub() {
         toast.success("Invoice cancelled");
         setStepWithReset("success", 6000);
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Failed to cancel invoice");
+        toastMappedError(err);
         setStepWithReset("error", 5000);
       }
     },
@@ -1341,7 +1342,7 @@ export function useBusinessHub() {
         toast.success(releaseToBeneficiary ? "Funds released to beneficiary" : "Funds returned to depositor");
         setStepWithReset("success", 6000);
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Arbiter decision failed");
+        toastMappedError(err);
         setStepWithReset("error", 5000);
       }
     },
@@ -1394,7 +1395,7 @@ export function useBusinessHub() {
         toast.success("Expired escrow funds reclaimed!");
         setStepWithReset("success", 6000);
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Failed to claim expired escrow");
+        toastMappedError(err);
         setStepWithReset("error", 5000);
       }
     },

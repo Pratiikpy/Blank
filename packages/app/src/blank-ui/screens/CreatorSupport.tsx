@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import toast from "react-hot-toast";
+import { toastMappedError } from "@/lib/error-messages";
 import { useTipCreator } from "@/hooks/useTipCreator";
 import { useUnifiedWrite } from "@/hooks/useUnifiedWrite";
 import { usePublicClient } from "wagmi";
@@ -175,7 +176,7 @@ export default function CreatorSupport() {
       toast.success(isEditMode ? "Profile updated!" : "Profile created!");
     } catch (err) {
       log.error("creatorSupport.createProfile.failed", err instanceof Error ? err : new Error(String(err)));
-      toast.error(err instanceof Error ? err.message : "Failed to save profile");
+      toastMappedError(err);
     } finally {
       setIsCreatingProfile(false);
     }
@@ -280,7 +281,7 @@ export default function CreatorSupport() {
       setSelectedCreator(null);
       setTipMessage("");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to send tip");
+      toastMappedError(err);
     }
   };
 

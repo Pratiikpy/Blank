@@ -20,6 +20,7 @@ import { useSmartAccount } from "@/hooks/useSmartAccount";
 import { useChain } from "@/providers/ChainProvider";
 import { TestUSDCAbi } from "@/lib/abis";
 import { log } from "@/lib/log";
+import { mapError } from "@/lib/error-messages";
 import { GasWalletPanel } from "@/components/GasWalletPanel";
 
 // ──────────────────────────────────────────────────────────────────
@@ -117,8 +118,16 @@ export default function SmartWallet() {
       toast.success(`Sent ${value} USDC to your smart wallet!`, { id: "fund-tx" });
       await refreshBalances();
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Fund transfer failed";
-      toast.error(msg, { id: "fund-tx" });
+      // Run raw wagmi/viem messages through mapError so the user sees
+      // "Cancelled" / "Insufficient funds" / "Network error" instead of
+      // a 500-char viem trace with a contract-revert tail. Suppress the
+      // toast entirely when the user dismissed their own wallet prompt.
+      const mapped = mapError(err);
+      if (!mapped.userCancelled) {
+        toast.error(`${mapped.title} — ${mapped.body}`, { id: "fund-tx" });
+      } else {
+        toast.dismiss("fund-tx");
+      }
     } finally {
       setFunding(false);
     }
@@ -143,7 +152,14 @@ export default function SmartWallet() {
       toast.success(isAA ? "10,000 USDC ready in your smart wallet!" : "10,000 USDC minted to your EOA. Now click Fund", { id: "faucet-tx" });
       await refreshBalances();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Faucet failed", { id: "faucet-tx" });
+      // Same mapError normalization as handleFund — keep error surfaces
+      // consistent across the wallet screen.
+      const mapped = mapError(err);
+      if (!mapped.userCancelled) {
+        toast.error(`${mapped.title} — ${mapped.body}`, { id: "faucet-tx" });
+      } else {
+        toast.dismiss("faucet-tx");
+      }
     } finally {
       setFunding(false);
     }

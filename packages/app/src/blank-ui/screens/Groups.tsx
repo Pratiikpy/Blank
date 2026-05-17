@@ -28,6 +28,7 @@ import {
   type GroupExpenseRow,
 } from "@/lib/supabase";
 import toast from "react-hot-toast";
+import { toastMappedError } from "@/lib/error-messages";
 
 // ---------------------------------------------------------------
 //  STATUS HELPERS
@@ -296,7 +297,7 @@ function AddExpenseModal({
           toast.success("Receipt scanned. Review the fields.", { id: toastId });
         }
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : "OCR failed", { id: toastId });
+        toastMappedError(err, toastId);
       } finally {
         setScanning(false);
       }

@@ -3,6 +3,7 @@ import { useReadContract, usePublicClient } from "wagmi";
 import { useUnifiedWrite } from "./useUnifiedWrite";
 import { parseUnits, formatUnits, encodeFunctionData } from "viem";
 import toast from "react-hot-toast";
+import { toastMappedError } from "@/lib/error-messages";
 import { log } from "@/lib/log";
 import { useChain } from "@/providers/ChainProvider";
 import { TestUSDCAbi, FHERC20VaultAbi } from "@/lib/abis";
@@ -375,7 +376,7 @@ export function useShield() {
     } catch (err) {
       setStep("error");
       setError(err instanceof Error ? err.message : "Shield failed");
-      toast.error(err instanceof Error ? err.message : "Shield failed");
+      toastMappedError(err);
       return null;
     }
   }, [address, unifiedWrite, unifiedWriteAndWait, waitAndRefetch, refetchBalance, refetchVault, publicBalance, smartAccount, passphrasePrompt, contracts]);
@@ -528,7 +529,7 @@ export function useShield() {
     } catch (err) {
       setUnshieldStep("error");
       setUnshieldError(err instanceof Error ? err.message : "Unshield failed");
-      toast.error(err instanceof Error ? err.message : "Unshield failed");
+      toastMappedError(err);
       return false;
     }
   }, [address, unifiedWrite, waitAndRefetch, refetchPending, _attemptClaim, contracts, activeChainId]);

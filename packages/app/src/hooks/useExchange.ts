@@ -23,6 +23,7 @@ import { extractEventId } from "@/lib/event-parser";
 import { broadcastAction } from "@/lib/cross-tab";
 import { invalidateBalanceQueries } from "@/lib/query-invalidation";
 import toast from "react-hot-toast";
+import { toastMappedError } from "@/lib/error-messages";
 import { isVaultApproved, markVaultApproved, clearVaultApproval, verifyVaultApproved } from "@/lib/approval";
 
 type Step = "idle" | "approving" | "sending" | "success" | "error";
@@ -485,7 +486,7 @@ export function useExchange() {
 
         return validPlaintext;
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Verify failed", { id: toastId });
+        toastMappedError(err, toastId);
         return null;
       } finally {
         setVerifyingOfferId(null);

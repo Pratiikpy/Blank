@@ -5,6 +5,8 @@
 // "user rejected the request", "429 Too Many Requests") that confuses
 // non-technical users.
 
+import toast from "react-hot-toast";
+
 export interface MappedError {
   /** Short heading suitable for a toast title or card header. */
   title: string;
@@ -101,6 +103,25 @@ const PATTERNS: Array<{ test: RegExp; map: MappedError }> = [
     },
   },
 ];
+
+/** Shortcut: run an unknown error through `mapError` and surface it via
+ *  react-hot-toast with sensible defaults. Suppresses the toast when the
+ *  user cancelled their own wallet prompt (a `toast.error` for that case
+ *  reads as the app yelling at the user for not clicking confirm). Pass
+ *  a `toastId` to replace a previously-shown loading/success toast.
+ *
+ *  Replaces the ad-hoc `toast.error(err instanceof Error ? err.message :
+ *  "Foo failed")` pattern that was sprinkled across ~20 screens — that
+ *  shape leaked 500-char viem traces to end users instead of the
+ *  humanized copy already defined in PATTERNS. */
+export function toastMappedError(err: unknown, toastId?: string): void {
+  const mapped = mapError(err);
+  if (mapped.userCancelled) {
+    if (toastId) toast.dismiss(toastId);
+    return;
+  }
+  toast.error(`${mapped.title} — ${mapped.body}`, toastId ? { id: toastId } : undefined);
+}
 
 /** Normalize any thrown error (or string) into user-readable copy. */
 export function mapError(err: unknown): MappedError {

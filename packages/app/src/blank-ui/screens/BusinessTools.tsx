@@ -20,6 +20,7 @@ import toast from "react-hot-toast";
 import { isAddress, parseUnits, formatUnits } from "viem";
 import { usePublicClient } from "wagmi";
 import { useBusinessHub } from "@/hooks/useBusinessHub";
+import { toastMappedError } from "@/lib/error-messages";
 import { EmptyState } from "@/components/common/EmptyState";
 import { MILESTONE_TEMPLATES } from "@/lib/escrow-templates";
 import { useEffectiveAddress } from "@/hooks/useEffectiveAddress";
@@ -239,7 +240,7 @@ export default function BusinessTools() {
       setInvoiceAmount("");
       setInvoiceDesc("");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Operation failed");
+      toastMappedError(err);
     }
   };
 
@@ -280,7 +281,7 @@ export default function BusinessTools() {
       setPayAddresses("");
       setPayAmounts("");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Operation failed");
+      toastMappedError(err);
     }
   };
 
@@ -316,7 +317,7 @@ export default function BusinessTools() {
       setShowModal(false);
       handleCreateEscrowReset();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Operation failed");
+      toastMappedError(err);
     }
   };
 
@@ -332,7 +333,7 @@ export default function BusinessTools() {
       setPayInvoiceAmount("");
       setPayMode("standard");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Payment failed");
+      toastMappedError(err);
     }
   };
 
@@ -412,7 +413,7 @@ export default function BusinessTools() {
       setOracleQuote(null);
       setOracleError(null);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Oracle-pay failed");
+      toastMappedError(err);
     }
   };
 
@@ -444,7 +445,7 @@ export default function BusinessTools() {
       setPayAltQuoteIn(null);
       setPayAltQuoteError(null);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Swap-pay failed");
+      toastMappedError(err);
     }
   };
 
@@ -513,7 +514,7 @@ export default function BusinessTools() {
       setConfirmCancelInvoiceId(null);
       loadData();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Cancel failed");
+      toastMappedError(err);
     }
   };
 
@@ -523,7 +524,7 @@ export default function BusinessTools() {
       setConfirmArbiterEscrow(null);
       loadData();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Decision failed");
+      toastMappedError(err);
     }
   };
 
@@ -533,7 +534,7 @@ export default function BusinessTools() {
       setConfirmClaimExpiredId(null);
       loadData();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Claim failed");
+      toastMappedError(err);
     }
   };
 
@@ -560,7 +561,7 @@ export default function BusinessTools() {
       }
       loadData();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Release failed");
+      toastMappedError(err);
     }
   };
 
@@ -570,7 +571,7 @@ export default function BusinessTools() {
       setConfirmDisputeId(null);
       loadData();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Dispute failed");
+      toastMappedError(err);
     }
   };
 

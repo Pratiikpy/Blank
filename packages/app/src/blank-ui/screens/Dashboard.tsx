@@ -25,6 +25,7 @@ import { usePrivacy } from "@/hooks/usePrivacy";
 import { Encryptable } from "@/lib/cofhe-shim";
 import { cn } from "@/lib/cn";
 import toast from "react-hot-toast";
+import { toastMappedError } from "@/lib/error-messages";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { useActivityFeed } from "@/hooks/useActivityFeed";
 import { useEncryptedBalance } from "@/hooks/useEncryptedBalance";
@@ -187,7 +188,7 @@ export default function Dashboard() {
     try {
       await mintTestTokens();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to mint test tokens");
+      toastMappedError(err);
     }
   };
 
@@ -195,7 +196,7 @@ export default function Dashboard() {
     try {
       await mintTestUSDT();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to mint test USDT");
+      toastMappedError(err);
     }
   };
   // Only chains with a TestUSDT deployment expose the button. ETH Sepolia

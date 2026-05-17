@@ -7,6 +7,7 @@ import { useCofheEncrypt, useCofheConnection } from "@/lib/cofhe-shim";
 import { Encryptable } from "@/lib/cofhe-shim";
 import { useCofheDecryptForView } from "@/lib/cofhe-shim";
 import toast from "react-hot-toast";
+import { toastMappedError } from "@/lib/error-messages";
 import { MAX_UINT64, type EncryptedInput } from "@/lib/constants";
 import { useChain } from "@/providers/ChainProvider";
 import { GroupManagerAbi, FHERC20VaultAbi } from "@/lib/abis";
@@ -446,7 +447,7 @@ export function useGroupSplit() {
 
         toast.success("Vote submitted!");
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Vote failed");
+        toastMappedError(err);
       } finally {
         submittingRef.current = false;
         setIsProcessing(false);
@@ -497,7 +498,7 @@ export function useGroupSplit() {
         toast.success("Left the group!");
         return hash;
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Failed to leave group");
+        toastMappedError(err);
       } finally {
         submittingRef.current = false;
         setIsProcessing(false);
@@ -548,7 +549,7 @@ export function useGroupSplit() {
         toast.success("Group archived!");
         return hash;
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Failed to archive group");
+        toastMappedError(err);
       } finally {
         submittingRef.current = false;
         setIsProcessing(false);
