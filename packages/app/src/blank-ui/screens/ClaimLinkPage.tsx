@@ -10,6 +10,7 @@ import { MODE, type LinkMode, parseClaimUrl } from "@/lib/claim-links";
 import { CONTRACTS_BY_CHAIN, type SupportedChainId } from "@/lib/constants";
 import { ClaimLinksAbi } from "@/lib/abis";
 import { FhePipelineProgress } from "@/components/payment/FhePipelineProgress";
+import { classifyLoadError, type ClassifiedLoadError } from "@/lib/load-error";
 
 interface OnChainLink {
   sender: `0x${string}`;
@@ -45,7 +46,11 @@ export default function ClaimLinkPage() {
   }, []);
 
   const [onChain, setOnChain] = useState<OnChainLink | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<ClassifiedLoadError | null>(null);
+  // Bumping reloadKey re-runs the on-chain read. Used by the retry CTA
+  // on transient errors. The classifier defaults unknown errors to
+  // transient so users always have a path forward on infra issues.
+  const [reloadKey, setReloadKey] = useState(0);
   const [email, setEmail] = useState("");
   const { state, pipeline, claim } = useClaimLinks();
   // Passkey-aware address resolution: passkey-only users have no wagmi
@@ -53,20 +58,38 @@ export default function ClaimLinkPage() {
   // every other screen uses so AddressBound links behave consistently.
   const { effectiveAddress } = useEffectiveAddress();
 
-  // Load the on-chain link metadata.
+  // Load the on-chain link metadata. Re-runs when reloadKey bumps (the
+  // retry CTA on transient errors triggers this).
   useEffect(() => {
     let cancelled = false;
+    setLoadError(null);
+    setOnChain(null);
     if (!Number.isFinite(chainId) || !Number.isFinite(linkId)) {
-      setLoadError("Invalid link");
+      setLoadError({
+        kind: "permanent",
+        headline: "Invalid link",
+        hint: "The chain id or link id in the URL isn't a valid number.",
+        rawCause: "",
+      });
       return;
     }
     if (!(chainId in CONTRACTS_BY_CHAIN)) {
-      setLoadError("Unsupported chain");
+      setLoadError({
+        kind: "permanent",
+        headline: "Unsupported chain",
+        hint: "Blank only supports Ethereum Sepolia and Base Sepolia for now.",
+        rawCause: "",
+      });
       return;
     }
     const contracts = CONTRACTS_BY_CHAIN[chainId as SupportedChainId];
     if (!contracts.ClaimLinks || contracts.ClaimLinks === "0x0000000000000000000000000000000000000000") {
-      setLoadError("Claim links not available on this chain yet");
+      setLoadError({
+        kind: "permanent",
+        headline: "Claim links not available on this chain yet",
+        hint: "This chain doesn't have the ClaimLinks contract deployed.",
+        rawCause: "",
+      });
       return;
     }
     if (!publicClient) return;
@@ -88,16 +111,22 @@ export default function ClaimLinkPage() {
           boolean, boolean, string, `0x${string}`, bigint,
         ];
         if (sender === "0x0000000000000000000000000000000000000000") {
-          setLoadError("Link not found");
+          setLoadError({
+            kind: "permanent",
+            headline: "Link not found",
+            hint: "Check the chain you're on, or the link id in the URL.",
+            rawCause: "",
+          });
           return;
         }
         setOnChain({ sender, vault, mode, boundAddress, createdAt, expiryTimestamp, claimed, refunded, note, claimer, claimedAt });
       } catch (err) {
-        if (!cancelled) setLoadError(err instanceof Error ? err.message : "Failed to load link");
+        if (cancelled) return;
+        setLoadError(classifyLoadError(err, { resourceName: "Link" }));
       }
     })();
     return () => { cancelled = true; };
-  }, [chainId, linkId, publicClient]);
+  }, [chainId, linkId, publicClient, reloadKey]);
 
   const status = useMemo(() => {
     if (!onChain) return "loading";
@@ -160,11 +189,36 @@ export default function ClaimLinkPage() {
   }
 
   if (loadError) {
+    const isTransient = loadError.kind === "transient";
     return (
       <CenterCard>
-        <IconBubble color="bg-red-50" icon={<AlertCircle size={32} className="text-red-600" />} />
-        <h1 className="text-2xl font-heading font-semibold mb-3">{loadError}</h1>
-        <p className="text-[var(--text-secondary)]">Double-check the URL you were given.</p>
+        <IconBubble
+          color={isTransient ? "bg-amber-50" : "bg-red-50"}
+          icon={<AlertCircle size={32} className={isTransient ? "text-amber-600" : "text-red-600"} />}
+        />
+        <h1 className="text-2xl font-heading font-semibold mb-3">{loadError.headline}</h1>
+        <p className="text-[var(--text-secondary)] mb-4">{loadError.hint}</p>
+        {isTransient ? (
+          <button
+            onClick={() => setReloadKey((k) => k + 1)}
+            className="inline-block px-6 h-12 leading-[3rem] rounded-2xl bg-[#1D1D1F] text-white font-medium hover:bg-black transition-colors"
+          >
+            Retry
+          </button>
+        ) : (
+          <a
+            href="/"
+            className="inline-block px-6 h-12 leading-[3rem] rounded-2xl border border-[var(--border)] hover:bg-[var(--surface-2)] transition-colors"
+          >
+            Go home
+          </a>
+        )}
+        {loadError.rawCause && (
+          <details className="mt-4 text-left text-xs text-[var(--text-tertiary)]">
+            <summary className="cursor-pointer">Details</summary>
+            <pre className="mt-2 whitespace-pre-wrap break-all">{loadError.rawCause}</pre>
+          </details>
+        )}
       </CenterCard>
     );
   }

@@ -199,18 +199,34 @@ describe("StorefrontPage — load-error branches (§15.x)", () => {
     expect(await findByText("Listing not found")).toBeDefined();
   });
 
-  it("readContract throws Error -> error.message rendered", async () => {
-    readContractMock = vi.fn().mockRejectedValue(new Error("RPC down"));
+  it("F1: readContract throws transient (rate-limit) -> 'Network busy' + Retry CTA, no raw err.message in headline", async () => {
+    readContractMock = vi.fn().mockRejectedValue(new Error("HTTP 429 Too Many Requests"));
     usePublicClientMock.mockReturnValue({ readContract: readContractMock });
-    const { findByText } = render(<StorefrontPage />);
-    expect(await findByText("RPC down")).toBeDefined();
+    const { findByText, container } = render(<StorefrontPage />);
+    expect(await findByText("Network busy")).toBeDefined();
+    expect(await findByText("Retry")).toBeDefined();
+    const headline = container.querySelector("h1");
+    expect(headline?.textContent).toBe("Network busy");
+    expect(headline?.textContent).not.toContain("429");
   });
 
-  it("readContract throws non-Error -> 'Failed to load listing' fallback", async () => {
+  it("F1: readContract throws permanent (revert) -> 'Listing not found' + Go home CTA (no retry)", async () => {
+    readContractMock = vi.fn().mockRejectedValue(
+      new Error("execution reverted: Storefront: not found"),
+    );
+    usePublicClientMock.mockReturnValue({ readContract: readContractMock });
+    const { findByText, queryByText } = render(<StorefrontPage />);
+    expect(await findByText("Listing not found")).toBeDefined();
+    expect(await findByText("Go home")).toBeDefined();
+    expect(queryByText("Retry")).toBeNull();
+  });
+
+  it("F1: unknown error defaults to transient (recoverable)", async () => {
     readContractMock = vi.fn().mockRejectedValue("rejection string");
     usePublicClientMock.mockReturnValue({ readContract: readContractMock });
     const { findByText } = render(<StorefrontPage />);
-    expect(await findByText("Failed to load listing")).toBeDefined();
+    expect(await findByText("Couldn't load")).toBeDefined();
+    expect(await findByText("Retry")).toBeDefined();
   });
 });
 

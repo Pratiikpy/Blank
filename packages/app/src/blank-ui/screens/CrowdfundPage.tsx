@@ -14,6 +14,7 @@ import { CONTRACTS_BY_CHAIN, type SupportedChainId } from "@/lib/constants";
 import { EncryptedCrowdfundAbi } from "@/lib/abis";
 import { FhePipelineProgress } from "@/components/payment/FhePipelineProgress";
 import { cn } from "@/lib/cn";
+import { classifyLoadError, type ClassifiedLoadError } from "@/lib/load-error";
 
 const STATUS_OPEN = 0;
 const STATUS_CLOSED = 1;
@@ -41,18 +42,26 @@ export default function CrowdfundPage() {
 
   const [onChain, setOnChain] = useState<OnChainCampaign | null>(null);
   const [contributionCount, setContributionCount] = useState(0);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<ClassifiedLoadError | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
   const [amount, setAmount] = useState("");
 
   useEffect(() => {
     let cancelled = false;
+    setLoadError(null);
+    setOnChain(null);
     if (!Number.isFinite(chainId) || !Number.isFinite(campaignId)) {
-      setLoadError("Invalid URL"); return;
+      setLoadError({ kind: "permanent", headline: "Invalid URL", hint: "The chain id or campaign id in the URL isn't a valid number.", rawCause: "" });
+      return;
     }
-    if (!(chainId in CONTRACTS_BY_CHAIN)) { setLoadError("Unsupported chain"); return; }
+    if (!(chainId in CONTRACTS_BY_CHAIN)) {
+      setLoadError({ kind: "permanent", headline: "Unsupported chain", hint: "Blank only supports Ethereum Sepolia and Base Sepolia for now.", rawCause: "" });
+      return;
+    }
     const contracts = CONTRACTS_BY_CHAIN[chainId as SupportedChainId];
     if (!contracts.EncryptedCrowdfund || contracts.EncryptedCrowdfund === "0x0000000000000000000000000000000000000000") {
-      setLoadError("Crowdfund not deployed on this chain yet"); return;
+      setLoadError({ kind: "permanent", headline: "Crowdfund not deployed on this chain yet", hint: "This chain doesn't have the EncryptedCrowdfund contract deployed.", rawCause: "" });
+      return;
     }
     if (!publicClient) return;
 
@@ -69,7 +78,8 @@ export default function CrowdfundPage() {
           `0x${string}`, `0x${string}`, bigint, number, boolean, boolean, string, `0x${string}`, bigint,
         ];
         if (creator === "0x0000000000000000000000000000000000000000") {
-          setLoadError("Campaign not found"); return;
+          setLoadError({ kind: "permanent", headline: "Campaign not found", hint: "Check the chain you're on, or the campaign id in the URL.", rawCause: "" });
+          return;
         }
         setOnChain({ creator, vault, deadline, status, goalMet, resultPublished, title, descriptionCidHash, createdAt });
 
@@ -81,11 +91,12 @@ export default function CrowdfundPage() {
         });
         if (!cancelled) setContributionCount(Number(count));
       } catch (err) {
-        if (!cancelled) setLoadError(err instanceof Error ? err.message : "Failed to load campaign");
+        if (cancelled) return;
+        setLoadError(classifyLoadError(err, { resourceName: "Campaign" }));
       }
     })();
     return () => { cancelled = true; };
-  }, [chainId, campaignId, publicClient]);
+  }, [chainId, campaignId, publicClient, reloadKey]);
 
   const phase = useMemo(() => {
     if (!onChain) return "loading";
@@ -100,11 +111,33 @@ export default function CrowdfundPage() {
   }, [onChain]);
 
   if (loadError) {
+    const isTransient = loadError.kind === "transient";
     return (
       <CenterCard>
-        <IconBubble color="bg-red-50" icon={<AlertCircle size={32} className="text-red-600" />} />
-        <h1 className="text-2xl font-heading font-semibold mb-3">{loadError}</h1>
-        <p className="text-[var(--text-secondary)]">Double-check the URL.</p>
+        <IconBubble
+          color={isTransient ? "bg-amber-50" : "bg-red-50"}
+          icon={<AlertCircle size={32} className={isTransient ? "text-amber-600" : "text-red-600"} />}
+        />
+        <h1 className="text-2xl font-heading font-semibold mb-3">{loadError.headline}</h1>
+        <p className="text-[var(--text-secondary)] mb-4">{loadError.hint}</p>
+        {isTransient ? (
+          <button
+            onClick={() => setReloadKey((k) => k + 1)}
+            className="inline-block px-6 h-12 leading-[3rem] rounded-2xl bg-[#1D1D1F] text-white font-medium hover:bg-black transition-colors"
+          >
+            Retry
+          </button>
+        ) : (
+          <a href="/" className="inline-block px-6 h-12 leading-[3rem] rounded-2xl border border-[var(--border)] hover:bg-[var(--surface-2)] transition-colors">
+            Go home
+          </a>
+        )}
+        {loadError.rawCause && (
+          <details className="mt-4 text-left text-xs text-[var(--text-tertiary)]">
+            <summary className="cursor-pointer">Details</summary>
+            <pre className="mt-2 whitespace-pre-wrap break-all">{loadError.rawCause}</pre>
+          </details>
+        )}
       </CenterCard>
     );
   }

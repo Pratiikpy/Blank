@@ -25,6 +25,7 @@ import { CONTRACTS_BY_CHAIN, type SupportedChainId } from "@/lib/constants";
 import { StorefrontAbi } from "@/lib/abis";
 import { FhePipelineProgress } from "@/components/payment/FhePipelineProgress";
 import { cn } from "@/lib/cn";
+import { classifyLoadError, type ClassifiedLoadError } from "@/lib/load-error";
 
 interface OnChainListing {
   seller: `0x${string}`;
@@ -60,24 +61,28 @@ export default function StorefrontPage() {
 
   const [onChain, setOnChain] = useState<OnChainListing | null>(null);
   const [bidCount, setBidCount] = useState<number>(0);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<ClassifiedLoadError | null>(null);
+  // Retry CTA bumps reloadKey, re-running the effect.
+  const [reloadKey, setReloadKey] = useState(0);
 
   const [amount, setAmount] = useState("");
 
   // ─── Load on-chain listing + bid count ─────────────────────────
   useEffect(() => {
     let cancelled = false;
+    setLoadError(null);
+    setOnChain(null);
     if (!Number.isFinite(chainId) || !Number.isFinite(listingId)) {
-      setLoadError("Invalid URL");
+      setLoadError({ kind: "permanent", headline: "Invalid URL", hint: "The chain id or listing id in the URL isn't a valid number.", rawCause: "" });
       return;
     }
     if (!(chainId in CONTRACTS_BY_CHAIN)) {
-      setLoadError("Unsupported chain");
+      setLoadError({ kind: "permanent", headline: "Unsupported chain", hint: "Blank only supports Ethereum Sepolia and Base Sepolia for now.", rawCause: "" });
       return;
     }
     const contracts = CONTRACTS_BY_CHAIN[chainId as SupportedChainId];
     if (!contracts.Storefront || contracts.Storefront === "0x0000000000000000000000000000000000000000") {
-      setLoadError("Storefront not deployed on this chain yet");
+      setLoadError({ kind: "permanent", headline: "Storefront not deployed on this chain yet", hint: "This chain doesn't have the Storefront contract deployed.", rawCause: "" });
       return;
     }
     if (!publicClient) return;
@@ -99,7 +104,7 @@ export default function StorefrontPage() {
           string, `0x${string}`, string, bigint,
         ];
         if (seller === "0x0000000000000000000000000000000000000000") {
-          setLoadError("Listing not found");
+          setLoadError({ kind: "permanent", headline: "Listing not found", hint: "Check the chain you're on, or the listing id in the URL.", rawCause: "" });
           return;
         }
         setOnChain({
@@ -117,11 +122,12 @@ export default function StorefrontPage() {
           if (!cancelled) setBidCount(Number(count));
         }
       } catch (err) {
-        if (!cancelled) setLoadError(err instanceof Error ? err.message : "Failed to load listing");
+        if (cancelled) return;
+        setLoadError(classifyLoadError(err, { resourceName: "Listing" }));
       }
     })();
     return () => { cancelled = true; };
-  }, [chainId, listingId, publicClient]);
+  }, [chainId, listingId, publicClient, reloadKey]);
 
   const auctionStatus = useMemo(() => {
     if (!onChain || onChain.mode !== SALE_MODE.Auction) return null;
@@ -135,11 +141,33 @@ export default function StorefrontPage() {
   // ─── Error / loading screens ───────────────────────────────────
 
   if (loadError) {
+    const isTransient = loadError.kind === "transient";
     return (
       <CenterCard>
-        <IconBubble color="bg-red-50" icon={<AlertCircle size={32} className="text-red-600" />} />
-        <h1 className="text-2xl font-heading font-semibold mb-3">{loadError}</h1>
-        <p className="text-[var(--text-secondary)]">Double-check the URL.</p>
+        <IconBubble
+          color={isTransient ? "bg-amber-50" : "bg-red-50"}
+          icon={<AlertCircle size={32} className={isTransient ? "text-amber-600" : "text-red-600"} />}
+        />
+        <h1 className="text-2xl font-heading font-semibold mb-3">{loadError.headline}</h1>
+        <p className="text-[var(--text-secondary)] mb-4">{loadError.hint}</p>
+        {isTransient ? (
+          <button
+            onClick={() => setReloadKey((k) => k + 1)}
+            className="inline-block px-6 h-12 leading-[3rem] rounded-2xl bg-[#1D1D1F] text-white font-medium hover:bg-black transition-colors"
+          >
+            Retry
+          </button>
+        ) : (
+          <a href="/" className="inline-block px-6 h-12 leading-[3rem] rounded-2xl border border-[var(--border)] hover:bg-[var(--surface-2)] transition-colors">
+            Go home
+          </a>
+        )}
+        {loadError.rawCause && (
+          <details className="mt-4 text-left text-xs text-[var(--text-tertiary)]">
+            <summary className="cursor-pointer">Details</summary>
+            <pre className="mt-2 whitespace-pre-wrap break-all">{loadError.rawCause}</pre>
+          </details>
+        )}
       </CenterCard>
     );
   }

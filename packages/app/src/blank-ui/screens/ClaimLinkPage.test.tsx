@@ -193,16 +193,53 @@ describe("ClaimLinkPage — load-error branches (§15.x)", () => {
     expect(await findByText("Link not found")).toBeDefined();
   });
 
-  it("readContract throws Error -> error.message rendered as loadError", async () => {
-    readContractMock.mockRejectedValueOnce(new Error("RPC down"));
-    const { findByText } = render(<ClaimLinkPage />);
-    expect(await findByText("RPC down")).toBeDefined();
+  it("readContract throws transient error (rate-limit) -> 'Network busy' headline + Retry CTA, raw err.message NOT in headline", async () => {
+    // F1 fix: previously rendered "HTTPProviderError: 429 Too Many
+    // Requests" as the full-page headline. Now classified as transient
+    // with a retry CTA + raw message hidden behind a Details summary.
+    readContractMock.mockRejectedValueOnce(new Error("HTTP 429 Too Many Requests"));
+    const { findByText, container } = render(<ClaimLinkPage />);
+    expect(await findByText("Network busy")).toBeDefined();
+    expect(await findByText("Retry")).toBeDefined();
+    // Headline must be the friendly classification, not the raw message.
+    const headline = container.querySelector("h1");
+    expect(headline?.textContent).toBe("Network busy");
+    expect(headline?.textContent).not.toContain("429");
+    // Raw cause preserved in the details element for debugging.
+    expect(container.textContent).toContain("HTTP 429 Too Many Requests");
   });
 
-  it("readContract throws non-Error -> 'Failed to load link' fallback", async () => {
+  it("readContract throws permanent error (reverted) -> 'Link not found' headline + Go home CTA (no retry)", async () => {
+    readContractMock.mockRejectedValueOnce(
+      new Error("execution reverted: ClaimLinks: not found"),
+    );
+    const { findByText, queryByText } = render(<ClaimLinkPage />);
+    expect(await findByText("Link not found")).toBeDefined();
+    expect(await findByText("Go home")).toBeDefined();
+    // No retry on permanent errors — retrying won't help.
+    expect(queryByText("Retry")).toBeNull();
+  });
+
+  it("readContract throws unknown error -> defaults to transient (recoverable)", async () => {
     readContractMock.mockRejectedValueOnce("string rejection");
     const { findByText } = render(<ClaimLinkPage />);
-    expect(await findByText("Failed to load link")).toBeDefined();
+    expect(await findByText("Couldn't load")).toBeDefined();
+    expect(await findByText("Retry")).toBeDefined();
+  });
+
+  it("Retry CTA bumps reloadKey and re-runs the on-chain read", async () => {
+    readContractMock.mockRejectedValueOnce(new Error("429"));
+    readContractMock.mockResolvedValueOnce(buildOnChainTuple());
+    const { findByText } = render(<ClaimLinkPage />);
+    await findByText("Network busy");
+    const retryBtn = await findByText("Retry");
+    await act(async () => {
+      fireEvent.click(retryBtn);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    // After retry, the page should render the successful claimable state.
+    await findByText(/Claim private payment/);
   });
 });
 
