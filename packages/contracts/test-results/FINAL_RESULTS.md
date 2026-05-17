@@ -148,18 +148,17 @@ task reads on-chain state after the writes to confirm the txs actually
 had the intended effect. Latest results:
 
 ```
-Base Sepolia: 13 pass / 1 fail / 14 total
-  - 4 personas with ETH + 4 with TestUSDC + vault totalDeposited > 0
-  - GroupManager.nextGroupId > 0
-  - InheritanceManager.getPlan(Carol).heir == Dave + active
-  - CreatorHub.hasProfile(Bob)
-  - (1 fail: GroupManager isMember window-scan; Base has 28+ groups
-    from concurrent deployers and the scan didn't reach ours.
-    Settled by Eth Sepolia where the scan found group 1.)
-
+Base Sepolia: 14 pass / 0 fail / 14 total
 Eth Sepolia:  14 pass / 0 fail / 14 total
-  - All of the above, PLUS
-  - recent group with all 4 personas as members → groupId=1
+
+  Both chains, every check:
+  - 4 personas with ETH balance > 0
+  - 4 personas with TestUSDC balance > 0
+  - FHERC20Vault.totalDeposited > 0 (shields landed)
+  - GroupManager.nextGroupId > 0
+  - GroupManager group with all 4 personas as members (event-extracted)
+  - InheritanceManager.getPlan(Carol).heir == Dave + active flag true
+  - CreatorHub.hasProfile(Bob)
 ```
 
 ## Independent JSON-RPC audit (3rd layer)
