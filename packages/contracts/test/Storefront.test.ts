@@ -275,6 +275,94 @@ describe("Storefront", () => {
       ).to.be.revertedWith("Storefront: already refunded");
     });
 
+    // ─── Multi-bid winner: double-claim regression pin ──────────────
+    // Bug discovered + fixed in /goal session: a winner who placed
+    // MULTIPLE bids could double-claim their winning bid amount.
+    //   Before fix: claimAuctionWin walked the bid array and marked
+    //   the FIRST unrefunded bid by msg.sender as "settled" — which
+    //   wouldn't be the actual winning bid if the winner's first bid
+    //   was a lower one. The actual winning bid stayed refunded=false
+    //   and refundLoserBid would happily pay them again.
+    //   After fix: revealWinner stores _winningBidIdx[listingId] =
+    //   plaintextIdx. claimAuctionWin requires that exact bid index
+    //   to be msg.sender's and marks ONLY that one settled. The
+    //   winner's lower bids stay refundable as losers; the winning
+    //   bid is correctly consumed.
+    it("CRITICAL: multi-bid winner cannot double-claim — winning bid index pinned", async () => {
+      const ctx = await loadFixture(deployFixture);
+      const encMin = await encUint64(ctx.client, ctx.alice, usdc(0));
+      await ctx.storefront.connect(ctx.alice).createListing(
+        MODE_AUCTION,
+        await ctx.vault.getAddress(),
+        encMin,
+        2 * 3600,
+        "Multi-bid test",
+        ZERO_BYTES32,
+        "",
+      );
+
+      // Bob places 3 bids — ascending so bid[2] is the winner.
+      // (Charlie places 1 too, smaller, to make sure the winner-loop
+      // isn't trivially right just by Bob being the only bidder.)
+      const bobBid1 = await encUint64(ctx.client, ctx.bob, usdc(3));
+      await ctx.storefront.connect(ctx.bob).placeBid(0, bobBid1);
+      const charlieBid = await encUint64(ctx.client, ctx.charlie, usdc(5));
+      await ctx.storefront.connect(ctx.charlie).placeBid(0, charlieBid);
+      const bobBid2 = await encUint64(ctx.client, ctx.bob, usdc(7));
+      await ctx.storefront.connect(ctx.bob).placeBid(0, bobBid2);
+      const bobBid3 = await encUint64(ctx.client, ctx.bob, usdc(10));
+      await ctx.storefront.connect(ctx.bob).placeBid(0, bobBid3);
+      // Bids in order: bob=3 (idx 0), charlie=5 (idx 1), bob=7 (idx
+      // 2), bob=10 (idx 3). Winner is bob bid at idx 3 (10 USDC).
+
+      // Funds locked: 3+5+7+10 = 25.
+      const sfAddr = await ctx.storefront.getAddress();
+      const sfBalanceLocked = await ctx.vault.balanceOf(sfAddr);
+      await mock_expectPlaintext(ctx.alice.provider, sfBalanceLocked, usdc(25));
+
+      // Close + reveal.
+      await time.increase(2 * 3600 + 1);
+      await ctx.storefront.connect(ctx.alice).closeAuction(0);
+      const winnerIdxHandle = await ctx.storefront.getWinnerIdxHandle(0);
+      await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.alice);
+      const proof = await ctx.client.decryptForTx(winnerIdxHandle, FheTypes.Uint8).withoutPermit().execute();
+      await ctx.storefront.connect(ctx.alice).revealWinner(0, Number(proof.decryptedValue), proof.signature);
+
+      const lRevealed = await ctx.storefront.getListing(0);
+      expect(lRevealed.winner).to.equal(ctx.bob.address);
+      // Winner is Bob's bid at index 3.
+      expect(Number(proof.decryptedValue)).to.equal(3);
+
+      // Winner claims. Pre-fix: marks bid[0] (Bob's 3 USDC) as
+      // settled, leaves bid[3] (10 USDC) refundable.
+      // Post-fix: marks bid[3] (the actual winning 10 USDC) settled.
+      await ctx.storefront.connect(ctx.bob).claimAuctionWin(0, ZERO_BYTES32);
+
+      // Bob's lower bids (idx 0 + idx 2) are still refundable as losers.
+      await ctx.storefront.connect(ctx.bob).refundLoserBid(0, 0);
+      await ctx.storefront.connect(ctx.bob).refundLoserBid(0, 2);
+      // Charlie's bid (idx 1) refundable.
+      await ctx.storefront.connect(ctx.charlie).refundLoserBid(0, 1);
+
+      // CRITICAL: Bob CANNOT refund his winning bid (idx 3) — the
+      // double-claim path the fix closes.
+      await expect(
+        ctx.storefront.connect(ctx.bob).refundLoserBid(0, 3),
+      ).to.be.revertedWith("Storefront: already refunded");
+
+      // Final balances:
+      //   Alice (seller) received the winning bid = 10 → 1010.
+      //   Bob got back 3 (idx 0) + 7 (idx 2) = 10 refunded; bid 3
+      //     (10 USDC) went to seller. Bob's net loss = 10 → 1000-10 = 990.
+      //   Charlie got back 5 (idx 1). Charlie's net = 1000.
+      const aliceAfter = await ctx.vault.balanceOf(ctx.alice.address);
+      const bobAfter = await ctx.vault.balanceOf(ctx.bob.address);
+      const charlieAfter = await ctx.vault.balanceOf(ctx.charlie.address);
+      await mock_expectPlaintext(ctx.alice.provider, aliceAfter, usdc(1_010));
+      await mock_expectPlaintext(ctx.bob.provider, bobAfter, usdc(990));
+      await mock_expectPlaintext(ctx.charlie.provider, charlieAfter, usdc(1_000));
+    });
+
     it("cannot bid after close", async () => {
       const ctx = await loadFixture(deployFixture);
       const encMin = await encUint64(ctx.client, ctx.alice, usdc(0));

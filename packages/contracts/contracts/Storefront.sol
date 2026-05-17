@@ -94,6 +94,17 @@ contract Storefront is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     /// Append-only addition; __gap reduced by 1 slot below.
     mapping(uint256 => euint8) private _winnerIdxHandle;
 
+    /// @dev Plaintext winning-bid index, set by revealWinner() when the
+    /// encrypted winnerIdxHandle is decrypted. Needed because a winner who
+    /// placed MULTIPLE bids needs precise identification of WHICH of their
+    /// bids was the winning one — otherwise claimAuctionWin's loop would
+    /// arbitrarily mark the first unrefunded bid as "settled" while leaving
+    /// the actual winning bid refundable, letting the winner double-claim.
+    /// 0 is the default for "not yet revealed"; valid indices are 0..N-1
+    /// but only meaningful after revealWinner sets it. Append-only addition;
+    /// __gap reduced by 1 slot below.
+    mapping(uint256 => uint256) private _winningBidIdx;
+
     /// @dev Auction config: minimum auction window (1 hour) + maximum (30 days).
     uint256 public constant MIN_AUCTION_SECONDS = 1 hours;
     uint256 public constant MAX_AUCTION_SECONDS = 30 days;
@@ -400,6 +411,12 @@ contract Storefront is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         FHE.publishDecryptResult(_winnerIdxHandle[listingId], plaintextIdx, signature);
 
         l.winner = bids[plaintextIdx].bidder;
+        // Pin the winning index so claimAuctionWin can mark precisely
+        // bids[plaintextIdx] as settled instead of walking the array
+        // and arbitrarily marking the first-by-bidder match. Without
+        // this, a winner who placed multiple bids could double-claim
+        // (settle bid 0 via claim + refund the actual winning bid).
+        _winningBidIdx[listingId] = uint256(plaintextIdx);
 
         emit AuctionClosed(listingId, l.winner, bids.length);
         try eventHub.emitActivity(l.seller, l.winner, "storefront_auction_revealed", l.title, listingId) {} catch {}
@@ -430,14 +447,22 @@ contract Storefront is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
         _bumpReceiptsAndGlobal(l.seller, paid);
 
-        // Mark winner's bid as effectively settled (so they can't double-refund).
+        // Mark the EXACT winning bid as settled. _winningBidIdx is the
+        // decrypted plaintext index posted by revealWinner. Using the
+        // precise index (rather than the previous loop) closes the
+        // double-claim bug where a winner with multiple bids could
+        // settle bid 0 here + then refundLoserBid the actual winning
+        // bid (still flagged refunded=false). Sanity: winner can't be
+        // 0x0 after revealWinner, so an index of 0 with non-zero
+        // winner is correct (it identifies bids[0] which IS the winner
+        // in single-bid auctions).
         Bid[] storage bids = _bids[listingId];
-        for (uint256 i = 0; i < bids.length; i++) {
-            if (bids[i].bidder == msg.sender && !bids[i].refunded) {
-                bids[i].refunded = true;
-                break; // settle just one bid (the winning one)
-            }
-        }
+        uint256 wIdx = _winningBidIdx[listingId];
+        require(wIdx < bids.length, "Storefront: invalid winning index");
+        Bid storage winningBid = bids[wIdx];
+        require(winningBid.bidder == msg.sender, "Storefront: winning bid mismatch");
+        require(!winningBid.refunded, "Storefront: already settled");
+        winningBid.refunded = true;
 
         emit AuctionWinnerClaimed(listingId, msg.sender, deliveryNoteHash);
         try eventHub.emitActivity(msg.sender, l.seller, "storefront_auction_won", l.title, listingId) {} catch {}
@@ -606,5 +631,5 @@ contract Storefront is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     /// 50 -> 49 after §1.4 phase B added _winnerIdxHandle (BEST_VERSION_FULL_PLAN).
     /// Decrement gap by 1 when adding a new state variable; total slots
     /// (used + gap) must stay constant across UUPS upgrades.
-    uint256[49] private __gap;
+    uint256[48] private __gap;
 }

@@ -90,6 +90,45 @@ describe("EncryptedEscrow", () => {
     await mock_expectPlaintext(ctx.alice.provider, aliceBalance, usdc(950));
   });
 
+  // ─── Arbiter conflict-of-interest gate (CoI fix in /goal session) ──
+  // createEscrow now rejects arbiter == msg.sender (depositor) and
+  // arbiter == beneficiary. Both shapes were real security bugs:
+  //   arbiter == depositor: depositor can disputeEscrow →
+  //     arbiterDecide(false) and pull funds back instantly, bypassing
+  //     the 1-day deadline gate.
+  //   arbiter == beneficiary: the arbiter has direct self-interest to
+  //     rule in their own favor.
+  // The address(0) ("no arbiter") path stays accepted.
+  it("createEscrow rejects arbiter == depositor (conflict of interest)", async () => {
+    const ctx = await loadFixture(deployFixture);
+    const enc = await encUint64(ctx.client, ctx.alice, usdc(50));
+    await expect(
+      ctx.escrow.connect(ctx.alice).createEscrow(
+        ctx.bob.address,
+        await ctx.vault.getAddress(),
+        enc,
+        "self-deal attempt",
+        ctx.alice.address, // arbiter == depositor
+        (await time.latest()) + 7 * 86400,
+      ),
+    ).to.be.revertedWith("EncryptedEscrow: arbiter == depositor");
+  });
+
+  it("createEscrow rejects arbiter == beneficiary (conflict of interest)", async () => {
+    const ctx = await loadFixture(deployFixture);
+    const enc = await encUint64(ctx.client, ctx.alice, usdc(50));
+    await expect(
+      ctx.escrow.connect(ctx.alice).createEscrow(
+        ctx.bob.address,
+        await ctx.vault.getAddress(),
+        enc,
+        "self-deal attempt",
+        ctx.bob.address, // arbiter == beneficiary
+        (await time.latest()) + 7 * 86400,
+      ),
+    ).to.be.revertedWith("EncryptedEscrow: arbiter == beneficiary");
+  });
+
   it("happy path: markDelivered + approveRelease → release to beneficiary", async () => {
     const ctx = await loadFixture(deployFixture);
     const enc = await encUint64(ctx.client, ctx.alice, usdc(50));

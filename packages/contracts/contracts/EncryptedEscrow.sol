@@ -107,6 +107,16 @@ contract EncryptedEscrow is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
         require(vault != address(0), "EncryptedEscrow: zero vault");
         require(deadline >= block.timestamp + 1 days, "EncryptedEscrow: deadline < 1 day out");
         require(bytes(description).length <= 512, "EncryptedEscrow: description too long");
+        // Arbiter conflict-of-interest gate. Both shapes are real bugs:
+        //   arbiter == msg.sender (depositor):
+        //     Depositor can disputeEscrow → arbiterDecide(false), pulling
+        //     funds back instantly. Bypasses the 1-day deadline gate.
+        //   arbiter == beneficiary:
+        //     Arbiter has direct self-interest to rule in their own favor.
+        // address(0) is still accepted as "no arbiter configured" (the
+        // claimExpiredEscrow path handles that case).
+        require(arbiter != msg.sender, "EncryptedEscrow: arbiter == depositor");
+        require(arbiter != beneficiary, "EncryptedEscrow: arbiter == beneficiary");
 
         // Verify the encrypted input under depositor's signer.
         euint64 verified = FHE.asEuint64(encAmount);

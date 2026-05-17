@@ -1,7 +1,7 @@
 {
   "storage": [
     {
-      "astId": 67166,
+      "astId": 67958,
       "contract": "contracts/Storefront.sol:Storefront",
       "label": "_status",
       "offset": 0,
@@ -9,15 +9,15 @@
       "type": "t_uint256"
     },
     {
-      "astId": 63595,
+      "astId": 63889,
       "contract": "contracts/Storefront.sol:Storefront",
       "label": "eventHub",
       "offset": 0,
       "slot": "1",
-      "type": "t_contract(IEventHub)63528"
+      "type": "t_contract(IEventHub)63822"
     },
     {
-      "astId": 63597,
+      "astId": 63891,
       "contract": "contracts/Storefront.sol:Storefront",
       "label": "paymentReceipts",
       "offset": 0,
@@ -25,7 +25,7 @@
       "type": "t_address"
     },
     {
-      "astId": 63599,
+      "astId": 63893,
       "contract": "contracts/Storefront.sol:Storefront",
       "label": "nextListingId",
       "offset": 0,
@@ -33,23 +33,23 @@
       "type": "t_uint256"
     },
     {
-      "astId": 63604,
+      "astId": 63898,
       "contract": "contracts/Storefront.sol:Storefront",
       "label": "_listings",
       "offset": 0,
       "slot": "4",
-      "type": "t_mapping(t_uint256,t_struct(Listing)63584_storage)"
+      "type": "t_mapping(t_uint256,t_struct(Listing)63878_storage)"
     },
     {
-      "astId": 63611,
+      "astId": 63905,
       "contract": "contracts/Storefront.sol:Storefront",
       "label": "_bids",
       "offset": 0,
       "slot": "5",
-      "type": "t_mapping(t_uint256,t_array(t_struct(Bid)63592_storage)dyn_storage)"
+      "type": "t_mapping(t_uint256,t_array(t_struct(Bid)63886_storage)dyn_storage)"
     },
     {
-      "astId": 63617,
+      "astId": 63911,
       "contract": "contracts/Storefront.sol:Storefront",
       "label": "_sellerListings",
       "offset": 0,
@@ -57,7 +57,7 @@
       "type": "t_mapping(t_address,t_array(t_uint256)dyn_storage)"
     },
     {
-      "astId": 63623,
+      "astId": 63917,
       "contract": "contracts/Storefront.sol:Storefront",
       "label": "_winnerIdxHandle",
       "offset": 0,
@@ -65,12 +65,20 @@
       "type": "t_mapping(t_uint256,t_userDefinedValueType(euint8)11791)"
     },
     {
-      "astId": 64970,
+      "astId": 63922,
+      "contract": "contracts/Storefront.sol:Storefront",
+      "label": "_winningBidIdx",
+      "offset": 0,
+      "slot": "8",
+      "type": "t_mapping(t_uint256,t_uint256)"
+    },
+    {
+      "astId": 65685,
       "contract": "contracts/Storefront.sol:Storefront",
       "label": "__gap",
       "offset": 0,
-      "slot": "8",
-      "type": "t_array(t_uint256)49_storage"
+      "slot": "9",
+      "type": "t_array(t_uint256)48_storage"
     }
   ],
   "types": {
@@ -79,17 +87,17 @@
       "label": "address",
       "numberOfBytes": "20"
     },
-    "t_array(t_struct(Bid)63592_storage)dyn_storage": {
-      "base": "t_struct(Bid)63592_storage",
+    "t_array(t_struct(Bid)63886_storage)dyn_storage": {
+      "base": "t_struct(Bid)63886_storage",
       "encoding": "dynamic_array",
       "label": "struct Storefront.Bid[]",
       "numberOfBytes": "32"
     },
-    "t_array(t_uint256)49_storage": {
+    "t_array(t_uint256)48_storage": {
       "base": "t_uint256",
       "encoding": "inplace",
-      "label": "uint256[49]",
-      "numberOfBytes": "1568"
+      "label": "uint256[48]",
+      "numberOfBytes": "1536"
     },
     "t_array(t_uint256)dyn_storage": {
       "base": "t_uint256",
@@ -107,12 +115,12 @@
       "label": "bytes32",
       "numberOfBytes": "32"
     },
-    "t_contract(IEventHub)63528": {
+    "t_contract(IEventHub)63822": {
       "encoding": "inplace",
       "label": "contract IEventHub",
       "numberOfBytes": "20"
     },
-    "t_enum(SaleMode)63554": {
+    "t_enum(SaleMode)63848": {
       "encoding": "inplace",
       "label": "enum Storefront.SaleMode",
       "numberOfBytes": "1"
@@ -124,19 +132,26 @@
       "numberOfBytes": "32",
       "value": "t_array(t_uint256)dyn_storage"
     },
-    "t_mapping(t_uint256,t_array(t_struct(Bid)63592_storage)dyn_storage)": {
+    "t_mapping(t_uint256,t_array(t_struct(Bid)63886_storage)dyn_storage)": {
       "encoding": "mapping",
       "key": "t_uint256",
       "label": "mapping(uint256 => struct Storefront.Bid[])",
       "numberOfBytes": "32",
-      "value": "t_array(t_struct(Bid)63592_storage)dyn_storage"
+      "value": "t_array(t_struct(Bid)63886_storage)dyn_storage"
     },
-    "t_mapping(t_uint256,t_struct(Listing)63584_storage)": {
+    "t_mapping(t_uint256,t_struct(Listing)63878_storage)": {
       "encoding": "mapping",
       "key": "t_uint256",
       "label": "mapping(uint256 => struct Storefront.Listing)",
       "numberOfBytes": "32",
-      "value": "t_struct(Listing)63584_storage"
+      "value": "t_struct(Listing)63878_storage"
+    },
+    "t_mapping(t_uint256,t_uint256)": {
+      "encoding": "mapping",
+      "key": "t_uint256",
+      "label": "mapping(uint256 => uint256)",
+      "numberOfBytes": "32",
+      "value": "t_uint256"
     },
     "t_mapping(t_uint256,t_userDefinedValueType(euint8)11791)": {
       "encoding": "mapping",
@@ -150,12 +165,12 @@
       "label": "string",
       "numberOfBytes": "32"
     },
-    "t_struct(Bid)63592_storage": {
+    "t_struct(Bid)63886_storage": {
       "encoding": "inplace",
       "label": "struct Storefront.Bid",
       "members": [
         {
-          "astId": 63586,
+          "astId": 63880,
           "contract": "contracts/Storefront.sol:Storefront",
           "label": "bidder",
           "offset": 0,
@@ -163,7 +178,7 @@
           "type": "t_address"
         },
         {
-          "astId": 63589,
+          "astId": 63883,
           "contract": "contracts/Storefront.sol:Storefront",
           "label": "amount",
           "offset": 0,
@@ -171,7 +186,7 @@
           "type": "t_userDefinedValueType(euint64)11797"
         },
         {
-          "astId": 63591,
+          "astId": 63885,
           "contract": "contracts/Storefront.sol:Storefront",
           "label": "refunded",
           "offset": 0,
@@ -181,12 +196,12 @@
       ],
       "numberOfBytes": "96"
     },
-    "t_struct(Listing)63584_storage": {
+    "t_struct(Listing)63878_storage": {
       "encoding": "inplace",
       "label": "struct Storefront.Listing",
       "members": [
         {
-          "astId": 63556,
+          "astId": 63850,
           "contract": "contracts/Storefront.sol:Storefront",
           "label": "seller",
           "offset": 0,
@@ -194,7 +209,7 @@
           "type": "t_address"
         },
         {
-          "astId": 63558,
+          "astId": 63852,
           "contract": "contracts/Storefront.sol:Storefront",
           "label": "vault",
           "offset": 0,
@@ -202,15 +217,15 @@
           "type": "t_address"
         },
         {
-          "astId": 63561,
+          "astId": 63855,
           "contract": "contracts/Storefront.sol:Storefront",
           "label": "mode",
           "offset": 20,
           "slot": "1",
-          "type": "t_enum(SaleMode)63554"
+          "type": "t_enum(SaleMode)63848"
         },
         {
-          "astId": 63564,
+          "astId": 63858,
           "contract": "contracts/Storefront.sol:Storefront",
           "label": "encPrice",
           "offset": 0,
@@ -218,7 +233,7 @@
           "type": "t_userDefinedValueType(euint64)11797"
         },
         {
-          "astId": 63566,
+          "astId": 63860,
           "contract": "contracts/Storefront.sol:Storefront",
           "label": "closesAt",
           "offset": 0,
@@ -226,7 +241,7 @@
           "type": "t_uint256"
         },
         {
-          "astId": 63568,
+          "astId": 63862,
           "contract": "contracts/Storefront.sol:Storefront",
           "label": "winner",
           "offset": 0,
@@ -234,7 +249,7 @@
           "type": "t_address"
         },
         {
-          "astId": 63571,
+          "astId": 63865,
           "contract": "contracts/Storefront.sol:Storefront",
           "label": "winningBid",
           "offset": 0,
@@ -242,7 +257,7 @@
           "type": "t_userDefinedValueType(euint64)11797"
         },
         {
-          "astId": 63573,
+          "astId": 63867,
           "contract": "contracts/Storefront.sol:Storefront",
           "label": "active",
           "offset": 0,
@@ -250,7 +265,7 @@
           "type": "t_bool"
         },
         {
-          "astId": 63575,
+          "astId": 63869,
           "contract": "contracts/Storefront.sol:Storefront",
           "label": "closed",
           "offset": 1,
@@ -258,7 +273,7 @@
           "type": "t_bool"
         },
         {
-          "astId": 63577,
+          "astId": 63871,
           "contract": "contracts/Storefront.sol:Storefront",
           "label": "title",
           "offset": 0,
@@ -266,7 +281,7 @@
           "type": "t_string_storage"
         },
         {
-          "astId": 63579,
+          "astId": 63873,
           "contract": "contracts/Storefront.sol:Storefront",
           "label": "descriptionCidHash",
           "offset": 0,
@@ -274,7 +289,7 @@
           "type": "t_bytes32"
         },
         {
-          "astId": 63581,
+          "astId": 63875,
           "contract": "contracts/Storefront.sol:Storefront",
           "label": "deliveryChannel",
           "offset": 0,
@@ -282,7 +297,7 @@
           "type": "t_string_storage"
         },
         {
-          "astId": 63583,
+          "astId": 63877,
           "contract": "contracts/Storefront.sol:Storefront",
           "label": "createdAt",
           "offset": 0,
