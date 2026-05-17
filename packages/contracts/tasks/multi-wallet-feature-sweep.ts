@@ -364,6 +364,7 @@ task(
         await waitOk(apHash, "apHash");
 
         // Encrypt the pay amount
+        await connectCofheAs(from);
         const [encAmount] = (await cofheClient
           .encryptInputs([Encryptable.uint64(PAY_AMOUNT)])
           .execute()) as Array<{ ctHash: bigint; securityZone: number; utype: number; signature: Hex }>;
@@ -490,6 +491,7 @@ task(
       });
       await waitOk(apHash, "apHash");
 
+      await connectCofheAs(personas[1]!);
       const [encSettle] = (await cofheClient
         .encryptInputs([Encryptable.uint64(parseUnits("0.1", 6))])
         .execute()) as Array<{ ctHash: bigint; securityZone: number; utype: number; signature: Hex }>;
@@ -557,6 +559,7 @@ task(
       });
       await waitOk(apHash, "apHash");
 
+      await connectCofheAs(personas[0]!);
       const [encGift] = (await cofheClient
         .encryptInputs([Encryptable.uint64(PAY_AMOUNT)])
         .execute()) as Array<{ ctHash: bigint; securityZone: number; utype: number; signature: Hex }>;
@@ -665,6 +668,7 @@ task(
       });
       await waitOk(apHash, "apHash");
 
+      await connectCofheAs(personas[0]!);
       const [encEscrow] = (await cofheClient
         .encryptInputs([Encryptable.uint64(parseUnits("2", 6))])
         .execute()) as Array<{ ctHash: bigint; securityZone: number; utype: number; signature: Hex }>;
@@ -799,6 +803,7 @@ task(
       });
       await waitOk(apHash, "apHash");
 
+      await connectCofheAs(personas[1]!);
       const [encLink] = (await cofheClient
         .encryptInputs([Encryptable.uint64(parseUnits("0.5", 6))])
         .execute()) as Array<{ ctHash: bigint; securityZone: number; utype: number; signature: Hex }>;
@@ -887,6 +892,7 @@ task(
         chain,
         transport: http(rpcUrl),
       });
+      await connectCofheAs(personas[1]!);
       const [encAddrLink] = (await cofheClient
         .encryptInputs([Encryptable.uint64(parseUnits("0.2", 6))])
         .execute()) as Array<{ ctHash: bigint; securityZone: number; utype: number; signature: Hex }>;
@@ -1116,6 +1122,7 @@ task(
         chain,
         transport: http(rpcUrl),
       });
+      await connectCofheAs(personas[0]!);
       const [encPrice] = (await cofheClient
         .encryptInputs([Encryptable.uint64(parseUnits("3", 6))])
         .execute()) as Array<{ ctHash: bigint; securityZone: number; utype: number; signature: Hex }>;
@@ -1186,6 +1193,7 @@ task(
           args: [Storefront as `0x${string}`, MAX_U64],
         });
         await waitOk(apHash, "apHash");
+        await connectCofheAs(personas[2]!);
         const [encBuy] = (await cofheClient
           .encryptInputs([Encryptable.uint64(parseUnits("3", 6))])
           .execute()) as Array<{ ctHash: bigint; securityZone: number; utype: number; signature: Hex }>;
@@ -1246,6 +1254,7 @@ task(
         chain,
         transport: http(rpcUrl),
       });
+      await connectCofheAs(personas[3]!);
       const [encGoal] = (await cofheClient
         .encryptInputs([Encryptable.uint64(parseUnits("5", 6))])
         .execute()) as Array<{ ctHash: bigint; securityZone: number; utype: number; signature: Hex }>;
@@ -1386,6 +1395,7 @@ task(
       });
       await waitOk(apHash, "apHash");
       // Encrypt three salaries in parallel
+      await connectCofheAs(personas[0]!);
       const salaries = (await cofheClient
         .encryptInputs([
           Encryptable.uint64(parseUnits("0.5", 6)),
@@ -1447,6 +1457,7 @@ task(
         chain,
         transport: http(rpcUrl),
       });
+      await connectCofheAs(personas[1]!);
       const [encUnshield] = (await cofheClient
         .encryptInputs([Encryptable.uint64(parseUnits("0.5", 6))])
         .execute()) as Array<{ ctHash: bigint; securityZone: number; utype: number; signature: Hex }>;
@@ -1542,6 +1553,7 @@ task(
       });
       await waitOk(apHash, "apHash");
 
+      await connectCofheAs(personas[0]!);
       const [encTip] = (await cofheClient
         .encryptInputs([Encryptable.uint64(parseUnits("0.2", 6))])
         .execute()) as Array<{ ctHash: bigint; securityZone: number; utype: number; signature: Hex }>;
@@ -1612,6 +1624,7 @@ task(
       });
       await waitOk(apHash, "apHash");
 
+      await connectCofheAs(personas[2]!);
       const [encPledge] = (await cofheClient
         .encryptInputs([Encryptable.uint64(parseUnits("1", 6))])
         .execute()) as Array<{ ctHash: bigint; securityZone: number; utype: number; signature: Hex }>;
@@ -1691,6 +1704,7 @@ task(
   if (!cofheClient) {
     results.push({ feature: "neg_self_pay", persona: "Alice", status: "skip", error: "cofhe client unavailable" });
   } else {
+    await connectCofheAs(personas[0]!);
     const [encSelf] = (await cofheClient
       .encryptInputs([Encryptable.uint64(parseUnits("0.1", 6))])
       .execute()) as Array<{ ctHash: bigint; securityZone: number; utype: number; signature: Hex }>;
@@ -1737,6 +1751,7 @@ task(
   if (!cofheClient) {
     results.push({ feature: "neg_non_member_expense", persona: "Alice", status: "skip", error: "cofhe client unavailable" });
   } else {
+    await connectCofheAs(personas[0]!);
     const [encZero] = (await cofheClient
       .encryptInputs([Encryptable.uint64(0n)])
       .execute()) as Array<{ ctHash: bigint; securityZone: number; utype: number; signature: Hex }>;
@@ -1852,6 +1867,7 @@ task(
 
       // Encrypt Dave's address as the stealth recipient.
       // Encryptable.address is the cofhe SDK shape for InEaddress.
+      await connectCofheAs(personas[2]!);
       const [encRecipient] = (await cofheClient
         .encryptInputs([Encryptable.address(personas[3]!.address)])
         .execute()) as Array<{ ctHash: bigint; securityZone: number; utype: number; signature: Hex }>;
@@ -1981,6 +1997,7 @@ task(
   if (!CreatorHub || !cofheClient) {
     results.push({ feature: "neg_creator_self_tip", persona: "Bob", status: "skip", error: "CreatorHub or cofhe unavailable" });
   } else {
+    await connectCofheAs(personas[1]!);
     const [encSelfTip] = (await cofheClient
       .encryptInputs([Encryptable.uint64(parseUnits("0.1", 6))])
       .execute()) as Array<{ ctHash: bigint; securityZone: number; utype: number; signature: Hex }>;
