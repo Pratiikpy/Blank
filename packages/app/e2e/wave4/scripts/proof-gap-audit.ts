@@ -148,6 +148,14 @@ const EXPECTED: ExpectedCoverage[] = [
   // facing flow + Dashboard landing.
   { phasePrefix: "P23 Onboarding · first-time passkey create", chainIds: BOTH, requiresRealTx: false, desc: "Fresh browser → 4-step carousel → WalletChoiceCard → PasskeyCreationModal → Dashboard. The ONLY spec exercising the real user-driven passkey path (others use _testImportPasskey shortcut)." },
 
+  // ─── Phase 24: Bridge (Circle CCTP V2) ────────────────────────
+  // requiresRealTx=false: same constraint as Phase 16 Swap DEX —
+  // CCTP burns NATIVE Circle USDC, not Blank's TestUSDC. External
+  // funding via a Circle faucet is the documented gap. Spec proves
+  // the form + interaction surface is reachable; real tx fires
+  // when Alice has Circle USDC on the source chain.
+  { phasePrefix: "P24 Bridge · CCTP form + bridge intent", chainIds: BOTH, requiresRealTx: false, desc: "Alice opens /app/bridge, picks Sepolia→Base, attempts 0.01 USDC bridge. Captures whichever outcome (real CCTP burn if funded, otherwise gate-state)." },
+
   // ─── Phase 13: read-only screen render sweep ──────────────────
   { phasePrefix: "P13 Render Sweep · Dashboard", chainIds: BOTH, requiresRealTx: false, desc: "Dashboard h1 visible + screenshot" },
   { phasePrefix: "P13 Render Sweep · History", chainIds: BOTH, requiresRealTx: false, desc: "History list page render check" },
