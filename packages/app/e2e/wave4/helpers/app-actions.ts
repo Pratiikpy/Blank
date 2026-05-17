@@ -235,15 +235,20 @@ export async function shieldUsdc(
     .first();
   await submit
     .click({ timeout: 5_000 })
-    .catch(() => passphraseInput.press("Enter"));
-  // The shield flow surfaces success via a toast ('Shielded X USDC
-  // via smart wallet!'), NOT an /tx/0x... explorer link. Wait for the
-  // toast text to confirm + return a synthetic hash since downstream
-  // callers (P2 send, P5 create, etc.) only need 'shielded balance is
-  // ready', not the specific shield tx hash.
+    .catch(() => passphraseInput.press("Enter").catch(() => undefined));
+
+  // The shield flow surfaces a success toast ('Shielded X USDC via
+  // smart wallet!'). The earlier draft of this helper tried to race
+  // success vs an error toast — but the `[role="status"]` selector
+  // matched all sorts of unrelated alerts (incl. stale toasts from a
+  // prior test fixture) and resolved the race to "error" instantly.
+  // Just wait for the literal success-toast text; if shield really
+  // fails the test times out at 180s with a clear cause.
+  // 180s budget because the AA UserOp roundtrip (encrypt + relay +
+  // bundler + mine + confirm) can take 60–120s under Sepolia load.
   await page
     .locator("text=/Shielded .* USDC/i")
     .first()
-    .waitFor({ state: "visible", timeout: 120_000 });
+    .waitFor({ state: "visible", timeout: 180_000 });
   return { txHash: `0x${"0".repeat(64)}` };
 }
