@@ -98,6 +98,10 @@ const EXPECTED: ExpectedCoverage[] = [
   // ─── Phase 14: Groups (encrypted group expense splits) ───────
   { phasePrefix: "P14 Groups · group create", chainIds: BOTH, requiresRealTx: true, desc: "Alice creates encrypted group with Bob + Carol via /app/groups UI" },
 
+  // ─── Phase 15: Creator Support (encrypted tipping) ───────────
+  { phasePrefix: "P15 Creator Support · Bob setProfile", chainIds: BOTH, requiresRealTx: true, desc: "Bob creates creator profile via /app/creators 'Become a Creator' form" },
+  { phasePrefix: "P15 Creator Support · Alice tip Bob", chainIds: BOTH, requiresRealTx: true, desc: "Alice tips Bob $5 via tier picker + encrypted message" },
+
   // ─── Phase 13: read-only screen render sweep ──────────────────
   { phasePrefix: "P13 Render Sweep · Dashboard", chainIds: BOTH, requiresRealTx: false, desc: "Dashboard h1 visible + screenshot" },
   { phasePrefix: "P13 Render Sweep · History", chainIds: BOTH, requiresRealTx: false, desc: "History list page render check" },
