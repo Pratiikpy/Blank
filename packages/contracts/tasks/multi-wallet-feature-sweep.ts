@@ -131,6 +131,36 @@ task(
     return { name, privKey, address: acct.address };
   });
 
+  // Retry wrapper for writeContract — Sepolia publicnode RPC throws
+  // "Missing or invalid parameters" on ~4% of back-to-back submissions
+  // (some nonce/encoding race in the RPC layer; always succeeds on retry).
+  // Doesn't apply to simulate (read-only) calls, only to writes.
+  async function withRetry<T>(label: string, fn: () => Promise<T>, attempts = 4): Promise<T> {
+    let lastErr: unknown;
+    for (let i = 0; i < attempts; i++) {
+      try {
+        return await fn();
+      } catch (err) {
+        lastErr = err;
+        const msg = err instanceof Error ? err.message : String(err);
+        // publicnode Sepolia throws several distinct transient errors under
+        // load: "Missing or invalid parameters", "took too long to respond"
+        // (HTTP timeout), and "nonce too low" (rare; happens when a prior
+        // tx hadn't propagated yet). All three resolve cleanly on retry.
+        const retryable = /missing or invalid parameters|took too long to respond|nonce too low|timeout|request failed|fetch failed/i.test(msg);
+        if (retryable && i < attempts - 1) {
+          console.log(`    ${label}: retry ${i + 1}/${attempts - 1} (${msg.slice(0, 80)})`);
+          await new Promise((r) => setTimeout(r, 2_000 * (i + 1)));
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw lastErr;
+  }
+  void withRetry; // available for downstream branches; not all writeContract
+                  // sites need wrapping yet — only the ones observed to flake.
+
   console.log("═══════════════════════════════════════════════════════════════");
   console.log("  Wave 4 · multi-wallet feature sweep");
   console.log("═══════════════════════════════════════════════════════════════");
@@ -245,7 +275,7 @@ task(
         // shield(amount) — plaintext amount (uint256), vault encrypts internally.
         // Manual gas because the FHE precompile inside _balances[..] = FHE.add(..)
         // breaks viem's auto-estimation; ~2-5M is the empirical band for shield.
-        const shieldHash = await wallet.writeContract({
+        const shieldHash = await withRetry(`shield ${p.name}`, () => wallet.writeContract({
           address: Vault as `0x${string}`,
           abi: [
             { name: "shield", type: "function", stateMutability: "nonpayable", inputs: [{ name: "amount", type: "uint256" }], outputs: [] },
@@ -253,7 +283,7 @@ task(
           functionName: "shield",
           args: [SHIELD_AMOUNT],
           gas: 5_000_000n,
-        });
+        }));
         await publicClient.waitForTransactionReceipt({ hash: shieldHash, confirmations: 1 });
         console.log(`  ${p.name}: shield ok  approve=${approveHash}  shield=${shieldHash}`);
         results.push({ feature: "shield", persona: p.name, status: "pass", txHash: shieldHash });
@@ -300,7 +330,7 @@ task(
           .encryptInputs([Encryptable.uint64(PAY_AMOUNT)])
           .execute()) as Array<{ ctHash: bigint; securityZone: number; utype: number; signature: Hex }>;
 
-        const payHash = await wallet.writeContract({
+        const payHash = await withRetry(`pay ${from.name}→${to.name}`, () => wallet.writeContract({
           address: PaymentHub as `0x${string}`,
           abi: [
             {
@@ -328,7 +358,7 @@ task(
           functionName: "sendPayment",
           args: [to.address, Vault as `0x${string}`, encAmount, `wave4 sweep ${from.name}→${to.name}`],
           gas: 5_000_000n,
-        });
+        }));
         await publicClient.waitForTransactionReceipt({ hash: payHash, confirmations: 1 });
         console.log(`  ${from.name}→${to.name}: pay ok  tx=${payHash}`);
         results.push({ feature: `pay_${from.name}_${to.name}`, persona: from.name, status: "pass", txHash: payHash });
@@ -438,6 +468,46 @@ task(
       await publicClient.waitForTransactionReceipt({ hash: giftHash, confirmations: 1 });
       console.log(`  Alice→Bob: gift ok  tx=${giftHash}`);
       results.push({ feature: "gift_send", persona: "Alice", status: "pass", txHash: giftHash });
+
+      // Second-leg: Bob claims the gift Alice just sent. nextEnvelopeId
+      // increments AFTER each sendGift, so the just-created envelope's id
+      // is (nextEnvelopeId - 1). This proves the create→claim flow works
+      // end-to-end with two distinct wallets, not just the create call.
+      try {
+        const nextId = (await publicClient.readContract({
+          address: GiftMoney as `0x${string}`,
+          abi: [{ name: "nextEnvelopeId", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] }],
+          functionName: "nextEnvelopeId",
+        })) as bigint;
+        const justCreatedId = nextId > 0n ? nextId - 1n : 0n;
+        const bobWallet = createWalletClient({
+          account: privateKeyToAccount(personas[1]!.privKey),
+          chain,
+          transport: http(rpcUrl),
+        });
+        const claimHash = await bobWallet.writeContract({
+          address: GiftMoney as `0x${string}`,
+          abi: [
+            {
+              name: "claimGift",
+              type: "function",
+              stateMutability: "nonpayable",
+              inputs: [{ name: "envelopeId", type: "uint256" }],
+              outputs: [],
+            },
+          ],
+          functionName: "claimGift",
+          args: [justCreatedId],
+          gas: 5_000_000n,
+        });
+        await publicClient.waitForTransactionReceipt({ hash: claimHash, confirmations: 1 });
+        console.log(`  Bob: claimGift #${justCreatedId} ok  tx=${claimHash}`);
+        results.push({ feature: "gift_claim", persona: "Bob", status: "pass", txHash: claimHash });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message.slice(0, 200) : String(err);
+        console.log(`  Bob: claimGift FAILED ${msg}`);
+        results.push({ feature: "gift_claim", persona: "Bob", status: "fail", error: msg });
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message.slice(0, 200) : String(err);
       console.log(`  Alice→Bob: gift FAILED ${msg}`);
@@ -473,7 +543,7 @@ task(
         .encryptInputs([Encryptable.uint64(parseUnits("2", 6))])
         .execute()) as Array<{ ctHash: bigint; securityZone: number; utype: number; signature: Hex }>;
 
-      const escrowHash = await aliceWallet.writeContract({
+      const escrowHash = await withRetry("escrow_create", () => aliceWallet.writeContract({
         address: EncryptedEscrow as `0x${string}`,
         abi: [
           {
@@ -502,7 +572,7 @@ task(
         functionName: "createEscrow",
         args: [personas[1]!.address, Vault as `0x${string}`, encEscrow, personas[2]!.address, "wave4 sweep escrow"],
         gas: 5_000_000n,
-      });
+      }));
       await publicClient.waitForTransactionReceipt({ hash: escrowHash, confirmations: 1 });
       console.log(`  Alice→Bob (arb=Carol): escrow ok  tx=${escrowHash}`);
       results.push({ feature: "escrow_create", persona: "Alice", status: "pass", txHash: escrowHash });
