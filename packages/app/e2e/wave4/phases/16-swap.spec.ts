@@ -112,17 +112,27 @@ test.describe("Phase 16 — Swap DEX tab", () => {
     const swapButton = alice.page.locator('[data-testid="dex-swap-button"]');
     await swapButton.waitFor({ state: "visible", timeout: 15_000 });
 
-    // Pick WETH as tokenIn via the dex-token-in picker. The
-    // TokenPicker renders as a button with the data-testid we set.
+    // Pick WETH as tokenIn via the dex-token-in picker. The dropdown
+    // options are <button role="option"> elements containing the token
+    // symbol as a child span. Use role="option" to scope to the dropdown
+    // (not the trigger button which ALSO contains the symbol text once
+    // selected).
     await alice.page.locator('[data-testid="dex-token-in"]').click();
-    // The picker dropdown lists tokens by symbol. Click WETH.
-    await alice.page.locator('button:has-text("WETH")').last().click();
+    await alice.page
+      .locator('button[role="option"]')
+      .filter({ hasText: "WETH" })
+      .first()
+      .click();
     await snap(alice.page, shot, "weth-selected-as-in");
 
     // Pick USDC as tokenOut. The picker excludes the selected
     // tokenIn, so USDC will appear.
     await alice.page.locator('[data-testid="dex-token-out"]').click();
-    await alice.page.locator('button:has-text("USDC")').last().click();
+    await alice.page
+      .locator('button[role="option"]')
+      .filter({ hasText: "USDC" })
+      .first()
+      .click();
     await snap(alice.page, shot, "usdc-selected-as-out");
 
     // Type a tiny amount. 0.0001 WETH = ~$0.30 at current price;
