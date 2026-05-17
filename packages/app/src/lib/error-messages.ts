@@ -38,7 +38,14 @@ const PATTERNS: Array<{ test: RegExp; map: MappedError }> = [
     },
   },
   {
-    test: /allowance|approve.*amount|erc20/i,
+    // Match allowance/approval-specific errors only. The original
+    // pattern included `/erc20/i` which incorrectly captured any
+    // ERC20-family error (Paused, InvalidReceiver, Frozen, etc.) +
+    // mislabeled them as "Approval needed". Now we only match the
+    // canonical allowance shapes: ERC20InsufficientAllowance,
+    // "transfer amount exceeds allowance", explicit "allowance" or
+    // "approve…amount" mentions, and the common shorthand.
+    test: /allowance|approve.*amount|insufficient.*allowance|ERC20InsufficientAllowance/i,
     map: {
       title: "Approval needed",
       body: "The vault approval expired or changed. Please try again.",
