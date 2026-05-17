@@ -1,7 +1,14 @@
 import { useCallback } from "react";
-import { useWriteContract } from "wagmi";
-import { encodeFunctionData, type Abi, type Address, type Hex } from "viem";
+import { useWriteContract, usePublicClient } from "wagmi";
+import {
+  encodeFunctionData,
+  type Abi,
+  type Address,
+  type Hex,
+  type PublicClient,
+} from "viem";
 import { useSmartAccount } from "./useSmartAccount";
+import { useChain } from "@/providers/ChainProvider";
 import { usePassphrasePrompt } from "@/components/PassphrasePrompt";
 import { log } from "@/lib/log";
 
@@ -105,6 +112,74 @@ export interface UseUnifiedWriteReturn {
  * polling loop on EntryPoint.getNonce() until the increment is visible.
  */
 const RPC_SETTLEMENT_DELAY_MS = 2_500;
+
+/**
+ * Gas-wallet auto-select threshold. When the smart account's EntryPoint
+ * deposit is at least this much, default to `paymaster: "self"` (user's
+ * own gas) instead of routing through BlankPaymaster. Below this we
+ * still default to "sponsored" so the user never gets stuck with an
+ * insufficient self-pay attempt right at the threshold.
+ *
+ * 0.001 ETH at Sepolia / Base Sepolia gas prices covers ~50 typical
+ * UserOps comfortably. Tunable via env override at module-load time.
+ */
+const MIN_SELF_PAY_DEPOSIT_WEI = 1_000_000_000_000_000n; // 0.001 ETH
+
+const ENTRY_POINT_BALANCE_OF_ABI = [
+  {
+    type: "function",
+    name: "balanceOf",
+    stateMutability: "view",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [{ type: "uint256" }],
+  },
+] as const;
+
+/**
+ * Read the smart account's gas-credit balance from EntryPoint. Returns
+ * 0n on any read failure so the caller falls back to "sponsored" rather
+ * than blocking the UserOp on a transient RPC issue.
+ */
+async function readEntryPointDeposit(
+  publicClient: PublicClient,
+  entryPoint: Address,
+  account: Address,
+): Promise<bigint> {
+  try {
+    return (await publicClient.readContract({
+      address: entryPoint,
+      abi: ENTRY_POINT_BALANCE_OF_ABI,
+      functionName: "balanceOf",
+      args: [account],
+    })) as bigint;
+  } catch {
+    return 0n;
+  }
+}
+
+/**
+ * Decide between "self" (user's EntryPoint deposit covers gas) and
+ * "sponsored" (BlankPaymaster covers gas) for an outgoing UserOp.
+ *
+ *  • Explicit caller override wins (`params.paymaster`).
+ *  • Otherwise: read the smart account's EntryPoint balance and pick
+ *    "self" if it's >= MIN_SELF_PAY_DEPOSIT_WEI.
+ *
+ * The auto-select path means callers who don't know or care about
+ * paymaster modes still get the right behavior: if the user has
+ * deposited their own ETH for gas, it gets used.
+ */
+async function resolvePaymasterMode(
+  explicit: "sponsored" | "self" | undefined,
+  publicClient: PublicClient | undefined,
+  entryPoint: Address | undefined,
+  smartAccountAddress: Address | undefined,
+): Promise<"sponsored" | "self"> {
+  if (explicit) return explicit;
+  if (!publicClient || !entryPoint || !smartAccountAddress) return "sponsored";
+  const balance = await readEntryPointDeposit(publicClient, entryPoint, smartAccountAddress);
+  return balance >= MIN_SELF_PAY_DEPOSIT_WEI ? "self" : "sponsored";
+}
 
 /**
  * Map cryptic low-level errors from the relayer / EntryPoint / wagmi into
@@ -224,6 +299,8 @@ export function useUnifiedWrite(): UseUnifiedWriteReturn {
   const { writeContractAsync } = useWriteContract();
   const smartAccount = useSmartAccount();
   const passphrasePrompt = usePassphrasePrompt();
+  const { activeChainId, contracts } = useChain();
+  const publicClient = usePublicClient({ chainId: activeChainId });
 
   const isSmartAccount =
     smartAccount.status === "ready" && smartAccount.account !== null;
@@ -261,12 +338,25 @@ export function useUnifiedWrite(): UseUnifiedWriteReturn {
         args: params.args ?? [],
       });
 
+      // Auto-select self vs sponsored based on the smart account's
+      // EntryPoint deposit. Explicit caller override wins. The auto
+      // path means callers don't need paymaster awareness; if the user
+      // has deposited their own ETH for gas, it gets used. We resolve
+      // BEFORE the passphrase prompt so its subtitle reflects the
+      // actual mode the user is about to authorize.
+      const resolvedPaymaster = await resolvePaymasterMode(
+        params.paymaster,
+        publicClient as PublicClient | undefined,
+        contracts.EntryPoint as Address | undefined,
+        smartAccount.account?.address as Address | undefined,
+      );
+
       const passphrase = await passphrasePrompt.request({
         title: `Sign ${params.functionName}`,
         subtitle:
-          params.paymaster === "self"
-            ? `Submit via your smart wallet — paid from your wallet's ETH.`
-            : `Submit via your smart wallet — gas sponsored.`,
+          resolvedPaymaster === "self"
+            ? `Submit via your smart wallet, paid from your own gas deposit.`
+            : `Submit via your smart wallet, gas sponsored by Blank.`,
       });
       log.debug("unifiedWrite.passphrase", { phase: "obtained" });
       if (!passphrase) throw new Error("Cancelled");
@@ -277,14 +367,14 @@ export function useUnifiedWrite(): UseUnifiedWriteReturn {
         // this the AA path silently uses buildUserOp's 2M default, which is
         // too low for batch FHE ops (e.g. runPayroll multi-recipient).
         const submitOpts: { paymaster?: "sponsored" | "self"; callGasLimit?: bigint } = {};
-        if (params.paymaster) submitOpts.paymaster = params.paymaster;
+        submitOpts.paymaster = resolvedPaymaster;
         if (params.gas) submitOpts.callGasLimit = params.gas;
         result = await smartAccount.sendUserOp(
           params.address,
           params.value ?? 0n,
           data,
           passphrase,
-          Object.keys(submitOpts).length > 0 ? submitOpts : undefined,
+          submitOpts,
         );
       } catch (err) {
         throw new Error(humanizeWriteError(err));
@@ -292,7 +382,7 @@ export function useUnifiedWrite(): UseUnifiedWriteReturn {
       if (!result) throw new Error(humanizeWriteError(smartAccount.error ?? "UserOp submission failed"));
       return result.txHash;
     },
-    [isSmartAccount, writeContractAsync, smartAccount, passphrasePrompt],
+    [isSmartAccount, writeContractAsync, smartAccount, passphrasePrompt, publicClient, contracts],
   );
 
   // Same as unifiedWrite but also returns the relayer's pre-confirmed receipt
@@ -366,7 +456,7 @@ export function useUnifiedWrite(): UseUnifiedWriteReturn {
 
       return { hash: result.txHash, receipt };
     },
-    [isSmartAccount, writeContractAsync, smartAccount, passphrasePrompt],
+    [isSmartAccount, writeContractAsync, smartAccount, passphrasePrompt, publicClient, contracts],
   );
 
   const unifiedWriteBatch = useCallback(
@@ -429,7 +519,7 @@ export function useUnifiedWrite(): UseUnifiedWriteReturn {
       if (!result) throw new Error(humanizeWriteError(smartAccount.error ?? "Batch UserOp submission failed"));
       return result.txHash;
     },
-    [isSmartAccount, writeContractAsync, smartAccount, passphrasePrompt],
+    [isSmartAccount, writeContractAsync, smartAccount, passphrasePrompt, publicClient, contracts],
   );
 
   return { isSmartAccount, senderAddress, unifiedWrite, unifiedWriteBatch, unifiedWriteAndWait };

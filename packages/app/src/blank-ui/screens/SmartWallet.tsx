@@ -20,6 +20,7 @@ import { useSmartAccount } from "@/hooks/useSmartAccount";
 import { useChain } from "@/providers/ChainProvider";
 import { TestUSDCAbi } from "@/lib/abis";
 import { log } from "@/lib/log";
+import { GasWalletPanel } from "@/components/GasWalletPanel";
 
 // ──────────────────────────────────────────────────────────────────
 //  SmartWallet (`/app/wallet`) — passkey signup + account info.
@@ -345,6 +346,11 @@ export default function SmartWallet() {
                 )}
               </div>
             </div>
+
+            {/* Gas wallet — copy address + live deposit/idle balance.
+                Deposit ETH from anywhere → auto-converts to gas credit
+                via the BlankAccount receive() hook. */}
+            <GasWalletPanel />
 
             {/* Fund-in card */}
             <div className="glass-card-static rounded-[2rem] p-4 sm:p-8">

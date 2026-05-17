@@ -270,5 +270,59 @@ contract BlankAccount is BaseAccount, Initializable, UUPSUpgradeable {
     ///      what allows a UserOp to upgrade the account's own implementation.
     function _authorizeUpgrade(address) internal view override onlySelfOrEntryPoint {}
 
-    receive() external payable {}
+    /// @notice Auto-deposit incoming ETH to the EntryPoint as gas credit for
+    ///         this account. Allows users to fund their own gas by sending
+    ///         ETH to this address from ANYWHERE (a CEX withdrawal, a
+    ///         primary EOA, a hardware wallet, a friend). Without this hook
+    ///         a plain ETH transfer would land as idle balance that the
+    ///         EntryPoint can't see — the user would then need a separate
+    ///         "convert to gas" UserOp.
+    /// @dev Skip the deposit when the EntryPoint is the sender: canonical
+    ///      v0.8 EntryPoint refunds excess prefund via its internal deposit
+    ///      map (no plain transfer), but a non-canonical or future-version
+    ///      EntryPoint might refund via plain transfer and would loop
+    ///      otherwise. Cost: one CALLER + EQ check (~22 gas).
+    /// @dev The depositTo call is allowed to revert (e.g., EntryPoint OOG):
+    ///      the ETH then sits as idle balance and can be deposited later
+    ///      via `topUpGas`. This guarantees that incoming ETH is never
+    ///      lost just because the auto-deposit failed.
+    receive() external payable {
+        if (msg.value > 0 && msg.sender != address(_entryPoint)) {
+            try _entryPoint.depositTo{value: msg.value}(address(this)) {
+                // Auto-deposit succeeded — emitted by EntryPoint itself.
+            } catch {
+                // Auto-deposit failed — ETH stays as idle balance.
+                // User can call topUpGas to retry without losing the ETH.
+            }
+        }
+    }
+
+    /// @notice Manual fallback: deposit any idle ETH on this account into
+    ///         the EntryPoint as gas credit. Used when the auto-deposit in
+    ///         `receive()` couldn't run (e.g., ETH arrived via SELFDESTRUCT
+    ///         or a contract `call`-with-value path that bypasses receive),
+    ///         or when the auto-deposit reverted. Permissionless: anyone can
+    ///         credit gas to this account, no auth gate. The deposited
+    ///         amount is always tracked against this account's address, so
+    ///         a third party calling this only ever benefits the owner.
+    function topUpGas() external {
+        uint256 idle = address(this).balance;
+        if (idle > 0) {
+            _entryPoint.depositTo{value: idle}(address(this));
+        }
+    }
+
+    /// @notice Withdraw EntryPoint gas-deposit balance to an arbitrary address.
+    ///         Gated to self-or-EntryPoint so only the account owner (via a
+    ///         passkey-signed UserOp) can pull their own gas funds out.
+    /// @param  to     Recipient address. Anywhere — back to the owner's EOA,
+    ///                a CEX deposit address, another wallet.
+    /// @param  amount Wei to withdraw. Capped by EntryPoint at the account's
+    ///                current deposit balance.
+    function withdrawGasDepositTo(
+        address payable to,
+        uint256 amount
+    ) external onlySelfOrEntryPoint {
+        _entryPoint.withdrawTo(to, amount);
+    }
 }

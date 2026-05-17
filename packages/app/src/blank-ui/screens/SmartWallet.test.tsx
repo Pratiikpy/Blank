@@ -49,6 +49,12 @@ vi.mock("@/hooks/useUnifiedWrite", () => ({ useUnifiedWrite: useUnifiedWriteMock
 vi.mock("@/providers/ChainProvider", () => ({ useChain: useChainMock }));
 vi.mock("@/lib/abis", () => ({ TestUSDCAbi: [] }));
 vi.mock("@/lib/log", () => ({ log: { warn: vi.fn(), debug: vi.fn() } }));
+// GasWalletPanel has its own test file covering its behavior; stub it
+// here so SmartWallet's existing Explorer-link assertions don't collide
+// with the panel's own Explorer link.
+vi.mock("@/components/GasWalletPanel", () => ({
+  GasWalletPanel: () => <div data-testid="gas-wallet-panel-stub" />,
+}));
 vi.mock("@/lib/format", () => ({
   formatUsdcBigint: (n: bigint) => (Number(n) / 1e6).toFixed(2),
 }));

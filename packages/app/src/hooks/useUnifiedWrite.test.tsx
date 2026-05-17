@@ -62,10 +62,16 @@ import { renderHook, act } from "@testing-library/react";
 const useWriteContractMock = vi.hoisted(() => vi.fn());
 const useSmartAccountMock = vi.hoisted(() => vi.fn());
 const usePassphrasePromptMock = vi.hoisted(() => vi.fn());
+const usePublicClientMock = vi.hoisted(() => vi.fn());
+const useChainMock = vi.hoisted(() => vi.fn());
 const encodeFunctionDataMock = vi.hoisted(() => vi.fn());
 
-vi.mock("wagmi", () => ({ useWriteContract: useWriteContractMock }));
+vi.mock("wagmi", () => ({
+  useWriteContract: useWriteContractMock,
+  usePublicClient: usePublicClientMock,
+}));
 vi.mock("./useSmartAccount", () => ({ useSmartAccount: useSmartAccountMock }));
+vi.mock("@/providers/ChainProvider", () => ({ useChain: useChainMock }));
 vi.mock("@/components/PassphrasePrompt", () => ({
   usePassphrasePrompt: usePassphrasePromptMock,
 }));
@@ -110,15 +116,26 @@ function asEOA() {
   setSmartAccount({ status: "idle", account: null });
 }
 
+// Test mocks for the gas-wallet auto-select feature (§1.13). The hook
+// now reads entryPoint.balanceOf(smartAccount) when no explicit
+// paymaster mode is passed. Default mock: balance = 0 -> auto-select
+// "sponsored". Specific tests override the readContract mock to
+// simulate a funded gas wallet -> auto-select "self".
+const readContractMock = vi.fn();
+const ENTRY_POINT_ADDR = "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108";
+
 beforeEach(() => {
   useWriteContractMock.mockReset();
   useSmartAccountMock.mockReset();
   usePassphrasePromptMock.mockReset();
+  usePublicClientMock.mockReset();
+  useChainMock.mockReset();
   encodeFunctionDataMock.mockReset();
   writeContractAsyncMock.mockReset();
   passphraseRequestMock.mockReset();
   sendUserOpMock.mockReset();
   sendBatchUserOpMock.mockReset();
+  readContractMock.mockReset();
 
   useWriteContractMock.mockReturnValue({ writeContractAsync: writeContractAsyncMock });
   usePassphrasePromptMock.mockReturnValue({ request: passphraseRequestMock });
@@ -127,6 +144,15 @@ beforeEach(() => {
   sendUserOpMock.mockResolvedValue({ txHash: "0xaatx" });
   sendBatchUserOpMock.mockResolvedValue({ txHash: "0xaabatchtx" });
   writeContractAsyncMock.mockResolvedValue("0xeoatx");
+
+  // Default chain + public client. Tests can override per-case.
+  useChainMock.mockReturnValue({
+    activeChainId: 11155111,
+    contracts: { EntryPoint: ENTRY_POINT_ADDR },
+  });
+  // Default: zero deposit balance -> auto-select "sponsored".
+  readContractMock.mockResolvedValue(0n);
+  usePublicClientMock.mockReturnValue({ readContract: readContractMock });
 });
 
 afterEach(() => {
@@ -297,7 +323,9 @@ describe("useUnifiedWrite — AA path (§15.x)", () => {
       0n, // value
       ENCODED_DATA, // encoded calldata
       "the-passphrase",
-      undefined, // submitOpts (no paymaster/gas)
+      // §1.13 gas-wallet auto-select: when caller passes no explicit
+      // paymaster + zero deposit, defaults to "sponsored".
+      { paymaster: "sponsored" },
     );
     // EOA writeContractAsync NOT called
     expect(writeContractAsyncMock).toHaveBeenCalledTimes(0);
@@ -315,7 +343,8 @@ describe("useUnifiedWrite — AA path (§15.x)", () => {
       });
     });
     const opts = sendUserOpMock.mock.calls[0][4];
-    expect(opts).toEqual({ callGasLimit: 5_000_000n });
+    // Auto-resolved paymaster always present; callGasLimit present too.
+    expect(opts).toEqual({ paymaster: "sponsored", callGasLimit: 5_000_000n });
   });
 
   it("AA: paymaster='sponsored' passed in submitOpts + sponsored subtitle", async () => {
@@ -334,7 +363,7 @@ describe("useUnifiedWrite — AA path (§15.x)", () => {
     expect(promptArgs.subtitle).toContain("gas sponsored");
   });
 
-  it("AA: paymaster='self' passed in submitOpts + self-pay subtitle ('paid from your wallet')", async () => {
+  it("AA: paymaster='self' passed in submitOpts + self-pay subtitle ('paid from your own gas deposit')", async () => {
     asAA();
     const { result } = renderHook(() => useUnifiedWrite());
     await act(async () => {
@@ -347,11 +376,12 @@ describe("useUnifiedWrite — AA path (§15.x)", () => {
     });
     expect(sendUserOpMock.mock.calls[0][4]).toEqual({ paymaster: "self" });
     const promptArgs = passphraseRequestMock.mock.calls[0][0];
-    expect(promptArgs.subtitle).toContain("paid from your wallet");
+    expect(promptArgs.subtitle).toContain("your own gas deposit");
   });
 
-  it("AA: no paymaster + no gas -> submitOpts=undefined (let downstream default)", async () => {
+  it("§1.13 AA auto-select: zero deposit -> 'sponsored' default (no explicit paymaster)", async () => {
     asAA();
+    // readContractMock already returns 0n by default in beforeEach.
     const { result } = renderHook(() => useUnifiedWrite());
     await act(async () => {
       await result.current.unifiedWrite({
@@ -360,7 +390,69 @@ describe("useUnifiedWrite — AA path (§15.x)", () => {
         functionName: "transfer",
       });
     });
-    expect(sendUserOpMock.mock.calls[0][4]).toBeUndefined();
+    expect(sendUserOpMock.mock.calls[0][4]).toEqual({ paymaster: "sponsored" });
+    const promptArgs = passphraseRequestMock.mock.calls[0][0];
+    expect(promptArgs.subtitle).toContain("gas sponsored");
+  });
+
+  it("§1.13 AA auto-select: deposit >= 0.001 ETH -> 'self' default (no explicit paymaster)", async () => {
+    asAA();
+    // Simulate the user having deposited ETH to their gas wallet.
+    readContractMock.mockResolvedValue(1_000_000_000_000_000n); // exactly 0.001 ETH
+    const { result } = renderHook(() => useUnifiedWrite());
+    await act(async () => {
+      await result.current.unifiedWrite({
+        address: TARGET,
+        abi: [],
+        functionName: "transfer",
+      });
+    });
+    expect(sendUserOpMock.mock.calls[0][4]).toEqual({ paymaster: "self" });
+    const promptArgs = passphraseRequestMock.mock.calls[0][0];
+    expect(promptArgs.subtitle).toContain("your own gas deposit");
+  });
+
+  it("§1.13 AA auto-select: deposit just below threshold (0.0009 ETH) -> 'sponsored'", async () => {
+    asAA();
+    readContractMock.mockResolvedValue(900_000_000_000_000n);
+    const { result } = renderHook(() => useUnifiedWrite());
+    await act(async () => {
+      await result.current.unifiedWrite({
+        address: TARGET,
+        abi: [],
+        functionName: "transfer",
+      });
+    });
+    expect(sendUserOpMock.mock.calls[0][4]).toEqual({ paymaster: "sponsored" });
+  });
+
+  it("§1.13 explicit caller override BEATS auto-select (caller passes 'sponsored' even with full deposit)", async () => {
+    asAA();
+    readContractMock.mockResolvedValue(1_000_000_000_000_000_000n); // 1 ETH, way above threshold
+    const { result } = renderHook(() => useUnifiedWrite());
+    await act(async () => {
+      await result.current.unifiedWrite({
+        address: TARGET,
+        abi: [],
+        functionName: "transfer",
+        paymaster: "sponsored", // explicit override
+      });
+    });
+    expect(sendUserOpMock.mock.calls[0][4]).toEqual({ paymaster: "sponsored" });
+  });
+
+  it("§1.13 auto-select: readContract failure falls back to 'sponsored' (no UserOp block on RPC issue)", async () => {
+    asAA();
+    readContractMock.mockRejectedValue(new Error("RPC timeout"));
+    const { result } = renderHook(() => useUnifiedWrite());
+    await act(async () => {
+      await result.current.unifiedWrite({
+        address: TARGET,
+        abi: [],
+        functionName: "transfer",
+      });
+    });
+    expect(sendUserOpMock.mock.calls[0][4]).toEqual({ paymaster: "sponsored" });
   });
 
   it("AA: passphrase cancel (null) -> throws 'Cancelled' before sendUserOp", async () => {
