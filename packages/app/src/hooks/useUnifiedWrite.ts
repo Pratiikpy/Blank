@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import { useWriteContract, usePublicClient } from "wagmi";
+import { useWriteContract, usePublicClient, useAccount } from "wagmi";
 import {
   encodeFunctionData,
   type Abi,
@@ -297,6 +297,7 @@ function humanizeWriteError(err: unknown): string {
 
 export function useUnifiedWrite(): UseUnifiedWriteReturn {
   const { writeContractAsync } = useWriteContract();
+  const { address: eoaAddress } = useAccount();
   const smartAccount = useSmartAccount();
   const passphrasePrompt = usePassphrasePrompt();
   const { activeChainId, contracts } = useChain();
@@ -311,6 +312,22 @@ export function useUnifiedWrite(): UseUnifiedWriteReturn {
   const unifiedWrite = useCallback(
     async (params: UnifiedWriteParams): Promise<Hex> => {
       log.debug("unifiedWrite.called", { fn: params.functionName, isSmartAccount, smartAccountStatus: smartAccount.status, hasAccount: !!smartAccount.account });
+
+      // Passkey-only user, smartAccount still resolving: writeContractAsync
+      // below would throw a confusing 'Wallet not connected' even though
+      // we DO have a wallet — it's just loading. Surface a precise
+      // 'wallet still loading' error so the caller's catch can show a
+      // helpful toast instead of a misleading wagmi message.
+      if (
+        !isSmartAccount &&
+        !eoaAddress &&
+        smartAccount.status !== "no-passkey"
+      ) {
+        throw new Error(
+          "Wallet still loading — try again in a moment (passkey-only user, smart account resolving)",
+        );
+      }
+
       // EOA path — wagmi unchanged. Cast as any because wagmi's strict
       // ABI inference would require literal abis at every call site.
       if (!isSmartAccount) {
@@ -391,6 +408,16 @@ export function useUnifiedWrite(): UseUnifiedWriteReturn {
   const unifiedWriteAndWait = useCallback(
     async (params: UnifiedWriteParams): Promise<UnifiedWriteAndWaitResult> => {
       log.debug("unifiedWriteAndWait.called", { fn: params.functionName, isSmartAccount, smartAccountStatus: smartAccount.status });
+      // Same passkey-only-still-loading guard as unifiedWrite above.
+      if (
+        !isSmartAccount &&
+        !eoaAddress &&
+        smartAccount.status !== "no-passkey"
+      ) {
+        throw new Error(
+          "Wallet still loading — try again in a moment (passkey-only user, smart account resolving)",
+        );
+      }
       if (!isSmartAccount) {
         const hash = await writeContractAsync({
           address: params.address,

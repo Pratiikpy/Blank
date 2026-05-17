@@ -69,6 +69,12 @@ const encodeFunctionDataMock = vi.hoisted(() => vi.fn());
 vi.mock("wagmi", () => ({
   useWriteContract: useWriteContractMock,
   usePublicClient: usePublicClientMock,
+  // useAccount added when useUnifiedWrite gained the passkey-only
+  // -still-loading guard. Most existing tests exercise the EOA path
+  // which expects an address. Return a stub by default — the guard
+  // only fires when no EOA AND smartAccount not ready, neither of
+  // which applies when this stub address is present.
+  useAccount: () => ({ address: "0x1234567890123456789012345678901234567890" as `0x${string}` }),
 }));
 vi.mock("./useSmartAccount", () => ({ useSmartAccount: useSmartAccountMock }));
 vi.mock("@/providers/ChainProvider", () => ({ useChain: useChainMock }));

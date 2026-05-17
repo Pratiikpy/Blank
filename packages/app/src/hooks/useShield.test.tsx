@@ -83,6 +83,10 @@ const toastFnMock = vi.hoisted(() => vi.fn());
 vi.mock("wagmi", () => ({
   useReadContract: useReadContractMock,
   usePublicClient: usePublicClientMock,
+  // useAccount mock added when useShield gained the passkey-only
+  // -still-loading guard. Returns undefined address — matches the
+  // 'no MetaMask connected' shape the existing tests assume.
+  useAccount: () => ({ address: undefined }),
 }));
 vi.mock("./useEffectiveAddress", () => ({
   useEffectiveAddress: useEffectiveAddressMock,
