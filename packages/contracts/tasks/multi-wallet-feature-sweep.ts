@@ -1845,6 +1845,48 @@ task(
       await publicClient.waitForTransactionReceipt({ hash: stealthHash, confirmations: 1 });
       console.log(`  Carol→Dave (stealth): sendStealth ok  tx=${stealthHash}`);
       results.push({ feature: "stealth_send", persona: "Carol", status: "pass", txHash: stealthHash });
+
+      // Second-leg: Dave (the encrypted recipient) claims with the claim code.
+      // Dave learns the claim code out-of-band (e.g., from Carol over a side
+      // channel); the contract hashes claimCode || recipient to verify.
+      try {
+        const nextTid = (await publicClient.readContract({
+          address: StealthPayments as `0x${string}`,
+          abi: [{ name: "nextTransferId", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] }],
+          functionName: "nextTransferId",
+        })) as bigint;
+        const justCreatedTid = nextTid > 0n ? nextTid - 1n : 0n;
+        const daveWallet = createWalletClient({
+          account: privateKeyToAccount(personas[3]!.privKey),
+          chain,
+          transport: http(rpcUrl),
+        });
+        const claimStealthHash = await withRetry("stealth_claim", () => daveWallet.writeContract({
+          address: StealthPayments as `0x${string}`,
+          abi: [
+            {
+              name: "claimStealth",
+              type: "function",
+              stateMutability: "nonpayable",
+              inputs: [
+                { name: "transferId", type: "uint256" },
+                { name: "claimCode", type: "bytes32" },
+              ],
+              outputs: [],
+            },
+          ],
+          functionName: "claimStealth",
+          args: [justCreatedTid, claimCodeHex],
+          gas: 5_000_000n,
+        }));
+        await publicClient.waitForTransactionReceipt({ hash: claimStealthHash, confirmations: 1 });
+        console.log(`  Dave: claimStealth #${justCreatedTid} ok  tx=${claimStealthHash}`);
+        results.push({ feature: "stealth_claim", persona: "Dave", status: "pass", txHash: claimStealthHash });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message.slice(0, 250) : String(err);
+        console.log(`  Dave: claimStealth FAILED ${msg}`);
+        results.push({ feature: "stealth_claim", persona: "Dave", status: "fail", error: msg });
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message.slice(0, 250) : String(err);
       console.log(`  Carol→Dave: sendStealth FAILED ${msg}`);
