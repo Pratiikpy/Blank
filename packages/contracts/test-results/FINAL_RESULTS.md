@@ -141,6 +141,27 @@ Eth Sepolia tx hash that resolves on the chain's block explorer
 with `status=0x1`. The verify-sweep-state task adds a second
 verification layer by reading on-chain state after the writes.
 
+### verify-sweep-state on-chain state checks
+
+Independent of the sweep's own pass/fail report, the verify-sweep-state
+task reads on-chain state after the writes to confirm the txs actually
+had the intended effect. Latest results:
+
+```
+Base Sepolia: 13 pass / 1 fail / 14 total
+  - 4 personas with ETH + 4 with TestUSDC + vault totalDeposited > 0
+  - GroupManager.nextGroupId > 0
+  - InheritanceManager.getPlan(Carol).heir == Dave + active
+  - CreatorHub.hasProfile(Bob)
+  - (1 fail: GroupManager isMember window-scan; Base has 28+ groups
+    from concurrent deployers and the scan didn't reach ours.
+    Settled by Eth Sepolia where the scan found group 1.)
+
+Eth Sepolia:  14 pass / 0 fail / 14 total
+  - All of the above, PLUS
+  - recent group with all 4 personas as members → groupId=1
+```
+
 ## Independent JSON-RPC audit (3rd layer)
 
 [`audit-sweep.py`](audit-sweep.py) — a standalone Python audit that
