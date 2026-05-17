@@ -17,31 +17,31 @@ Status legend:
 
 | Route | Screen file | Status | Suite phase | Notes |
 |-------|-------------|--------|-------------|-------|
-| `/app` | `Dashboard.tsx` | Gap (read-only) | — | Judge's first screen. Needs render-OK assertion + screenshot. |
+| `/app` | `Dashboard.tsx` | Covered (read-only) | P13 render sweep | h1-visible + screenshot. |
 | `/app/wallet` | `SmartWallet.tsx` | Covered | P1 bootstrap, P2 shield | `shieldUsdc` helper drives it. |
 | `/app/send` | `SendContacts/Amount/Confirm/Success.tsx` | Covered | P2 P2P, P12 mobile P2P | Full 4-step flow. |
-| `/app/history` | `History.tsx` | Gap (read-only) | — | Judge expects to see all txs post-suite. Render check needed. |
-| `/app/explore` | `Explore.tsx` | Gap (read-only) | — | Public deep-link explorer. Needs render check. |
+| `/app/history` | `History.tsx` | Covered (read-only) | P13 render sweep | h1-visible + screenshot. |
+| `/app/explore` | `Explore.tsx` | Covered (read-only) | P13 render sweep | h1-visible + screenshot. |
 | `/app/business` | `BusinessTools.tsx` (Invoice + Payroll + Escrow tabs) | Covered | P3 invoice, P3 payroll, P4 escrow | All three tabs exercised. |
 | `/app/groups` | `Groups.tsx` | Gap (action) | — | Group splits — passkey-signed group create + contribution. Realistic Wave 4 demo flow. |
 | `/app/creators` | `CreatorSupport.tsx` | Gap (action) | — | Creator support tipping. Passkey-signed tip flow. |
 | `/app/swap` | `Swap.tsx`, `DexSwapTab.tsx` | Gap (action) | — | Encrypted swap via MockDEX. Passkey-signed swap. |
 | `/app/requests` | `Requests.tsx` | Gap (action) | — | Payment requests (encrypted invoices to specific wallets). |
-| `/app/contacts` | `Contacts.tsx` | Gap (read-only) | — | Contact book render check. |
+| `/app/contacts` | `Contacts.tsx` | Covered (read-only) | P13 render sweep | h1-visible + screenshot. |
 | `/app/stealth` | `Stealth.tsx` | Covered | P7 privacy | Alice sends to Bob's stealth. |
 | `/app/stealth/setup` | `StealthMetaSetup.tsx` | Covered | P7 privacy | Bob registers stealth keys. |
 | `/app/stealth/inbox` | `StealthInbox.tsx` | Covered | P7 privacy | Bob's scanner detects. |
 | `/app/burners` | `Burners.tsx` | Gap (action) | — | Burner addresses for one-time receive. Passkey-signed burner create. |
 | `/app/inheritance` | `InheritancePlanning.tsx` | Gap (action) | — | Heir setup + check-in flow. Passkey-signed inheritance create. |
 | `/app/proofs` | `Proofs.tsx` | Covered | P7 income-proof | Auto-publish ON regression pin. |
-| `/app/privacy` | `Privacy.tsx` | Gap (read-only) | — | Privacy settings render check. |
+| `/app/privacy` | `Privacy.tsx` | Covered (read-only) | P13 render sweep | h1-visible + screenshot. |
 | `/app/gifts` | `Gifts.tsx` | Gap (action) | — | Gift money flow — passkey-signed gift create + claim. |
 | `/app/scheduled` | `ScheduledSends.tsx` | Gap (action) | — | Scheduled sends — passkey-signed schedule create + cron tick. |
 | `/app/agents` | `AgentPayments.tsx` | Gap (action) | — | Agent payments — passkey-signed agent allowance + spend. |
-| `/app/analytics` | `Analytics.tsx` | Gap (read-only) | — | Revenue dashboard render check. |
-| `/app/profile` | `Profile.tsx` | Gap (read-only) | — | Profile / ENS render check. |
-| `/app/settings` | `Settings.tsx` | Gap (read-only) | — | App settings render check. |
-| `/app/help` | `Help.tsx` | Gap (read-only) | — | Help center render check. |
+| `/app/analytics` | `Analytics.tsx` | Covered (read-only) | P13 render sweep | h1-visible + screenshot. |
+| `/app/profile` | `Profile.tsx` | Covered (read-only) | P13 render sweep | h1-visible + screenshot. |
+| `/app/settings` | `Settings.tsx` | Covered (read-only) | P13 render sweep | h1-visible + screenshot. |
+| `/app/help` | `Help.tsx` | Covered (read-only) | P13 render sweep | h1-visible + screenshot. |
 | `/app/claim-link` | `CreateClaimLink.tsx` | Covered | P5 deep-link create | 3 modes (Public/AddressBound/PasscodeBound). |
 | `/app/sell` | `CreateListing.tsx` | Covered | P5 deep-link create | Auction with 3-bid sequence. |
 | `/app/fundraise` | `CreateCampaign.tsx` | Covered | P5 deep-link create | Campaign create + P6 contribute. |
@@ -50,7 +50,7 @@ Status legend:
 | `/shop/:slug/:id` | `StorefrontPage.tsx` | Covered | P6 deep-link consume | 3-bid auction. |
 | `/fund/:chainId/:id` | `CrowdfundPage.tsx` | Covered | P6 deep-link consume | Cumulative contributions. |
 | `/i/:id` | `InvoicePage.tsx` | Covered (read-only) | P3 invoice create | Public invoice render. Pay-the-invoice flow path is via /app/send (covered) but the public page itself only needs render assertion. |
-| `/tx/:hash` | `TransactionDetail.tsx` | Gap (read-only) | — | Tx detail page — judge clicks an explorer-style link, lands here. Render check needed. |
+| `/tx/:hash` | `TransactionDetail.tsx` | Covered (read-only) | P13 render sweep | Bogus hash → graceful render (h1 visible). |
 | `/app/bridge` | `Bridge.tsx` | Out of scope | — | Cross-chain bridge — depends on Circle CCTP integration not finalized in Wave 4. Flag as "post-launch" in UI. |
 | `/v/:proofId` | (og:image render) | Covered | P7 income-proof | Auto-publish ON verifies og:image renders. |
 | `/verify/:proofId` | `Proofs.tsx` (SPA route) | Covered | P7 income-proof + P6 F1 error | Happy + error path. |
@@ -107,7 +107,9 @@ Each `/loop 1m` fire ships ONE gap closure:
 
 ## Status (live)
 
-- **Audit doc written:** fire 1 ← THIS commit
-- **Gaps closed:** 0 of 22
-- **Suite-covered screens:** 18 of 40 (45%)
+- **Audit doc written:** fire 1
+- **Fire 2 — read-only render sweep landed:** phases/13-render-sweep.spec.ts covers Dashboard, History, Explore, Contacts, Privacy, Analytics, Profile, Settings, Help, TransactionDetail (10 screens × 2 chains = 20 proof entries, synthetic 0x0...0 hash, h1-visible assertion + screenshot per screen)
+- **Gaps closed:** 10 of 22 (all read-only)
+- **Suite-covered screens:** 28 of 40 (70%)
+- **Remaining action gaps:** 11 (Groups, CreatorSupport, Swap, Requests, Burners, Inheritance, Gifts, ScheduledSends, AgentPayments, Onboarding, Bridge-as-OOS)
 - **After plan complete:** 39 of 40 covered (97.5% — `/app/bridge` declared out of scope)

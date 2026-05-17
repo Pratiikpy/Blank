@@ -94,6 +94,18 @@ const EXPECTED: ExpectedCoverage[] = [
   { phasePrefix: "P12 Mobile Sweep · BottomNav", chainIds: BOTH, requiresRealTx: false, desc: "Mobile BottomNav + More sheet UX coverage" },
   { phasePrefix: "P12 Mobile Sweep · mobile P2P", chainIds: BOTH, requiresRealTx: true, desc: "Mobile P2P send happy path" },
   { phasePrefix: "P12 Mobile Sweep · public surface", chainIds: BOTH, requiresRealTx: false, desc: "Mobile public-URL CTA reachability" },
+
+  // ─── Phase 13: read-only screen render sweep ──────────────────
+  { phasePrefix: "P13 Render Sweep · Dashboard", chainIds: BOTH, requiresRealTx: false, desc: "Dashboard h1 visible + screenshot" },
+  { phasePrefix: "P13 Render Sweep · History", chainIds: BOTH, requiresRealTx: false, desc: "History list page render check" },
+  { phasePrefix: "P13 Render Sweep · Explore", chainIds: BOTH, requiresRealTx: false, desc: "Explore (public deep-link discovery) render check" },
+  { phasePrefix: "P13 Render Sweep · Contacts", chainIds: BOTH, requiresRealTx: false, desc: "Contacts (address book) render check" },
+  { phasePrefix: "P13 Render Sweep · Privacy", chainIds: BOTH, requiresRealTx: false, desc: "Privacy settings render check" },
+  { phasePrefix: "P13 Render Sweep · Analytics", chainIds: BOTH, requiresRealTx: false, desc: "Analytics dashboard render check" },
+  { phasePrefix: "P13 Render Sweep · Profile", chainIds: BOTH, requiresRealTx: false, desc: "Profile (ENS) render check" },
+  { phasePrefix: "P13 Render Sweep · Settings", chainIds: BOTH, requiresRealTx: false, desc: "Settings render check" },
+  { phasePrefix: "P13 Render Sweep · Help", chainIds: BOTH, requiresRealTx: false, desc: "Help center render check" },
+  { phasePrefix: "P13 Render Sweep · TransactionDetail", chainIds: BOTH, requiresRealTx: false, desc: "Tx detail (bogus hash → graceful render)" },
 ];
 
 const ZERO_HASH = `0x${"0".repeat(64)}`;
