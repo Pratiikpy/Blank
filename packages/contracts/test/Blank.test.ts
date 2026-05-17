@@ -1303,6 +1303,65 @@ describe("InheritanceManager finalizeClaim mutex (#185)", () => {
       ctx.inheritanceManager.connect(heir).finalizeClaim(principal.address, [encMax2]),
     ).to.be.revertedWith("InheritanceManager: claim already finalized");
   });
+
+  // CRITICAL: regression pin for the principal-locked-out-forever bug
+  // found in the /goal-session contract audit. claimFinalized was a
+  // forever-mutex per principal; once any heir succeeded, the
+  // principal could NEVER have a working inheritance plan again — a
+  // re-setHeir + re-startClaim + finalizeClaim path would revert at
+  // require(!claimFinalized[principal]) even with a brand-new heir.
+  //
+  // Fix: setHeir clears claimFinalized[msg.sender]. This test
+  // exercises the FULL second-plan lifecycle to prove the new heir
+  // can finalize.
+  it("principal can re-create a plan after a prior heir finalized (mutex reset on setHeir)", async () => {
+    const ctx = await deployInheritanceFixture();
+    const principal = ctx.alice;
+    const heir1 = ctx.bob;
+    const heir2 = ctx.charlie;
+    const MIN_INACTIVITY = 30 * 24 * 3600;
+    const CHALLENGE = 7 * 24 * 3600;
+    const MAX = (1n << 64n) - 1n;
+
+    // ─── First plan: heir1 (Bob) drains. ───────────────────────────
+    await shield(ctx, principal, usdc(100));
+    await ctx.inheritanceManager.connect(principal).setHeir(heir1.address, MIN_INACTIVITY);
+    await ctx.inheritanceManager.connect(principal).setVaults([await ctx.vault.getAddress()]);
+    await approveHub(ctx, principal, await ctx.inheritanceManager.getAddress());
+    await hre.network.provider.send("evm_increaseTime", [MIN_INACTIVITY + 1]);
+    await hre.network.provider.send("evm_mine", []);
+    await ctx.inheritanceManager.connect(heir1).startClaim(principal.address);
+    await hre.network.provider.send("evm_increaseTime", [CHALLENGE + 1]);
+    await hre.network.provider.send("evm_mine", []);
+    const enc1 = await encUint64(ctx, heir1, MAX);
+    await ctx.inheritanceManager.connect(heir1).finalizeClaim(principal.address, [enc1]);
+    expect(await ctx.inheritanceManager.claimFinalized(principal.address)).to.equal(true);
+
+    // ─── Principal receives fresh funds + creates a new plan with heir2. ──
+    // Pre-fix bug: claimFinalized[principal] stayed true, blocking
+    // any future heir from finalizing.
+    await shield(ctx, principal, usdc(50));
+    await ctx.inheritanceManager.connect(principal).setHeir(heir2.address, MIN_INACTIVITY);
+    // setHeir MUST clear the mutex.
+    expect(await ctx.inheritanceManager.claimFinalized(principal.address)).to.equal(false);
+
+    // ─── Second plan: heir2 (Charlie) drains. Should succeed. ──────
+    await ctx.inheritanceManager.connect(principal).setVaults([await ctx.vault.getAddress()]);
+    await approveHub(ctx, principal, await ctx.inheritanceManager.getAddress());
+    await hre.network.provider.send("evm_increaseTime", [MIN_INACTIVITY + 1]);
+    await hre.network.provider.send("evm_mine", []);
+    await ctx.inheritanceManager.connect(heir2).startClaim(principal.address);
+    await hre.network.provider.send("evm_increaseTime", [CHALLENGE + 1]);
+    await hre.network.provider.send("evm_mine", []);
+    const enc2 = await encUint64(ctx, heir2, MAX);
+    // CRITICAL: pre-fix this would revert with "claim already finalized".
+    await expect(
+      ctx.inheritanceManager.connect(heir2).finalizeClaim(principal.address, [enc2]),
+    ).to.not.be.reverted;
+
+    // Heir2's claim succeeds; the mutex flips again for the new plan.
+    expect(await ctx.inheritanceManager.claimFinalized(principal.address)).to.equal(true);
+  });
 });
 
 // ══════════════════════════════════════════════════════════════════

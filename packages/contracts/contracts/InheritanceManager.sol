@@ -82,6 +82,18 @@ contract InheritanceManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
         plan.active = true;
         // plan.vaults is preserved from any previous setVaults call
 
+        // Clear the post-finalize mutex. Without this, a principal who
+        // outlives a heir's finalizeClaim (or who receives fresh funds
+        // after the original heir drained the vault) could never have
+        // a working inheritance plan again — claimFinalized[principal]
+        // would stay true forever and block any future heir at the
+        // require(!claimFinalized[...]) check in finalizeClaim. The
+        // mutex's purpose is "one-time-per-plan", not "one-time-forever-
+        // per-principal"; setHeir starts a fresh plan, so clear it.
+        if (claimFinalized[msg.sender]) {
+            claimFinalized[msg.sender] = false;
+        }
+
         emit HeirSet(msg.sender, heir, inactivityPeriod, block.timestamp);
         try eventHub.emitActivity(msg.sender, heir, "heir_set", "", 0) {} catch {}
     }
