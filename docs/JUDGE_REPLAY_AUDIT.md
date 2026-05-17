@@ -1,5 +1,39 @@
 # Judge replay audit — does every UI surface have passkey coverage?
 
+## Fixes applied (/goal session, 2026-05-17)
+
+After surfacing 38 launch-readiness items during fires 7-13, a follow-on
+`/goal` session shipped fixes for the highest-stakes ones. 7 commits,
+~30 real fixes, 5876 tests still green.
+
+### P1 launch-blockers (3 of 3 fixed)
+- **Burners delete copy** — was misleadingly saying "Funds in it stay safe" when on testnets without BurnerRegistry the salt is local-only + deletion is unrecoverable. Now branches on registry deployment + spells out the consequences in both paths. (`6fa0fda` + `d27b085`)
+- **Inheritance client-clock countdown** — `daysRemaining` now uses on-chain `block.timestamp` (polled every 10s) reconciled with `Date.now()` fallback only until the first fetch resolves. Same `blockTimestamp ?? now` pattern AgentPayments already used. Fixed in 3 callsites: main screen, HeirAssignmentCard sub-component, owner-claim grace period. (`6fa0fda`)
+- **Onboarding "guardian setup" mention** — disclosure no longer references the unshipped guardian feature; rewritten to honest "pick something you'll remember, save a backup somewhere safe". (`6fa0fda`)
+
+### P2 quick-wins (3 of 10 fixed; rest follow same pattern)
+- **Gifts `Math.random()` → `crypto.getRandomValues()`** — `computeRandomSplits` now uses CSPRNG. Property-based tests pass unchanged. (`14e8a33`)
+- **Inheritance Remove Plan copy** — old text was vague ("deactivate your dead man's switch"); now spells out "heir will no longer be able to claim, even if you stop checking in. Setting up a new plan requires waiting the inactivity period again." (`14e8a33`)
+- **Burners gate banner** — replaced desktop-only `title=` tooltip with a full amber banner above the burner list when BurnerRegistry isn't deployed. Mobile-visible. Mirrors the ScheduledSends gate pattern. (`14e8a33`)
+
+### Cross-cutting fixes
+- **24-site raw-error toast sweep** — replaced `toast.error(err.message)` with `toastMappedError(err)` across 7 screens + 5 hooks + 1 component. Three real wins: humanized error copy, cancelled-prompt suppression, single point of change. New `toastMappedError` helper centralizes the pattern. (`d27b085`)
+- **Error-message regex over-broad `/erc20/i` pattern tightened** — was mis-mapping all ERC20-family errors as "Approval needed". Now only matches canonical allowance shapes. (`dbd272c`)
+- **URL-param hardening on 4 public deep-link pages** — `Number.isFinite` alone accepted 1.5 which BigInt() would reject; tightened to also require `Number.isInteger` + non-negative. ClaimLinkPage / StorefrontPage / CrowdfundPage / InvoicePage. (`e587a69`)
+
+### Test suite
+- **23 test assertions updated** to match the new humanized error output. Most upgraded from `toHaveBeenCalledWith("raw msg")` to `toHaveBeenCalledWith(expect.stringContaining("part"), undefined)`. (`59fdac6`)
+- **2 load-bearing copy assertions rewritten** to validate the fixed copy: Burners delete "unrecoverable + cannot be undone" + Inheritance Remove "heir will no longer be able to claim + cannot be undone".
+- **All 5876 tests pass** across 257 files.
+
+### Remaining as future work
+- 7 P2 items (mostly UI polish: desktop-only tooltips, missing live validation, missing strength meters)
+- 25 P3 items (mostly minor UX polish + nice-to-have features)
+- Contract-level audit (Solidity, requires deeper expertise + on-chain time)
+- Full e2e run (requires the user's Playwright env that's currently in use)
+
+The pattern wins identified in the walkthrough (cross-screen pattern table below) are now propagated where applicable. The honest-gate UX is consistent across Burners + ScheduledSends. The block-timestamp reconciliation is consistent across AgentPayments + Inheritance.
+
 ## Executive summary (fire 14 handoff)
 
 Result of 14 cron-driven fires reading + spec-covering every screen:
