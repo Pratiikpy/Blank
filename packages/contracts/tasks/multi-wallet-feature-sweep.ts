@@ -564,19 +564,22 @@ task(
         .encryptInputs([Encryptable.uint64(PAY_AMOUNT)])
         .execute()) as Array<{ ctHash: bigint; securityZone: number; utype: number; signature: Hex }>;
 
+      // Real signature is createEnvelope(vault, recipients[], shares[],
+      // note, expiryTimestamp) — sendGift was the wrong selector name
+      // and the wrong arg layout. Fixed both.
       const giftHash = await aliceWallet.writeContract({
         address: GiftMoney as `0x${string}`,
         abi: [
           {
-            name: "sendGift",
+            name: "createEnvelope",
             type: "function",
             stateMutability: "nonpayable",
             inputs: [
-              { name: "recipient", type: "address" },
               { name: "vault", type: "address" },
+              { name: "recipients", type: "address[]" },
               {
-                name: "encAmount",
-                type: "tuple",
+                name: "shares",
+                type: "tuple[]",
                 components: [
                   { name: "ctHash", type: "uint256" },
                   { name: "securityZone", type: "uint8" },
@@ -584,14 +587,20 @@ task(
                   { name: "signature", type: "bytes" },
                 ],
               },
-              { name: "themeId", type: "uint8" },
               { name: "note", type: "string" },
+              { name: "expiryTimestamp", type: "uint256" },
             ],
-            outputs: [{ name: "giftId", type: "uint256" }],
+            outputs: [{ type: "uint256" }],
           },
         ],
-        functionName: "sendGift",
-        args: [personas[1]!.address, Vault as `0x${string}`, encGift, 0, "wave4 sweep gift"],
+        functionName: "createEnvelope",
+        args: [
+          Vault as `0x${string}`,
+          [personas[1]!.address],
+          [encGift],
+          "wave4 sweep gift",
+          0n,
+        ],
         gas: 5_000_000n,
       });
       await waitOk(giftHash, "giftHash");
@@ -673,6 +682,11 @@ task(
         .encryptInputs([Encryptable.uint64(parseUnits("2", 6))])
         .execute()) as Array<{ ctHash: bigint; securityZone: number; utype: number; signature: Hex }>;
 
+      // Real signature: createEscrow(beneficiary, vault, encAmount,
+      // description, arbiter, deadline) — my prior sweep had arbiter
+      // before description and was missing deadline entirely. Contract
+      // also requires deadline >= block.timestamp + 1 day, so use 7d.
+      const escrowDeadline = BigInt(Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60);
       const escrowHash = await withRetry("escrow_create", () => aliceWallet.writeContract({
         address: EncryptedEscrow as `0x${string}`,
         abi: [
@@ -693,14 +707,22 @@ task(
                   { name: "signature", type: "bytes" },
                 ],
               },
-              { name: "arbiter", type: "address" },
               { name: "description", type: "string" },
+              { name: "arbiter", type: "address" },
+              { name: "deadline", type: "uint256" },
             ],
-            outputs: [{ name: "escrowId", type: "uint256" }],
+            outputs: [{ type: "uint256" }],
           },
         ],
         functionName: "createEscrow",
-        args: [personas[1]!.address, Vault as `0x${string}`, encEscrow, personas[2]!.address, "wave4 sweep escrow"],
+        args: [
+          personas[1]!.address,
+          Vault as `0x${string}`,
+          encEscrow,
+          "wave4 sweep escrow",
+          personas[2]!.address,
+          escrowDeadline,
+        ],
         gas: 5_000_000n,
       }));
       await waitOk(escrowHash, "escrowHash");
