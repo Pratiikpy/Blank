@@ -275,7 +275,12 @@ describe("Burners — create form (§15.x)", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    expect(toastErrorMock).toHaveBeenCalledWith("derive failed");
+    // toastMappedError wraps with the "Transaction failed — {msg}"
+    // default when no pattern matches.
+    expect(toastErrorMock).toHaveBeenCalledWith(
+      expect.stringContaining("derive failed"),
+      undefined,
+    );
   });
 
   it("empty label submit -> 'Give the burner a label' toast (defensive button-gate-bypass)", async () => {
@@ -402,7 +407,13 @@ describe("Burners — rename inline (§15.x)", () => {
 });
 
 describe("Burners — delete flow (§15.x)", () => {
-  it("CRITICAL window.confirm copy: 'address still exists on-chain' + 'Funds in it stay safe'", () => {
+  it("CRITICAL window.confirm copy: honest about salt-loss + irreversibility (post-P1 fix)", () => {
+    // The original copy said "Funds in it stay safe" which was MISLEADING
+    // — the salt is local-only CSPRNG, so without on-chain backup
+    // (BurnerRegistry undeployed on testnets) deleting destroys the
+    // private key + locks any funds at that address forever. Walkthrough
+    // P1 fix rewrote the copy to spell this out + branch on registry
+    // deployment state. This test now asserts the new honest copy.
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
     setBurners([buildBurner({ label: "Test burner" })]);
     const { getByLabelText } = render(<Burners />);
@@ -410,9 +421,9 @@ describe("Burners — delete flow (§15.x)", () => {
     const msg = confirmSpy.mock.calls[0][0] as string;
     expect(msg).toContain("Delete");
     expect(msg).toContain("Test burner");
-    expect(msg).toContain("address still exists on-chain");
-    expect(msg).toContain("deterministic from your passkey + salt");
-    expect(msg).toContain("Funds in it stay safe");
+    // Either branch (registry deployed OR not) must contain these:
+    expect(msg).toContain("unrecoverable");
+    expect(msg).toContain("This cannot be undone.");
   });
 
   it("confirm=false -> deleteBurner NOT called", () => {

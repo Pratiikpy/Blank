@@ -1011,7 +1011,9 @@ describe("useExchange — verifyTrade (§15.x)", () => {
     });
     expect(r).toBeNull();
     expect(toastErrorMock).toHaveBeenCalledWith(
-      expect.stringContaining("Decryption timed out"),
+      // mapError catches /timeout|timed out/i and returns the
+      // humanized "Timeout — ..." copy. Assert the title is right.
+      expect.stringContaining("Timeout"),
       expect.any(Object),
     );
   });

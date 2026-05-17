@@ -719,6 +719,7 @@ describe("useBusinessHub — finalizeInvoice (§15.x)", () => {
     });
     expect(toastErrorMock).toHaveBeenCalledWith(
       expect.stringContaining("Invoice not paid yet"),
+      undefined,
     );
     expect(unifiedWriteAndWaitMock).toHaveBeenCalledTimes(0);
   });
@@ -802,7 +803,12 @@ describe("useBusinessHub — finalizeInvoice (§15.x)", () => {
       await p;
     });
     expect(toastErrorMock).toHaveBeenCalledWith(
-      expect.stringContaining("Decryption timed out"),
+      // mapError catches /timeout|timed out/i and returns the
+      // "Timeout — ..." humanized message, which no longer contains
+      // the literal "Decryption timed out" substring. Assert the
+      // user-visible title instead.
+      expect.stringContaining("Timeout"),
+      undefined,
     );
     vi.useRealTimers();
   });

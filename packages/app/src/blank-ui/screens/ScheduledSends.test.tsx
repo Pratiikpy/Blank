@@ -583,6 +583,11 @@ describe("ScheduledSends — handleCreate flow + stub-mode banner (§15.x)", () 
       await Promise.resolve();
       await Promise.resolve();
     });
-    expect(toastErrorMock).toHaveBeenCalledWith("KMS down");
+    // toastMappedError wraps unknown errors with the default "Transaction
+    // failed — {message}" shape, then passes undefined as the toast id.
+    expect(toastErrorMock).toHaveBeenCalledWith(
+      "Transaction failed — KMS down",
+      undefined,
+    );
   });
 });

@@ -850,7 +850,10 @@ describe("Groups — receipt OCR (§15.x)", () => {
     Object.defineProperty(fileInput, "files", { value: [file], configurable: true });
     fireEvent.change(fileInput);
     await flush();
-    expect(toastErrorMock).toHaveBeenCalledWith("wasm load failed", expect.any(Object));
+    expect(toastErrorMock).toHaveBeenCalledWith(
+      expect.stringContaining("wasm load failed"),
+      expect.any(Object),
+    );
   });
 });
 

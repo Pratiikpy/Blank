@@ -407,7 +407,14 @@ describe("UpgradeBanner — upgrade error handling (§15.x)", () => {
     render(<UpgradeBanner />);
     fireEvent.click(screen.getByTestId("upgrade-banner-cta"));
     await waitFor(() => {
-      expect(toastErrorMock).toHaveBeenCalledWith("nonce mismatch");
+      // mapError catches /nonce|replacement transaction underpriced/i
+      // and returns 'Transaction stuck — A previous transaction is...'.
+      // Assert the title; the user-visible string changed from the
+      // raw err.message to the humanized form (P3 walkthrough fix).
+      expect(toastErrorMock).toHaveBeenCalledWith(
+        expect.stringContaining("Transaction stuck"),
+        undefined,
+      );
     });
   });
 
@@ -416,7 +423,12 @@ describe("UpgradeBanner — upgrade error handling (§15.x)", () => {
     render(<UpgradeBanner />);
     fireEvent.click(screen.getByTestId("upgrade-banner-cta"));
     await waitFor(() => {
-      expect(toastErrorMock).toHaveBeenCalledWith("Upgrade failed");
+      // toastMappedError(string) → mapError extracts the string →
+      // no pattern match → default 'Transaction failed — string error'.
+      expect(toastErrorMock).toHaveBeenCalledWith(
+        expect.stringContaining("Transaction failed"),
+        undefined,
+      );
     });
   });
 

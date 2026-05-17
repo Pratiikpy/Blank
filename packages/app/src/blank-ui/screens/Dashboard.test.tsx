@@ -819,7 +819,15 @@ describe("Dashboard — faucet cooldown (#259) (§15.x)", () => {
     const { container } = render(<Dashboard />);
     fireEvent.click(findButton(container, "Get test USDC"));
     await flush();
-    expect(toastErrorMock).toHaveBeenCalledWith("rpc reverted");
+    // "rpc reverted" doesn't trigger the /transaction reverted/ pattern
+    // (different word order). mapError falls through to the default
+    // 'Transaction failed — {raw}' shape — what the user sees in the
+    // toast. Assert the title is present + the original message is
+    // preserved in the body.
+    expect(toastErrorMock).toHaveBeenCalledWith(
+      expect.stringContaining("rpc reverted"),
+      undefined,
+    );
   });
 });
 

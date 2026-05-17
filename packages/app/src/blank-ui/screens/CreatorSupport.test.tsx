@@ -364,7 +364,12 @@ describe("CreatorSupport — create profile form (§15.x)", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    expect(toastErrorMock).toHaveBeenCalledWith("Transaction reverted");
+    // mapError catches /transaction reverted/i and returns the
+    // humanized "Transaction reverted — The contract rejected..." copy.
+    expect(toastErrorMock).toHaveBeenCalledWith(
+      expect.stringContaining("Transaction reverted"),
+      undefined,
+    );
   });
 });
 

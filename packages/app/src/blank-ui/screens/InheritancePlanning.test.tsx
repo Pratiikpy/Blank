@@ -47,7 +47,17 @@ const fetchHeirAssignmentsMock = vi.hoisted(() => vi.fn());
 const toastErrorMock = vi.hoisted(() => vi.fn());
 const toastSuccessMock = vi.hoisted(() => vi.fn());
 
-vi.mock("wagmi", () => ({ useReadContract: useReadContractMock }));
+vi.mock("wagmi", () => ({
+  useReadContract: useReadContractMock,
+  // HeirAssignmentCard polls block.timestamp for clock-skew defense
+  // (P1 walkthrough fix). Tests don't care about the polling output;
+  // they need usePublicClient to return SOMETHING that's truthy but
+  // non-functional so the useEffect's early-return-on-fetch-failure
+  // catch swallows the test-env limitation.
+  usePublicClient: () => ({
+    getBlock: async () => { throw new Error("test: not implemented"); },
+  }),
+}));
 vi.mock("@/hooks/useInheritance", () => ({ useInheritance: useInheritanceMock }));
 vi.mock("@/hooks/useEffectiveAddress", () => ({
   useEffectiveAddress: useEffectiveAddressMock,
@@ -91,6 +101,7 @@ function setInheritance(over: {
     startClaim: vi.fn(),
     finalizeClaim: vi.fn(),
     isProcessing: over.isProcessing ?? false,
+    blockTimestamp: null,
   });
   return useInheritanceMock.mock.results[0]?.value ?? useInheritanceMock();
 }
@@ -271,6 +282,7 @@ describe("InheritancePlanning — Check In Now (§15.x)", () => {
       startClaim: vi.fn(),
       finalizeClaim: vi.fn(),
       isProcessing: false,
+      blockTimestamp: null,
     });
     const { container } = render(<InheritancePlanning />);
     fireEvent.click(findButton(container, "Check In Now"));
@@ -287,6 +299,7 @@ describe("InheritancePlanning — Check In Now (§15.x)", () => {
       startClaim: vi.fn(),
       finalizeClaim: vi.fn(),
       isProcessing: true,
+      blockTimestamp: null,
     });
     const { container } = render(<InheritancePlanning />);
     const btn = findButton(container, "Sending heartbeat");
@@ -308,6 +321,7 @@ describe("InheritancePlanning — removeHeir (§15.x)", () => {
       startClaim: vi.fn(),
       finalizeClaim: vi.fn(),
       isProcessing: false,
+      blockTimestamp: null,
     });
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
     const { container } = render(<InheritancePlanning />);
@@ -319,7 +333,13 @@ describe("InheritancePlanning — removeHeir (§15.x)", () => {
     confirmSpy.mockRestore();
   });
 
-  it("confirm copy mentions 'dead man's switch' (load-bearing user disclosure)", () => {
+  it("confirm copy spells out heir-can-no-longer-claim + irreversibility (post-P2 fix)", () => {
+    // The old copy was "Remove inheritance plan? This will deactivate
+    // your dead man's switch." — too vague. P2 walkthrough fix made
+    // the copy explicit about consequences: heir can no longer claim,
+    // setting up a new plan requires waiting the inactivity period
+    // again, action is irreversible. The new test asserts the user-
+    // protective specifics rather than a single buzzphrase.
     const removeHeir = vi.fn();
     useInheritanceMock.mockReturnValue({
       plan: planFromNow(),
@@ -330,12 +350,15 @@ describe("InheritancePlanning — removeHeir (§15.x)", () => {
       startClaim: vi.fn(),
       finalizeClaim: vi.fn(),
       isProcessing: false,
+      blockTimestamp: null,
     });
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     const { container } = render(<InheritancePlanning />);
     fireEvent.click(findButton(container, "Remove Inheritance Plan"));
     const msg = confirmSpy.mock.calls[0][0] as string;
-    expect(msg).toContain("dead man's switch");
+    expect(msg).toContain("Remove inheritance plan");
+    expect(msg).toContain("heir will no longer be able to claim");
+    expect(msg).toContain("cannot be undone");
     confirmSpy.mockRestore();
   });
 });
@@ -371,6 +394,7 @@ describe("InheritancePlanning — Set Heir modal (§15.x)", () => {
       startClaim: vi.fn(),
       finalizeClaim: vi.fn(),
       isProcessing: false,
+      blockTimestamp: null,
     });
     const { container } = render(<InheritancePlanning />);
     fireEvent.click(findButton(container, "Set Up Inheritance Plan"));
@@ -392,6 +416,7 @@ describe("InheritancePlanning — Set Heir modal (§15.x)", () => {
       startClaim: vi.fn(),
       finalizeClaim: vi.fn(),
       isProcessing: false,
+      blockTimestamp: null,
     });
     const { container } = render(<InheritancePlanning />);
     fireEvent.click(findButton(container, "Set Up Inheritance Plan"));
@@ -414,6 +439,7 @@ describe("InheritancePlanning — Set Heir modal (§15.x)", () => {
       startClaim: vi.fn(),
       finalizeClaim: vi.fn(),
       isProcessing: false,
+      blockTimestamp: null,
     });
     const { container } = render(<InheritancePlanning />);
     fireEvent.click(findButton(container, "Set Up Inheritance Plan"));
@@ -601,6 +627,7 @@ describe("InheritancePlanning — Start Claim (§15.x)", () => {
       startClaim,
       finalizeClaim: vi.fn(),
       isProcessing: false,
+      blockTimestamp: null,
     });
     const { container } = render(<InheritancePlanning />);
     const input = container.querySelector(
@@ -623,6 +650,7 @@ describe("InheritancePlanning — Start Claim (§15.x)", () => {
       startClaim,
       finalizeClaim: vi.fn(),
       isProcessing: false,
+      blockTimestamp: null,
     });
     const { container } = render(<InheritancePlanning />);
     const input = container.querySelector(
@@ -729,6 +757,7 @@ describe("InheritancePlanning — Finalize Claim 3-state gating (audit Top-28 #2
       startClaim: vi.fn(),
       finalizeClaim,
       isProcessing: false,
+      blockTimestamp: null,
     });
     useReadContractMock.mockReturnValue({
       data: [HEIR, BigInt(30 * 86400), BigInt(now - 31 * 86400), BigInt(now - 8 * 86400), true, [VAULT_USDC]],
@@ -879,6 +908,7 @@ describe("InheritancePlanning — Vault selector modal (§15.x)", () => {
       startClaim: vi.fn(),
       finalizeClaim: vi.fn(),
       isProcessing: false,
+      blockTimestamp: null,
     });
     const { container } = render(<InheritancePlanning />);
     fireEvent.click(findButton(container, "Manage Vaults"));
@@ -901,6 +931,7 @@ describe("InheritancePlanning — Vault selector modal (§15.x)", () => {
       startClaim: vi.fn(),
       finalizeClaim: vi.fn(),
       isProcessing: false,
+      blockTimestamp: null,
     });
     const { container } = render(<InheritancePlanning />);
     fireEvent.click(findButton(container, "Manage Vaults"));

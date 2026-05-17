@@ -354,7 +354,10 @@ describe("useInheritance — setHeir (§15.x)", () => {
     await act(async () => {
       await result.current.setHeir(HEIR, 30);
     });
-    expect(toastErrorMock).toHaveBeenCalledWith("Transaction reverted on-chain");
+    expect(toastErrorMock).toHaveBeenCalledWith(
+      expect.stringContaining("Transaction reverted"),
+      undefined,
+    );
     expect(insertActivityMock).toHaveBeenCalledTimes(0);
     expect(broadcastActionMock).toHaveBeenCalledTimes(0);
   });
@@ -551,7 +554,10 @@ describe("useInheritance — setVaults (§15.x)", () => {
     await act(async () => {
       await result.current.setVaults([VAULT]);
     });
-    expect(toastErrorMock).toHaveBeenCalledWith("Transaction reverted on-chain");
+    expect(toastErrorMock).toHaveBeenCalledWith(
+      expect.stringContaining("Transaction reverted"),
+      undefined,
+    );
     expect(insertActivityMock).toHaveBeenCalledTimes(0);
   });
 });
@@ -706,7 +712,10 @@ describe("useInheritance — finalizeClaim (§15.x)", () => {
     await act(async () => {
       await result.current.finalizeClaim(OWNER, 1);
     });
-    expect(toastErrorMock).toHaveBeenCalledWith("Transaction reverted on-chain");
+    expect(toastErrorMock).toHaveBeenCalledWith(
+      expect.stringContaining("Transaction reverted"),
+      undefined,
+    );
     expect(insertActivityMock).toHaveBeenCalledTimes(0);
     expect(broadcastActionMock).toHaveBeenCalledTimes(0);
     expect(invalidateBalanceQueriesMock).toHaveBeenCalledTimes(0);
