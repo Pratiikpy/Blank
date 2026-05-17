@@ -59,9 +59,18 @@ needing manual re-runs.
 
 ## Base Sepolia results (latest run)
 
-**25 pass / 0 fail / 4 skip.** The 4 skips are intentional — faucet
-no-ops when personas are already funded from a prior run. The 25th
-pass is the new `gift_claim` second-leg flow.
+**28 pass / 0 fail / 4 skip** (latest run with settleDebt + escrow
+2nd-leg). The 4 skips are intentional — faucet no-ops when personas
+are already funded from a prior run.
+
+Now includes the full second-leg consume flows:
+- `gift_claim` — Bob actually claims Alice's envelope
+- `settleDebt` — Bob settles 0.1 USDC encrypted with Carol in Alice's group
+- `escrow_markDelivered` — Bob marks Alice's escrow as delivered
+- `escrow_approveRelease` — Alice releases the encrypted funds to Bob
+
+That's "create something + the other party consumes it" verified
+end-to-end on chain, not just creation calls.
 
 Notable tx hashes (one per feature, verifiable on `sepolia.basescan.org/tx/<hash>`):
 
