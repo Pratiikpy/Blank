@@ -144,11 +144,11 @@ export default function Proofs() {
     const link = buildShareLink(proofId);
     let text: string;
     if (!isReady) {
-      text = `I just created an encrypted proof on @blank that my income is at least $${thresholdUSD.toLocaleString()} — without revealing the actual number.\n\nVerify it on-chain (anyone can): ${link}`;
+      text = `I just created an encrypted proof on @blank that my income is at least $${thresholdUSD.toLocaleString()}, without revealing the actual number.\n\nVerify it on-chain (anyone can): ${link}`;
     } else if (isTrue) {
-      text = `Verified on-chain: my income is ≥ $${thresholdUSD.toLocaleString()}.\n\nThe blockchain saw the comparison run inside FHE. Nobody — not even @blank — knows the actual amount.\n\nVerify yourself: ${link}`;
+      text = `Verified on-chain: my income is ≥ $${thresholdUSD.toLocaleString()}.\n\nThe blockchain saw the comparison run inside FHE. Nobody, not even @blank, knows the actual amount.\n\nVerify yourself: ${link}`;
     } else {
-      text = `Verified on-chain via @blank: this proof of "income ≥ $${thresholdUSD.toLocaleString()}" is FALSE.\n\nNo amount was leaked — just the boolean answer. That's the whole point of FHE.\n\nVerify: ${link}`;
+      text = `Verified on-chain via @blank: this proof of "income ≥ $${thresholdUSD.toLocaleString()}" is FALSE.\n\nNo amount was leaked. Just the boolean answer. That's the whole point of FHE.\n\nVerify: ${link}`;
     }
     return `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`;
   };
@@ -162,7 +162,7 @@ export default function Proofs() {
             Encrypted Proofs
           </h1>
           <p className="text-sm sm:text-base text-[var(--text-primary)]/50 leading-relaxed max-w-2xl">
-            Prove "my income is at least $X" — without revealing the actual amount.
+            Prove "my income is at least $X", without revealing the actual amount.
             Your proof is an encrypted boolean. Anyone with the link can verify the
             answer on-chain; nobody learns your real income.
           </p>
@@ -358,15 +358,15 @@ export default function Proofs() {
                         <p className="text-xs mt-1.5">
                           {!p.isReady ? (
                             <span className="text-amber-600 dark:text-amber-400">
-                              Pending verification — share the link to publish on-chain
+                              Pending verification. Share the link to publish on-chain
                             </span>
                           ) : p.isTrue ? (
                             <span className="text-emerald-600 dark:text-emerald-400">
-                              ✓ Verified true — anyone can read this on-chain
+                              ✓ Verified true. Anyone can read this on-chain
                             </span>
                           ) : (
                             <span className="text-red-600 dark:text-red-400">
-                              ✗ Verified false — anyone can read this on-chain
+                              ✗ Verified false. Anyone can read this on-chain
                             </span>
                           )}
                         </p>

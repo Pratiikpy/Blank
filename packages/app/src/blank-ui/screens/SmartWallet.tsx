@@ -109,7 +109,7 @@ export default function SmartWallet() {
     }
     const wei = parseUnits(String(value), 6);
     if (eoaUsdc !== null && wei > eoaUsdc) {
-      toast.error(`Insufficient USDC in your EOA — have ${formatUnits(eoaUsdc, 6)}, need ${value}`);
+      toast.error(`Insufficient USDC in your EOA. Have ${formatUnits(eoaUsdc, 6)}, need ${value}`);
       return;
     }
     setFunding(true);
@@ -133,7 +133,7 @@ export default function SmartWallet() {
       // toast entirely when the user dismissed their own wallet prompt.
       const mapped = mapError(err);
       if (!mapped.userCancelled) {
-        toast.error(`${mapped.title} — ${mapped.body}`, { id: "fund-tx" });
+        toast.error(`${mapped.title}: ${mapped.body}`, { id: "fund-tx" });
       } else {
         toast.dismiss("fund-tx");
       }
@@ -165,7 +165,7 @@ export default function SmartWallet() {
       // consistent across the wallet screen.
       const mapped = mapError(err);
       if (!mapped.userCancelled) {
-        toast.error(`${mapped.title} — ${mapped.body}`, { id: "faucet-tx" });
+        toast.error(`${mapped.title}: ${mapped.body}`, { id: "faucet-tx" });
       } else {
         toast.dismiss("faucet-tx");
       }
@@ -226,7 +226,7 @@ export default function SmartWallet() {
           <p className="text-sm sm:text-base text-[var(--text-primary)]/50 leading-relaxed max-w-2xl">
             A P-256 keypair generated in this browser, encrypted with a passphrase
             you choose. Sign every transaction with the passphrase. The smart
-            account on-chain only knows the public key — your private key never
+            account on-chain only knows the public key. Your private key never
             leaves your device.
           </p>
         </div>
@@ -239,8 +239,8 @@ export default function SmartWallet() {
                 Create your smart wallet
               </h2>
               <p className="text-sm text-[var(--text-secondary)]">
-                Pick a passphrase (8+ chars). It encrypts your signing key locally
-                — write it down somewhere safe; we can't recover it for you.
+                Pick a passphrase (8+ chars). It encrypts your signing key locally.
+                Write it down somewhere safe; we can't recover it for you.
               </p>
             </div>
 
@@ -316,7 +316,7 @@ export default function SmartWallet() {
               private key is encrypted with your passphrase via AES-256-GCM (key
               derived via PBKDF2 with 250K iterations) and stored in IndexedDB.
               Your smart account address on-chain is fully deterministic from the
-              public key — same key, same address, no on-chain registration needed
+              public key. Same key, same address, no on-chain registration needed
               until your first transaction.
             </div>
           </div>

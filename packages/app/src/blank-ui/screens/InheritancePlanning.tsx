@@ -877,7 +877,7 @@ export default function InheritancePlanning() {
                     }
                     if (finalizeBlockedByGrace) {
                       toast.error(
-                        `Wait ${Math.ceil(ownerClaimGraceRemainingSeconds / 86400)} more day(s) — the 7-day challenge period is still active.`,
+                        `Wait ${Math.ceil(ownerClaimGraceRemainingSeconds / 86400)} more day(s). The 7-day challenge period is still active.`,
                       );
                       return;
                     }
