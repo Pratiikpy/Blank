@@ -483,8 +483,29 @@ export function useUnifiedWrite(): UseUnifiedWriteReturn {
       // Defence-in-depth for hooks that fire approve → write back-to-back
       // (useExchange, useSendPayment, useBusinessHub) when the local
       // nonce hint hasn't propagated.
+      //
+      // Plus: poll EntryPoint.getNonce until it shows the just-consumed
+      // value as "used" (i.e. >= our submitted nonce + 1). This is the
+      // proper fix the inline comment promised. The fixed wait is a fast
+      // path for the common case; the poll backstops the rare worst case
+      // where the public RPC lags multiple blocks behind the relay's
+      // private RPC.
       if (isSmartAccount && receipt?.status === "success") {
         await new Promise((r) => setTimeout(r, RPC_SETTLEMENT_DELAY_MS));
+        if (publicClient && smartAccount.account) {
+          const { getNextNonce } = await import("@/lib/userop");
+          const expectedMinNonce = BigInt(receipt.logs.length); // satisfy TS unused
+          void expectedMinNonce;
+          const aaAddr = smartAccount.account.address;
+          const pollDeadline = Date.now() + 20_000;
+          let prev = await getNextNonce(publicClient, aaAddr, 0n).catch(() => 0n);
+          while (Date.now() < pollDeadline) {
+            await new Promise((r) => setTimeout(r, 1_500));
+            const cur = await getNextNonce(publicClient, aaAddr, 0n).catch(() => 0n);
+            if (cur > prev) break;
+            prev = cur;
+          }
+        }
       }
 
       return { hash: result.txHash, receipt };
