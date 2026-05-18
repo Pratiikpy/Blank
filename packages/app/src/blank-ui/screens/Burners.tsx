@@ -213,7 +213,7 @@ export default function Burners() {
         toast("No burner backups found on chain for this address");
       } else if (added === 0 && result.records.length > 0) {
         toast.success(
-          `${result.records.length} burner${result.records.length === 1 ? "" : "s"} already in your local list — nothing new to import`,
+          `${result.records.length} burner${result.records.length === 1 ? "" : "s"} already in your local list. Nothing new to import`,
         );
       } else {
         toast.success(
@@ -238,7 +238,7 @@ export default function Burners() {
     // address become unrecoverable. The previous copy ("Funds in it
     // stay safe") understated this risk; rewrite to match reality.
     const warning = registryDeployed
-      ? `Delete "${b.label}"?\n\nIf you haven't backed this burner up to chain, you'll permanently lose the salt — and any funds at ${b.address ?? "this address"} will become unrecoverable. Back up first if you're unsure.\n\nThis cannot be undone.`
+      ? `Delete "${b.label}"?\n\nIf you haven't backed this burner up to chain, you'll permanently lose the salt, and any funds at ${b.address ?? "this address"} will become unrecoverable. Back up first if you're unsure.\n\nThis cannot be undone.`
       : `Delete "${b.label}"?\n\nThis burner's salt is stored only in this browser. On-chain backup isn't deployed on this network yet, so deleting now means the salt is gone forever + any funds at ${b.address ?? "this address"} become unrecoverable.\n\nThis cannot be undone.`;
     if (!confirm(warning)) {
       return;
@@ -277,7 +277,7 @@ export default function Burners() {
           </div>
           <p className="text-sm text-[var(--text-secondary)] leading-relaxed max-w-2xl">
             Public-facing receive addresses derived from your passkey. Use one per
-            channel — newsletter tips, Twitter giveaways, podcast sponsors — so
+            channel (newsletter tips, Twitter giveaways, podcast sponsors) so
             outside observers can't link them back to your main wallet.
           </p>
         </div>
@@ -287,7 +287,7 @@ export default function Burners() {
         <div className="rounded-2xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 p-4 text-sm text-amber-900 dark:text-amber-200 leading-snug">
           <strong className="font-semibold">Receive-only.</strong>{" "}
           Burners are designed to receive payments without exposing your
-          main wallet's address. Funds remain in the burner — consolidation
+          main wallet's address. Funds remain in the burner. Consolidation
           happens off-chain or via the privacy router.
         </div>
 
@@ -370,7 +370,7 @@ export default function Burners() {
           <div className="rounded-2xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 p-4 text-sm text-amber-900 dark:text-amber-200">
             <strong className="font-semibold">On-chain backup isn't available on {activeChain.name} yet.</strong>{" "}
             BurnerRegistry hasn't shipped on this network. Each burner's
-            salt stays in this browser only — clear site data or delete
+            salt stays in this browser only. Clear site data or delete
             the burner and you lose the private key. We'll enable
             cloud-backup as soon as the registry deploys.
           </div>

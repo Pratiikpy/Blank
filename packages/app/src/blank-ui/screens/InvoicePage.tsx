@@ -288,7 +288,7 @@ export default function InvoicePage() {
           <p className="text-sm text-[var(--text-primary)]/60 mb-4">
             Funds will be held in escrow until you finalize. If the encrypted
             amount you pay doesn't match the invoice, you'll be refunded
-            automatically — no vendor approval required.
+            automatically. No vendor approval required.
           </p>
           <div className="flex gap-2">
             <input
@@ -457,7 +457,7 @@ export default function InvoicePage() {
           <p className="text-sm text-[var(--text-primary)]/60 mb-2">
             This invoice was paid via the legacy direct-transfer path with
             a mismatched amount. The vendor must call <code>refundDisputedInvoice</code> to
-            return the funds — they have the option in their Business Tools.
+            return the funds. The option is available in their Business Tools.
           </p>
           <a
             href="/app/business"
@@ -482,7 +482,7 @@ export default function InvoicePage() {
           <p className="text-sm text-[var(--text-primary)]/60 mb-4">
             To pay this invoice, sign in with the wallet at{" "}
             <code className="font-mono text-xs">{truncateAddress(invoice.client)}</code>.
-            The amount is encrypted on-chain — only the vendor and that
+            The amount is encrypted on-chain. Only the vendor and that
             client can see it.
           </p>
           <a
