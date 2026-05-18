@@ -267,9 +267,14 @@ const RABBY_CTAS = ["Sign", "Confirm", "Approve", "Connect", "Allow", "Switch ne
  * chain from the dropdown list.
  */
 async function selectRabbyChain(popup: Page, chainName: string): Promise<boolean> {
+  // Wait for the popup to settle. Rabby fetches dApp metadata
+  // ("Listed by", "Site popularity") on open, and the chain chip
+  // doesn't get its final text until that completes.
+  log(`  chain-selector: waiting 6s for popup to render`);
+  await popup.waitForTimeout(6_000);
   // Step 1: click the chain chip in the popup header.
   const trig = popup.getByText("Ethereum", { exact: true }).first();
-  if (await trig.isVisible({ timeout: 3_000 }).catch(() => false)) {
+  if (await trig.isVisible({ timeout: 10_000 }).catch(() => false)) {
     const bb = await trig.boundingBox({ timeout: 2_000 }).catch(() => null);
     if (bb) {
       await popup.mouse.click(bb.x + bb.width / 2, bb.y + bb.height / 2);
