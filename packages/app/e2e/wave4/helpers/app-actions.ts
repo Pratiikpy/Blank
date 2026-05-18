@@ -180,9 +180,11 @@ export async function drainPromptsAndCaptureTx(
   // leaked handlers across multiple drainPromptsAndCaptureTx calls
   // inside the same spec (P19 second-leg heartbeat hit this).
   let interceptedTxHash: string | null = null;
+  let relayInFlight = 0;
   const routePredicate = (url: URL): boolean =>
     /\/api\/relay(\b|\/|\?)/.test(url.toString());
   const routeHandler = async (route: { fetch: () => Promise<{ status: () => number; headers: () => Record<string, string>; text: () => Promise<string> }>; fulfill: (opts: { status: number; headers: Record<string, string>; body: string }) => Promise<void>; continue: () => Promise<void> }): Promise<void> => {
+    relayInFlight += 1;
     try {
       const fetched = await route.fetch();
       const status = fetched.status();
@@ -197,6 +199,8 @@ export async function drainPromptsAndCaptureTx(
       await route.fulfill({ status, headers, body: raw });
     } catch {
       await route.continue();
+    } finally {
+      relayInFlight -= 1;
     }
   };
   await page.route(routePredicate, routeHandler);
@@ -211,9 +215,20 @@ export async function drainPromptsAndCaptureTx(
     // fired; if it didn't, readTxHashFromSuccess will throw.
     await drainPassphrasePrompts(page, passphrase, {
       windowMs: opts.windowMs ?? 360_000,
+      // Sepolia AA flows commonly take 60-120s between the last passphrase
+      // prompt and the /api/relay receipt. Default gapMs of 60s was cutting
+      // out before relay returned for createClaimLink, createListing,
+      // createCampaign. 150s gives the bundler enough headroom.
+      gapMs: 150_000,
       expectAtLeast: 0,
       terminateOn: txVisible,
     });
+    // After drainPassphrasePrompts exits, give in-flight relay calls a
+    // little more time to land before falling back to DOM scraping.
+    const waitDeadline = Date.now() + 60_000;
+    while (Date.now() < waitDeadline && interceptedTxHash === null && relayInFlight > 0) {
+      await page.waitForTimeout(1_000);
+    }
     if (interceptedTxHash) return interceptedTxHash;
     return await readTxHashFromSuccess(page, opts.readTimeoutMs ?? 90_000);
   } finally {
