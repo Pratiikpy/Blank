@@ -477,6 +477,23 @@ export function useSmartAccount() {
 
           await resolveAccount(); // refresh isDeployed for next call
           setStatus("ready");
+
+          // Wait until our publicClient sees the consumed nonce — the
+          // relay already mined the tx via its private RPC but the FE's
+          // public RPC can lag 3-4 blocks behind. Poll up to 30s; bail
+          // early as soon as getNextNonce returns nonce+1 or higher.
+          // Fixes the AA25 "invalid account nonce" cascade where
+          // back-to-back UserOps would sign with stale nonces.
+          {
+            const expected = nonce + 1n;
+            const deadline = Date.now() + 30_000;
+            while (Date.now() < deadline) {
+              const cur = await getNextNonce(publicClient, account.address, 0n).catch(() => 0n);
+              if (cur >= expected) break;
+              await new Promise((r) => setTimeout(r, 1_500));
+            }
+          }
+
           // Forward the relayer's receipt verbatim. Free public RPC tiers
           // (sepolia.base.org) can take 30-60s to make a tx visible to
           // getTransactionReceipt — the relayer already waited via tx.wait()
