@@ -969,8 +969,10 @@ export default function InheritancePlanning() {
                   onChange={(e) => setBDays(e.target.value)}
                   className="h-14 w-full px-5 rounded-2xl bg-white/60 border border-black/10 focus:border-black/20 focus:ring-4 focus:ring-black/5 outline-none"
                 >
-                  <option value="7">7 days</option>
-                  <option value="14">14 days</option>
+                  {/* InheritanceManager.setHeir reverts with "min 30 days"
+                      for periods < MIN_INACTIVITY (30 days). 7 and 14 day
+                      options used to be here and silently failed on submit;
+                      removed to match the contract floor. */}
                   <option value="30">30 days</option>
                   <option value="60">60 days</option>
                   <option value="90">90 days</option>

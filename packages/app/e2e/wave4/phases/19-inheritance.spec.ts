@@ -93,16 +93,18 @@ test.describe("Phase 19 — Inheritance (principal side)", () => {
     await snap(alice.page, shot, "set-heir-modal-opened");
 
     // Heir address input (placeholder "0x...") + inactivity period
-    // <select>. Pick the SHORTEST available period (7 days) — judges
-    // running the suite want a tight feedback loop, not a 365-day wait.
+    // <select>. Pick the SHORTEST contract-acceptable period (30 days).
+    // InheritanceManager.setHeir requires inactivityPeriod >= 30 days
+    // (MIN_INACTIVITY); the dropdown's 7 + 14 day options used to
+    // silently revert on submit and have been removed from the UI too.
     await alice.page.locator('input[placeholder="0x..."]').fill(bob.address);
-    await alice.page.locator("select").selectOption("7");
+    await alice.page.locator("select").selectOption("30");
     await snap(alice.page, shot, "heir-form-filled");
 
-    // The amber "Important" banner should now read "...within 7 days...".
+    // The amber "Important" banner should now read "...within 30 days...".
     // Verify the inactivity-period text matches.
     await expect(
-      alice.page.locator('text=/within 7 days/i').first(),
+      alice.page.locator('text=/within 30 days/i').first(),
     ).toBeVisible({ timeout: 5_000 });
 
     // Submit "Set Heir".
@@ -129,20 +131,23 @@ test.describe("Phase 19 — Inheritance (principal side)", () => {
     });
 
     // ─── Step 2: Alice does an immediate heartbeat ──────────────
-    // After setHeir, the screen flips to the "Active Plan" view
-    // with a "Check In Now" button. Reload first so the screen
-    // re-reads useInheritance fresh from chain — without the reload
-    // the React state sometimes stays in the post-submit "Set Heir"
-    // dialog and never picks up the new plan, leaving the test
-    // waiting on a button that's never rendered (caught in the
-    // localhost batch, fixed here so the heartbeat leg can land).
+    // After setHeir, the screen flips to the "Plan Active" / "Active
+    // Plan" view with a "Check In Now" button. Reload first so the
+    // screen re-reads useInheritance fresh from chain.
     await alice.page.reload();
+    // Wait for the post-setHeir UI: either the "Plan Active" status
+    // heading or the "Check In Now" CTA itself becoming visible.
+    // The earlier wait on /Active Plan/ didn't match the actual
+    // "Plan Active" heading text — fixed to match either word order.
     await alice.page
-      .locator("h1, h2, h3", { hasText: /Active Plan|Beneficiary Planning/i })
+      .locator("h1, h2, h3, button", { hasText: /Plan Active|Active Plan|Check In Now/i })
       .first()
-      .waitFor({ state: "visible", timeout: 30_000 });
+      .waitFor({ state: "visible", timeout: 60_000 });
 
-    const checkInBtn = alice.page.locator("button").filter({ hasText: /^Check In Now/i });
+    const checkInBtn = alice.page
+      .locator("button")
+      .filter({ hasText: /Check In Now|Sending heartbeat/i })
+      .first();
     await checkInBtn.waitFor({ state: "visible", timeout: 60_000 });
     await snap(alice.page, shot, "active-plan-view");
     await checkInBtn.click();
