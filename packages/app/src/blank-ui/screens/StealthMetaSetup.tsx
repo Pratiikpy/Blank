@@ -116,7 +116,7 @@ export default function StealthMetaSetup() {
   const handleUnlock = useCallback(async () => {
     if (!effectiveAddress) return;
     const pass = await passphrasePrompt.request({
-      title: "Unlock stealth keys",
+      title: "Decrypt stealth keys",
       subtitle:
         "Enter the passphrase you set when generating your stealth keys.",
     });
@@ -149,7 +149,7 @@ export default function StealthMetaSetup() {
               "Encrypts your stealth keys at rest. Save it. Needed to recover your keys after a browser reset.",
           }
         : {
-            title: "Unlock stealth keys",
+            title: "Decrypt stealth keys",
             subtitle:
               "Enter the passphrase you set when generating your stealth keys.",
           },
@@ -325,14 +325,14 @@ export default function StealthMetaSetup() {
               </h2>
               <p className="text-sm text-[var(--text-secondary)] max-w-md">
                 Encrypted keys for this account are stored on this device.
-                Enter your passphrase to unlock them.
+                Enter your passphrase to decrypt them.
               </p>
             </div>
             <button
               onClick={handleUnlock}
               className="h-11 px-6 rounded-xl bg-[#1D1D1F] dark:bg-white text-white dark:text-[#0A0A0A] font-medium transition-colors"
             >
-              Unlock
+              Decrypt
             </button>
           </div>
         )}

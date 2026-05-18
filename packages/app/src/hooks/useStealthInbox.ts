@@ -131,7 +131,7 @@ export function useStealthInbox(): UseStealthInboxResult {
   const unlock = useCallback(async () => {
     if (!effectiveAddress) return;
     const pass = await passphrasePrompt.request({
-      title: "Unlock stealth keys",
+      title: "Decrypt stealth keys",
       subtitle: "Enter the passphrase you set when generating your stealth keys.",
     });
     if (!pass) return;

@@ -55,7 +55,7 @@ function _notifyQueueChanged() {
 
 export function PassphrasePromptProvider({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(_passphraseQueue.length > 0);
-  const [title, setTitle] = useState(_passphraseQueue[0]?.title ?? "Unlock smart wallet");
+  const [title, setTitle] = useState(_passphraseQueue[0]?.title ?? "Decrypt smart wallet");
   const [subtitle, setSubtitle] = useState(_passphraseQueue[0]?.subtitle ?? "Enter your passphrase to sign this transaction.");
   const [value, setValue] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -83,7 +83,7 @@ export function PassphrasePromptProvider({ children }: { children: React.ReactNo
       return new Promise<string | null>((resolve) => {
         const entry: QueuedRequest = {
           resolver: resolve,
-          title: opts?.title ?? "Unlock smart wallet",
+          title: opts?.title ?? "Decrypt smart wallet",
           subtitle: opts?.subtitle ?? "Enter your passphrase to sign this transaction.",
           timeoutId: null,
         };
@@ -207,7 +207,7 @@ export function PassphrasePromptProvider({ children }: { children: React.ReactNo
                 disabled={!value}
                 className="w-full h-12 rounded-2xl bg-[#1D1D1F] dark:bg-white text-white dark:text-[#0A0A0A] font-medium hover:bg-black dark:hover:bg-gray-100 transition-colors disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
-                Unlock
+                Decrypt
               </button>
               <p className="text-[11px] text-[var(--text-tertiary)] text-center pt-1">
                 Decryption happens locally — your passphrase never leaves this browser.

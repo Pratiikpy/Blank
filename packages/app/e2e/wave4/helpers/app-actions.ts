@@ -88,7 +88,7 @@ export async function enterPassphrase(page: Page, passphrase: string, timeoutMs 
     if (setter) setter.call(el, value);
     el.dispatchEvent(new Event("input", { bubbles: true }));
   }, passphrase);
-  const submit = page.locator('button:visible').filter({ hasText: /^Unlock$/i }).first();
+  const submit = page.locator('button:visible').filter({ hasText: /^(Decrypt|Unlock)$/i }).first();
   await submit.click({ timeout: 5_000 }).catch(() => input.press("Enter"));
 }
 

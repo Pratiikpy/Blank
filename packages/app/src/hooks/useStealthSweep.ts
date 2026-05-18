@@ -130,7 +130,7 @@ export function useStealthSweep(): UseStealthSweepResult {
       // passphrase here so the sweep can proceed inline.
       if (!keysRecord && hasStealthKeysStored(effectiveAddress)) {
         const pass = await passphrasePrompt.request({
-          title: "Unlock stealth keys",
+          title: "Decrypt stealth keys",
           subtitle: "Required to derive the sweep private key for this stealth address.",
         });
         if (!pass) {
