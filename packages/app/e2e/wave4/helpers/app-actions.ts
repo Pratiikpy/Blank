@@ -173,29 +173,33 @@ export async function drainPromptsAndCaptureTx(
   // the body. route() does a separate fetch under the hood and gives
   // us our own copy of the body, then fulfills the original request
   // with that copy so the frontend's consumer still works.
+  //
+  // Both predicate and handler are saved by reference so page.unroute()
+  // in the finally block can find them — earlier code created a new
+  // arrow function each call and silently failed to unregister, which
+  // leaked handlers across multiple drainPromptsAndCaptureTx calls
+  // inside the same spec (P19 second-leg heartbeat hit this).
   let interceptedTxHash: string | null = null;
-  await page.route(
-    (url) => /\/api\/relay(\b|\/|\?)/.test(url.toString()),
-    async (route) => {
-      try {
-        const fetched = await route.fetch();
-        const status = fetched.status();
-        const headers = fetched.headers();
-        const raw = await fetched.text();
-        if (raw && raw.includes("0x") && status >= 200 && status < 300) {
-          const m = raw.match(/"hash"\s*:\s*"(0x[0-9a-fA-F]{64})"/);
-          if (m && /"status"\s*:\s*"success"/.test(raw)) {
-            interceptedTxHash = m[1];
-          }
+  const routePredicate = (url: URL): boolean =>
+    /\/api\/relay(\b|\/|\?)/.test(url.toString());
+  const routeHandler = async (route: { fetch: () => Promise<{ status: () => number; headers: () => Record<string, string>; text: () => Promise<string> }>; fulfill: (opts: { status: number; headers: Record<string, string>; body: string }) => Promise<void>; continue: () => Promise<void> }): Promise<void> => {
+    try {
+      const fetched = await route.fetch();
+      const status = fetched.status();
+      const headers = fetched.headers();
+      const raw = await fetched.text();
+      if (raw && raw.includes("0x") && status >= 200 && status < 300) {
+        const m = raw.match(/"hash"\s*:\s*"(0x[0-9a-fA-F]{64})"/);
+        if (m && /"status"\s*:\s*"success"/.test(raw)) {
+          interceptedTxHash = m[1];
         }
-        await route.fulfill({ status, headers, body: raw });
-      } catch {
-        // If the intercept fails for any reason, fall through so the
-        // frontend's network call still completes the standard way.
-        await route.continue();
       }
-    },
-  );
+      await route.fulfill({ status, headers, body: raw });
+    } catch {
+      await route.continue();
+    }
+  };
+  await page.route(routePredicate, routeHandler);
   const txVisible = async () =>
     interceptedTxHash !== null ||
     (await page.locator('a[href*="/tx/0x"]').first().count()) > 0;
@@ -208,9 +212,7 @@ export async function drainPromptsAndCaptureTx(
     if (interceptedTxHash) return interceptedTxHash;
     return await readTxHashFromSuccess(page, opts.readTimeoutMs ?? 90_000);
   } finally {
-    await page
-      .unroute((url) => /\/api\/relay(\b|\/|\?)/.test(url.toString()))
-      .catch(() => undefined);
+    await page.unroute(routePredicate, routeHandler).catch(() => undefined);
   }
 }
 
