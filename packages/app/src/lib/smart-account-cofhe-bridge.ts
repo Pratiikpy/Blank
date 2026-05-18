@@ -305,7 +305,7 @@ export function buildBlankSmartAccountClient(
       // 30s with 1.5s polling.
       {
         const expected = onChainNonce + 1n;
-        const deadline = Date.now() + 30_000;
+        const deadline = Date.now() + 60_000;
         while (Date.now() < deadline) {
           const cur = await getNextNonce(publicClient, account.address, 0n).catch(() => 0n);
           if (cur >= expected) break;
