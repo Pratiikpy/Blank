@@ -97,6 +97,13 @@ export interface SmartAccount {
   isDeployed: boolean;
 }
 
+// Module-level cache keyed by chainId. StrictMode double-mounts and Route
+// switches both unmount the hook mid-resolveAccount, so the async setState
+// calls fire on stale fibers and the new fiber starts back at "idle". Cache
+// the resolved tuple so any subsequent mount on the same chain hydrates
+// synchronously to "ready" without waiting on RPC again.
+const SA_CACHE = new Map<number, SmartAccount>();
+
 export function useSmartAccount() {
   const { activeChainId, contracts } = useChain();
   // R5-C bugfix: pass `chainId` so wagmi resolves a public client for the
@@ -105,8 +112,9 @@ export function useSmartAccount() {
   // users and `resolveAccount()` early-returns forever, leaving the
   // smart-account status at "idle" and the BlankApp gate closed.
   const publicClient = usePublicClient({ chainId: activeChainId });
-  const [status, setStatus] = useState<SmartAccountStatus>("idle");
-  const [account, setAccount] = useState<SmartAccount | null>(null);
+  const cached = SA_CACHE.get(activeChainId);
+  const [status, setStatus] = useState<SmartAccountStatus>(cached ? "ready" : "idle");
+  const [account, setAccount] = useState<SmartAccount | null>(cached ?? null);
   const [error, setError] = useState<string | null>(null);
 
   // #123: parallel submitCallData calls previously both read the same nonce
@@ -159,12 +167,14 @@ export function useSmartAccount() {
       const code = await publicClient.getCode({ address: predicted });
       const isDeployed = code !== undefined && code !== "0x";
 
-      setAccount({
+      const resolved: SmartAccount = {
         address: predicted,
         pubX: pub.pubX,
         pubY: pub.pubY,
         isDeployed,
-      });
+      };
+      SA_CACHE.set(activeChainId, resolved);
+      setAccount(resolved);
       setStatus("ready");
 
       // #123: reset local nonce counter whenever we re-resolve — account
@@ -201,6 +211,8 @@ export function useSmartAccount() {
     const unsub = onCrossTabAction((action, data) => {
       if (action !== "aa_passkey_changed") return;
       if (data && typeof data.chainId === "number" && data.chainId !== activeChainId) return;
+      // Invalidate cache: a new passkey means a different counterfactual.
+      SA_CACHE.delete(activeChainId);
       resolveAccount().catch(() => {});
     });
     return unsub;

@@ -1,11 +1,11 @@
-import { test, expect, type Page } from "@playwright/test";
+﻿import { test, expect, type Page } from "@playwright/test";
 import { PERSONAS, injectPasskey, setActiveChain, type ChainKey } from "../fixtures/wallets";
 import { snap, resetCounter } from "../helpers/screenshot";
 import { recordProof } from "../helpers/testing-todo";
-import { drainPromptsAndCaptureTx, shieldUsdc, faucetUsdcIfNeeded } from "../helpers/app-actions";
+import { drainPromptsAndCaptureTx, drainPassphrasePrompts, shieldUsdc, faucetUsdcIfNeeded } from "../helpers/app-actions";
 
 // ──────────────────────────────────────────────────────────────────
-//  Phase 20 — Gift envelopes (/app/gifts).
+//  Phase 20 , Gift envelopes (/app/gifts).
 //
 //  Closes the /app/gifts gap from the judge-replay audit. Two
 //  passkey-signed UserOps across separate browser contexts:
@@ -19,10 +19,10 @@ import { drainPromptsAndCaptureTx, shieldUsdc, faucetUsdcIfNeeded } from "../hel
 //       Bob's vault.
 //
 //  Walkthrough findings (logged in JUDGE_REPLAY_AUDIT.md):
-//   • computeRandomSplits uses Math.random() — predictable +
+//   • computeRandomSplits uses Math.random() , predictable +
 //     biased. Not in the happy-path tested here (equal split).
-//   • Expired tooltip is desktop-only — same pattern as Burners.
-//   • Fallback manual "Envelope ID" input — no in-app handoff for
+//   • Expired tooltip is desktop-only , same pattern as Burners.
+//   • Fallback manual "Envelope ID" input , no in-app handoff for
 //     received-but-unindexed gifts.
 // ──────────────────────────────────────────────────────────────────
 
@@ -66,7 +66,7 @@ async function faucetUsdc(page: Page, address: string, chainId: number, baseURL:
   return faucetUsdcIfNeeded(page, address, chainId, baseURL);
 }
 
-test.describe("Phase 20 — Gift envelopes (Alice gifts Bob $5)", () => {
+test.describe("Phase 20 , Gift envelopes (Alice gifts Bob $5)", () => {
   test.describe.configure({ mode: "serial" });
 
   test("Alice creates $5 gift envelope for Bob, Bob claims it (both passkey-signed)", async ({
@@ -94,7 +94,7 @@ test.describe("Phase 20 — Gift envelopes (Alice gifts Bob $5)", () => {
     // Reload after the shield flow to clear any lingering passphrase
     // modal state that could intercept the form's onChange handlers and
     // leave the "Send Gift Envelope" button disabled despite a valid
-    // amount + recipient (caught in localhost batch — matches P19's
+    // amount + recipient (caught in localhost batch , matches P19's
     // post-tx reload pattern).
     await alice.page.reload();
     await alice.page.locator("h1", { hasText: /Gift Envelopes/i }).waitFor({ state: "visible", timeout: 30_000 });
@@ -110,11 +110,20 @@ test.describe("Phase 20 — Gift envelopes (Alice gifts Bob $5)", () => {
       .fill(bob.address);
     await snap(alice.page, aliceShot, "gift-form-filled");
 
-    // Optional message — helps verify message-encryption path.
+    // Optional message. Helps verify the message-encryption path.
     await alice.page
       .locator('textarea[placeholder="Write a heartfelt message..."]')
-      .fill("Wave 4 demo gift — happy testing!");
+      .fill("Wave 4 demo gift, happy testing!");
     await snap(alice.page, aliceShot, "message-typed");
+
+    // Select a theme. Gifts.tsx wraps the Send button in
+    // `{selectedTheme && (...)}` so without a theme click the Preview
+    // card and submit button never mount in the DOM. Birthday is the
+    // first option so it's a stable target.
+    await alice.page
+      .getByRole("button", { name: /Select Birthday theme/i })
+      .click({ timeout: 15_000 });
+    await snap(alice.page, aliceShot, "theme-selected");
 
     // Submit. Scope to <main> + visible + enabled to avoid the sidebar nav
     // or other off-screen matches. Scroll the button into view first.
@@ -126,11 +135,53 @@ test.describe("Phase 20 — Gift envelopes (Alice gifts Bob $5)", () => {
     await sendGiftBtn.click({ timeout: 30_000 });
     await snap(alice.page, aliceShot, "gift-encrypting");
 
+    // Gifts triggers up to 3 back-to-back passphrase prompts (cofhe
+    // permit warm + AA approve + createGift). drainPromptsAndCaptureTx
+    // terminates on the FIRST /api/relay success, which is the approve
+    // UserOp not the gift. Capture every relay tx hash, then keep
+    // draining prompts until the "Gift Sent!" success card mounts.
+    const relayHashes: string[] = [];
+    const routePredicate = (url: URL): boolean => /\/api\/relay(\b|\/|\?)/.test(url.toString());
+    const routeHandler = async (route: import("@playwright/test").Route): Promise<void> => {
+      try {
+        const fetched = await route.fetch();
+        const status = fetched.status();
+        const headers = fetched.headers();
+        const raw = await fetched.text();
+        if (raw && raw.includes("0x") && status >= 200 && status < 300) {
+          const m = raw.match(/"hash"\s*:\s*"(0x[0-9a-fA-F]{64})"/);
+          if (m && /"status"\s*:\s*"success"/.test(raw)) {
+            relayHashes.push(m[1]);
+          }
+        }
+        await route.fulfill({ status, headers, body: raw });
+      } catch {
+        await route.continue();
+      }
+    };
+    await alice.page.route(routePredicate, routeHandler);
+
     let createTx: string;
     try {
-      createTx = await drainPromptsAndCaptureTx(alice.page, PERSONAS.Alice.passphrase, { readTimeoutMs: 120_000 });
+      await drainPassphrasePrompts(alice.page, PERSONAS.Alice.passphrase, {
+        windowMs: 360_000,
+        gapMs: 90_000,
+        expectAtLeast: 0,
+        terminateOn: async () =>
+          (await alice.page.getByRole("heading", { name: /Gift Sent!/i }).count()) > 0,
+      });
+      // Wait once more for the success card if it surfaced near the
+      // window edge, then pick the LAST relay hash (createGift, not
+      // the warm-up approve).
+      await alice.page
+        .getByRole("heading", { name: /Gift Sent!/i })
+        .waitFor({ state: "visible", timeout: 60_000 })
+        .catch(() => undefined);
+      createTx = relayHashes[relayHashes.length - 1] ?? `0x${"0".repeat(64)}`;
     } catch {
-      createTx = `0x${"0".repeat(64)}`;
+      createTx = relayHashes[relayHashes.length - 1] ?? `0x${"0".repeat(64)}`;
+    } finally {
+      await alice.page.unroute(routePredicate, routeHandler).catch(() => undefined);
     }
     const createShot = await snap(alice.page, aliceShot, "gift-created-success-card");
 
@@ -148,7 +199,7 @@ test.describe("Phase 20 — Gift envelopes (Alice gifts Bob $5)", () => {
     const bobShot = { phase: "20-gifts", persona: "bob", chain: chainSlug, viewport: chain.viewport };
     resetCounter(bobShot);
 
-    // Bob needs gas to sign — faucet TestUSDC so he has tokens for
+    // Bob needs gas to sign , faucet TestUSDC so he has tokens for
     // the AA paymaster (Phase 8 self-pay UserOp ensures the AA
     // can pay its own gas from the shielded vault).
     await faucetUsdc(bob.page, bob.address, chain.chainId, url);
@@ -163,10 +214,20 @@ test.describe("Phase 20 — Gift envelopes (Alice gifts Bob $5)", () => {
     await bob.page.reload();
     await snap(bob.page, bobShot, "received-tab-active");
 
-    // The pending envelope from Alice should be in the list. The
-    // green Claim button is enabled (non-expired).
+    // Indexer race: the Supabase events table lags the on-chain create
+    // by 15-60s. React doesn't re-poll, so reload every 30s until the
+    // Claim button appears. Same shape as P4 escrow's Mine-list loop.
     const claimBtn = bob.page.locator("button").filter({ hasText: /^Claim$/i }).first();
-    await claimBtn.waitFor({ state: "visible", timeout: 30_000 });
+    let claimFound = false;
+    for (let i = 0; i < 6 && !claimFound; i++) {
+      claimFound = await claimBtn.isVisible({ timeout: 30_000 }).catch(() => false);
+      if (claimFound) break;
+      await bob.page.reload();
+      await bob.page.locator('button[aria-label="Received gifts"]').click().catch(() => undefined);
+    }
+    if (!claimFound) {
+      throw new Error("Claim button never appeared on Bob's Received tab after 6 retries (180s)");
+    }
     await snap(bob.page, bobShot, "envelope-from-alice-visible");
     await claimBtn.click();
     await snap(bob.page, bobShot, "claim-encrypting");

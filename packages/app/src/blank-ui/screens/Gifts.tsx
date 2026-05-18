@@ -158,7 +158,7 @@ export default function Gifts() {
   const [recipients, setRecipients] = useState<string[]>([]);
   const [recipientInput, setRecipientInput] = useState("");
 
-  // Filter gift activities from the activity feed
+  // Filter gift activities from the activity feed.
   const giftActivities = activities.filter(
     (a) =>
       a.activity_type === "gift_created" || a.activity_type === "gift_claimed"
