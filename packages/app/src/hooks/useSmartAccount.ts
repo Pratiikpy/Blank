@@ -97,12 +97,54 @@ export interface SmartAccount {
   isDeployed: boolean;
 }
 
-// Module-level cache keyed by chainId. StrictMode double-mounts and Route
-// switches both unmount the hook mid-resolveAccount, so the async setState
-// calls fire on stale fibers and the new fiber starts back at "idle". Cache
-// the resolved tuple so any subsequent mount on the same chain hydrates
-// synchronously to "ready" without waiting on RPC again.
+// Cache keyed by chainId. StrictMode double-mounts and full-page navigations
+// (page.goto, manual URL changes) both unmount the hook mid-resolveAccount,
+// so the async setState calls fire on stale fibers and the new fiber starts
+// back at "idle". Cache the resolved tuple so any subsequent mount on the
+// same chain hydrates synchronously to "ready" without waiting on RPC again.
+//
+// Module-level Map covers SPA route changes (same JS context). Backed by
+// sessionStorage so full-page reloads / page.goto don't wipe the resolution.
+// SessionStorage scope (per-tab, cleared on tab close) matches the lifetime
+// users actually care about; localStorage would risk cross-tab staleness if
+// they import a different passkey.
 const SA_CACHE = new Map<number, SmartAccount>();
+const SA_STORAGE_KEY = "blank:sa_cache";
+
+function readSaCache(chainId: number): SmartAccount | undefined {
+  const mem = SA_CACHE.get(chainId);
+  if (mem) return mem;
+  if (typeof window === "undefined") return undefined;
+  try {
+    const raw = window.sessionStorage.getItem(`${SA_STORAGE_KEY}:${chainId}`);
+    if (!raw) return undefined;
+    const parsed = JSON.parse(raw) as SmartAccount;
+    SA_CACHE.set(chainId, parsed);
+    return parsed;
+  } catch {
+    return undefined;
+  }
+}
+
+function writeSaCache(chainId: number, acct: SmartAccount): void {
+  SA_CACHE.set(chainId, acct);
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(`${SA_STORAGE_KEY}:${chainId}`, JSON.stringify(acct));
+  } catch {
+    /* sessionStorage may be full or disabled; in-memory cache still works */
+  }
+}
+
+function clearSaCache(chainId: number): void {
+  SA_CACHE.delete(chainId);
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.removeItem(`${SA_STORAGE_KEY}:${chainId}`);
+  } catch {
+    /* ignore */
+  }
+}
 
 export function useSmartAccount() {
   const { activeChainId, contracts } = useChain();
@@ -112,7 +154,7 @@ export function useSmartAccount() {
   // users and `resolveAccount()` early-returns forever, leaving the
   // smart-account status at "idle" and the BlankApp gate closed.
   const publicClient = usePublicClient({ chainId: activeChainId });
-  const cached = SA_CACHE.get(activeChainId);
+  const cached = readSaCache(activeChainId);
   const [status, setStatus] = useState<SmartAccountStatus>(cached ? "ready" : "idle");
   const [account, setAccount] = useState<SmartAccount | null>(cached ?? null);
   const [error, setError] = useState<string | null>(null);
@@ -173,7 +215,7 @@ export function useSmartAccount() {
         pubY: pub.pubY,
         isDeployed,
       };
-      SA_CACHE.set(activeChainId, resolved);
+      writeSaCache(activeChainId, resolved);
       setAccount(resolved);
       setStatus("ready");
 
@@ -212,7 +254,7 @@ export function useSmartAccount() {
       if (action !== "aa_passkey_changed") return;
       if (data && typeof data.chainId === "number" && data.chainId !== activeChainId) return;
       // Invalidate cache: a new passkey means a different counterfactual.
-      SA_CACHE.delete(activeChainId);
+      clearSaCache(activeChainId);
       resolveAccount().catch(() => {});
     });
     return unsub;
