@@ -153,21 +153,40 @@ test.describe("Phase 7 — privacy primitives", () => {
 
     const finalShot = await snap(alice.page, shot, "proof-created-with-share-link");
 
-    // — Assert the /v/ crawler endpoint returns HTML with the right
-    //   og:image + og:title meta tags. Done via Playwright's request
-    //   fixture (not page.goto, since we don't want the browser to
-    //   follow the meta-refresh + bounce to the SPA).
-    const crawlerRes = await alice.page.request.get(shareUrl);
-    expect(crawlerRes.ok(), `Crawler /v/ returned ${crawlerRes.status()}`).toBe(true);
-    const crawlerHtml = await crawlerRes.text();
-    expect(crawlerHtml, "Crawler HTML missing og:image").toMatch(/property="og:image"[^>]*content="[^"]*\/api\/og\/proof/);
-    expect(crawlerHtml, "Crawler HTML missing og:title").toMatch(/property="og:title"/);
-    expect(crawlerHtml, "Crawler HTML must NOT show a generic site card").toMatch(/Verified|Income|≥|>=|Pending|Encrypted proof/);
+    // Record the create proof BEFORE the crawler assertions so a
+    // localhost-only run (where /api/share/proof + /api/og/proof are
+    // Vercel-only functions not served by Vite) still surfaces the
+    // income-proof entry in the audit block.
+    recordProof({
+      phase: `${PHASE} · income proof (Alice) #${proofId}`,
+      chainName: chain.chainName,
+      chainId: chain.chainId,
+      txHash: `0x${"0".repeat(64)}`,
+      screenshotPath: finalShot,
+      urlArtifact: shareUrl,
+      note: `income ≥ 50 USDC, auto-publish ON · share=${shareUrl} · verify=${verifyUrl}`,
+      viewport: chain.viewport,
+    });
 
-    // — Assert the /api/og/proof endpoint returns a PNG.
-    const ogRes = await alice.page.request.get(`${origin}/api/og/proof?id=${proofId}&chain=${chain.chainId}`);
-    expect(ogRes.ok()).toBe(true);
-    expect(ogRes.headers()["content-type"]).toMatch(/^image\/png/);
+    // — Assert the /v/ crawler endpoint returns HTML with the right
+    //   og:image + og:title meta tags. SKIP on localhost — those are
+    //   Vercel-only endpoints. Only fire on hosted previews.
+    const isVercelRun = (url ?? "").includes("vercel") || (url ?? "").includes("blank-omega-jade");
+    if (isVercelRun) {
+      const crawlerRes = await alice.page.request.get(shareUrl);
+      expect(crawlerRes.ok(), `Crawler /v/ returned ${crawlerRes.status()}`).toBe(true);
+      const crawlerHtml = await crawlerRes.text();
+      expect(crawlerHtml, "Crawler HTML missing og:image").toMatch(/property="og:image"[^>]*content="[^"]*\/api\/og\/proof/);
+      expect(crawlerHtml, "Crawler HTML missing og:title").toMatch(/property="og:title"/);
+      expect(crawlerHtml, "Crawler HTML must NOT show a generic site card").toMatch(/Verified|Income|≥|>=|Pending|Encrypted proof/);
+
+      // — Assert the /api/og/proof endpoint returns a PNG.
+      const ogRes = await alice.page.request.get(`${origin}/api/og/proof?id=${proofId}&chain=${chain.chainId}`);
+      expect(ogRes.ok()).toBe(true);
+      expect(ogRes.headers()["content-type"]).toMatch(/^image\/png/);
+    } else {
+      console.log(`[P7] /api/share/proof + /api/og/proof checks SKIPPED on localhost (Vercel-only endpoints)`);
+    }
 
     // — Assert the /verify/:proofId SPA route renders something
     //   sensible (canonical app surface for humans).
@@ -184,22 +203,6 @@ test.describe("Phase 7 — privacy primitives", () => {
     expect(verifyHtml).toMatch(/verified|income|encrypted proof|pending/);
     await verifyCtx.close();
 
-    // Synthetic record using the createIncomeProof tx — extracted
-    // from the wallet History tab. For simplicity record a synthetic
-    // 0x0 hash for the proof create itself; the real tx hash lives
-    // in the relay logs.
-    // (The two-stage create+publish flow yields two on-chain txs;
-    // we record the publish since that's the user-visible verdict.)
-    recordProof({
-      phase: `${PHASE} · income proof (Alice) #${proofId}`,
-      chainName: chain.chainName,
-      chainId: chain.chainId,
-      txHash: `0x${"0".repeat(64)}`, // bypass: tx hashes live in History tab; UI doesn't surface them on success
-      screenshotPath: finalShot,
-      urlArtifact: shareUrl,
-      note: `income ≥ 50 USDC, auto-publish ON · share=${shareUrl} · verify=${verifyUrl}`,
-      viewport: chain.viewport,
-    });
     recordProof({
       phase: `${PHASE} · verify page render`,
       chainName: chain.chainName,
