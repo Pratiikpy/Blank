@@ -168,21 +168,29 @@ export async function drainPromptsAndCaptureTx(
   opts: { windowMs?: number; readTimeoutMs?: number } = {},
 ): Promise<string> {
   let interceptedTxHash: string | null = null;
-  const responseHandler = async (response: { url: () => string; ok: () => boolean; json: () => Promise<unknown> }) => {
+  const responseHandler = async (response: { url: () => string; status: () => number; text: () => Promise<string> }) => {
     const url = response.url();
-    if (!/\/api\/relay(\?|$)/.test(url)) return;
-    if (!response.ok()) return;
+    // Loosen the URL match: covers /api/relay, /api/relay?, /api/relay/...
+    // and absolute URLs with the path embedded.
+    if (!/\/api\/relay(\b|\/|\?)/.test(url)) return;
+    if (response.status() < 200 || response.status() >= 300) return;
     try {
-      const body = (await response.json()) as { hash?: string; status?: string };
-      if (
-        body.status === "success" &&
-        typeof body.hash === "string" &&
-        /^0x[0-9a-fA-F]{64}$/.test(body.hash)
-      ) {
+      const raw = await response.text();
+      // Body may be empty (timeout) or non-JSON; bail on either.
+      if (!raw || !raw.includes("0x")) return;
+      let body: { hash?: string; status?: string };
+      try { body = JSON.parse(raw); } catch { return; }
+      // Prefer body.hash (success) — fall back to scanning the raw
+      // body for the first 0x...64 hex hash if .hash isn't present
+      // (some flows include the hash inside a nested logs[] field).
+      if (typeof body.hash === "string" && /^0x[0-9a-fA-F]{64}$/.test(body.hash)) {
         interceptedTxHash = body.hash;
+      } else {
+        const m = raw.match(/"hash"\s*:\s*"(0x[0-9a-fA-F]{64})"/);
+        if (m) interceptedTxHash = m[1];
       }
     } catch {
-      // body might not be JSON or already consumed — ignore.
+      // body might not be readable — ignore.
     }
   };
   page.on("response", responseHandler);
