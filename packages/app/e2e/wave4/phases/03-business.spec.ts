@@ -238,11 +238,11 @@ test.describe("Phase 3 — business tools", () => {
     // Open business tools → Payroll tab.
     await alice.page.goto("/app/business");
     await alice.page
-      .getByRole("button", { name: /^Payroll$/i })
+      .getByRole("tab", { name: /^Payroll$/i })
       .first()
       .click({ timeout: 30_000 })
       .catch(async () => {
-        await alice.page.getByText(/^Payroll$/).first().click();
+        await alice.page.getByRole("button", { name: /^Payroll$/i }).first().click({ timeout: 5_000 });
       });
     await snap(alice.page, shot, "payroll-tab-open");
 

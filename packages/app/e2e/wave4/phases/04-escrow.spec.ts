@@ -70,12 +70,16 @@ async function bringUpWallet(
 /** Open /app/business → Escrow tab. */
 async function openEscrowTab(page: Page): Promise<void> {
   await page.goto("/app/business");
+  // The tab is a `<button role="tab" aria-label="Escrow">` — must match
+  // by ARIA role tab, not button (button-role getByRole won't find
+  // role="tab" elements). The text-based fallback was finding the wrong
+  // element when the page hadn't finished rendering.
   await page
-    .getByRole("button", { name: /^Escrow$/i })
+    .getByRole("tab", { name: /^Escrow$/i })
     .first()
     .click({ timeout: 30_000 })
     .catch(async () => {
-      await page.getByText(/^Escrow$/).first().click();
+      await page.getByRole("button", { name: /^Escrow$/i }).first().click({ timeout: 5_000 });
     });
 }
 
