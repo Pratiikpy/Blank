@@ -76,9 +76,23 @@ export default function Verify() {
         setProof(p);
         setNotFound(false);
       }
-    } catch {
-      setRpcError("Network error. Try again");
-      setNotFound(false);
+    } catch (err) {
+      // Contract revert on a nonexistent proof id surfaces as
+      // "execution reverted" / "call exception" from viem. That's a
+      // permanent "this id doesn't exist on chain" — flag as notFound
+      // so the UI hides the Retry CTA. Anything else stays as rpcError
+      // with Retry (transient network issue).
+      const msg = err instanceof Error ? err.message : String(err);
+      const isRevert =
+        /execution reverted|call exception|0x[0-9a-fA-F]{8}\s*\(/i.test(msg) ||
+        /returned no data|nonexistent|out of bounds|invalid token/i.test(msg);
+      if (isRevert) {
+        setNotFound(true);
+        setRpcError(null);
+      } else {
+        setRpcError("Network error. Try again");
+        setNotFound(false);
+      }
       setProof(null);
     }
     setLoading(false);

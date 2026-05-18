@@ -331,8 +331,8 @@ test.describe("Phase 6 — public deep-link consume", () => {
 
     const html = (await page.content()).toLowerCase();
     expect(html).toMatch(/proof not found|not found|doesn't exist/);
-    // Permanent path: Go home CTA visible; Retry CTA NOT visible.
-    expect(html).toContain("go home");
+    // Permanent path: home-link CTA visible ("Back to Blank"); no Retry CTA.
+    expect(html).toMatch(/back to blank|go home|return home/);
     expect(html).not.toContain(">retry<");
 
     // Synthetic proof entry — no on-chain tx since this is a UI-only
