@@ -115,10 +115,13 @@ test.describe("Phase 7 — privacy primitives", () => {
     await alice.page.locator("button").filter({ hasText: /^Create proof/i }).click();
 
     // Auto-publish ON = up to 2 wallet popups. Drain whichever arrive.
+    // expectAtLeast: 0 because cofhe permits may already be warmed by
+    // the prior shieldUsdc call — proof-create + auto-publish can
+    // complete without a fresh passphrase prompt in that case.
     await drainPassphrasePrompts(alice.page, PERSONAS.Alice.passphrase, {
       windowMs: 180_000,
       gapMs: 90_000,
-      expectAtLeast: 1,
+      expectAtLeast: 0,
     });
 
     // The create + publish flows yield the proof id; the Proofs
