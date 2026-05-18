@@ -28,7 +28,7 @@ const __dirname = path.dirname(__filename);
 export default defineConfig({
   testDir: __dirname,
   testMatch: ["**/phases/*.spec.ts", "**/features/*.spec.ts"],
-  timeout: 300_000, // 5 minutes per test — FHE encrypt + AA UserOp + 2 confirmations
+  timeout: 600_000, // 10 minutes per test — testnet RPCs can be slow, FHE encrypt + AA UserOp + 2 confirmations + balance-sync polling
   expect: { timeout: 30_000 },
   fullyParallel: false, // phases run sequentially; chain deploys + state matter
   retries: 0, // failures must be real, not flakes

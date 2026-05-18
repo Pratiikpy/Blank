@@ -165,7 +165,7 @@ test.describe("Phase 4 — escrow", () => {
     const markDeliveredBtn = bob.page
       .locator("button").filter({ hasText: /Mark.*delivered|^Deliver/i })
       .first();
-    await markDeliveredBtn.waitFor({ state: "visible", timeout: 60_000 });
+    await markDeliveredBtn.waitFor({ state: "visible", timeout: 180_000 });
     await markDeliveredBtn.click();
     let deliverTxHash: string;
     try {
@@ -185,7 +185,7 @@ test.describe("Phase 4 — escrow", () => {
     const approveReleaseBtn = alice.page
       .locator("button").filter({ hasText: /Approve.*release|^Release/i })
       .first();
-    await approveReleaseBtn.waitFor({ state: "visible", timeout: 60_000 });
+    await approveReleaseBtn.waitFor({ state: "visible", timeout: 180_000 });
     await approveReleaseBtn.click();
     let releaseTxHash: string;
     try {

@@ -167,7 +167,7 @@ test.describe("Phase 3 — business tools", () => {
     const payBtn = bob.page
       .locator("button:not([disabled])").filter({ hasText: /^Pay/i })
       .first();
-    await payBtn.waitFor({ state: "visible", timeout: 60_000 });
+    await payBtn.waitFor({ state: "visible", timeout: 180_000 });
     await snap(bob.page, bobShot, "before-pay");
     await payBtn.click();
     let payTxHash: string;

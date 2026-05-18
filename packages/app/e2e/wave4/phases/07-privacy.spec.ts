@@ -140,7 +140,7 @@ test.describe("Phase 7 — privacy primitives", () => {
     const copyLinkBtn = alice.page
       .locator('button[aria-label*="Copy verification link" i]')
       .first();
-    await copyLinkBtn.waitFor({ state: "visible", timeout: 60_000 });
+    await copyLinkBtn.waitFor({ state: "visible", timeout: 180_000 });
     // We can't read the clipboard headless reliably; build the URL
     // from the page origin + the proof id. This matches the
     // buildShareLink helper in Proofs.tsx exactly.
