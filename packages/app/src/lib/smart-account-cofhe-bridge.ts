@@ -297,6 +297,22 @@ export function buildBlankSmartAccountClient(
         chainId,
       });
 
+      // Poll the public RPC until it sees this nonce as consumed. The
+      // relay's tx.wait() returned, but the FE's public RPC can lag the
+      // private RPC by several blocks under cofhe load. Without this
+      // wait, a back-to-back sendTransaction from the same caller picks
+      // the same on-chain nonce and EntryPoint reverts with AA25. Cap at
+      // 30s with 1.5s polling.
+      {
+        const expected = onChainNonce + 1n;
+        const deadline = Date.now() + 30_000;
+        while (Date.now() < deadline) {
+          const cur = await getNextNonce(publicClient, account.address, 0n).catch(() => 0n);
+          if (cur >= expected) break;
+          await new Promise((r) => setTimeout(r, 1_500));
+        }
+      }
+
       return hash;
     },
 
