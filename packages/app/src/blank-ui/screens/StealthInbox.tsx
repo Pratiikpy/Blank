@@ -124,7 +124,7 @@ export default function StealthInbox() {
                 Generate the spending and viewing key pair, publish your
                 meta-address to the on-chain registry, and start receiving
                 stealth payments. Outside observers will see only one-time
-                addresses — never your main wallet.
+                addresses, never your main wallet.
               </p>
             </div>
             <button

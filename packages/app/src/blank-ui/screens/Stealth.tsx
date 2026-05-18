@@ -871,7 +871,7 @@ export default function Stealth() {
                         </span>
                       </button>
                       <p className="text-[11px] text-indigo-700/80 mt-2 text-center">
-                        Send this link to the recipient — they'll see it
+                        Send this link to the recipient. They'll see it
                         appear in their Inbox automatically.
                       </p>
                       <p className="text-[11px] text-amber-700 dark:text-amber-400 mt-2 flex items-center justify-center gap-1">
@@ -1140,7 +1140,7 @@ export default function Stealth() {
                 <p className="text-sm text-[var(--text-primary)]/50 mb-6">
                   Incoming stealth payments you've received as a deep link.
                   Click <span className="font-medium">Claim</span> to receive
-                  the funds — no copy/paste needed.
+                  the funds. No copy/paste needed.
                 </p>
 
                 {inboxEntries.length === 0 ? (
