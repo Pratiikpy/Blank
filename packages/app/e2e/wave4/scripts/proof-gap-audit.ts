@@ -52,34 +52,34 @@ const EXPECTED: ExpectedCoverage[] = [
   { phasePrefix: "P2 P2P negative", chainIds: BOTH, requiresRealTx: false, desc: "P2P over-balance error surface" },
 
   // ─── Phase 3: business (invoice + payroll) ────────────────────
-  { phasePrefix: "P3 Invoice", chainIds: BOTH, requiresRealTx: true, desc: "Invoice create + pay round-trip" },
-  { phasePrefix: "P3 Payroll", chainIds: BOTH, requiresRealTx: true, desc: "Payroll batch tx (3+ employees)" },
+  { phasePrefix: "P3 Business · invoice", chainIds: BOTH, requiresRealTx: true, desc: "Invoice create + pay round-trip" },
+  { phasePrefix: "P3 Business · payroll", chainIds: BOTH, requiresRealTx: true, desc: "Payroll batch tx (3+ employees)" },
 
   // ─── Phase 4: escrow ──────────────────────────────────────────
-  { phasePrefix: "P4 Escrow create", chainIds: BOTH, requiresRealTx: true, desc: "Alice creates encrypted escrow" },
-  { phasePrefix: "P4 Escrow delivered", chainIds: BOTH, requiresRealTx: true, desc: "Bob marks escrow delivered" },
-  { phasePrefix: "P4 Escrow release", chainIds: BOTH, requiresRealTx: true, desc: "Alice approves release → Bob receives funds" },
+  { phasePrefix: "P4 Escrow · createEscrow", chainIds: BOTH, requiresRealTx: true, desc: "Alice creates encrypted escrow" },
+  { phasePrefix: "P4 Escrow · markDelivered", chainIds: BOTH, requiresRealTx: true, desc: "Bob marks escrow delivered" },
+  { phasePrefix: "P4 Escrow · approveRelease", chainIds: BOTH, requiresRealTx: true, desc: "Alice approves release → Bob receives funds" },
 
   // ─── Phase 5: public deep-link create ─────────────────────────
-  { phasePrefix: "P5 claim PublicLink", chainIds: BOTH, requiresRealTx: true, desc: "Public claim link created (no bind)" },
-  { phasePrefix: "P5 claim AddressBound", chainIds: BOTH, requiresRealTx: true, desc: "Address-bound claim link created" },
-  { phasePrefix: "P5 claim PasscodeBound", chainIds: BOTH, requiresRealTx: true, desc: "Passcode-bound claim link created" },
-  { phasePrefix: "P5 storefront auction", chainIds: BOTH, requiresRealTx: true, desc: "Storefront auction listing created" },
-  { phasePrefix: "P5 fund campaign", chainIds: BOTH, requiresRealTx: true, desc: "Crowdfund campaign created" },
+  { phasePrefix: "P5 Deep-Link Create · claim Bearer", chainIds: BOTH, requiresRealTx: true, desc: "Public claim link created (no bind)" },
+  { phasePrefix: "P5 Deep-Link Create · claim AddressBound", chainIds: BOTH, requiresRealTx: true, desc: "Address-bound claim link created" },
+  { phasePrefix: "P5 Deep-Link Create · claim EmailBound", chainIds: BOTH, requiresRealTx: true, desc: "Email-bound claim link created" },
+  { phasePrefix: "P5 Deep-Link Create · listing auction", chainIds: BOTH, requiresRealTx: true, desc: "Storefront auction listing created" },
+  { phasePrefix: "P5 Deep-Link Create · campaign create", chainIds: BOTH, requiresRealTx: true, desc: "Crowdfund campaign created" },
 
   // ─── Phase 6: public deep-link consume ────────────────────────
-  { phasePrefix: "P6 claim consume", chainIds: BOTH, requiresRealTx: true, desc: "Bob claims all 3 link modes" },
-  { phasePrefix: "P6 auction bid", chainIds: BOTH, requiresRealTx: true, desc: "Auction 3-bid sequence (Bob+Carol)" },
-  { phasePrefix: "P6 fund contribute", chainIds: BOTH, requiresRealTx: true, desc: "Bob + Carol contribute (cumulative >= goal)" },
-  { phasePrefix: "P6 F1 verify-error", chainIds: BOTH, requiresRealTx: false, desc: "/verify/:bogusId honest error UI" },
+  { phasePrefix: "P6 Deep-Link Consume · claim consume", chainIds: BOTH, requiresRealTx: true, desc: "Bob claims all 3 link modes" },
+  { phasePrefix: "P6 Deep-Link Consume · auction bid", chainIds: BOTH, requiresRealTx: true, desc: "Auction 3-bid sequence (Bob+Carol)" },
+  { phasePrefix: "P6 Deep-Link Consume · fund contribute", chainIds: BOTH, requiresRealTx: true, desc: "Bob + Carol contribute (cumulative >= goal)" },
+  { phasePrefix: "P6 Deep-Link Consume · F1 permanent error UI", chainIds: BOTH, requiresRealTx: false, desc: "/verify/:bogusId honest error UI" },
 
   // ─── Phase 7: privacy primitives ──────────────────────────────
-  { phasePrefix: "P7 income-proof", chainIds: BOTH, requiresRealTx: true, desc: "Income proof create + auto-publish + /v/:id og:image + /verify SPA" },
-  { phasePrefix: "P7 stealth", chainIds: BOTH, requiresRealTx: true, desc: "Bob registers stealth keys, Alice sends, Bob scanner detects" },
+  { phasePrefix: "P7 Privacy · income proof", chainIds: BOTH, requiresRealTx: true, desc: "Income proof create + auto-publish + /v/:id og:image + /verify SPA" },
+  { phasePrefix: "P7 Privacy · stealth", chainIds: BOTH, requiresRealTx: true, desc: "Bob registers stealth keys, Alice sends, Bob scanner detects" },
 
-  // ─── Phase 8: gas wallet (Dave MM external EOA → Alice AA) ────
-  { phasePrefix: "P8 receive auto-deposit", chainIds: BOTH, requiresRealTx: true, desc: "External ETH → Alice AA receive() → EntryPoint deposit grows" },
-  { phasePrefix: "P8 self-pay UserOp", chainIds: BOTH, requiresRealTx: true, desc: "Alice fires self-pay UserOp; deposit decreases" },
+  // ─── Phase 8: gas wallet (external EOA → Alice AA) ────────────
+  { phasePrefix: "P8 Gas Wallet · external-deposit", chainIds: BOTH, requiresRealTx: true, desc: "External ETH → Alice AA receive() → EntryPoint deposit grows" },
+  { phasePrefix: "P8 Gas Wallet · self-pay", chainIds: BOTH, requiresRealTx: true, desc: "Alice fires self-pay UserOp; deposit decreases" },
 
   // ─── Phase 9: MetaMask smoke (opt-in via TEST_METAMASK=1) ─────
   // Not in the required matrix — skip-gracefully gate makes it
