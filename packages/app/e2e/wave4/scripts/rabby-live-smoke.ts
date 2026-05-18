@@ -267,50 +267,61 @@ const RABBY_CTAS = ["Sign", "Confirm", "Approve", "Connect", "Allow", "Switch ne
  * chain from the dropdown list.
  */
 async function selectRabbyChain(popup: Page, chainName: string): Promise<boolean> {
-  // The current chain text is visible top-right. Try clicking by text
-  // "Ethereum" (default) — Rabby's dropdown chip.
-  const triggers = [
-    popup.getByText("Ethereum", { exact: true }).first(),
-    // Some Rabby versions wrap the chip in a span / div / button.
-    popup.locator('[class*="chain-selector"], [class*="ChainSelector"]').first(),
-  ];
-  for (const trig of triggers) {
-    if (await trig.isVisible({ timeout: 2_000 }).catch(() => false)) {
-      const bb = await trig.boundingBox({ timeout: 2_000 }).catch(() => null);
-      if (bb) {
-        await popup.mouse.click(bb.x + bb.width / 2, bb.y + bb.height / 2);
-      } else {
-        await trig.click({ force: true }).catch(() => {});
-      }
-      await popup.waitForTimeout(2_000);
-      log(`  chain-selector: opened dropdown via "${chainName}"-trigger`);
-      break;
+  // Step 1: click the chain chip in the popup header.
+  const trig = popup.getByText("Ethereum", { exact: true }).first();
+  if (await trig.isVisible({ timeout: 3_000 }).catch(() => false)) {
+    const bb = await trig.boundingBox({ timeout: 2_000 }).catch(() => null);
+    if (bb) {
+      await popup.mouse.click(bb.x + bb.width / 2, bb.y + bb.height / 2);
+      log(`  chain-selector: opened dropdown at (${Math.round(bb.x + bb.width / 2)}, ${Math.round(bb.y + bb.height / 2)})`);
+    } else {
+      await trig.click({ force: true });
     }
+    await popup.waitForTimeout(2_500);
+    await popup.screenshot({ path: "test-results/wave4-rabby-live/chain-dropdown.png" }).catch(() => {});
+  } else {
+    log(`  chain-selector: no Ethereum chip visible — chain may already be set`);
+    return false;
   }
-  // Pick the target chain from the list.
-  const target = popup.getByText(chainName, { exact: true }).first();
-  if (await target.isVisible({ timeout: 3_000 }).catch(() => false)) {
-    const bb = await target.boundingBox({ timeout: 2_000 }).catch(() => null);
+
+  // Step 2: Rabby may default to "Mainnets" tab. Click "Testnets" tab if
+  // present so Sepolia becomes selectable.
+  const testnetTab = popup.getByText("Testnets", { exact: true }).first();
+  if (await testnetTab.isVisible({ timeout: 2_000 }).catch(() => false)) {
+    const bb = await testnetTab.boundingBox({ timeout: 1_500 }).catch(() => null);
+    if (bb) await popup.mouse.click(bb.x + bb.width / 2, bb.y + bb.height / 2);
+    else await testnetTab.click({ force: true });
+    await popup.waitForTimeout(2_000);
+    log(`  chain-selector: ✓ Testnets tab clicked`);
+  }
+
+  // Step 3: there's usually a search input. Type "Sepolia" to filter.
+  const searchInput = popup
+    .locator('input[type="text"], input[placeholder*="Search" i], input[placeholder*="search" i]')
+    .first();
+  if (await searchInput.isVisible({ timeout: 2_000 }).catch(() => false)) {
+    await searchInput.fill("Sepolia").catch(() => {});
+    log(`  chain-selector: typed "Sepolia" into search`);
+    await popup.waitForTimeout(1_500);
+  }
+
+  // Step 4: pick the first row that contains "Sepolia". For Eth Sepolia
+  // Rabby lists it as "Sepolia"; for Base Sepolia as "Base Sepolia".
+  const target = chainName.includes("Base") ? "Base Sepolia" : "Sepolia";
+  const targetLoc = popup.getByText(target, { exact: false }).first();
+  if (await targetLoc.isVisible({ timeout: 3_000 }).catch(() => false)) {
+    const bb = await targetLoc.boundingBox({ timeout: 2_000 }).catch(() => null);
     if (bb) {
       await popup.mouse.click(bb.x + bb.width / 2, bb.y + bb.height / 2);
     } else {
-      await target.click({ force: true }).catch(() => {});
+      await targetLoc.click({ force: true });
     }
-    await popup.waitForTimeout(2_000);
-    log(`  chain-selector: ✓ selected "${chainName}"`);
+    await popup.waitForTimeout(2_500);
+    log(`  chain-selector: ✓ selected "${target}"`);
     return true;
   }
-  // Fall back to a substring search if exact didn't match.
-  const partial = popup.getByText(new RegExp(chainName.split(" ")[0], "i")).first();
-  if (await partial.isVisible({ timeout: 2_000 }).catch(() => false)) {
-    const bb = await partial.boundingBox({ timeout: 2_000 }).catch(() => null);
-    if (bb) await popup.mouse.click(bb.x + bb.width / 2, bb.y + bb.height / 2);
-    else await partial.click({ force: true }).catch(() => {});
-    await popup.waitForTimeout(2_000);
-    log(`  chain-selector: ✓ selected via partial match "${chainName.split(" ")[0]}"`);
-    return true;
-  }
-  log(`  chain-selector: "${chainName}" not in dropdown`);
+
+  log(`  chain-selector: "${target}" not found in dropdown after Testnets tab + search`);
   return false;
 }
 
