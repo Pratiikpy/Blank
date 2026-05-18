@@ -494,7 +494,7 @@ export default function BusinessTools() {
         const msg = err instanceof Error ? err.message : String(err);
         setPayAltQuoteError(
           /execution reverted|VM Exception/.test(msg)
-            ? `No ${payAltToken.symbol}/USDC pool at 0.30% fee — try a different token.`
+            ? `No ${payAltToken.symbol}/USDC pool at 0.30% fee. Try a different token.`
             : msg.slice(0, 200),
         );
         setPayAltQuoteIn(null);
@@ -1286,7 +1286,7 @@ export default function BusinessTools() {
                     className="block w-full text-sm text-[var(--text-primary)]/70 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:bg-black/5 file:text-[var(--text-primary)] file:font-medium hover:file:bg-black/10"
                   />
                   <p className="text-xs text-[var(--text-primary)]/40 mt-2">
-                    Project brief, contract, or deliverable spec — pinned to IPFS, anchored to this escrow.
+                    Project brief, contract, or deliverable spec. Pinned to IPFS, anchored to this escrow.
                   </p>
                 </div>
                 <div className="flex gap-3 pt-2">

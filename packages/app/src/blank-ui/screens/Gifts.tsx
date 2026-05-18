@@ -780,7 +780,7 @@ export default function Gifts() {
                         {/* #255: subtitle for sent expired envelopes */}
                         {isSent && isExpired && (
                           <p className="text-xs text-amber-700 mt-1">
-                            Expired — no longer claimable
+                            Expired. No longer claimable
                           </p>
                         )}
                       </div>

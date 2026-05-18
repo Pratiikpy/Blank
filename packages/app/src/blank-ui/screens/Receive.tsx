@@ -71,7 +71,7 @@ export default function Receive() {
     const trimmedNote = requestNote.trim();
     const hasAmount = cleanedAmount && cleanedAmount !== "0";
     const text = hasAmount
-      ? `Send me $${cleanedAmount} on BlankPay${trimmedNote ? ` — ${trimmedNote}` : ""}`
+      ? `Send me $${cleanedAmount} on BlankPay${trimmedNote ? `: ${trimmedNote}` : ""}`
       : "Send me an FHE-encrypted payment on BlankPay";
     try {
       await navigator.share({

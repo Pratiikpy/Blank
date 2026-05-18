@@ -166,7 +166,7 @@ export default function CreateListing() {
           </div>
           <h2 className="text-2xl font-heading font-semibold mb-3">Listing live</h2>
           <p className="text-[var(--text-secondary)] mb-6">
-            Share this link. Buyers don't need a wallet to view — they create one when they pay.
+            Share this link. Buyers don't need a wallet to view. They create one when they pay.
           </p>
           <div className="bg-[var(--surface-2)] rounded-2xl p-4 mb-4 break-all text-sm font-mono text-left">
             {shareUrl}
@@ -276,7 +276,7 @@ export default function CreateListing() {
           placeholder="DM @yourhandle on telegram / email me / ships in 3 days"
         />
         <p className="text-xs text-[var(--text-secondary)] -mt-3 mb-4">
-          Public to buyers. Free text — write whatever helps them know the next step.
+          Public to buyers. Free text. Write whatever helps them know the next step.
         </p>
 
         {pipeline.phase !== "idle" && (

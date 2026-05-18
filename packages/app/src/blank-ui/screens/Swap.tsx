@@ -77,7 +77,7 @@ export default function Swap() {
             Exchange
           </h1>
           <p className="text-base text-[var(--text-primary)]/50 leading-relaxed">
-            Trade tokens privately — peer-to-peer offers, on-chain DEX routing,
+            Trade tokens privately: peer-to-peer offers, on-chain DEX routing,
             or bridge USDC across chains.
           </p>
         </div>

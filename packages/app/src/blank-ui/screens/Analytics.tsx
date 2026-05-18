@@ -202,7 +202,7 @@ function MonthlyChart({
       {monthlyData.every((b) => b.sent === 0 && b.received === 0) ? (
         <div className="flex items-center justify-center" style={{ height: 160 }}>
           <p className="text-sm text-[var(--text-primary)]/40 italic text-center">
-            No activity in the last 6 months yet — sent and received counts
+            No activity in the last 6 months yet. Sent and received counts
             will plot here as you transact.
           </p>
         </div>
@@ -250,7 +250,7 @@ function MonthlyChart({
       )}
 
       <p className="text-xs text-[var(--text-primary)]/40 text-center mt-4 italic">
-        Amounts encrypted via FHE — only counts shown
+        Amounts encrypted via FHE. Only counts shown
       </p>
     </div>
   );

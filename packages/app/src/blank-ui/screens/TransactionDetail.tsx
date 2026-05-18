@@ -342,7 +342,7 @@ export default function TransactionDetail() {
               <span className="sr-only">Amount hidden (encrypted)</span>
             </p>
             <p className="text-xs text-[var(--text-tertiary)] mt-1">
-              Encrypted with FHE — tap to reveal requires permit
+              Encrypted with FHE. Tap to reveal requires permit
             </p>
           </div>
 
