@@ -301,7 +301,7 @@ export default function StealthMetaSetup() {
           </div>
           <p className="text-sm text-[var(--text-secondary)]">
             Publish a permanent meta-address. Senders derive a fresh
-            one-time stealth address per payment — outside observers
+            one-time stealth address per payment. Outside observers
             can&apos;t link those payments to your main wallet.
           </p>
         </div>
@@ -347,7 +347,7 @@ export default function StealthMetaSetup() {
                 Generate your stealth keys
               </h2>
               <p className="text-sm text-[var(--text-secondary)] max-w-md">
-                Two secp256k1 private keys are generated locally — a
+                Two secp256k1 private keys are generated locally: a
                 spending key (for sweeping) and a viewing key (for
                 discovery). Encrypted at rest with a passphrase you choose.
               </p>
@@ -521,7 +521,7 @@ export default function StealthMetaSetup() {
                     </code>
                   </div>
                   <div>
-                    <span className="text-xs font-medium text-[var(--text-secondary)]">Viewing key (discovery only — safe to share with auditors):</span>
+                    <span className="text-xs font-medium text-[var(--text-secondary)]">Viewing key (discovery only, safe to share with auditors):</span>
                     <code className="block text-xs break-all p-2 rounded-xl bg-black/5 dark:bg-white/10 text-[var(--text-primary)] font-mono mt-1">
                       {record.viewingPrivateKey}
                     </code>

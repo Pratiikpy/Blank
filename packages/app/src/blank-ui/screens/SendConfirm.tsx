@@ -412,7 +412,7 @@ export default function SendConfirm() {
                     <div className="flex flex-col gap-0.5">
                       <span className="font-medium text-[var(--text-primary)]">Send to stealth address</span>
                       <span className="text-xs text-[var(--text-secondary)] leading-snug">
-                        Recipient publishes a stealth meta-address. We&apos;ll derive a fresh one-time address — outside observers can&apos;t link the payment to them.
+                        Recipient publishes a stealth meta-address. We&apos;ll derive a fresh one-time address. Outside observers can&apos;t link the payment to them.
                       </span>
                     </div>
                   </div>
@@ -456,7 +456,7 @@ export default function SendConfirm() {
                     <div className="flex flex-col gap-0.5">
                       <span className="font-medium text-[var(--text-primary)]">Hide my identity</span>
                       <span className="text-xs text-[var(--text-secondary)] leading-snug">
-                        Recipient claims via a shareable link — your address never sits next to theirs on-chain.
+                        Recipient claims via a shareable link. Your address never sits next to theirs on-chain.
                       </span>
                     </div>
                   </div>

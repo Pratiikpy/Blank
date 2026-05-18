@@ -436,7 +436,7 @@ export default function ScheduledSends() {
           >
             <AlertTriangle size={18} className="shrink-0 mt-0.5" />
             <div>
-              <p className="font-medium mb-1">Schedules are queued — not firing yet</p>
+              <p className="font-medium mb-1">Schedules are queued. Not firing yet</p>
               <p className="text-amber-800 dark:text-amber-200/90 leading-snug">
                 Your session-key scope is registered on-chain, but the cron + KMS
                 backing that actually fires the recurring tx hasn't shipped on this
