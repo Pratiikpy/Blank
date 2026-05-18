@@ -606,6 +606,40 @@ async function onboardRabby(rabby: Page, privateKey: string): Promise<void> {
   // STEP 5: Auto-onboard Rabby with Rabbi's private key.
   await onboardRabby(rabby, RABBI_PRIVATE_KEY);
 
+  // STEP 5b: Enable testnet visibility in Rabby. Without this the
+  // Connect popup's chain dropdown only shows mainnet chains and the
+  // dApp's wagmi config (Sepolia + Base Sepolia only) is rejected.
+  log(`enabling Rabby testnet mode...`);
+  await rabby.goto(`chrome-extension://${extId}/index.html#/settings`).catch(() => {});
+  await rabby.waitForTimeout(4_000);
+  await snap(rabby, "rabby-settings");
+  // Rabby's "Enable Testnets" toggle is usually under a section labeled
+  // "Show Testnets" or similar. Click any toggle whose adjacent text
+  // mentions "testnet" (case-insensitive).
+  const testnetToggle = rabby
+    .locator('label, button, div')
+    .filter({ hasText: /testnet/i })
+    .first();
+  if (await testnetToggle.isVisible({ timeout: 6_000 }).catch(() => false)) {
+    const bb = await testnetToggle.boundingBox({ timeout: 2_000 }).catch(() => null);
+    if (bb) {
+      // The actual toggle switch is usually to the right of the label.
+      // Click far right of the element bbox to hit the switch.
+      const clickX = Math.round(bb.x + bb.width - 24);
+      const clickY = Math.round(bb.y + bb.height / 2);
+      await rabby.mouse.click(clickX, clickY);
+      log(`testnet toggle clicked at (${clickX}, ${clickY})`);
+      await rabby.waitForTimeout(2_000);
+      await snap(rabby, "rabby-testnet-enabled");
+    }
+  } else {
+    log(`testnet toggle not visible on settings — may already be enabled or in a sub-page`);
+    // Try the chain-list / network sub-page.
+    await rabby.goto(`chrome-extension://${extId}/index.html#/chain-list`).catch(() => {});
+    await rabby.waitForTimeout(3_000);
+    await snap(rabby, "rabby-chain-list");
+  }
+
   // STEP 6: Open the Blank dApp on live Vercel preview.
   const dapp = await ctx.newPage();
   await dapp.goto(`${VERCEL_URL}/app`, { waitUntil: "domcontentloaded", timeout: 60_000 });
