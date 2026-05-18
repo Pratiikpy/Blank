@@ -98,8 +98,10 @@ test.describe("Phase 22 — Agent Payments (derive + encrypt + submit)", () => {
     await snap(alice.page, shot, "alice-shielded-pre-agent");
 
     await alice.page.goto("/app/agents");
+    // Actual h1 is "Pay with an AI agent". Old pattern looked for
+    // "Agent Payments" which doesn't exist on the screen.
     await alice.page
-      .locator("h1", { hasText: /Agent[\s\S]*Payments|Agent payments|payroll line/i })
+      .locator("h1", { hasText: /Pay with an AI agent|Agent payments|payroll line/i })
       .first()
       .waitFor({ state: "visible", timeout: 30_000 });
     await snap(alice.page, shot, "agents-landing");
