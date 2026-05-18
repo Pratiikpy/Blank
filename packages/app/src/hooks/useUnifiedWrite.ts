@@ -111,7 +111,13 @@ export interface UseUnifiedWriteReturn {
  * practice. A future refactor (audit iter 8) replaces this with a
  * polling loop on EntryPoint.getNonce() until the increment is visible.
  */
-const RPC_SETTLEMENT_DELAY_MS = 2_500;
+// Bumped to 6s after wave-4 P5/P6/P8 reproductions showed Alice's
+// on-chain nonce sitting at 289 while back-to-back UserOps were still
+// signing with nonces 284-285 — public RPC nodes can lag 3-4 blocks
+// (~36-48s on Eth Sepolia under cofhe load). 6s + the explicit getNonce
+// retry below covers the common case; for the absolute worst case the
+// frontend's localHint already shields parallel submits within one tab.
+const RPC_SETTLEMENT_DELAY_MS = 6_000;
 
 /**
  * Gas-wallet auto-select threshold. When the smart account's EntryPoint
