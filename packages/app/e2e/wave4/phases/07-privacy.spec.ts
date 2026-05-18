@@ -304,9 +304,11 @@ test.describe("Phase 7 — privacy primitives", () => {
       .first()
       .fill("5");
 
+    // Button text is "Send Stealth Payment" (Stealth.tsx:1043/1065).
     await alice.page
-      .locator("button").filter({ hasText: /^Pay/i })
-      .last()
+      .locator("main button:visible:not([disabled])")
+      .filter({ hasText: /^Send Stealth Payment/i })
+      .first()
       .click();
     const sendTxHash = await drainPromptsAndCaptureTx(alice.page, PERSONAS.Alice.passphrase);
     const stealthSendShot = await snap(alice.page, aliceShot, "stealth-payment-sent");
