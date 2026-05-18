@@ -289,11 +289,16 @@ test.describe("Phase 7 — privacy primitives", () => {
     await alice.page.goto("/app/stealth");
     await snap(alice.page, aliceShot, "stealth-send-landing");
 
-    // The Stealth send screen takes the meta-address + an amount.
+    // The Stealth send screen takes a REGULAR 0x address + amount.
+    // The on-chain handshake derives a one-time stealth address +
+    // claim code internally; the user supplies the counterparty's
+    // smart-account address, not the ERC-5564 meta-string. (The earlier
+    // st:eth: format probe was incorrect — Stealth.tsx validates
+    // /^0x[a-fA-F0-9]{40}$/ on the recipient input.)
     await alice.page
-      .locator('input[placeholder*="st:" i], input[placeholder*="stealth" i], input[placeholder*="meta" i]')
+      .locator('input[placeholder="0x..."]')
       .first()
-      .fill(metaAddress);
+      .fill(bob.address);
     await alice.page
       .locator('input[inputmode="decimal"], input[placeholder*="0.00"]')
       .first()
