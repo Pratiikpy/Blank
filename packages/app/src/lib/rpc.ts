@@ -36,16 +36,25 @@ import { ETH_SEPOLIA_ID, BASE_SEPOLIA_ID, type SupportedChainId } from "./consta
 // headers — those are kept ONLY in api/relay.ts (server-side, where CORS
 // doesn't apply) and excluded here. When one provider rate-limits, viem's
 // fallback() rotates to the next within ~1.5s.
+//
+// 2026-05-18 update: rpc.sepolia.org started failing CORS preflight from
+// browser origins (observed in Playwright + manual repro). Removed from
+// the browser-side fallback list; viem's fallback still has publicnode +
+// 1rpc covering the same chain. Server-side relay (api/relay.ts) keeps
+// the wider provider pool because Node fetch is CORS-exempt.
 const PUBLIC_RPCS: Record<SupportedChainId, string[]> = {
   [ETH_SEPOLIA_ID]: [
     "https://ethereum-sepolia-rpc.publicnode.com",
     "https://1rpc.io/sepolia",
-    "https://rpc.sepolia.org",
   ],
   [BASE_SEPOLIA_ID]: [
     "https://base-sepolia-rpc.publicnode.com",
     "https://base-sepolia.gateway.tenderly.co",
-    "https://sepolia.base.org",
+    // 2026-05-18: sepolia.base.org returns HTTP 403 to browser requests
+    // (observed in Playwright diagnostic). Removed; publicnode +
+    // tenderly cover the same chain. Server-side relay still has the
+    // wider pool. Keep tenderly despite the known eth_call-lag on
+    // post-upgrade contracts — it's a viable secondary for reads.
   ],
 };
 

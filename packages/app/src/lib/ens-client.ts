@@ -11,9 +11,13 @@
 import { createPublicClient, fallback, http } from "viem";
 import { mainnet } from "viem/chains";
 
+// 2026-05-18: eth.llamarpc.com started failing CORS preflight from
+// browser origins (observed in Playwright diagnostic + manual repro).
+// Removed; publicnode and cloudflare-eth still cover the same chain.
+// Server-side flows that need wider provider pools should construct
+// their own client — this one is browser-only.
 const MAINNET_RPCS = [
   "https://ethereum-rpc.publicnode.com",
-  "https://eth.llamarpc.com",
   "https://cloudflare-eth.com",
 ];
 
