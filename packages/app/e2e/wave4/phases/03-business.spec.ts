@@ -157,12 +157,17 @@ test.describe("Phase 3 — business tools", () => {
     // Bob needs USDC to pay. Faucet + shield 50.
     await faucetUsdc(bob.page, bob.address, chain.chainId, url);
     await shieldUsdc(bob.page, "50", PERSONAS.Bob.passphrase);
-    await bob.page.goto(previewHref);
 
+    // Settle: re-navigate to invoice and poll the Pay button until it
+    // un-disables. Bob's useEncryptedBalance hook takes a few seconds
+    // after the shield receipt lands before the invoice page knows
+    // he can pay. Without this wait the locator below resolves to
+    // the disabled "Pay via escrow" button and the click never fires.
+    await bob.page.goto(previewHref);
     const payBtn = bob.page
-      .locator("button").filter({ hasText: /^Pay/i })
+      .locator("button:not([disabled])").filter({ hasText: /^Pay/i })
       .first();
-    await payBtn.waitFor({ state: "visible", timeout: 30_000 });
+    await payBtn.waitFor({ state: "visible", timeout: 60_000 });
     await snap(bob.page, bobShot, "before-pay");
     await payBtn.click();
     let payTxHash: string;
