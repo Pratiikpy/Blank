@@ -234,6 +234,20 @@ export function useSmartAccount() {
     }
   }, [publicClient, activeChainId, contracts]);
 
+  // Hydrate from cache whenever activeChainId changes. Initial useState
+  // reads the cache at mount time, but when activeChainId starts
+  // undefined (ChainProvider still resolving) the read returns null and
+  // we sit at "idle" forever. This effect closes that race so a fresh
+  // /app/<route> mount on a configured chain hydrates synchronously.
+  useEffect(() => {
+    if (status === "ready" && account) return;
+    const c = readSaCache(activeChainId);
+    if (c) {
+      setAccount(c);
+      setStatus("ready");
+    }
+  }, [activeChainId, status, account]);
+
   useEffect(() => {
     // useEffect callbacks can't be async. Swallow any rejection from
     // resolveAccount so React doesn't emit an unhandled-promise warning

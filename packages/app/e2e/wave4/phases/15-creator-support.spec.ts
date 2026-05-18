@@ -140,14 +140,12 @@ test.describe("Phase 15 — Creator Support", () => {
     await alice.page.goto("/app/creators");
     await alice.page.locator("h1", { hasText: /Creator Support/i }).waitFor({ state: "visible", timeout: 30_000 });
 
-    // Find Bob's creator card. The list renders cards with the
-    // creator's name + truncated address. Match on the address prefix
-    // so the test works whether Bob's profile name is the one this run
-    // created ("Bob (Wave 4 demo creator)") or one from a prior run.
+    // Find Bob's creator card. The card carries a
+    // data-creator-address attribute (lowercased) so we can match by
+    // exact address regardless of which profile name Bob picked.
     await alice.page.reload();
-    const bobShort = `${bob.address.slice(0, 6)}`;
     const bobCard = alice.page
-      .locator(`button:has-text("${bobShort}")`)
+      .locator(`[data-creator-address="${bob.address.toLowerCase()}"]`)
       .first();
     await bobCard.waitFor({ state: "visible", timeout: 30_000 });
     await snap(alice.page, aliceShot, "bob-card-in-gallery");
