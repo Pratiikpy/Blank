@@ -167,33 +167,35 @@ export async function drainPromptsAndCaptureTx(
   passphrase: string,
   opts: { windowMs?: number; readTimeoutMs?: number } = {},
 ): Promise<string> {
+  // Use page.route() to intercept the /api/relay response BEFORE the
+  // frontend consumes the body. Earlier `page.on('response')` + json()
+  // raced with the frontend's `await res.json()` consumer and dropped
+  // the body. route() does a separate fetch under the hood and gives
+  // us our own copy of the body, then fulfills the original request
+  // with that copy so the frontend's consumer still works.
   let interceptedTxHash: string | null = null;
-  const responseHandler = async (response: { url: () => string; status: () => number; text: () => Promise<string> }) => {
-    const url = response.url();
-    // Loosen the URL match: covers /api/relay, /api/relay?, /api/relay/...
-    // and absolute URLs with the path embedded.
-    if (!/\/api\/relay(\b|\/|\?)/.test(url)) return;
-    if (response.status() < 200 || response.status() >= 300) return;
-    try {
-      const raw = await response.text();
-      // Body may be empty (timeout) or non-JSON; bail on either.
-      if (!raw || !raw.includes("0x")) return;
-      let body: { hash?: string; status?: string };
-      try { body = JSON.parse(raw); } catch { return; }
-      // Prefer body.hash (success) — fall back to scanning the raw
-      // body for the first 0x...64 hex hash if .hash isn't present
-      // (some flows include the hash inside a nested logs[] field).
-      if (typeof body.hash === "string" && /^0x[0-9a-fA-F]{64}$/.test(body.hash)) {
-        interceptedTxHash = body.hash;
-      } else {
-        const m = raw.match(/"hash"\s*:\s*"(0x[0-9a-fA-F]{64})"/);
-        if (m) interceptedTxHash = m[1];
+  await page.route(
+    (url) => /\/api\/relay(\b|\/|\?)/.test(url.toString()),
+    async (route) => {
+      try {
+        const fetched = await route.fetch();
+        const status = fetched.status();
+        const headers = fetched.headers();
+        const raw = await fetched.text();
+        if (raw && raw.includes("0x") && status >= 200 && status < 300) {
+          const m = raw.match(/"hash"\s*:\s*"(0x[0-9a-fA-F]{64})"/);
+          if (m && /"status"\s*:\s*"success"/.test(raw)) {
+            interceptedTxHash = m[1];
+          }
+        }
+        await route.fulfill({ status, headers, body: raw });
+      } catch {
+        // If the intercept fails for any reason, fall through so the
+        // frontend's network call still completes the standard way.
+        await route.continue();
       }
-    } catch {
-      // body might not be readable — ignore.
-    }
-  };
-  page.on("response", responseHandler);
+    },
+  );
   const txVisible = async () =>
     interceptedTxHash !== null ||
     (await page.locator('a[href*="/tx/0x"]').first().count()) > 0;
@@ -206,7 +208,9 @@ export async function drainPromptsAndCaptureTx(
     if (interceptedTxHash) return interceptedTxHash;
     return await readTxHashFromSuccess(page, opts.readTimeoutMs ?? 90_000);
   } finally {
-    page.off("response", responseHandler);
+    await page
+      .unroute((url) => /\/api\/relay(\b|\/|\?)/.test(url.toString()))
+      .catch(() => undefined);
   }
 }
 
