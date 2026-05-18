@@ -166,10 +166,25 @@ test.describe("Phase 4 — escrow", () => {
       });
     await snap(bob.page, bobShot, "escrow-mine-list");
 
+    // Bob's "Mine" view depends on the Supabase indexer picking up
+    // Alice's create-escrow event (typically 15-60s after the on-chain
+    // tx confirms). React doesn't auto-refresh the list, so reload
+    // every 30s until the Mark Delivered button surfaces.
     const markDeliveredBtn = bob.page
       .locator("button").filter({ hasText: /Mark.*delivered|^Deliver/i })
       .first();
-    await markDeliveredBtn.waitFor({ state: "visible", timeout: 180_000 });
+    let markDeliveredFound = false;
+    for (let i = 0; i < 6 && !markDeliveredFound; i++) {
+      markDeliveredFound = await markDeliveredBtn
+        .isVisible({ timeout: 30_000 })
+        .catch(() => false);
+      if (markDeliveredFound) break;
+      // Reload to force the escrow list to re-fetch from the indexer.
+      await openEscrowTab(bob.page);
+    }
+    if (!markDeliveredFound) {
+      throw new Error("Mark Delivered button never appeared after 6 retries (180s)");
+    }
     await markDeliveredBtn.click();
     let deliverTxHash: string;
     try {
