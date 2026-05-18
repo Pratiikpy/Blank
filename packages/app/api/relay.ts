@@ -337,14 +337,22 @@ async function handleImpl(req: any, res: any) {
         return await attempt(firstNonce);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        const nonceLike = /nonce|already been used|replacement|underpriced|execution reverted/i.test(msg);
-        if (!nonceLike) throw err;
-        // Reset local counter by re-reading chain + bumping past the
-        // just-attempted nonce, then try once more.
+        // Only retry when the RELAYER's tx-level nonce was stale (dev HMR
+        // counter drift, public-RPC lag). DO NOT retry on EntryPoint
+        // reverts — those return CALL_EXCEPTION with status=0 receipts
+        // and re-submitting the same UserOp with a fresh relayer nonce
+        // just trips AA25 (account nonce already consumed) on a UserOp
+        // the first submission already processed. The previous regex
+        // matched bare "execution reverted" which caught every
+        // EntryPoint revert, including the AA22/AA24/AA25 validation
+        // codes where the UserOp itself is the problem.
+        const relayerNonceLike =
+          /nonce too low|already been used|replacement (transaction )?underpriced|nonce has already been used/i.test(msg);
+        if (!relayerNonceLike) throw err;
         const chainPending = await provider.getTransactionCount(relayerAddress, "pending");
         const retryNonce = Math.max(chainPending, firstNonce + 1);
         nextNonceByChain.set(chainId, retryNonce);
-        console.warn(`[relay] nonce conflict on ${firstNonce}, retrying with ${retryNonce} (${msg.slice(0, 80)})`);
+        console.warn(`[relay] relayer-nonce conflict on ${firstNonce}, retrying with ${retryNonce} (${msg.slice(0, 80)})`);
         return await attempt(retryNonce);
       }
     });
