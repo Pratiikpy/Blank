@@ -299,7 +299,23 @@ test.describe("Phase 2 — P2P encrypted payments", () => {
     await recipientInput.fill(bobAddress);
     await alicePage.locator("main button:visible:not([disabled])").filter({ hasText: /^Continue/i }).first().click();
 
-    await alicePage.locator('input[placeholder="0.00"]').first().fill("1000");
+    // Same dual-path as happy: prefer the plaintext input, fall back to
+    // clicking each digit on the NumericKeypad when the input isn't there
+    // (mobile viewport / current default).
+    const amountInput = alicePage.locator('input[placeholder="0.00"]').first();
+    const amountInputVisible = await amountInput
+      .waitFor({ state: "visible", timeout: 5_000 })
+      .then(() => true)
+      .catch(() => false);
+    if (amountInputVisible) {
+      await amountInput.fill("1000");
+    } else {
+      for (const ch of "1000") {
+        const key = alicePage.locator(`button[aria-label="${ch}"]:visible`).first();
+        await key.waitFor({ state: "visible", timeout: 10_000 });
+        await key.click();
+      }
+    }
     // #377: scope to main + waitForURL to avoid the same sidebar-nav race
     // that #377 fixed in the happy path.
     await alicePage.locator("main button:visible:not([disabled])").filter({ hasText: /^Send/i }).last().click();
