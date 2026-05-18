@@ -72,7 +72,7 @@ interface Copy {
 function buildCopy(proof: ProofState | null): Copy {
   if (!proof) {
     return {
-      title: "Encrypted proof — Blank",
+      title: "Encrypted proof on Blank",
       description: "Encrypted income / balance proofs verified on-chain by Fhenix Threshold Network. Nobody learns the actual amount.",
     };
   }
@@ -80,8 +80,8 @@ function buildCopy(proof: ProofState | null): Copy {
   const amount = formatThresholdUSD(proof.threshold);
   if (!proof.isReady) {
     return {
-      title: `${kindLabel} ≥ ${amount} — Pending verification`,
-      description: "Encrypted proof on Blank. Anyone can verify the verdict on-chain — without learning the actual amount.",
+      title: `${kindLabel} ≥ ${amount}: Pending verification`,
+      description: "Encrypted proof on Blank. Anyone can verify the verdict on-chain, without learning the actual amount.",
     };
   }
   if (proof.isTrue) {
@@ -92,7 +92,7 @@ function buildCopy(proof: ProofState | null): Copy {
   }
   return {
     title: `${kindLabel} < ${amount}`,
-    description: "Disproven by Fhenix Threshold Network. No amount was leaked — only the boolean answer.",
+    description: "Disproven by Fhenix Threshold Network. No amount was leaked. Only the boolean answer.",
   };
 }
 

@@ -378,7 +378,7 @@ function ContributeForm(props: {
         {props.isProcessing ? "Submitting…" : "Contribute privately"}
       </button>
       <p className="text-xs text-[var(--text-secondary)] mt-3">
-        Your contribution is FHE-encrypted before it leaves your browser. Nobody — not even the creator — sees the amount.
+        Your contribution is FHE-encrypted before it leaves your browser. Nobody, not even the creator, sees the amount.
       </p>
     </div>
   );

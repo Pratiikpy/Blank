@@ -472,7 +472,7 @@ export default function Dashboard() {
             {unshieldStep === "success" && (
               <div className="flex items-center gap-2 text-sm text-emerald-600">
                 <CheckCircle size={16} />
-                <span>Unshielded — public USDC balance updated.</span>
+                <span>Unshielded. Public USDC balance updated.</span>
               </div>
             )}
             {unshieldStep === "error" && (
@@ -878,7 +878,7 @@ export default function Dashboard() {
             {unshieldStep === "success" && (
               <div className="flex items-center gap-2 text-sm text-emerald-600">
                 <CheckCircle size={16} />
-                <span>Unshielded — public USDC balance updated.</span>
+                <span>Unshielded. Public USDC balance updated.</span>
               </div>
             )}
             {unshieldStep === "error" && (
@@ -1093,7 +1093,7 @@ function BalanceCard({ balance, privacyMode, onTogglePrivacy, hasPermit, onCreat
                   {isCreatingPermit ? (
                     <><Loader2 size={10} className="animate-spin" /> Creating permit…</>
                   ) : (
-                    <><Lock size={10} /> Balance encrypted — tap to create permit</>
+                    <><Lock size={10} /> Balance encrypted. Tap to create permit</>
                   )}
                 </button>
               )}

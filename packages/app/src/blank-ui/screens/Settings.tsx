@@ -101,7 +101,7 @@ export default function Settings() {
         toast.success("100 testnet USDC minted to your wallet", { id });
       } else if (result.error === "rate_limited") {
         const scope = result.rateLimitScope === "address" ? "this address" : "your network";
-        toast.error(`Faucet rate-limited for ${scope} — try again in a bit.`, { id });
+        toast.error(`Faucet rate-limited for ${scope}. Try again in a bit.`, { id });
       } else {
         toast.error(`Faucet failed: ${result.error ?? "unknown"}`, { id });
       }
@@ -333,7 +333,7 @@ export default function Settings() {
                 Pay-Me Link
               </h3>
               <p className="text-sm text-[var(--text-secondary)]">
-                Drop this anywhere — email signature, Twitter bio, Discord profile
+                Drop this anywhere: email signature, Twitter bio, Discord profile
               </p>
             </div>
           </div>
