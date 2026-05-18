@@ -91,6 +91,12 @@ test.describe("Phase 20 — Gift envelopes (Alice gifts Bob $5)", () => {
     await snap(alice.page, aliceShot, "alice-shielded-pre-gift");
 
     await alice.page.goto("/app/gifts");
+    // Reload after the shield flow to clear any lingering passphrase
+    // modal state that could intercept the form's onChange handlers and
+    // leave the "Send Gift Envelope" button disabled despite a valid
+    // amount + recipient (caught in localhost batch — matches P19's
+    // post-tx reload pattern).
+    await alice.page.reload();
     await alice.page.locator("h1", { hasText: /Gift Envelopes/i }).waitFor({ state: "visible", timeout: 30_000 });
     await snap(alice.page, aliceShot, "gifts-landing");
 

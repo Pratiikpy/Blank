@@ -170,19 +170,46 @@ export async function drainPromptsAndCaptureTx(
   return readTxHashFromSuccess(page, opts.readTimeoutMs ?? 90_000);
 }
 
-/** Poll the on-chain explorer link the success state surfaces. Returns
- *  the tx hash extracted from a link href that contains "/tx/0x...". */
+/** Poll for an on-chain tx hash in the DOM. Tries multiple sources so
+ *  the helper isn't brittle to per-feature success UIs:
+ *   1. Anchor with href containing "/tx/0x..."  (SendSuccess, Gifts)
+ *   2. Anchor with href to etherscan/basescan "/tx/0x..." (some flows)
+ *   3. Text content matching "0x" + 64 hex chars (success cards, toasts)
+ *   4. data-testid="tx-hash" element's text or href
+ *
+ *  Features whose success UI doesn't include any of these (invoice
+ *  create just toasts + refreshes a list, escrow create same) should
+ *  not call readTxHashFromSuccess directly — they should wrap with
+ *  try/catch + synthetic hash via the drainPromptsAndCaptureTx
+ *  wrapper, which the spec already does. */
 export async function readTxHashFromSuccess(page: Page, timeoutMs = 90_000): Promise<string> {
   const deadline = Date.now() + timeoutMs;
+  const hashRe = /0x[0-9a-fA-F]{64}/;
   while (Date.now() < deadline) {
-    const href = await page
-      .locator('a[href*="/tx/0x"]')
-      .first()
-      .getAttribute("href")
-      .catch(() => null);
-    if (href) {
-      const m = href.match(/\/tx\/(0x[0-9a-fA-F]{64})/);
+    // Source 1+2: any anchor whose href contains a 0x-prefixed tx hash.
+    const anyTxHref = await page
+      .locator('a[href*="0x"]:visible')
+      .evaluateAll((nodes) =>
+        nodes
+          .map((n) => (n as HTMLAnchorElement).href)
+          .filter((h) => /\/tx\/0x[0-9a-fA-F]{64}/.test(h) || /etherscan|basescan/.test(h)),
+      )
+      .catch(() => [] as string[]);
+    for (const h of anyTxHref) {
+      const m = h.match(/\/tx\/(0x[0-9a-fA-F]{64})/) ?? h.match(/(0x[0-9a-fA-F]{64})/);
       if (m) return m[1];
+    }
+    // Source 3: visible text content matching a hash (e.g., success card
+    // shows "Tx: 0xabc..."). Scope to common containers to avoid scanning
+    // the whole DOM.
+    const txText = await page
+      .locator('[data-testid="tx-hash"], .tx-hash, code, .font-mono')
+      .first()
+      .textContent()
+      .catch(() => null);
+    if (txText) {
+      const m = txText.match(hashRe);
+      if (m) return m[0];
     }
     await page.waitForTimeout(2_000);
   }

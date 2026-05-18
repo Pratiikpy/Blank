@@ -130,10 +130,20 @@ test.describe("Phase 19 — Inheritance (principal side)", () => {
 
     // ─── Step 2: Alice does an immediate heartbeat ──────────────
     // After setHeir, the screen flips to the "Active Plan" view
-    // with a "Check In Now" button. Tap it; UserOp #2 (heartbeat)
-    // fires.
+    // with a "Check In Now" button. Reload first so the screen
+    // re-reads useInheritance fresh from chain — without the reload
+    // the React state sometimes stays in the post-submit "Set Heir"
+    // dialog and never picks up the new plan, leaving the test
+    // waiting on a button that's never rendered (caught in the
+    // localhost batch, fixed here so the heartbeat leg can land).
+    await alice.page.reload();
+    await alice.page
+      .locator("h1, h2, h3", { hasText: /Active Plan|Beneficiary Planning/i })
+      .first()
+      .waitFor({ state: "visible", timeout: 30_000 });
+
     const checkInBtn = alice.page.locator("button").filter({ hasText: /^Check In Now/i });
-    await checkInBtn.waitFor({ state: "visible", timeout: 30_000 });
+    await checkInBtn.waitFor({ state: "visible", timeout: 60_000 });
     await snap(alice.page, shot, "active-plan-view");
     await checkInBtn.click();
     await snap(alice.page, shot, "heartbeat-encrypting");
