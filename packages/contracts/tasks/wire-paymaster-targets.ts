@@ -50,6 +50,10 @@ const TARGETED_CONTRACTS = [
   "StealthPayments",
   "EncryptedFlags",
   "PaymentReceipts",
+  // Wave 4 additions: deep-link contracts the AA path targets.
+  "ClaimLinks",
+  "Storefront",
+  "EncryptedCrowdfund",
 ];
 
 task(
