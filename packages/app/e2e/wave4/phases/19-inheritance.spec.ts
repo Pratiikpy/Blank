@@ -2,7 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { PERSONAS, injectPasskey, setActiveChain, type ChainKey } from "../fixtures/wallets";
 import { snap, resetCounter } from "../helpers/screenshot";
 import { recordProof } from "../helpers/testing-todo";
-import { enterPassphrase, readTxHashFromSuccess } from "../helpers/app-actions";
+import { drainPromptsAndCaptureTx } from "../helpers/app-actions";
 
 // ──────────────────────────────────────────────────────────────────
 //  Phase 19 — Inheritance / Beneficiary planning (/app/inheritance).
@@ -108,12 +108,11 @@ test.describe("Phase 19 — Inheritance (principal side)", () => {
     // Submit "Set Heir".
     const setHeirBtn = alice.page.locator("button").filter({ hasText: /^Set Heir/i });
     await setHeirBtn.click();
-    await enterPassphrase(alice.page, PERSONAS.Alice.passphrase);
     await snap(alice.page, shot, "set-heir-encrypting");
 
     let setHeirTx: string;
     try {
-      setHeirTx = await readTxHashFromSuccess(alice.page, 120_000);
+      setHeirTx = await drainPromptsAndCaptureTx(alice.page, PERSONAS.Alice.passphrase, { readTimeoutMs: 120_000 });
     } catch {
       setHeirTx = `0x${"0".repeat(64)}`;
     }
@@ -137,12 +136,11 @@ test.describe("Phase 19 — Inheritance (principal side)", () => {
     await checkInBtn.waitFor({ state: "visible", timeout: 30_000 });
     await snap(alice.page, shot, "active-plan-view");
     await checkInBtn.click();
-    await enterPassphrase(alice.page, PERSONAS.Alice.passphrase);
     await snap(alice.page, shot, "heartbeat-encrypting");
 
     let heartbeatTx: string;
     try {
-      heartbeatTx = await readTxHashFromSuccess(alice.page, 90_000);
+      heartbeatTx = await drainPromptsAndCaptureTx(alice.page, PERSONAS.Alice.passphrase, { readTimeoutMs: 90_000 });
     } catch {
       heartbeatTx = `0x${"0".repeat(64)}`;
     }

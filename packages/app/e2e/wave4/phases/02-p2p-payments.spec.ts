@@ -8,7 +8,7 @@ import {
 } from "../fixtures/wallets";
 import { snap, resetCounter } from "../helpers/screenshot";
 import { recordProof } from "../helpers/testing-todo";
-import { enterPassphrase, faucetUsdcIfNeeded, readTxHashFromSuccess, shieldUsdc } from "../helpers/app-actions";
+import { drainPassphrasePrompts, faucetUsdcIfNeeded, readTxHashFromSuccess, shieldUsdc } from "../helpers/app-actions";
 
 // ──────────────────────────────────────────────────────────────────
 //  Phase 2 — P2P encrypted payments (Alice ↔ Bob).
@@ -104,26 +104,50 @@ async function driveSendFlow(
 
   // Advance from SendAmount → SendConfirm. The button label depends on
   // the current state machine (Continue / Review / Next / Send / Send X
-  // USDC); match any of those that's enabled and visible.
+  // USDC); match any of those that's enabled and visible. Scope to the
+  // <main> region so the sidebar "Send & Receive" nav button never wins
+  // .last() — without the scope, the .last() match on /^Send/i could
+  // resolve to the sidebar nav and bounce the page to /app/send.
   const confirmBtn = page
-    .locator("button:visible:not([disabled])")
+    .locator("main button:visible:not([disabled])")
     .filter({ hasText: /^(Continue|Review|Next|Send)/i })
     .last();
   await confirmBtn.waitFor({ state: "visible", timeout: 15_000 });
   await confirmBtn.click();
 
+  // CRITICAL #377: wait for /app/send/confirm to ACTUALLY load before
+  // hunting for the final send button. Previously this clicked .last()
+  // on the visible button list ~94ms after the advance click; before
+  // the new SendConfirm screen had a chance to render, the regex match
+  // resolved against SendAmount's still-mounted buttons (or the sidebar
+  // "Send & Receive" nav) and the page bounced back to /app/send.
+  await page.waitForURL(/\/app\/send\/confirm/, { timeout: 30_000 });
+
   // Step 3: confirm screen. SendConfirm's button text is "Confirm & Send"
   // in the happy state; widen to also match "Send", "Confirm", or
-  // "Continue stealth send" in case of mode toggles.
+  // "Continue stealth send" in case of mode toggles. Scope to <main> to
+  // exclude the sidebar nav button (same #377 protection).
   const finalSendBtn = page
-    .locator("button:visible:not([disabled])")
+    .locator("main button:visible:not([disabled])")
     .filter({ hasText: /Confirm.*Send|Send to stealth|Continue stealth send|^Send/i })
     .last();
   await finalSendBtn.waitFor({ state: "visible", timeout: 15_000 });
   await finalSendBtn.click();
 
-  // Step 4: passphrase prompt.
-  await enterPassphrase(page, passphrase);
+  // Step 4: drain every passphrase prompt that surfaces.
+  // FHE send fires up to 3 prompts (permit warmup, approve, sendPayment);
+  // pre-fix only the first was answered → second timed out → "Cancelled"
+  // bubbled into the catch block + no tx-hash ever surfaced (#377).
+  await drainPassphrasePrompts(page, passphrase, {
+    windowMs: 360_000,
+    // #377: 12s gap was too short — encryption (5-30s on first run) +
+    // approve UserOp confirmation (~60s on Sepolia) live between consecutive
+    // prompts. 90s keeps the drainer patient enough to catch all 3.
+    gapMs: 90_000,
+    expectAtLeast: 1,
+    terminateOn: async () =>
+      (await page.locator('a[href*="/tx/0x"]').first().count()) > 0,
+  });
 
   // Step 5: SendSuccess renders the tx hash explorer link.
   const txHash = await readTxHashFromSuccess(page);
@@ -171,11 +195,16 @@ test.describe("Phase 2 — P2P encrypted payments", () => {
     // clue why.
     alicePage.on("console", (m) => {
       const t = m.text();
+      // #377 debug: widened to also capture useSendPayment + cofhe-shim
+      // events so we can see which branch confirmSendLegacy took when the
+      // passphrase modal failed to surface. Keep the existing keyword
+      // filter alongside.
       if (
         m.type() === "error" ||
-        /shield|relay|userop|revert|fail|error|aa\d{2}/i.test(t)
+        m.type() === "warn" ||
+        /shield|relay|userop|revert|fail|error|aa\d{2}|useSendPayment|cofhe-shim|confirmSend|encryptInputs|smartAccount|passphrase|PassphrasePrompt/i.test(t)
       ) {
-        console.log(`[alice console:${m.type()}] ${t.slice(0, 300)}`);
+        console.log(`[alice console:${m.type()}] ${t.slice(0, 400)}`);
       }
     });
     alicePage.on("pageerror", (e) => {
@@ -271,17 +300,21 @@ test.describe("Phase 2 — P2P encrypted payments", () => {
     await alicePage.locator("button").filter({ hasText: /^Next/i }).first().click();
 
     await alicePage.locator('input[placeholder="0.00"]').first().fill("1000");
-    await alicePage.locator("button").filter({ hasText: /^Send/i }).last().click();
-    await alicePage.locator("button").filter({ hasText: /^Confirm/i }).last().click();
+    // #377: scope to main + waitForURL to avoid the same sidebar-nav race
+    // that #377 fixed in the happy path.
+    await alicePage.locator("main button:visible:not([disabled])").filter({ hasText: /^Send/i }).last().click();
+    await alicePage.waitForURL(/\/app\/send\/confirm/, { timeout: 30_000 }).catch(() => undefined);
+    await alicePage.locator("main button:visible:not([disabled])").filter({ hasText: /^Confirm/i }).last().click();
 
-    // Either passphrase prompt fires (and relay rejects post-encrypt),
+    // Either passphrase prompts fire (and relay rejects post-encrypt),
     // or pre-encryption validation catches the over-balance attempt
-    // upfront. Either way, NO success state.
-    try {
-      await enterPassphrase(alicePage, alice.passphrase);
-    } catch {
-      // Passphrase prompt may not surface if pre-check catches it.
-    }
+    // upfront. drainPassphrasePrompts with expectAtLeast=0 + short window
+    // tolerates either path.
+    await drainPassphrasePrompts(alicePage, alice.passphrase, {
+      windowMs: 90_000,
+      gapMs: 30_000,
+      expectAtLeast: 0,
+    }).catch(() => undefined);
 
     // Wait for an error indicator: red toast, error banner, or
     // staying on the confirm screen for > 5s without a success.

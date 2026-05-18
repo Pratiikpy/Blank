@@ -2,7 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { PERSONAS, injectPasskey, setActiveChain, type ChainKey } from "../fixtures/wallets";
 import { snap, resetCounter } from "../helpers/screenshot";
 import { recordProof } from "../helpers/testing-todo";
-import { enterPassphrase, readTxHashFromSuccess, shieldUsdc, faucetUsdcIfNeeded } from "../helpers/app-actions";
+import { drainPromptsAndCaptureTx, shieldUsdc, faucetUsdcIfNeeded } from "../helpers/app-actions";
 
 // ──────────────────────────────────────────────────────────────────
 //  Phase 17 — Payment Requests (/app/requests).
@@ -107,12 +107,11 @@ test.describe("Phase 17 — Payment Requests (Alice requests, Bob pays)", () => 
 
     // Submit Send Request.
     await alice.page.locator("button").filter({ hasText: /^Send Request/i }).click();
-    await enterPassphrase(alice.page, PERSONAS.Alice.passphrase);
     await snap(alice.page, aliceShot, "request-encrypting");
 
     let createTxHash: string;
     try {
-      createTxHash = await readTxHashFromSuccess(alice.page, 90_000);
+      createTxHash = await drainPromptsAndCaptureTx(alice.page, PERSONAS.Alice.passphrase, { readTimeoutMs: 90_000 });
     } catch {
       createTxHash = `0x${"0".repeat(64)}`;
     }
@@ -165,12 +164,11 @@ test.describe("Phase 17 — Payment Requests (Alice requests, Bob pays)", () => 
 
     // Click "Pay Now".
     await bob.page.locator("button").filter({ hasText: /^Pay Now/i }).click();
-    await enterPassphrase(bob.page, PERSONAS.Bob.passphrase);
     await snap(bob.page, bobShot, "fulfill-encrypting");
 
     let fulfillTxHash: string;
     try {
-      fulfillTxHash = await readTxHashFromSuccess(bob.page, 120_000);
+      fulfillTxHash = await drainPromptsAndCaptureTx(bob.page, PERSONAS.Bob.passphrase, { readTimeoutMs: 120_000 });
     } catch {
       fulfillTxHash = `0x${"0".repeat(64)}`;
     }

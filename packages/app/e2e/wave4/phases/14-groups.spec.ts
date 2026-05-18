@@ -2,7 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { PERSONAS, injectPasskey, setActiveChain, type ChainKey } from "../fixtures/wallets";
 import { snap, resetCounter } from "../helpers/screenshot";
 import { recordProof } from "../helpers/testing-todo";
-import { enterPassphrase, readTxHashFromSuccess, shieldUsdc, faucetUsdcIfNeeded } from "../helpers/app-actions";
+import { drainPromptsAndCaptureTx, shieldUsdc, faucetUsdcIfNeeded } from "../helpers/app-actions";
 
 // ──────────────────────────────────────────────────────────────────
 //  Phase 14 — Groups (encrypted group expense splits).
@@ -137,8 +137,6 @@ test.describe("Phase 14 — Groups (Alice creates encrypted group with Bob + Car
     await submitBtn.click();
     await snap(alice.page, shot, "submit-clicked");
 
-    // Passphrase prompt fires for the passkey-signed UserOp.
-    await enterPassphrase(alice.page, PERSONAS.Alice.passphrase);
     await snap(alice.page, shot, "passphrase-entered-encrypting");
 
     // Wait for the explorer link the success state surfaces. The
@@ -147,7 +145,7 @@ test.describe("Phase 14 — Groups (Alice creates encrypted group with Bob + Car
     // most reliable signal is any anchor with /tx/0x... appearing.
     let txHash: string;
     try {
-      txHash = await readTxHashFromSuccess(alice.page, 120_000);
+      txHash = await drainPromptsAndCaptureTx(alice.page, PERSONAS.Alice.passphrase, { readTimeoutMs: 120_000 });
     } catch {
       // Fallback: the Groups screen may not show an explorer link;
       // the contract write happens then the modal closes + the

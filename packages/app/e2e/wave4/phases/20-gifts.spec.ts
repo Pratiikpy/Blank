@@ -2,7 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { PERSONAS, injectPasskey, setActiveChain, type ChainKey } from "../fixtures/wallets";
 import { snap, resetCounter } from "../helpers/screenshot";
 import { recordProof } from "../helpers/testing-todo";
-import { enterPassphrase, readTxHashFromSuccess, shieldUsdc, faucetUsdcIfNeeded } from "../helpers/app-actions";
+import { drainPromptsAndCaptureTx, shieldUsdc, faucetUsdcIfNeeded } from "../helpers/app-actions";
 
 // ──────────────────────────────────────────────────────────────────
 //  Phase 20 — Gift envelopes (/app/gifts).
@@ -110,14 +110,19 @@ test.describe("Phase 20 — Gift envelopes (Alice gifts Bob $5)", () => {
       .fill("Wave 4 demo gift — happy testing!");
     await snap(alice.page, aliceShot, "message-typed");
 
-    // Submit "Send Gift Envelope".
-    await alice.page.locator("button").filter({ hasText: /^Send Gift Envelope/i }).click();
-    await enterPassphrase(alice.page, PERSONAS.Alice.passphrase);
+    // Submit. Scope to <main> + visible + enabled to avoid the sidebar nav
+    // or other off-screen matches. Scroll the button into view first.
+    const sendGiftBtn = alice.page
+      .locator("main button:visible:not([disabled])")
+      .filter({ hasText: /Send Gift Envelope/i })
+      .first();
+    await sendGiftBtn.scrollIntoViewIfNeeded({ timeout: 10_000 }).catch(() => undefined);
+    await sendGiftBtn.click({ timeout: 30_000 });
     await snap(alice.page, aliceShot, "gift-encrypting");
 
     let createTx: string;
     try {
-      createTx = await readTxHashFromSuccess(alice.page, 120_000);
+      createTx = await drainPromptsAndCaptureTx(alice.page, PERSONAS.Alice.passphrase, { readTimeoutMs: 120_000 });
     } catch {
       createTx = `0x${"0".repeat(64)}`;
     }
@@ -158,12 +163,11 @@ test.describe("Phase 20 — Gift envelopes (Alice gifts Bob $5)", () => {
     await claimBtn.waitFor({ state: "visible", timeout: 30_000 });
     await snap(bob.page, bobShot, "envelope-from-alice-visible");
     await claimBtn.click();
-    await enterPassphrase(bob.page, PERSONAS.Bob.passphrase);
     await snap(bob.page, bobShot, "claim-encrypting");
 
     let claimTx: string;
     try {
-      claimTx = await readTxHashFromSuccess(bob.page, 120_000);
+      claimTx = await drainPromptsAndCaptureTx(bob.page, PERSONAS.Bob.passphrase, { readTimeoutMs: 120_000 });
     } catch {
       claimTx = `0x${"0".repeat(64)}`;
     }

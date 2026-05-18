@@ -37,15 +37,46 @@ interface QueuedRequest {
  *  can't leak promises forever). */
 const QUEUE_ENTRY_TIMEOUT_MS = 60_000;
 
+// #377: hoist the queue + listener registry to module scope so it survives
+// provider remounts. In dev (StrictMode + Vite HMR + cross-route page
+// navigations) the provider can unmount + remount while a UserOp request
+// is in flight; if the queue lives on a per-instance useRef, the new
+// instance's queue is empty and the inbound modal close() becomes a no-op
+// — the pending promise stays unsettled until the 60s queue-timer fires
+// with null. Wave4 phase 02 reproduced this on every approve UserOp prompt.
+const _passphraseQueue: QueuedRequest[] = [];
+const _passphraseListeners = new Set<() => void>();
+
+function _notifyQueueChanged() {
+  for (const fn of _passphraseListeners) {
+    try { fn(); } catch { /* listener threw — don't break others */ }
+  }
+}
+
 export function PassphrasePromptProvider({ children }: { children: React.ReactNode }) {
-  const [open, setOpen] = useState(false);
-  const [title, setTitle] = useState("Unlock smart wallet");
-  const [subtitle, setSubtitle] = useState("Enter your passphrase to sign this transaction.");
+  const [open, setOpen] = useState(_passphraseQueue.length > 0);
+  const [title, setTitle] = useState(_passphraseQueue[0]?.title ?? "Unlock smart wallet");
+  const [subtitle, setSubtitle] = useState(_passphraseQueue[0]?.subtitle ?? "Enter your passphrase to sign this transaction.");
   const [value, setValue] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
-  // FIFO queue of pending requests. Concurrent callers each get their own
-  // slot — the modal shows entries one at a time in arrival order.
-  const queueRef = useRef<QueuedRequest[]>([]);
+
+  // Subscribe to queue mutations so a request from any source (a sibling
+  // provider mount during a remount race) re-syncs this instance.
+  useEffect(() => {
+    const listener = () => {
+      const head = _passphraseQueue[0];
+      if (head) {
+        setTitle(head.title);
+        setSubtitle(head.subtitle);
+        setOpen(true);
+      } else {
+        setOpen(false);
+      }
+    };
+    _passphraseListeners.add(listener);
+    listener();
+    return () => { _passphraseListeners.delete(listener); };
+  }, []);
 
   const request = useCallback(
     (opts?: { title?: string; subtitle?: string }) => {
@@ -57,84 +88,48 @@ export function PassphrasePromptProvider({ children }: { children: React.ReactNo
           timeoutId: null,
         };
         // #124: auto-settle after 60s so cancelled flows don't leak
-        // promises forever. If the user is mid-type we'll keep the modal
-        // up — the timeout fires against THIS resolver, not the active
-        // modal state.
+        // promises forever. Reads against the module-scope queue (see
+        // #377 comment above) so the timer survives provider remounts.
         entry.timeoutId = setTimeout(() => {
-          const idx = queueRef.current.indexOf(entry);
+          const idx = _passphraseQueue.indexOf(entry);
           if (idx >= 0) {
-            queueRef.current.splice(idx, 1);
+            _passphraseQueue.splice(idx, 1);
             entry.resolver(null);
-            // If this was the front entry and modal is still showing the
-            // corresponding copy, advance to next or close.
-            if (idx === 0) {
-              const next = queueRef.current[0];
-              if (next) {
-                setTitle(next.title);
-                setSubtitle(next.subtitle);
-              } else {
-                setOpen(false);
-              }
-            }
+            _notifyQueueChanged();
           }
         }, QUEUE_ENTRY_TIMEOUT_MS);
-        queueRef.current.push(entry);
-        // If this is the only queued entry, show the modal with its copy.
-        if (queueRef.current.length === 1) {
-          setTitle(entry.title);
-          setSubtitle(entry.subtitle);
-          setValue("");
-          setOpen(true);
-        }
+        _passphraseQueue.push(entry);
+        console.log("[PassphrasePrompt.request]", JSON.stringify({
+          title: entry.title.slice(0, 40),
+          queueLenAfter: _passphraseQueue.length,
+        }));
+        _notifyQueueChanged();
       });
     },
     [],
   );
 
   const close = useCallback((v: string | null) => {
-    // Settle the FRONT resolver (FIFO) — not whichever one happened to be
-    // last to call request().
-    const front = queueRef.current.shift();
+    // #377 diag: log every close() call so the e2e trace shows whether the
+    // resolver was settled with a real passphrase or null.
+    console.log("[PassphrasePrompt.close]", JSON.stringify({
+      hasValue: v !== null && v !== "",
+      queueLenBefore: _passphraseQueue.length,
+    }));
+    // Settle the FRONT resolver (FIFO) against the module-scope queue.
+    const front = _passphraseQueue.shift();
     if (front) {
       if (front.timeoutId) clearTimeout(front.timeoutId);
       front.resolver(v);
-      // TODO (#cross-tab): if we ever want sibling tabs to auto-dismiss their
-      // passphrase modal when another tab resolves the same signing request,
-      // broadcast `passphrase_resolved` here with a requestId. That requires
-      // surfacing the request ID on the QueuedRequest (it isn't today) and a
-      // matching listener that can settle the matching queue entry in the
-      // other tab. Left as a stub — the FIFO queue already handles its own
-      // lifecycle safely within a single tab.
-      // if (v !== null) {
-      //   broadcastAction("passphrase_resolved", { requestId: front.requestId, resolved: true });
-      // }
     }
-
-    // Reset the input value between entries.
     setValue("");
-
-    const next = queueRef.current[0];
-    if (next) {
-      // More callers waiting — swap in their copy and keep the modal open.
-      setTitle(next.title);
-      setSubtitle(next.subtitle);
-      setOpen(true);
-    } else {
-      setOpen(false);
-    }
+    _notifyQueueChanged();
   }, []);
 
-  // Clear any remaining timers on unmount to prevent state-update-on-
-  // unmounted-component warnings during fast-refresh / tab close.
-  useEffect(() => {
-    return () => {
-      for (const entry of queueRef.current) {
-        if (entry.timeoutId) clearTimeout(entry.timeoutId);
-        entry.resolver(null);
-      }
-      queueRef.current = [];
-    };
-  }, []);
+  // #377: no cleanup-side resolver(null). Pending requests survive provider
+  // remounts via the module-scope `_passphraseQueue`. Cleanup is intentionally
+  // a no-op; the only state that needed cleanup (the focus/key-event handlers)
+  // is cleaned by its own useEffect below.
 
   useEffect(() => {
     if (!open) return;

@@ -2,7 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { PERSONAS, injectPasskey, setActiveChain, type ChainKey } from "../fixtures/wallets";
 import { snap, resetCounter } from "../helpers/screenshot";
 import { recordProof } from "../helpers/testing-todo";
-import { enterPassphrase, readTxHashFromSuccess } from "../helpers/app-actions";
+import { drainPromptsAndCaptureTx } from "../helpers/app-actions";
 
 // ──────────────────────────────────────────────────────────────────
 //  Phase 18 — Burner wallets (/app/burners).
@@ -142,8 +142,7 @@ test.describe("Phase 18 — Burners (local create + chain-backup gap)", () => {
           .locator("button").filter({ hasText: /^Encrypt|Back up|Confirm/i })
           .first()
           .click();
-        await enterPassphrase(alice.page, PERSONAS.Alice.passphrase).catch(() => undefined);
-        backupTxHash = await readTxHashFromSuccess(alice.page, 90_000).catch(
+        backupTxHash = await drainPromptsAndCaptureTx(alice.page, PERSONAS.Alice.passphrase, { readTimeoutMs: 90_000 }).catch(
           () => `0x${"0".repeat(64)}`,
         );
         backupNote = `Burner local create + on-chain backup both proven. BurnerRegistry deployed + reachable on this chain.`;

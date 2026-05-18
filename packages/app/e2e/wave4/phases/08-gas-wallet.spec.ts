@@ -9,7 +9,7 @@ import {
 } from "../fixtures/wallets";
 import { snap, resetCounter } from "../helpers/screenshot";
 import { recordProof } from "../helpers/testing-todo";
-import { enterPassphrase, readTxHashFromSuccess, shieldUsdc, faucetUsdcIfNeeded } from "../helpers/app-actions";
+import { drainPromptsAndCaptureTx, shieldUsdc, faucetUsdcIfNeeded } from "../helpers/app-actions";
 
 // ──────────────────────────────────────────────────────────────────
 //  Phase 8 — gas wallet (§1.13 ship).
@@ -135,8 +135,7 @@ test.describe("Phase 8 — gas wallet", () => {
     // — Sub-assertion 3: click Upgrade → passkey signs → mine.
     const upgradeBtn = alicePage.locator('button[aria-label*="Upgrade smart account"]');
     await upgradeBtn.click();
-    await enterPassphrase(alicePage, PERSONAS.Alice.passphrase);
-    const upgradeTxHash = await readTxHashFromSuccess(alicePage);
+    const upgradeTxHash = await drainPromptsAndCaptureTx(alicePage, PERSONAS.Alice.passphrase);
     expect(upgradeTxHash).toMatch(/^0x[0-9a-fA-F]{64}$/);
     await snap(alicePage, shot, "upgrade-tx-submitted");
 
@@ -223,8 +222,7 @@ test.describe("Phase 8 — gas wallet", () => {
     // gas deposit" — sanity-check that text appears.
     const promptSubtitle = (await alicePage.locator("text=/paid from your own gas deposit/i").first().isVisible().catch(() => false)) ?? false;
 
-    await enterPassphrase(alicePage, PERSONAS.Alice.passphrase);
-    const selfPayTxHash = await readTxHashFromSuccess(alicePage);
+    const selfPayTxHash = await drainPromptsAndCaptureTx(alicePage, PERSONAS.Alice.passphrase);
     expect(selfPayTxHash).toMatch(/^0x[0-9a-fA-F]{64}$/);
     await snap(alicePage, shot, "self-pay-success");
 

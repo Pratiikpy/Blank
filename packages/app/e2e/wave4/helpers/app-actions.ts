@@ -68,19 +68,14 @@ export async function faucetUsdcIfNeeded(
 /** Type the passphrase into the modal prompt + submit. The app uses
  *  the PassphrasePrompt component which renders an input + a Submit
  *  button when the user has to sign a UserOp. */
-export async function enterPassphrase(page: Page, passphrase: string): Promise<void> {
-  // The prompt overlay is conditionally rendered; wait up to 30s for
-  // it to appear. Pre-existing tests use placeholder="Passphrase" on
+export async function enterPassphrase(page: Page, passphrase: string, timeoutMs = 120_000): Promise<void> {
+  // The prompt overlay is conditionally rendered; wait up to `timeoutMs`
+  // for it to appear. Pre-existing tests use placeholder="Passphrase" on
   // the input.
   // :visible filter — multiple stale modals can be in the DOM if the
   // caller hit a retry loop above.
-  // 120s budget: send flows trigger TWO prompts back-to-back (approve
-  // first, then sendPayment), and the approve step can take 30–60s on
-  // Sepolia. The full chain (approve UserOp + bundler + mine + send
-  // prompt) can land 60–90s after the Confirm click, so 30s was too
-  // short for send flows even though it works for shield-only paths.
   const input = page.locator('input[type="password"][placeholder*="assphrase" i]:visible').first();
-  await input.waitFor({ state: "visible", timeout: 120_000 });
+  await input.waitFor({ state: "visible", timeout: timeoutMs });
   // Set value via the React 18 native setter + dispatch input event —
   // see shieldUsdc for the rationale (modal re-render races detach
   // Playwright element handles mid-type). Submit button label is
@@ -95,6 +90,84 @@ export async function enterPassphrase(page: Page, passphrase: string): Promise<v
   }, passphrase);
   const submit = page.locator('button:visible').filter({ hasText: /^Unlock$/i }).first();
   await submit.click({ timeout: 5_000 }).catch(() => input.press("Enter"));
+}
+
+/** #377: drive ALL passphrase prompts that surface within `windowMs` of
+ *  the call. FHE send flows trigger up to 3 prompts back-to-back:
+ *    1. permit warmup (SDK self-permit signTypedData)
+ *    2. approve UserOp (PaymentHub spend authorisation)
+ *    3. sendPayment UserOp (the encrypted-amount call itself)
+ *
+ *  Resolves when either the tx-hash success page surfaces, the window
+ *  elapses with no further prompts, or `terminateOn` returns true.
+ *  Each prompt is filled with the same passphrase. */
+export async function drainPassphrasePrompts(
+  page: Page,
+  passphrase: string,
+  opts: { windowMs?: number; gapMs?: number; expectAtLeast?: number; terminateOn?: () => Promise<boolean> } = {},
+): Promise<number> {
+  const windowMs = opts.windowMs ?? 360_000;
+  // gapMs is the OUTER patience budget per prompt: how long we tolerate
+  // between consecutive prompts before giving up. Encryption-to-approve
+  // can be 5-30s and approve-to-sendPayment can be 30-90s on Sepolia,
+  // so we need 60s+ here. The INNER tick is short (see below).
+  const gapMs = opts.gapMs ?? 60_000;
+  const TICK_MS = 1_500;
+  const expectAtLeast = opts.expectAtLeast ?? 1;
+  const deadline = Date.now() + windowMs;
+  let count = 0;
+  let lastSeenAt = Date.now();
+  while (Date.now() < deadline) {
+    // #377: poll terminateOn concurrently with the modal-wait so a fast
+    // success path (SendSuccess auto-redirects after ~8s) doesn't miss
+    // its window while we're blocked waiting for a prompt that will
+    // never come. Short TICK_MS keeps the loop responsive.
+    if (opts.terminateOn && (await opts.terminateOn())) break;
+    const modalVisible = await page
+      .locator('input[type="password"][placeholder*="assphrase" i]:visible')
+      .first()
+      .isVisible()
+      .catch(() => false);
+    if (modalVisible) {
+      try {
+        await enterPassphrase(page, passphrase, TICK_MS);
+        count += 1;
+        lastSeenAt = Date.now();
+      } catch {
+        // Modal disappeared between visibility check and type — keep polling.
+      }
+      continue;
+    }
+    // No modal visible. Check whether we've exceeded `gapMs` since the
+    // last interaction; if so, give up.
+    if (Date.now() - lastSeenAt > gapMs) break;
+    await page.waitForTimeout(TICK_MS);
+  }
+  if (count < expectAtLeast) {
+    throw new Error(`drainPassphrasePrompts: only ${count} prompt(s) handled; expected at least ${expectAtLeast}`);
+  }
+  return count;
+}
+
+/** #377: convenience wrapper for the common pattern "click action → drain
+ *  every passphrase prompt the action fires → capture the tx-hash
+ *  explorer link". Many FHE flows (gift, request, tip, ...) trigger 2-3
+ *  back-to-back passphrase prompts; this combines `drainPassphrasePrompts`
+ *  with `readTxHashFromSuccess` and shares the same tx-hash poll between
+ *  them so the drainer exits the instant the success page surfaces. */
+export async function drainPromptsAndCaptureTx(
+  page: Page,
+  passphrase: string,
+  opts: { windowMs?: number; readTimeoutMs?: number } = {},
+): Promise<string> {
+  const txVisible = async () =>
+    (await page.locator('a[href*="/tx/0x"]').first().count()) > 0;
+  await drainPassphrasePrompts(page, passphrase, {
+    windowMs: opts.windowMs ?? 360_000,
+    expectAtLeast: 1,
+    terminateOn: txVisible,
+  });
+  return readTxHashFromSuccess(page, opts.readTimeoutMs ?? 90_000);
 }
 
 /** Poll the on-chain explorer link the success state surfaces. Returns

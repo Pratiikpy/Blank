@@ -483,6 +483,15 @@ export function useSendPayment() {
   }, [canProceed, address, state.amount, state.mode]);
 
   const confirmSendLegacy = useCallback(async (paymasterMode?: "sponsored" | "self") => {
+    // #377 diag: track the gate every confirmSend hits.
+    console.log("[useSendPayment.confirmSendLegacy.entry]", JSON.stringify({
+      hasAddress: !!address,
+      submitting: submittingRef.current,
+      step: state.step,
+      hasPublicClient: !!publicClient,
+      paymasterMode: paymasterMode ?? "default",
+      mode: state.mode,
+    }));
     if (!address) {
       // R5-D: smart-account address resolves asynchronously. If user
       // races the click before useSmartAccount finishes its first
@@ -493,8 +502,14 @@ export function useSendPayment() {
     }
     // #272: synchronous latch — prevents double-submit during the React
     // batching window before `state.step` flips to "encrypting"/"sending".
-    if (submittingRef.current) return;
-    if (state.step === "sending" || state.step === "encrypting") return;
+    if (submittingRef.current) {
+      console.log("[useSendPayment.confirmSendLegacy.bail.submittingRef]");
+      return;
+    }
+    if (state.step === "sending" || state.step === "encrypting") {
+      console.log("[useSendPayment.confirmSendLegacy.bail.step]", state.step);
+      return;
+    }
 
     if (!publicClient) {
       toast.error("Connection lost. Please refresh.");

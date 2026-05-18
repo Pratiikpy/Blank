@@ -320,5 +320,60 @@ interpretation, not the easier one.
 `WAVE4.md` is the source of truth for "what's built." `WAVE4_TESTING_TODO.md`
 is the source of truth for "what's tested." Every shipped feature gets
 a line in both. The status updates in the same commit that ships the
-feature, not a follow-up. If a feature has no line in either file, it
-has no proof, so it does not exist.
+feature, not a follow-up.
+
+---
+
+## M. Testnet-launch-ready directive (do not stop until met)
+
+The standing goal is `make Blank testnet-launch-ready end-to-end`.
+That is the single bar everything else is measured against. Until it
+is met, do not stop, do not declare done, do not narrow scope.
+
+You have full authority to do whatever is needed to reach it:
+
+- Local + Vercel-deployed UI testing on real testnet, real wallets
+  (passkey AA first, then a Rabby smoke), multi-wallet (Alice + Bob
+  + Carol + Dan as needed), desktop + mobile viewports, screenshots
+  and screen recordings.
+- Vercel: commit, push, verify the preview deploy from the public
+  URL — that's what users hit. The CLI lives at
+  `C:/Users/prate/AppData/Roaming/npm/vercel`; the project is `blank`
+  under `pratiikpys-projects` with canonical URL
+  https://blank-omega-jade.vercel.app. GitHub CI status via `gh run
+  list --branch <branch>`. Treat the Vercel preview as the bar for
+  "what users see," not just localhost.
+- Contracts: deploy fixes, run hardhat tasks, verify on Etherscan /
+  Basescan as needed. Storage-layout safety still gates UUPS
+  upgrades (`pnpm storage:check`).
+- Writing: every README, every screen string, every error toast,
+  every commit body, every doc — sweep for em-dashes and the banned
+  word list (delve, unlock, unleash, robust, leverage, empower,
+  seamless, harness, streamline, cutting-edge, state-of-the-art,
+  revolutionize). Tighten flowery sentences. Show, don't adjective.
+- Polish: empty states, loading states, error states, mobile tap
+  targets, copy that reads honest, data freshness (balances refresh
+  after a tx, activity feed picks up the new row, no stuck spinners),
+  feature-flag gates that surface honest "not deployed on this chain"
+  banners instead of broken buttons.
+- QA mindset: behave like a real human on UI. Click, wait for the
+  screen to settle, read the result, compare against what the
+  feature claims. If something is "cool but unverifiable," push
+  back with a verifiable alternative (per §A). Capture proof at
+  every meaningful state transition.
+
+### Priority lens
+
+Before every step, ask: is this the single highest-priority thing
+toward `make Blank testnet-launch-ready`? If not, switch. Skipping
+is forbidden — when something is hard, harder is the correct path
+(per §K). Money / paid-quota / unavailable-hardware are the only
+acceptable blockers; everything else is "yes, build it."
+
+### Stopping condition
+
+Stop only when there is genuinely nothing left for a real human to
+test or verify in any angle of the product on testnet, on Vercel,
+across both chains, both viewports, all wallet paths, all feature
+flows, all writing surfaces. Anything short of that is not "done."
+

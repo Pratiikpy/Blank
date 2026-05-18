@@ -8,7 +8,7 @@ import {
 } from "../fixtures/wallets";
 import { snap, resetCounter } from "../helpers/screenshot";
 import { recordProof } from "../helpers/testing-todo";
-import { enterPassphrase, readTxHashFromSuccess, shieldUsdc, faucetUsdcIfNeeded } from "../helpers/app-actions";
+import { drainPromptsAndCaptureTx, shieldUsdc, faucetUsdcIfNeeded } from "../helpers/app-actions";
 
 // ──────────────────────────────────────────────────────────────────
 //  Phase 5 — public deep-link CREATE (sender/seller/creator side).
@@ -176,9 +176,8 @@ test.describe("Phase 5 — public deep-link create", () => {
       await alice.page
         .locator("button").filter({ hasText: /^Create link/i })
         .click();
-      await enterPassphrase(alice.page, PERSONAS.Alice.passphrase);
 
-      const txHash = await readTxHashFromSuccess(alice.page);
+      const txHash = await drainPromptsAndCaptureTx(alice.page, PERSONAS.Alice.passphrase);
       const shareUrl = await readShareUrl(alice.page, "/claim/", url);
       const successShot = await snap(alice.page, shot, `claim-${mode.key.toLowerCase()}-success`);
 
@@ -238,8 +237,7 @@ test.describe("Phase 5 — public deep-link create", () => {
     await snap(alice.page, shot, "auction-form-filled");
 
     await alice.page.locator("button").filter({ hasText: /^Create listing/i }).click();
-    await enterPassphrase(alice.page, PERSONAS.Alice.passphrase);
-    const txHash = await readTxHashFromSuccess(alice.page);
+    const txHash = await drainPromptsAndCaptureTx(alice.page, PERSONAS.Alice.passphrase);
     const shareUrl = await readShareUrl(alice.page, "/shop/", url);
     const successShot = await snap(alice.page, shot, "auction-created");
 
@@ -281,8 +279,7 @@ test.describe("Phase 5 — public deep-link create", () => {
     await snap(alice.page, shot, "campaign-form-filled");
 
     await alice.page.locator("button").filter({ hasText: /^Launch campaign/i }).click();
-    await enterPassphrase(alice.page, PERSONAS.Alice.passphrase);
-    const txHash = await readTxHashFromSuccess(alice.page);
+    const txHash = await drainPromptsAndCaptureTx(alice.page, PERSONAS.Alice.passphrase);
     const shareUrl = await readShareUrl(alice.page, "/fund/", url);
     const successShot = await snap(alice.page, shot, "campaign-created");
 

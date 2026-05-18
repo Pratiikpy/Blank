@@ -8,7 +8,7 @@ import {
 } from "../fixtures/wallets";
 import { snap, resetCounter } from "../helpers/screenshot";
 import { recordProof, readEntries } from "../helpers/testing-todo";
-import { enterPassphrase, readTxHashFromSuccess, shieldUsdc, faucetUsdcIfNeeded } from "../helpers/app-actions";
+import { drainPromptsAndCaptureTx, shieldUsdc, faucetUsdcIfNeeded } from "../helpers/app-actions";
 
 // ──────────────────────────────────────────────────────────────────
 //  Phase 6 — public deep-link CONSUME (recipient/buyer/contributor).
@@ -135,9 +135,8 @@ test.describe("Phase 6 — public deep-link consume", () => {
         .first();
       await claimBtn.waitFor({ state: "visible", timeout: 30_000 });
       await claimBtn.click();
-      await enterPassphrase(bob.page, PERSONAS.Bob.passphrase);
 
-      const txHash = await readTxHashFromSuccess(bob.page);
+      const txHash = await drainPromptsAndCaptureTx(bob.page, PERSONAS.Bob.passphrase);
       const successShot = await snap(bob.page, shot, `claim-${mode.key.toLowerCase()}-claimed`);
 
       expect(txHash).toMatch(/^0x[0-9a-fA-F]{64}$/);
@@ -193,8 +192,7 @@ test.describe("Phase 6 — public deep-link consume", () => {
       // for the bid input + a "Place bid" CTA.
       await page.locator('input[placeholder="enter your max"]').fill(amount);
       await page.locator("button").filter({ hasText: /^Place bid/i }).click();
-      await enterPassphrase(page, persona.passphrase);
-      const txHash = await readTxHashFromSuccess(page);
+      const txHash = await drainPromptsAndCaptureTx(page, persona.passphrase);
       const shot = await snap(
         page,
         { phase: "06-deep-link-consume", persona: persona.name.toLowerCase(), chain: chainSlug, viewport: chain.viewport },
@@ -282,8 +280,7 @@ test.describe("Phase 6 — public deep-link consume", () => {
       await ctx.page
         .locator("button").filter({ hasText: /^Contribute/i })
         .click();
-      await enterPassphrase(ctx.page, persona.passphrase);
-      const txHash = await readTxHashFromSuccess(ctx.page);
+      const txHash = await drainPromptsAndCaptureTx(ctx.page, persona.passphrase);
       const successShot = await snap(ctx.page, shot, "campaign-contributed");
 
       expect(txHash).toMatch(/^0x[0-9a-fA-F]{64}$/);

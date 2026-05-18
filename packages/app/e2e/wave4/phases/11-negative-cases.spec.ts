@@ -9,7 +9,7 @@ import {
 } from "../fixtures/wallets";
 import { snap, resetCounter } from "../helpers/screenshot";
 import { recordProof, readEntries } from "../helpers/testing-todo";
-import { enterPassphrase, readTxHashFromSuccess, shieldUsdc, faucetUsdcIfNeeded } from "../helpers/app-actions";
+import { drainPassphrasePrompts, drainPromptsAndCaptureTx, shieldUsdc, faucetUsdcIfNeeded } from "../helpers/app-actions";
 
 // ──────────────────────────────────────────────────────────────────
 //  Phase 11 — negative-case sweep per CLAUDE.md §I.
@@ -119,18 +119,16 @@ test.describe("Phase 11 — negative cases", () => {
     // negative-case evidence. Capture which one fires.
     await alice.page.locator("button").filter({ hasText: /^Launch campaign/i }).click();
 
+    let createTx: string | null = null;
     let onChainPath = false;
     try {
-      await enterPassphrase(alice.page, PERSONAS.Alice.passphrase);
+      createTx = await drainPromptsAndCaptureTx(alice.page, PERSONAS.Alice.passphrase, { readTimeoutMs: 90_000 });
       onChainPath = true;
     } catch {
-      // UI guard caught it.
+      // UI guard caught it OR tx-hash didn't surface.
     }
 
     if (onChainPath) {
-      // Tx hash fires for the create. Then Bob contributes a small
-      // amount, close, publish — verdict must come back FALSE.
-      const createTx = await readTxHashFromSuccess(alice.page).catch(() => null);
       await snap(alice.page, shot, "zero-goal-campaign-created");
       // Note that the actual close + publish + verify is time-gated
       // (campaign duration ≥ 1 hour). For this negative case the
@@ -196,8 +194,7 @@ test.describe("Phase 11 — negative cases", () => {
     await snap(alice.page, shot, "no-arbiter-escrow-form");
 
     await alice.page.locator("button").filter({ hasText: /^Submit/i }).last().click();
-    await enterPassphrase(alice.page, PERSONAS.Alice.passphrase);
-    const createTx = await readTxHashFromSuccess(alice.page);
+    const createTx = await drainPromptsAndCaptureTx(alice.page, PERSONAS.Alice.passphrase);
 
     // Now try to dispute the no-arbiter escrow. Per §1.2 the contract
     // reverts with "no arbiter — use claimExpiredEscrow at deadline".
@@ -210,13 +207,14 @@ test.describe("Phase 11 — negative cases", () => {
     await disputeBtn.waitFor({ state: "visible", timeout: 30_000 });
     await disputeBtn.click();
 
-    // The dispute fires the passphrase prompt → relay reverts → toast
-    // or inline error appears.
-    try {
-      await enterPassphrase(alice.page, PERSONAS.Alice.passphrase);
-    } catch {
-      // Some builds catch the revert client-side before passphrase.
-    }
+    // The dispute may fire the passphrase prompt → relay reverts → toast
+    // or inline error appears. Drainer with expectAtLeast=0 tolerates
+    // both the on-chain-reject and client-side-catch paths.
+    await drainPassphrasePrompts(alice.page, PERSONAS.Alice.passphrase, {
+      windowMs: 60_000,
+      gapMs: 15_000,
+      expectAtLeast: 0,
+    }).catch(() => undefined);
 
     // Wait for an error indicator mentioning arbiter or no-arbiter.
     await alice.page

@@ -2,7 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { PERSONAS, injectPasskey, setActiveChain, type ChainKey } from "../fixtures/wallets";
 import { snap, resetCounter } from "../helpers/screenshot";
 import { recordProof } from "../helpers/testing-todo";
-import { enterPassphrase, readTxHashFromSuccess, shieldUsdc, faucetUsdcIfNeeded } from "../helpers/app-actions";
+import { drainPromptsAndCaptureTx, shieldUsdc, faucetUsdcIfNeeded } from "../helpers/app-actions";
 
 // ──────────────────────────────────────────────────────────────────
 //  Phase 22 — Agent Payments (/app/agents).
@@ -150,18 +150,10 @@ test.describe("Phase 22 — Agent Payments (derive + encrypt + submit)", () => {
       await snap(alice.page, shot, "attestation-form-filled");
 
       await alice.page.locator('button:has-text("Encrypt & submit")').click();
-      try {
-        await enterPassphrase(alice.page, PERSONAS.Alice.passphrase);
-      } catch {
-        // Approval step may fire first; second prompt may also fire.
-        try {
-          await enterPassphrase(alice.page, PERSONAS.Alice.passphrase);
-        } catch {}
-      }
       await snap(alice.page, shot, "submit-encrypting");
 
       try {
-        recordedTx = await readTxHashFromSuccess(alice.page, 120_000);
+        recordedTx = await drainPromptsAndCaptureTx(alice.page, PERSONAS.Alice.passphrase, { readTimeoutMs: 120_000 });
         outcomeNote = `Alice asked the agent for a payroll-line amount, reviewed the ECDSA-signed attestation (agent address + model + expiry), filled Bob as recipient, encrypted + submitted on-chain. Full flow proven: server-derive + client-encrypt + on-chain submit + AgentPaymentSubmission event.`;
       } catch {
         recordedTx = `0x${"0".repeat(64)}`;

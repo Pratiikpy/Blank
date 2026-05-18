@@ -80,6 +80,24 @@ let _sdkClient: any = null;
 //                    useCofheConnection MUST skip so it doesn't overwrite it
 let _activeConnectionSource: "wagmi" | "smart-account" | null = null;
 
+// #376/#377: identity of the smart-wallet account that the SDK is currently
+// bound to. Stored as the AA address (a lowercased 0x… string) rather than
+// the client object reference itself: in dev StrictMode + after every
+// page.goto, the `SmartAccountCofheBinder` remounts and `buildBlankSmartAccountClient`
+// returns a FRESH client object every time even when the logical AA is the
+// same. Comparing by address means we skip the redundant `_sdkClient.connect()`
+// + `_notifySdkStateChange()` cycle that previously (a) infinitely re-fired
+// the binding effect via `sdkTick` and (b) tore down the bridge mid-encrypt,
+// silently breaking signTypedData → the passphrase modal never showed up
+// on the Send confirm click. The address is namespaced by chain id so a
+// chain switch still triggers a clean re-bind.
+let _smartWalletBoundKey: string | null = null;
+
+function _smartWalletKeyFor(client: { account: { address: string } } | null, chainId: number): string | null {
+  if (!client) return null;
+  return `${chainId}:${client.account.address.toLowerCase()}`;
+}
+
 // #312: module-level variables are not reactive — hooks that read
 // `_sdkLoaded` / `_sdkClient` inside a useEffect never re-run when the SDK
 // finishes loading async after mount. Expose a subscription so consumers
@@ -284,12 +302,34 @@ export function useCofheSmartWalletBinding(
   useEffect(() => {
     if (!client || !publicClient || !chain) {
       // R5-B: unbind — allow useCofheConnection to take over on next tick.
+      // #376: only notify on actual transition. Effect re-runs whenever
+      // sdkTick changes; unconditionally calling _notifySdkStateChange()
+      // ticked sdkTick → effect re-fired → infinite loop.
       if (_activeConnectionSource === "smart-account") {
         _activeConnectionSource = null;
+        _smartWalletBoundKey = null;
         _notifySdkStateChange();
       }
-      setBound(false);
-      setError(null);
+      setBound((prev) => (prev === false ? prev : false));
+      setError((prev) => (prev === null ? prev : null));
+      return;
+    }
+
+    // #376/#377: skip the re-bind when the SDK is already connected to this
+    // SAME AA (compared by chain-namespaced address, not object ref — the
+    // useMemo in SmartAccountCofheBinder rebuilds the client object on every
+    // StrictMode remount + every page.goto, so ref equality would force a
+    // re-bind every time and intermittently tear down the bridge mid-encrypt.
+    const currentKey = _smartWalletKeyFor(client, chain.id);
+    if (
+      _activeConnectionSource === "smart-account" &&
+      _smartWalletBoundKey !== null &&
+      _smartWalletBoundKey === currentKey &&
+      _sdkClient &&
+      _sdkClient.connected
+    ) {
+      setBound((prev) => (prev === true ? prev : true));
+      setError((prev) => (prev === null ? prev : null));
       return;
     }
 
@@ -311,14 +351,23 @@ export function useCofheSmartWalletBinding(
         );
         await _sdkClient.connect(publicClient, adaptedWalletClient);
         if (cancelled) return;
+        const wasSource = _activeConnectionSource;
+        const wasKey = _smartWalletBoundKey;
         _activeConnectionSource = "smart-account";
-        _notifySdkStateChange();
-        setBound(true);
-        setError(null);
+        _smartWalletBoundKey = currentKey;
+        // #376: only notify on real transition. Same-source / same-account
+        // re-runs happen on every sdkTick increment, and unconditional
+        // notify created the Dashboard infinite-render loop.
+        if (wasSource !== "smart-account" || wasKey !== currentKey) {
+          _notifySdkStateChange();
+        }
+        setBound((prev) => (prev === true ? prev : true));
+        setError((prev) => (prev === null ? prev : null));
       } catch (err) {
         if (cancelled) return;
-        setError(err instanceof Error ? err : new Error(String(err)));
-        setBound(false);
+        const e = err instanceof Error ? err : new Error(String(err));
+        setError((prev) => (prev && prev.message === e.message ? prev : e));
+        setBound((prev) => (prev === false ? prev : false));
       }
     })();
 
@@ -737,7 +786,12 @@ export function useCofheActivePermit() {
 
   useEffect(() => {
     if (!_sdkLoaded || !_sdkClient || !_sdkClient.connected || !address) {
-      setPermitData(null);
+      // Bailout: only call setState if the value actually transitions.
+      // Without this, setPermitData(null) fires on every effect re-run
+      // (including every sdkTick increment) and creates a fresh React
+      // scheduling burst, even though `null === null`. Defensive against
+      // the larger Dashboard infinite-render loop tracked in #376.
+      setPermitData((prev) => (prev === null ? prev : null));
       return;
     }
 
@@ -745,13 +799,24 @@ export function useCofheActivePermit() {
       const active = _sdkClient.permits?.getActivePermit?.();
       if (active) {
         const now = Math.floor(Date.now() / 1000);
-        setPermitData({ isValid: active.expiration > now, permit: active });
+        const isValid = active.expiration > now;
+        setPermitData((prev) => {
+          // Bail when the permit ref + isValid are unchanged. Object
+          // re-wrapping each render would otherwise cause any consumer
+          // depending on `activePermit` to see a new ref every effect tick.
+          if (prev && prev.permit === active && prev.isValid === isValid) return prev;
+          return { isValid, permit: active };
+        });
       } else if (!creatingRef.current) {
         creatingRef.current = true;
         _sdkClient.permits?.getOrCreateSelfPermit?.()
           .then((permit: any) => {
             const now = Math.floor(Date.now() / 1000);
-            setPermitData({ isValid: permit.expiration > now, permit });
+            const isValid = permit.expiration > now;
+            setPermitData((prev) => {
+              if (prev && prev.permit === permit && prev.isValid === isValid) return prev;
+              return { isValid, permit };
+            });
           })
           .catch((err: any) => {
             log.warn("cofhe-shim.permits.autoCreate.failed", err instanceof Error ? err : new Error(String(err)));
@@ -759,7 +824,7 @@ export function useCofheActivePermit() {
           .finally(() => { creatingRef.current = false; });
       }
     } catch {
-      setPermitData(null);
+      setPermitData((prev) => (prev === null ? prev : null));
     }
   }, [address, sdkTick]);
 

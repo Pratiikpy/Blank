@@ -8,7 +8,7 @@ import {
 } from "../fixtures/wallets";
 import { snap, resetCounter } from "../helpers/screenshot";
 import { recordProof } from "../helpers/testing-todo";
-import { enterPassphrase, readTxHashFromSuccess, shieldUsdc, faucetUsdcIfNeeded } from "../helpers/app-actions";
+import { drainPassphrasePrompts, drainPromptsAndCaptureTx, shieldUsdc, faucetUsdcIfNeeded } from "../helpers/app-actions";
 
 // ──────────────────────────────────────────────────────────────────
 //  Phase 7 — privacy primitives.
@@ -114,21 +114,12 @@ test.describe("Phase 7 — privacy primitives", () => {
 
     await alice.page.locator("button").filter({ hasText: /^Create proof/i }).click();
 
-    // Auto-publish ON = 2 wallet popups. Pass passphrase twice.
-    await enterPassphrase(alice.page, PERSONAS.Alice.passphrase);
-    // Wait for the second prompt (publish) to fire after createIncomeProof
-    // resolves + the heads-up toast hint surfaces. The publish UserOp
-    // includes a 10-30s TN-decrypt wait so allow generous timeout.
-    try {
-      await alice.page
-        .locator('input[type="password"]')
-        .first()
-        .waitFor({ state: "visible", timeout: 90_000 });
-      await enterPassphrase(alice.page, PERSONAS.Alice.passphrase);
-    } catch {
-      // Some builds chain the two UserOps under a single passphrase
-      // session; if no second prompt fires, that's still valid.
-    }
+    // Auto-publish ON = up to 2 wallet popups. Drain whichever arrive.
+    await drainPassphrasePrompts(alice.page, PERSONAS.Alice.passphrase, {
+      windowMs: 180_000,
+      gapMs: 90_000,
+      expectAtLeast: 1,
+    });
 
     // The create + publish flows yield the proof id; the Proofs
     // screen list shows the new row with copy + share controls.
@@ -252,8 +243,12 @@ test.describe("Phase 7 — privacy primitives", () => {
 
     // The setup may prompt for a passphrase (for the spending key)
     // OR it may use the existing passkey passphrase. Either way,
-    // enterPassphrase no-ops gracefully if no prompt fires.
-    await enterPassphrase(bob.page, PERSONAS.Bob.passphrase).catch(() => undefined);
+    // Drainer no-ops gracefully if no prompt fires (expectAtLeast=0).
+    await drainPassphrasePrompts(bob.page, PERSONAS.Bob.passphrase, {
+      windowMs: 60_000,
+      gapMs: 15_000,
+      expectAtLeast: 0,
+    }).catch(() => undefined);
 
     // Capture the registered meta-address. Its text usually starts
     // with `st:eth:0x...` per ERC-5564 stealth-meta format.
@@ -302,8 +297,7 @@ test.describe("Phase 7 — privacy primitives", () => {
       .locator("button").filter({ hasText: /^Pay/i })
       .last()
       .click();
-    await enterPassphrase(alice.page, PERSONAS.Alice.passphrase);
-    const sendTxHash = await readTxHashFromSuccess(alice.page);
+    const sendTxHash = await drainPromptsAndCaptureTx(alice.page, PERSONAS.Alice.passphrase);
     const stealthSendShot = await snap(alice.page, aliceShot, "stealth-payment-sent");
     expect(sendTxHash).toMatch(/^0x[0-9a-fA-F]{64}$/);
 

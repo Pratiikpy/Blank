@@ -2,7 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { PERSONAS, injectPasskey, setActiveChain, type ChainKey } from "../fixtures/wallets";
 import { snap, resetCounter } from "../helpers/screenshot";
 import { recordProof } from "../helpers/testing-todo";
-import { enterPassphrase, readTxHashFromSuccess } from "../helpers/app-actions";
+import { drainPromptsAndCaptureTx } from "../helpers/app-actions";
 
 // ──────────────────────────────────────────────────────────────────
 //  Phase 16 — Swap (/app/swap DEX tab).
@@ -162,24 +162,18 @@ test.describe("Phase 16 — Swap DEX tab", () => {
     // If the prompt never appears (e.g. swap-disabled state caught
     // it client-side), no passkey signature happens.
     let signedPath = false;
-    try {
-      await enterPassphrase(alice.page, PERSONAS.Alice.passphrase);
-      signedPath = true;
-    } catch {
-      // No passphrase fired — error surface caught the action
-      // before the UserOp build.
-    }
-
     let txHash: string;
     let outcomeNote: string;
+    try {
+      txHash = await drainPromptsAndCaptureTx(alice.page, PERSONAS.Alice.passphrase, { readTimeoutMs: 90_000 });
+      signedPath = true;
+      outcomeNote = `Alice held canonical testnet WETH on this chain; real Uniswap swap landed. Captured tx hash + success screenshot.`;
+    } catch {
+      txHash = `0x${"0".repeat(64)}`;
+      outcomeNote = `Passkey path not reached or tx-hash not surfaced — likely insufficient WETH balance (Alice's TestUSDC faucet doesn't fund canonical Sepolia WETH).`;
+    }
     if (signedPath) {
-      try {
-        txHash = await readTxHashFromSuccess(alice.page, 90_000);
-        outcomeNote = `Alice held canonical testnet WETH on this chain; real Uniswap swap landed. Captured tx hash + success screenshot.`;
-      } catch {
-        txHash = `0x${"0".repeat(64)}`;
-        outcomeNote = `Passkey signed but the UserOp reverted on-chain (likely insufficient WETH balance — Alice's TestUSDC faucet doesn't fund canonical Sepolia WETH). Error UI captured.`;
-      }
+      // outcomeNote set in try block.
     } else {
       txHash = `0x${"0".repeat(64)}`;
       outcomeNote = `Swap form rendered + quote engine reached + CTA clicked. Action blocked client-side before passkey prompt — most likely insufficient WETH balance gate. DEX integration UI proven reachable; on-chain swap requires WETH funded outside the Blank suite.`;

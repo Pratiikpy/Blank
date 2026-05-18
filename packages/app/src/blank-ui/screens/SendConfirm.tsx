@@ -144,6 +144,14 @@ export default function SendConfirm() {
   const [fundModalOpen, setFundModalOpen] = useState(false);
 
   const handleConfirm = async () => {
+    // #377 diag: e2e wave4 phase 02 sees the user click confirm but never
+    // sees the passphrase modal. Log every entry into handleConfirm so the
+    // e2e trace shows which branch fires.
+    console.log("[SendConfirm.handleConfirm]", JSON.stringify({
+      mode, metaStealthMode, stealthMode, needsFunding, isProcessing,
+      hasRecipient: !!recipient, hasMetaAddress: !!recipientLookup.metaAddress,
+      paymasterStatus: paymasterHealth.status,
+    }));
     // Phase 9.3: meta-address stealth fork. When the recipient has a
     // registered meta-address AND the user opted into the toggle, we
     // route to the ERC-5564 sender flow instead of the encrypted-FHE
@@ -594,7 +602,14 @@ export default function SendConfirm() {
         <div className="pt-6 pb-6">
           <button
             onClick={handleConfirm}
-            disabled={isProcessing}
+            // #377: gate on `effectiveAddress` so impatient clicks can't fire
+            // confirmSend before useSmartAccount finishes its first
+            // resolveAccount (per-instance useState; the binder's instance
+            // may be "ready" while SendConfirm's instance is still "idle").
+            // The pre-fix race manifested as a silent
+            // "Smart wallet not ready" toast and a never-arriving passphrase
+            // modal in wave4 phase 02 e2e.
+            disabled={isProcessing || !effectiveAddress}
             className={cn(
               "w-full h-14 rounded-2xl font-medium transition-all active:scale-95 flex items-center justify-center gap-2",
               isProcessing
