@@ -333,35 +333,84 @@ async function onboardRabby(rabby: Page, privateKey: string): Promise<void> {
     log(`onboard: Seed/Key option not visible: ${(e as Error).message.slice(0, 100)}`);
   }
 
-  // STEP 3: Click Private Key tab if present (Rabby sometimes defaults to seed)
+  // STEP 3: Click Private Key tab via bbox mouse.click (locator clicks
+  // don't reliably toggle Rabby's tabbed React state).
   const pkTab = rabby.getByText("Private Key", { exact: true }).first();
   if (await pkTab.isVisible({ timeout: 3_000 }).catch(() => false)) {
-    await pkTab.click({ timeout: 5_000 });
-    log(`onboard: switched to Private Key tab`);
-    await rabby.waitForTimeout(2_000);
+    const tabBox = await pkTab.boundingBox({ timeout: 3_000 }).catch(() => null);
+    if (tabBox) {
+      await rabby.mouse.click(tabBox.x + tabBox.width / 2, tabBox.y + tabBox.height / 2);
+      log(`onboard: Private Key tab clicked at (${Math.round(tabBox.x + tabBox.width / 2)}, ${Math.round(tabBox.y + tabBox.height / 2)})`);
+    } else {
+      await pkTab.click({ timeout: 5_000, force: true });
+      log(`onboard: Private Key tab force-clicked (no bbox)`);
+    }
+    await rabby.waitForTimeout(3_000);
+    await snap(rabby, "after-pk-tab-click");
   }
 
-  // STEP 4: Fill textarea with private key
-  const textareaCount = await rabby.locator("textarea").count();
-  log(`onboard: ${textareaCount} textarea(s) visible`);
-  const pkArea = rabby.locator("textarea").first();
-  await pkArea.fill(privateKey);
-  log(`onboard: private key filled (${privateKey.length} chars)`);
+  // STEP 4: Find the private-key input. Rabby uses several shapes
+  // across versions — textarea (legacy), single password input
+  // (modern), or contenteditable div. Try each and short-circuit
+  // when one accepts the .fill() call.
+  const pkSelectors = [
+    'textarea',
+    'input[type="password"]',
+    'input[type="text"]',
+    '[contenteditable="true"]',
+    'input[autocomplete="off"]:not([type="checkbox"]):not([type="password"])',
+  ];
+  let filled = false;
+  for (const sel of pkSelectors) {
+    const loc = rabby.locator(sel).first();
+    const visible = await loc.isVisible({ timeout: 2_000 }).catch(() => false);
+    log(`onboard: try selector "${sel}" visible=${visible}`);
+    if (!visible) continue;
+    try {
+      await loc.click({ timeout: 3_000 }).catch(() => {});
+      await loc.fill(privateKey, { timeout: 5_000 });
+      log(`onboard: private key filled via "${sel}" (${privateKey.length} chars)`);
+      filled = true;
+      break;
+    } catch (e) {
+      log(`onboard: fill via "${sel}" failed: ${(e as Error).message.slice(0, 80)}`);
+    }
+  }
+  if (!filled) {
+    log(`onboard: pk-input never accepted .fill — last resort keyboard.type`);
+    await rabby.keyboard.type(privateKey, { delay: 20 });
+  }
   await rabby.waitForTimeout(1_500);
   await snap(rabby, "pk-filled");
 
-  // STEP 5: Click Confirm
-  const confirmBtn = rabby
-    .locator(
-      'button:has-text("Confirm"), button.ant-btn-primary, .rabby-btn-primary, button:has-text("Next")',
-    )
-    .first();
-  if (await confirmBtn.isVisible({ timeout: 5_000 }).catch(() => false)) {
-    await confirmBtn.click({ timeout: 5_000 });
-    log(`onboard: Confirm clicked`);
+  // STEP 5: Click Confirm / Next. Rabby's primary CTA button is
+  // disabled until the input is valid; wait for the enabled state.
+  const confirmSelectors = [
+    'button.ant-btn-primary:not([disabled])',
+    'button:has-text("Confirm"):not([disabled])',
+    'button:has-text("Next"):not([disabled])',
+    'button:has-text("Import"):not([disabled])',
+    '.rabby-btn-primary:not([disabled])',
+  ];
+  let confirmed = false;
+  for (const sel of confirmSelectors) {
+    const btn = rabby.locator(sel).first();
+    const vis = await btn.isVisible({ timeout: 2_000 }).catch(() => false);
+    if (!vis) continue;
+    const bb = await btn.boundingBox({ timeout: 2_000 }).catch(() => null);
+    if (bb) {
+      await rabby.mouse.click(bb.x + bb.width / 2, bb.y + bb.height / 2);
+      log(`onboard: Confirm via "${sel}" clicked at (${Math.round(bb.x + bb.width / 2)}, ${Math.round(bb.y + bb.height / 2)})`);
+    } else {
+      await btn.click({ timeout: 5_000 });
+      log(`onboard: Confirm via "${sel}" clicked (no bbox)`);
+    }
+    confirmed = true;
     await rabby.waitForTimeout(6_000);
-    await snap(rabby, "after-pk-confirm");
+    break;
   }
+  if (!confirmed) log(`onboard: no Confirm/Next button found`);
+  await snap(rabby, "after-pk-confirm");
 
   // STEP 6: Password setup
   const pwInputs = rabby.locator('input[type="password"]');
@@ -487,18 +536,74 @@ async function onboardRabby(rabby: Page, privateKey: string): Promise<void> {
   await dapp.waitForTimeout(8_000);
   await snap(dapp, "dapp-loaded");
 
-  // STEP 7: Click Sign In, drive Rabby Connect + SIWE popups.
+  // STEP 7: Walk the 4-step onboarding carousel ("Send money privately"
+  // / "..." → Next → Next → Next → WalletChoiceCard). The carousel is
+  // shown only on first-ever dApp visit per browser; subsequent visits
+  // jump straight to the wallet picker.
   const knownPages = new Set<Page>(ctx.pages());
-
-  const signInBtn = dapp.locator("button").filter({ hasText: /^Sign in/i }).first();
-  try {
-    await signInBtn.waitFor({ state: "visible", timeout: 30_000 });
-    await signInBtn.click();
-    log(`Sign in clicked`);
-  } catch (e) {
-    log(`Sign in button not found: ${(e as Error).message.slice(0, 100)}`);
+  for (let i = 0; i < 6; i++) {
+    const nextBtn = dapp.locator("button").filter({ hasText: /^Next/i }).first();
+    if (await nextBtn.isVisible({ timeout: 2_000 }).catch(() => false)) {
+      const bbox = await nextBtn.boundingBox({ timeout: 2_000 }).catch(() => null);
+      if (bbox) {
+        await dapp.mouse.click(bbox.x + bbox.width / 2, bbox.y + bbox.height / 2);
+      } else {
+        await nextBtn.click({ force: true });
+      }
+      log(`carousel Next click ${i + 1}`);
+      await dapp.waitForTimeout(1_500);
+    } else {
+      log(`carousel: no Next button at step ${i + 1}, moving on`);
+      break;
+    }
   }
-  await snap(dapp, "after-sign-in-click");
+  await snap(dapp, "after-carousel");
+
+  // STEP 8: WalletChoiceCard — click the "Connect <connector>" button
+  // under the data-testid="wallet-choice-existing" card. Rabby injects
+  // window.ethereum so the wagmi injected connector picks it up;
+  // depending on Rabby's manifest the connector might report itself
+  // as "Rabby Wallet", "Injected", or "MetaMask" (Rabby spoofs MM for
+  // dApp compatibility). Match any of those.
+  const existingCard = dapp.locator('[data-testid="wallet-choice-existing"]');
+  if (await existingCard.isVisible({ timeout: 10_000 }).catch(() => false)) {
+    log(`WalletChoiceCard "Connect existing" visible`);
+    await snap(dapp, "wallet-choice-card");
+    const connectBtns = existingCard.locator("button").filter({ hasText: /Connect/i });
+    const count = await connectBtns.count();
+    log(`existing connectors: ${count} button(s)`);
+    for (let i = 0; i < count; i++) {
+      const text = await connectBtns.nth(i).textContent({ timeout: 1_000 }).catch(() => "");
+      log(`  connector[${i}] = "${(text ?? "").trim().slice(0, 80)}"`);
+    }
+    // Try Rabby-flavored connector first, then MetaMask, then any.
+    let connectClicked = false;
+    for (const pattern of [/Rabby/i, /MetaMask/i, /Injected/i, /Connect/i]) {
+      const btn = existingCard.locator("button").filter({ hasText: pattern }).first();
+      if (await btn.isVisible({ timeout: 2_000 }).catch(() => false)) {
+        const bbox = await btn.boundingBox({ timeout: 2_000 }).catch(() => null);
+        if (bbox) {
+          await dapp.mouse.click(bbox.x + bbox.width / 2, bbox.y + bbox.height / 2);
+        } else {
+          await btn.click({ force: true });
+        }
+        log(`Clicked connector button matching ${pattern}`);
+        connectClicked = true;
+        break;
+      }
+    }
+    if (!connectClicked) {
+      log(`No connector button found in WalletChoiceCard`);
+    }
+  } else {
+    log(`WalletChoiceCard not visible — trying generic "Sign in" fallback`);
+    const signInBtn = dapp.locator("button").filter({ hasText: /^Sign in|^Connect/i }).first();
+    if (await signInBtn.isVisible({ timeout: 5_000 }).catch(() => false)) {
+      await signInBtn.click().catch(() => {});
+      log(`Fallback Sign in / Connect clicked`);
+    }
+  }
+  await snap(dapp, "after-connect-click");
 
   // Drive Connect popup
   const connectPopup = await waitForRabbyPopup(ctx, extId, knownPages, 30_000);
@@ -510,7 +615,7 @@ async function onboardRabby(rabby: Page, privateKey: string): Promise<void> {
   }
   await dapp.waitForTimeout(3_000);
 
-  // Drive SIWE popup
+  // Drive SIWE popup if present (Blank uses wagmi + SIWE for EOA auth).
   const siwePopup = await waitForRabbyPopup(ctx, extId, knownPages, 30_000);
   if (siwePopup) {
     knownPages.add(siwePopup);

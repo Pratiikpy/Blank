@@ -15,7 +15,7 @@ const steps = [
     Icon: Sparkles,
     gradient: "from-purple-500 to-pink-500",
     heading: "Send money privately",
-    subtitle: "Your payments are encrypted. Who you pay is visible \u2014 how much stays completely hidden.",
+    subtitle: "Your payments are encrypted. Who you pay is visible. How much stays completely hidden.",
   },
   {
     Icon: Shield,
