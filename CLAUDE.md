@@ -1,4 +1,14 @@
-# CLAUDE.md — context pointer
+# CLAUDE.md, context pointer
+
+## Priority gate (read before every action)
+
+Before any tool call, ask: **is this the single highest-priority
+thing toward `make Blank testnet-launch-ready end-to-end`?** If not,
+switch. Skipping is forbidden. Money, paid quota, or unavailable
+hardware are the only acceptable blockers; everything else is "yes,
+build it, harder is the correct path." This rule sits above every
+other concern and is the first thing to re-check whenever the work
+forks. See §M for the full directive.
 
 ## Architecture docs first
 

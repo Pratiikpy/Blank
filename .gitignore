@@ -46,6 +46,13 @@ test_reports/
 *.stackdump
 packages/app/test-results/
 packages/app/playwright-report/
+packages/app/wave4-shots/
+
+# Wallet extensions (large unpacked dist, fetch separately)
+packages/app/e2e/fixtures/metamask/ext/
+packages/app/e2e/fixtures/rabby/ext/
+.rabby-profile/
+.rabby-profile-*/
 
 # Internal planning notes — kept local, not pushed
 WAVE*_*.md

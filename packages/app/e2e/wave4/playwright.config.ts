@@ -70,6 +70,9 @@ export default defineConfig({
         // from process.env.WAVE4_CHAIN_ID.
       },
       metadata: { chainId: 11155111, chainName: "Ethereum Sepolia", viewport: "desktop" },
+      // Mobile features (BottomNav-driven flows) only render at <768px;
+      // running them on the desktop viewport would fail on a hidden nav.
+      testIgnore: ["**/features/*-mobile.spec.ts"],
     },
     {
       name: "base-sepolia-desktop",
@@ -78,6 +81,7 @@ export default defineConfig({
         viewport: { width: 1280, height: 800 },
       },
       metadata: { chainId: 84532, chainName: "Base Sepolia", viewport: "desktop" },
+      testIgnore: ["**/features/*-mobile.spec.ts"],
     },
     {
       name: "eth-sepolia-mobile",
