@@ -154,20 +154,52 @@ export async function drainPassphrasePrompts(
  *  explorer link". Many FHE flows (gift, request, tip, ...) trigger 2-3
  *  back-to-back passphrase prompts; this combines `drainPassphrasePrompts`
  *  with `readTxHashFromSuccess` and shares the same tx-hash poll between
- *  them so the drainer exits the instant the success page surfaces. */
+ *  them so the drainer exits the instant the success page surfaces.
+ *
+ *  Also intercepts the /api/relay response so flows that update the UI
+ *  in-place (createInvoice, createEscrow, setHeir, createGift) capture
+ *  the on-chain tx hash even when the success surface never renders a
+ *  /tx/ explorer link. relay.ts returns `{hash, status: "success", ...}`
+ *  on a confirmed UserOp — we capture that hash and prefer it over the
+ *  DOM-source fallback in readTxHashFromSuccess. */
 export async function drainPromptsAndCaptureTx(
   page: Page,
   passphrase: string,
   opts: { windowMs?: number; readTimeoutMs?: number } = {},
 ): Promise<string> {
+  let interceptedTxHash: string | null = null;
+  const responseHandler = async (response: { url: () => string; ok: () => boolean; json: () => Promise<unknown> }) => {
+    const url = response.url();
+    if (!/\/api\/relay(\?|$)/.test(url)) return;
+    if (!response.ok()) return;
+    try {
+      const body = (await response.json()) as { hash?: string; status?: string };
+      if (
+        body.status === "success" &&
+        typeof body.hash === "string" &&
+        /^0x[0-9a-fA-F]{64}$/.test(body.hash)
+      ) {
+        interceptedTxHash = body.hash;
+      }
+    } catch {
+      // body might not be JSON or already consumed — ignore.
+    }
+  };
+  page.on("response", responseHandler);
   const txVisible = async () =>
+    interceptedTxHash !== null ||
     (await page.locator('a[href*="/tx/0x"]').first().count()) > 0;
-  await drainPassphrasePrompts(page, passphrase, {
-    windowMs: opts.windowMs ?? 360_000,
-    expectAtLeast: 1,
-    terminateOn: txVisible,
-  });
-  return readTxHashFromSuccess(page, opts.readTimeoutMs ?? 90_000);
+  try {
+    await drainPassphrasePrompts(page, passphrase, {
+      windowMs: opts.windowMs ?? 360_000,
+      expectAtLeast: 1,
+      terminateOn: txVisible,
+    });
+    if (interceptedTxHash) return interceptedTxHash;
+    return await readTxHashFromSuccess(page, opts.readTimeoutMs ?? 90_000);
+  } finally {
+    page.off("response", responseHandler);
+  }
 }
 
 /** Poll for an on-chain tx hash in the DOM. Tries multiple sources so
