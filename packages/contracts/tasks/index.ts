@@ -15,6 +15,7 @@ import "./deploy-aa";
 import "./deploy-second-vault";
 import "./setup-aa";
 import "./fund-paymaster";
+import "./wire-paymaster-targets";
 import "./shield-from-deployer";
 import "./send-from-deployer";
 import "./setup-p2p-offer";
