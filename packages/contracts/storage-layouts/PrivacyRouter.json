@@ -1,7 +1,7 @@
 {
   "storage": [
     {
-      "astId": 67160,
+      "astId": 68033,
       "contract": "contracts/PrivacyRouter.sol:PrivacyRouter",
       "label": "_status",
       "offset": 0,
@@ -9,23 +9,23 @@
       "type": "t_uint256"
     },
     {
-      "astId": 60120,
+      "astId": 60452,
       "contract": "contracts/PrivacyRouter.sol:PrivacyRouter",
       "label": "dexRouter",
       "offset": 0,
       "slot": "1",
-      "type": "t_contract(ISwapRouter)60059"
+      "type": "t_contract(ISwapRouter)60391"
     },
     {
-      "astId": 60123,
+      "astId": 60455,
       "contract": "contracts/PrivacyRouter.sol:PrivacyRouter",
       "label": "eventHub",
       "offset": 0,
       "slot": "2",
-      "type": "t_contract(IEventHub)60073"
+      "type": "t_contract(IEventHub)60405"
     },
     {
-      "astId": 60125,
+      "astId": 60457,
       "contract": "contracts/PrivacyRouter.sol:PrivacyRouter",
       "label": "nextSwapId",
       "offset": 0,
@@ -33,15 +33,15 @@
       "type": "t_uint256"
     },
     {
-      "astId": 60130,
+      "astId": 60462,
       "contract": "contracts/PrivacyRouter.sol:PrivacyRouter",
       "label": "_swaps",
       "offset": 0,
       "slot": "4",
-      "type": "t_mapping(t_uint256,t_struct(PendingSwap)60117_storage)"
+      "type": "t_mapping(t_uint256,t_struct(PendingSwap)60449_storage)"
     },
     {
-      "astId": 60136,
+      "astId": 60468,
       "contract": "contracts/PrivacyRouter.sol:PrivacyRouter",
       "label": "_userSwaps",
       "offset": 0,
@@ -49,7 +49,7 @@
       "type": "t_mapping(t_address,t_array(t_uint256)dyn_storage)"
     },
     {
-      "astId": 61665,
+      "astId": 61997,
       "contract": "contracts/PrivacyRouter.sol:PrivacyRouter",
       "label": "__gap",
       "offset": 0,
@@ -75,17 +75,17 @@
       "label": "uint256[]",
       "numberOfBytes": "32"
     },
-    "t_contract(IEventHub)60073": {
+    "t_contract(IEventHub)60405": {
       "encoding": "inplace",
       "label": "contract IEventHub",
       "numberOfBytes": "20"
     },
-    "t_contract(ISwapRouter)60059": {
+    "t_contract(ISwapRouter)60391": {
       "encoding": "inplace",
       "label": "contract ISwapRouter",
       "numberOfBytes": "20"
     },
-    "t_enum(SwapStatus)60092": {
+    "t_enum(SwapStatus)60424": {
       "encoding": "inplace",
       "label": "enum PrivacyRouter.SwapStatus",
       "numberOfBytes": "1"
@@ -97,19 +97,19 @@
       "numberOfBytes": "32",
       "value": "t_array(t_uint256)dyn_storage"
     },
-    "t_mapping(t_uint256,t_struct(PendingSwap)60117_storage)": {
+    "t_mapping(t_uint256,t_struct(PendingSwap)60449_storage)": {
       "encoding": "mapping",
       "key": "t_uint256",
       "label": "mapping(uint256 => struct PrivacyRouter.PendingSwap)",
       "numberOfBytes": "32",
-      "value": "t_struct(PendingSwap)60117_storage"
+      "value": "t_struct(PendingSwap)60449_storage"
     },
-    "t_struct(PendingSwap)60117_storage": {
+    "t_struct(PendingSwap)60449_storage": {
       "encoding": "inplace",
       "label": "struct PrivacyRouter.PendingSwap",
       "members": [
         {
-          "astId": 60094,
+          "astId": 60426,
           "contract": "contracts/PrivacyRouter.sol:PrivacyRouter",
           "label": "swapId",
           "offset": 0,
@@ -117,7 +117,7 @@
           "type": "t_uint256"
         },
         {
-          "astId": 60096,
+          "astId": 60428,
           "contract": "contracts/PrivacyRouter.sol:PrivacyRouter",
           "label": "user",
           "offset": 0,
@@ -125,7 +125,7 @@
           "type": "t_address"
         },
         {
-          "astId": 60098,
+          "astId": 60430,
           "contract": "contracts/PrivacyRouter.sol:PrivacyRouter",
           "label": "vaultIn",
           "offset": 0,
@@ -133,7 +133,7 @@
           "type": "t_address"
         },
         {
-          "astId": 60100,
+          "astId": 60432,
           "contract": "contracts/PrivacyRouter.sol:PrivacyRouter",
           "label": "vaultOut",
           "offset": 0,
@@ -141,7 +141,7 @@
           "type": "t_address"
         },
         {
-          "astId": 60102,
+          "astId": 60434,
           "contract": "contracts/PrivacyRouter.sol:PrivacyRouter",
           "label": "tokenIn",
           "offset": 0,
@@ -149,7 +149,7 @@
           "type": "t_address"
         },
         {
-          "astId": 60104,
+          "astId": 60436,
           "contract": "contracts/PrivacyRouter.sol:PrivacyRouter",
           "label": "tokenOut",
           "offset": 0,
@@ -157,7 +157,7 @@
           "type": "t_address"
         },
         {
-          "astId": 60107,
+          "astId": 60439,
           "contract": "contracts/PrivacyRouter.sol:PrivacyRouter",
           "label": "encryptedAmountIn",
           "offset": 0,
@@ -165,7 +165,7 @@
           "type": "t_userDefinedValueType(euint64)11797"
         },
         {
-          "astId": 60109,
+          "astId": 60441,
           "contract": "contracts/PrivacyRouter.sol:PrivacyRouter",
           "label": "plaintextAmountIn",
           "offset": 0,
@@ -173,7 +173,7 @@
           "type": "t_uint256"
         },
         {
-          "astId": 60111,
+          "astId": 60443,
           "contract": "contracts/PrivacyRouter.sol:PrivacyRouter",
           "label": "minAmountOut",
           "offset": 0,
@@ -181,7 +181,7 @@
           "type": "t_uint256"
         },
         {
-          "astId": 60113,
+          "astId": 60445,
           "contract": "contracts/PrivacyRouter.sol:PrivacyRouter",
           "label": "timestamp",
           "offset": 0,
@@ -189,12 +189,12 @@
           "type": "t_uint256"
         },
         {
-          "astId": 60116,
+          "astId": 60448,
           "contract": "contracts/PrivacyRouter.sol:PrivacyRouter",
           "label": "status",
           "offset": 0,
           "slot": "10",
-          "type": "t_enum(SwapStatus)60092"
+          "type": "t_enum(SwapStatus)60424"
         }
       ],
       "numberOfBytes": "352"

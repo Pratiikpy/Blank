@@ -174,6 +174,10 @@ contract StealthPayments is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
         string calldata note
     ) external nonReentrant returns (uint256) {
         require(plaintextAmount > 0, "StealthPayments: zero amount");
+        // Encrypted handle below is euint64 — bound the plaintext amount
+        // so safeTransferFrom can't lock upper-bits worth of underlying.
+        // Mirror of FHERC20Vault.shield + BusinessHub.createEscrow caps.
+        require(plaintextAmount <= type(uint64).max, "StealthPayments: amount exceeds uint64");
         require(claimCodeHash != bytes32(0), "StealthPayments: empty claim code hash");
         require(vault != address(0), "StealthPayments: invalid vault");
         require(_claimCodeToTransferId[claimCodeHash] == 0, "StealthPayments: claim code already used");

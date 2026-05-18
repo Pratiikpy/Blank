@@ -18,8 +18,17 @@ export function looksLikeEnsName(input: string): boolean {
   const trimmed = input.trim();
   if (trimmed.startsWith("0x")) return false;
   if (/\s/.test(trimmed)) return false;
-  // Must contain a dot and a non-empty label on either side.
-  return /^[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(trimmed);
+  // Must contain a dot with non-empty labels on either side. Per ENSIP-15
+  // the label charset includes Unicode (emoji domains, international
+  // names) so we use a denylist instead of a [a-z0-9-] whitelist — the
+  // old whitelist rejected valid names like `josé.eth` or `🦄.eth`.
+  // Final validation is delegated to viem's `normalize` (EIP-137 +
+  // ENSIP-15) in resolveName.
+  if (trimmed.startsWith(".") || trimmed.endsWith(".")) return false;
+  if (trimmed.includes("..")) return false;
+  // Reject characters that are definitionally invalid in DNS-style labels.
+  if (/[\/@_,:;<>(){}\[\]?*"'`!#$%^&=+|\\]/.test(trimmed)) return false;
+  return trimmed.includes(".");
 }
 
 /**

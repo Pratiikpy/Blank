@@ -115,15 +115,30 @@ contract P2PExchange is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         euint64 verifiedTakerPayment = FHE.asEuint64(encTakerPayment);
         FHE.allowTransient(verifiedTakerPayment, o.tokenWant);
         euint64 verifiedMakerPayment = FHE.asEuint64(encMakerPayment);
-        FHE.allowTransient(verifiedMakerPayment, o.tokenGive);
+
+        // ── CRITICAL anti-overdraw clamp on the maker side ──────────────
+        // The taker controls `encMakerPayment` (it's a function arg). If
+        // we passed it straight to transferFromVerified, a malicious
+        // taker could request MUCH MORE than the offer's public
+        // `amountGive` and the vault would honor it (FHE.select only
+        // gates on balance/allowance, not on a per-offer cap). Makers
+        // typically approve MAX_UINT64 once, so the bug fires whenever
+        // a maker uses the common approval pattern. We clamp here so
+        // the maker can never lose more than the public amountGive
+        // they advertised — the offer terms are the upper bound.
+        euint64 makerCap = FHE.asEuint64(uint64(o.amountGive));
+        ebool withinCap = FHE.lte(verifiedMakerPayment, makerCap);
+        euint64 clampedMakerPayment = FHE.select(withinCap, verifiedMakerPayment, makerCap);
+        FHE.allowTransient(clampedMakerPayment, o.tokenGive);
 
         // Taker sends tokenWant to maker
         euint64 actualGive = IFHERC20Vault(o.tokenWant).transferFromVerified(msg.sender, o.maker, verifiedTakerPayment);
         FHE.allowSender(actualGive);
         FHE.allow(actualGive, o.maker);
 
-        // Maker sends tokenGive to taker (maker must have pre-approved this contract)
-        euint64 actualReceive = IFHERC20Vault(o.tokenGive).transferFromVerified(o.maker, msg.sender, verifiedMakerPayment);
+        // Maker sends tokenGive to taker (maker must have pre-approved this contract).
+        // Uses the clamped amount above so this transfer cannot exceed amountGive.
+        euint64 actualReceive = IFHERC20Vault(o.tokenGive).transferFromVerified(o.maker, msg.sender, clampedMakerPayment);
         FHE.allowSender(actualReceive);
 
         // ── Amount Verification ──────────────────────────────────────────

@@ -194,8 +194,14 @@ export async function createPasskey(
   if (await hasPasskey(chainId)) {
     throw new Error("passkey already exists for this chain. Delete it first.");
   }
-  if (passphrase.length < 8) {
-    throw new Error("passphrase must be at least 8 characters");
+  // 12-char minimum protects the smart-account P-256 private key against
+  // realistic human-chosen passphrases. PBKDF2 250k iters is decent but
+  // a GPU rig can brute-force weak passphrases offline (the encrypted
+  // key sits in IndexedDB, accessible to any XSS / browser extension).
+  // 8 chars was below modern OWASP guidance. Forward-only — existing
+  // passkeys decrypt with whatever passphrase encrypted them.
+  if (passphrase.length < 12) {
+    throw new Error("passphrase must be at least 12 characters");
   }
 
   const privBytes = p256.utils.randomSecretKey();

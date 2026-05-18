@@ -1,7 +1,7 @@
 {
   "storage": [
     {
-      "astId": 67160,
+      "astId": 68033,
       "contract": "contracts/EncryptedEscrow.sol:EncryptedEscrow",
       "label": "_status",
       "offset": 0,
@@ -9,15 +9,15 @@
       "type": "t_uint256"
     },
     {
-      "astId": 48960,
+      "astId": 49071,
       "contract": "contracts/EncryptedEscrow.sol:EncryptedEscrow",
       "label": "eventHub",
       "offset": 0,
       "slot": "1",
-      "type": "t_contract(IEventHub)48905"
+      "type": "t_contract(IEventHub)49016"
     },
     {
-      "astId": 48962,
+      "astId": 49073,
       "contract": "contracts/EncryptedEscrow.sol:EncryptedEscrow",
       "label": "paymentReceipts",
       "offset": 0,
@@ -25,7 +25,7 @@
       "type": "t_address"
     },
     {
-      "astId": 48964,
+      "astId": 49075,
       "contract": "contracts/EncryptedEscrow.sol:EncryptedEscrow",
       "label": "nextEscrowId",
       "offset": 0,
@@ -33,15 +33,15 @@
       "type": "t_uint256"
     },
     {
-      "astId": 48969,
+      "astId": 49080,
       "contract": "contracts/EncryptedEscrow.sol:EncryptedEscrow",
       "label": "_escrows",
       "offset": 0,
       "slot": "4",
-      "type": "t_mapping(t_uint256,t_struct(Escrow)48957_storage)"
+      "type": "t_mapping(t_uint256,t_struct(Escrow)49068_storage)"
     },
     {
-      "astId": 48974,
+      "astId": 49085,
       "contract": "contracts/EncryptedEscrow.sol:EncryptedEscrow",
       "label": "_userEscrows",
       "offset": 0,
@@ -49,7 +49,7 @@
       "type": "t_mapping(t_address,t_array(t_uint256)dyn_storage)"
     },
     {
-      "astId": 49946,
+      "astId": 50119,
       "contract": "contracts/EncryptedEscrow.sol:EncryptedEscrow",
       "label": "__gap",
       "offset": 0,
@@ -80,12 +80,12 @@
       "label": "bool",
       "numberOfBytes": "1"
     },
-    "t_contract(IEventHub)48905": {
+    "t_contract(IEventHub)49016": {
       "encoding": "inplace",
       "label": "contract IEventHub",
       "numberOfBytes": "20"
     },
-    "t_enum(EscrowStatus)48932": {
+    "t_enum(EscrowStatus)49043": {
       "encoding": "inplace",
       "label": "enum EncryptedEscrow.EscrowStatus",
       "numberOfBytes": "1"
@@ -97,24 +97,24 @@
       "numberOfBytes": "32",
       "value": "t_array(t_uint256)dyn_storage"
     },
-    "t_mapping(t_uint256,t_struct(Escrow)48957_storage)": {
+    "t_mapping(t_uint256,t_struct(Escrow)49068_storage)": {
       "encoding": "mapping",
       "key": "t_uint256",
       "label": "mapping(uint256 => struct EncryptedEscrow.Escrow)",
       "numberOfBytes": "32",
-      "value": "t_struct(Escrow)48957_storage"
+      "value": "t_struct(Escrow)49068_storage"
     },
     "t_string_storage": {
       "encoding": "bytes",
       "label": "string",
       "numberOfBytes": "32"
     },
-    "t_struct(Escrow)48957_storage": {
+    "t_struct(Escrow)49068_storage": {
       "encoding": "inplace",
       "label": "struct EncryptedEscrow.Escrow",
       "members": [
         {
-          "astId": 48934,
+          "astId": 49045,
           "contract": "contracts/EncryptedEscrow.sol:EncryptedEscrow",
           "label": "depositor",
           "offset": 0,
@@ -122,7 +122,7 @@
           "type": "t_address"
         },
         {
-          "astId": 48936,
+          "astId": 49047,
           "contract": "contracts/EncryptedEscrow.sol:EncryptedEscrow",
           "label": "beneficiary",
           "offset": 0,
@@ -130,7 +130,7 @@
           "type": "t_address"
         },
         {
-          "astId": 48938,
+          "astId": 49049,
           "contract": "contracts/EncryptedEscrow.sol:EncryptedEscrow",
           "label": "arbiter",
           "offset": 0,
@@ -138,7 +138,7 @@
           "type": "t_address"
         },
         {
-          "astId": 48940,
+          "astId": 49051,
           "contract": "contracts/EncryptedEscrow.sol:EncryptedEscrow",
           "label": "vault",
           "offset": 0,
@@ -146,7 +146,7 @@
           "type": "t_address"
         },
         {
-          "astId": 48943,
+          "astId": 49054,
           "contract": "contracts/EncryptedEscrow.sol:EncryptedEscrow",
           "label": "encAmount",
           "offset": 0,
@@ -154,7 +154,7 @@
           "type": "t_userDefinedValueType(euint64)11797"
         },
         {
-          "astId": 48945,
+          "astId": 49056,
           "contract": "contracts/EncryptedEscrow.sol:EncryptedEscrow",
           "label": "deadline",
           "offset": 0,
@@ -162,7 +162,7 @@
           "type": "t_uint256"
         },
         {
-          "astId": 48947,
+          "astId": 49058,
           "contract": "contracts/EncryptedEscrow.sol:EncryptedEscrow",
           "label": "depositorApproved",
           "offset": 0,
@@ -170,7 +170,7 @@
           "type": "t_bool"
         },
         {
-          "astId": 48949,
+          "astId": 49060,
           "contract": "contracts/EncryptedEscrow.sol:EncryptedEscrow",
           "label": "beneficiaryMarkedDelivered",
           "offset": 1,
@@ -178,15 +178,15 @@
           "type": "t_bool"
         },
         {
-          "astId": 48952,
+          "astId": 49063,
           "contract": "contracts/EncryptedEscrow.sol:EncryptedEscrow",
           "label": "status",
           "offset": 2,
           "slot": "6",
-          "type": "t_enum(EscrowStatus)48932"
+          "type": "t_enum(EscrowStatus)49043"
         },
         {
-          "astId": 48954,
+          "astId": 49065,
           "contract": "contracts/EncryptedEscrow.sol:EncryptedEscrow",
           "label": "description",
           "offset": 0,
@@ -194,7 +194,7 @@
           "type": "t_string_storage"
         },
         {
-          "astId": 48956,
+          "astId": 49067,
           "contract": "contracts/EncryptedEscrow.sol:EncryptedEscrow",
           "label": "createdAt",
           "offset": 0,

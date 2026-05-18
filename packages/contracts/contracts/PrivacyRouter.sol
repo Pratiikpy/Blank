@@ -486,6 +486,16 @@ contract PrivacyRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         return _userSwaps[user];
     }
 
+    /// @notice Expose the encrypted amount-in handle so keepers (and the user)
+    ///         can decrypt it off-chain via the Threshold Network and pass
+    ///         (plaintext, signature) to executeSwap/cancelSwap/claim*Swap.
+    /// @dev Without this getter there is no way to retrieve the ctHash from
+    ///      events or other view functions, which would leave the entire
+    ///      async-decrypt path inaccessible to keepers.
+    function getEncryptedAmountIn(uint256 swapId) external view returns (euint64) {
+        return _swaps[swapId].encryptedAmountIn;
+    }
+
     /// @notice Check if a swap's decryption is ready
     function isDecryptionReady(uint256 swapId) external view returns (bool) {
         PendingSwap storage s = _swaps[swapId];

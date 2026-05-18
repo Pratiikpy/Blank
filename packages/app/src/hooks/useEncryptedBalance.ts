@@ -154,12 +154,25 @@ export function useEncryptedBalance(vaultAddress?: string, decimals = 6) {
   });
 
   // ─── Sync state from SDK decrypt result ──────────────────────────────
+  //
+  // Every setState below uses a `Object.is`-bailout pattern: if the new
+  // values shallow-match the current state, return `s` unchanged. React
+  // then bails out of re-rendering. This breaks any infinite re-render
+  // loop caused by an unstable dep (wagmi/cofhe SDK occasionally return
+  // fresh error/data refs on retry even when the underlying values
+  // haven't changed). Found while running wave4 02-p2p-payments
+  // against a fresh-AA persona: the Dashboard logged "Maximum update
+  // depth exceeded" continuously. Surfaced as #376.
 
   useEffect(() => {
     // Guard: capture address at effect start to prevent stale closures
     const currentAddress = address;
     if (!currentAddress) {
-      setState((s) => ({ ...s, raw: null, formatted: null, isLoading: false }));
+      setState((s) =>
+        s.raw === null && s.formatted === null && s.isLoading === false
+          ? s
+          : { ...s, raw: null, formatted: null, isLoading: false },
+      );
       return;
     }
 
@@ -172,12 +185,11 @@ export function useEncryptedBalance(vaultAddress?: string, decimals = 6) {
         // flashing ████.██ when the balance handle changes (e.g. incoming
         // payment updates the ciphertext). The stale value is replaced as
         // soon as the new decryption completes.
-        setState((s) => ({
-          ...s,
-          isLoading: true,
-          error: null,
-          // Preserve previous raw + formatted so the UI doesn't flash
-        }));
+        setState((s) =>
+          s.isLoading === true && s.error === null
+            ? s
+            : { ...s, isLoading: true, error: null },
+        );
         return;
       }
 
@@ -185,13 +197,18 @@ export function useEncryptedBalance(vaultAddress?: string, decimals = 6) {
         // Decrypt failed — only show "Encrypted" if we have no prior value.
         // If we previously decrypted successfully, keep showing that value
         // with an error flag so the user doesn't lose context.
-        setState((s) => ({
-          ...s,
-          raw: s.raw,
-          formatted: s.formatted ?? "Encrypted",
-          isLoading: false,
-          error: decryptError.message,
-        }));
+        setState((s) => {
+          const nextErr = decryptError.message;
+          const nextFmt = s.formatted ?? "Encrypted";
+          if (
+            s.formatted === nextFmt &&
+            s.isLoading === false &&
+            s.error === nextErr
+          ) {
+            return s;
+          }
+          return { ...s, formatted: nextFmt, isLoading: false, error: nextErr };
+        });
         return;
       }
 
@@ -236,13 +253,13 @@ export function useEncryptedBalance(vaultAddress?: string, decimals = 6) {
       // No data yet but not loading — might be disabled due to missing permit.
       // Keep prior decrypted value if we had one — don't flash ████ on permit refresh.
       if (disabledDueToMissingValidPermit) {
-        setState((s) => ({
-          ...s,
-          raw: s.raw,
-          formatted: s.formatted ?? "Encrypted",
-          isLoading: false,
-          error: null,
-        }));
+        setState((s) => {
+          const nextFmt = s.formatted ?? "Encrypted";
+          if (s.formatted === nextFmt && s.isLoading === false && s.error === null) {
+            return s;
+          }
+          return { ...s, formatted: nextFmt, isLoading: false, error: null };
+        });
         return;
       }
 
@@ -254,28 +271,38 @@ export function useEncryptedBalance(vaultAddress?: string, decimals = 6) {
     const handle = balanceHandle as bigint | undefined;
 
     if (handle !== undefined && handle > 0n) {
-      setState((s) => ({
-        ...s,
-        raw: handle,
-        formatted: "Encrypted",
-        isLoading: false,
-        error: null,
-      }));
+      setState((s) => {
+        if (
+          s.raw === handle &&
+          s.formatted === "Encrypted" &&
+          s.isLoading === false &&
+          s.error === null
+        ) {
+          return s;
+        }
+        return { ...s, raw: handle, formatted: "Encrypted", isLoading: false, error: null };
+      });
     } else if (isInitialized === false) {
-      setState((s) => ({
-        ...s,
-        raw: 0n,
-        formatted: "0.00",
-        isLoading: false,
-        error: null,
-      }));
+      setState((s) => {
+        if (
+          s.raw === 0n &&
+          s.formatted === "0.00" &&
+          s.isLoading === false &&
+          s.error === null
+        ) {
+          return s;
+        }
+        return { ...s, raw: 0n, formatted: "0.00", isLoading: false, error: null };
+      });
     } else {
-      setState((s) => ({
-        ...s,
-        raw: handle ?? null,
-        formatted: handle === 0n ? "0.00" : null,
-        isLoading: false,
-      }));
+      const nextRaw = handle ?? null;
+      const nextFmt = handle === 0n ? "0.00" : null;
+      setState((s) => {
+        if (s.raw === nextRaw && s.formatted === nextFmt && s.isLoading === false) {
+          return s;
+        }
+        return { ...s, raw: nextRaw, formatted: nextFmt, isLoading: false };
+      });
     }
   }, [
     address,

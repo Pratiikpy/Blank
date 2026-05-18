@@ -189,7 +189,7 @@ export function GlobalCounter() {
       <p className="gc-caption">
         <Lock size={13} className="inline-block -mt-0.5 mr-1 opacity-60" />
         Per-transaction amounts are encrypted on-chain. The aggregate is
-        published publicly via <code>FHE.allowGlobal</code> — anyone can
+        published publicly via <code>FHE.allowGlobal</code>: anyone can
         verify the total without learning any individual amount.
         {!isConnected && (
           <span className="gc-hint"> · Connect a wallet to see live data.</span>

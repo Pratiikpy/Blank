@@ -1,15 +1,15 @@
 {
   "storage": [
     {
-      "astId": 65047,
+      "astId": 65843,
       "contract": "contracts/TokenRegistry.sol:TokenRegistry",
       "label": "_tokens",
       "offset": 0,
       "slot": "0",
-      "type": "t_array(t_struct(TokenInfo)65043_storage)dyn_storage"
+      "type": "t_array(t_struct(TokenInfo)65839_storage)dyn_storage"
     },
     {
-      "astId": 65051,
+      "astId": 65847,
       "contract": "contracts/TokenRegistry.sol:TokenRegistry",
       "label": "vaultToIndex",
       "offset": 0,
@@ -17,7 +17,7 @@
       "type": "t_mapping(t_address,t_uint256)"
     },
     {
-      "astId": 65055,
+      "astId": 65851,
       "contract": "contracts/TokenRegistry.sol:TokenRegistry",
       "label": "underlyingToIndex",
       "offset": 0,
@@ -25,7 +25,7 @@
       "type": "t_mapping(t_address,t_uint256)"
     },
     {
-      "astId": 65386,
+      "astId": 66182,
       "contract": "contracts/TokenRegistry.sol:TokenRegistry",
       "label": "__gap",
       "offset": 0,
@@ -39,8 +39,8 @@
       "label": "address",
       "numberOfBytes": "20"
     },
-    "t_array(t_struct(TokenInfo)65043_storage)dyn_storage": {
-      "base": "t_struct(TokenInfo)65043_storage",
+    "t_array(t_struct(TokenInfo)65839_storage)dyn_storage": {
+      "base": "t_struct(TokenInfo)65839_storage",
       "encoding": "dynamic_array",
       "label": "struct TokenRegistry.TokenInfo[]",
       "numberOfBytes": "32"
@@ -68,12 +68,12 @@
       "label": "string",
       "numberOfBytes": "32"
     },
-    "t_struct(TokenInfo)65043_storage": {
+    "t_struct(TokenInfo)65839_storage": {
       "encoding": "inplace",
       "label": "struct TokenRegistry.TokenInfo",
       "members": [
         {
-          "astId": 65032,
+          "astId": 65828,
           "contract": "contracts/TokenRegistry.sol:TokenRegistry",
           "label": "vault",
           "offset": 0,
@@ -81,7 +81,7 @@
           "type": "t_address"
         },
         {
-          "astId": 65034,
+          "astId": 65830,
           "contract": "contracts/TokenRegistry.sol:TokenRegistry",
           "label": "underlying",
           "offset": 0,
@@ -89,7 +89,7 @@
           "type": "t_address"
         },
         {
-          "astId": 65036,
+          "astId": 65832,
           "contract": "contracts/TokenRegistry.sol:TokenRegistry",
           "label": "name",
           "offset": 0,
@@ -97,7 +97,7 @@
           "type": "t_string_storage"
         },
         {
-          "astId": 65038,
+          "astId": 65834,
           "contract": "contracts/TokenRegistry.sol:TokenRegistry",
           "label": "symbol",
           "offset": 0,
@@ -105,7 +105,7 @@
           "type": "t_string_storage"
         },
         {
-          "astId": 65040,
+          "astId": 65836,
           "contract": "contracts/TokenRegistry.sol:TokenRegistry",
           "label": "decimals",
           "offset": 0,
@@ -113,7 +113,7 @@
           "type": "t_uint8"
         },
         {
-          "astId": 65042,
+          "astId": 65838,
           "contract": "contracts/TokenRegistry.sol:TokenRegistry",
           "label": "active",
           "offset": 1,

@@ -100,6 +100,14 @@ contract FHERC20Vault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
             _balances[account] = FHE.asEuint64(0);
             FHE.allowThis(_balances[account]);
             FHE.allow(_balances[account], account);
+            // Also init the pending-unshield slot so requestUnshield's
+            // "no outstanding pending" gate can compare against a real
+            // encrypted-zero handle (FHE.eq on an uninitialized raw-zero
+            // storage slot is unsafe). Without this init the gate would
+            // need a plaintext flag → storage-layout change.
+            _pendingUnshields[account] = FHE.asEuint64(0);
+            FHE.allowThis(_pendingUnshields[account]);
+            FHE.allow(_pendingUnshields[account], account);
             _initialized[account] = true;
         }
     }
@@ -112,6 +120,15 @@ contract FHERC20Vault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     /// @param amount Plaintext amount of underlying tokens to deposit
     function shield(uint256 amount) external nonReentrant {
         require(amount > 0, "FHERC20Vault: amount must be > 0");
+        // The encrypted balance is euint64 — values above 2^64-1 would
+        // truncate at FHE.asEuint64 below but the safeTransferFrom takes
+        // the FULL uint256, locking the upper bits' worth of underlying
+        // tokens in the vault with no claim path. For USDC (6 decimals)
+        // the practical cap is ~18 trillion USDC — well above any real
+        // shield — but for a 0-decimal token or a future 18-decimal
+        // stablecoin, the cap is ~18 tokens. Reject explicitly so the
+        // bound is honest at the source.
+        require(amount <= type(uint64).max, "FHERC20Vault: amount exceeds uint64");
 
         // Transfer underlying tokens from user to vault
         underlyingToken.safeTransferFrom(msg.sender, address(this), amount);
@@ -146,15 +163,23 @@ contract FHERC20Vault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
         euint64 amount = FHE.asEuint64(encAmount);
 
-        // Check balance using select (privacy-preserving — no revert on insufficient)
+        // CRITICAL anti-overwrite guard: pre-fix this function overwrote
+        // _pendingUnshields on every call. A user with an outstanding
+        // (un-claimed) pending could call again and lose the first
+        // pending value — its balance was already deducted but never
+        // claimable. Now the request is a no-op when there's an
+        // outstanding pending: balance untouched, pending preserved.
+        ebool noOutstanding = FHE.eq(_pendingUnshields[msg.sender], ZERO);
         ebool hasEnough = FHE.gte(_balances[msg.sender], amount);
+        ebool canRequest = FHE.and(noOutstanding, hasEnough);
 
-        // If sufficient: subtract amount. If not: subtract zero (no-op).
-        euint64 actualAmount = FHE.select(hasEnough, amount, ZERO);
+        // If allowed: subtract amount. If not: subtract zero (no-op).
+        euint64 actualAmount = FHE.select(canRequest, amount, ZERO);
         _balances[msg.sender] = FHE.sub(_balances[msg.sender], actualAmount);
 
-        // Store pending unshield and request decryption
-        _pendingUnshields[msg.sender] = actualAmount;
+        // Store pending — keep existing pending when canRequest is false
+        // so a duplicate-request can't silently zero out a real pending.
+        _pendingUnshields[msg.sender] = FHE.select(canRequest, actualAmount, _pendingUnshields[msg.sender]);
 
         // Grant permissions
         FHE.allowThis(_balances[msg.sender]);

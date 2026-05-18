@@ -225,6 +225,11 @@ contract BlankAccount is BaseAccount, Initializable, UUPSUpgradeable {
         for (uint256 i = 0; i < targets.length; i++) {
             (bool success, ) = targets[i].call{value: values[i]}(datas[i]);
             require(success, "BlankAccount: batch execution failed");
+            // Mirror single-call execute() which emits Executed at line 211.
+            // Without this, off-chain indexers tracking Executed miss every
+            // call bundled via executeBatch — the relayer's approve+send
+            // bundle path is exactly that.
+            emit Executed(targets[i], values[i], datas[i]);
         }
     }
 

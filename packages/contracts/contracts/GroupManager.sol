@@ -147,8 +147,13 @@ contract GroupManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     /// @notice Leave a group. Last admin cannot leave (must promote another first).
     function leaveGroup(uint256 groupId) external nonReentrant {
         require(isMember[groupId][msg.sender], "GroupManager: not a member");
+        // Pre-fix: this checked total member count > 1, which let a solo
+        // admin leave a 5-member group, bricking it (no admin remains so
+        // no one can add members or promote admins). The correct invariant
+        // is: at least one OTHER admin must exist after I leave. Scan is
+        // bounded by MAX_GROUP_SIZE = 50.
         require(
-            !isAdmin[groupId][msg.sender] || _groups[groupId].members.length > 1,
+            !isAdmin[groupId][msg.sender] || _hasOtherAdmin(groupId, msg.sender),
             "GroupManager: last admin cannot leave"
         );
 
@@ -195,6 +200,21 @@ contract GroupManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         _debts[groupId][member] = FHE.asEuint64(0);
         FHE.allowThis(_debts[groupId][member]);
         FHE.allow(_debts[groupId][member], member);
+    }
+
+    /// @notice Does the group have at least one admin OTHER than `exclude`?
+    /// Used by leaveGroup to enforce "last admin can't leave" — pre-fix
+    /// that check counted total members instead of admins. Scan bounded
+    /// by MAX_GROUP_SIZE = 50, ~3k gas worst case (50× SLOAD per mapping
+    /// lookup).
+    function _hasOtherAdmin(uint256 groupId, address exclude) internal view returns (bool) {
+        address[] storage members = _groups[groupId].members;
+        uint256 n = members.length;
+        for (uint256 i = 0; i < n; i++) {
+            address m = members[i];
+            if (m != exclude && isAdmin[groupId][m]) return true;
+        }
+        return false;
     }
 
     // ─── Expenses ───────────────────────────────────────────────────────

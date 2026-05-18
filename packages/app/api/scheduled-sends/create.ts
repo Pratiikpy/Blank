@@ -41,6 +41,15 @@ interface CreateScopeBody {
   spendToken: string;
   /** Friendly label for the scheduled send (e.g. "Rent — Mar"). */
   label?: string;
+  /** Wallet-signed auth bundle. Required in strict mode (default).
+   *  Proves the caller controls the AA address in `account`. Without
+   *  these fields an attacker can spam keypair generation tied to
+   *  ANY victim's AA address — pollutes the row store, exhausts KMS
+   *  slots, and primes future-replay of attacker-bound scopes. */
+  signature?: string;
+  signerAddress?: string;
+  signedAt?: number;
+  signerChainId?: number;
 }
 
 function getIp(req: any): string {
@@ -82,6 +91,79 @@ export default async function handler(req: any, res: any) {
   if (!Number.isInteger(chainId) || (chainId !== 11155111 && chainId !== 84532)) {
     res.status(400).json({ error: "chainId must be 11155111 (Sepolia) or 84532 (Base Sepolia)" });
     return;
+  }
+
+  // Wallet-signed auth gate — proves the caller controls `account`.
+  // Strict mode (default-on) rejects unsigned requests outright. Lax
+  // mode (STRICT_SCHEDULED_SENDS_AUTH=0) logs unsigned requests but
+  // allows them through, for local dev / one-off recovery flows.
+  //
+  // Sig fields are optional in the body schema so the existing wire
+  // protocol stays compatible with old clients, but the runtime gate
+  // enforces them.
+  const callerSigned =
+    typeof body.signature === "string" &&
+    typeof body.signerAddress === "string" &&
+    typeof body.signedAt === "number" &&
+    typeof body.signerChainId === "number";
+  if (!callerSigned) {
+    try {
+      const { strictScheduledSendsAuthEnabled } = await import("../_lib/sig-auth.js");
+      if (strictScheduledSendsAuthEnabled()) {
+        res.status(401).json({
+          error: "wallet signature required (account, recipient, spendToken, chainId, signedAt)",
+        });
+        return;
+      }
+      console.warn(
+        `[scheduled-sends/create] UNSIGNED request accepted in lax mode — account=${body.account}` +
+          ` chainId=${chainId}. Set STRICT_SCHEDULED_SENDS_AUTH=1 in prod.`,
+      );
+    } catch {
+      // Module-load failure (e.g. ESM resolution in a test env): default
+      // to fail-closed. Bad import == reject is the safer side.
+      res.status(401).json({ error: "wallet signature required" });
+      return;
+    }
+  } else {
+    try {
+      const {
+        verifyOwnerSignature,
+        checkTimestampWindow,
+        buildScheduledSendCreateMessage,
+      } = await import("../_lib/sig-auth.js");
+      const tsErr = checkTimestampWindow(body.signedAt);
+      if (tsErr) {
+        res.status(401).json({ error: `signature rejected: ${tsErr}` });
+        return;
+      }
+      if ((body.signerAddress as string).toLowerCase() !== body.account.toLowerCase()) {
+        res.status(403).json({ error: "signer does not match account" });
+        return;
+      }
+      const message = buildScheduledSendCreateMessage({
+        account: body.account,
+        recipient: body.recipient,
+        spendToken: body.spendToken,
+        chainId,
+        signedAt: body.signedAt as number,
+      });
+      const verified = await verifyOwnerSignature({
+        chainId: body.signerChainId as number,
+        signer: body.signerAddress as `0x${string}`,
+        message,
+        signature: body.signature as `0x${string}`,
+      });
+      if (!verified.ok) {
+        res.status(401).json({ error: `signature rejected: ${verified.reason ?? "unknown"}` });
+        return;
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "sig-auth unavailable";
+      console.error(`[scheduled-sends/create] sig-auth failure: ${msg}`);
+      res.status(500).json({ error: "signature verification failed" });
+      return;
+    }
   }
 
   // Per-IP rate limit: 10/hr. Generating ECDSA keys is cheap, but each

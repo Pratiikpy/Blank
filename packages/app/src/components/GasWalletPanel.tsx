@@ -90,10 +90,19 @@ export function GasWalletPanel() {
   ).BlankAccount_Impl_gasWallet?.toLowerCase();
   const [currentImpl, setCurrentImpl] = useState<string | null>(null);
   const [upgrading, setUpgrading] = useState(false);
+  // Counterfactual accounts (no proxy bytecode yet) return zeroed storage
+  // from `eth_getStorageAt`, which `normalizeImplFromSlot` converts to
+  // "0x0000…0000". Without the ZERO_ADDRESS exclusion, every first-time
+  // user sees the upgrade banner BEFORE their first UserOp has deployed
+  // the proxy — confusing and load-bearing (the comment at refresh()
+  // explicitly says "treat as no upgrade prompt" but pre-fix the code
+  // didn't enforce it). Found while running wave4 02-p2p-payments
+  // against a fresh Alice persona.
   const upgradeAvailable =
     expectedImpl !== undefined &&
     expectedImpl !== ZERO_ADDRESS &&
     currentImpl !== null &&
+    currentImpl !== ZERO_ADDRESS &&
     currentImpl !== expectedImpl;
 
   const refresh = useCallback(async () => {

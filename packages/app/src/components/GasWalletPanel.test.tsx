@@ -272,6 +272,34 @@ describe("GasWalletPanel — §1.13 self-upgrade prompt", () => {
     expect(queryByLabelText("Account upgrade available")).toBeNull();
   });
 
+  it("dormant for counterfactual accounts (proxy not yet deployed — slot is zero)", async () => {
+    // Pre-fix: every first-time user saw the upgrade banner BEFORE their
+    // first UserOp had deployed the proxy. `eth_getStorageAt` on an
+    // undeployed contract returns a zeroed 32-byte slot, which
+    // `normalizeImplFromSlot` would convert to "0x0000…0000" (not null).
+    // The upgradeAvailable check filtered `currentImpl !== null` but NOT
+    // `currentImpl !== ZERO_ADDRESS`, so the banner rendered. Found while
+    // running wave4 02-p2p-payments against a fresh persona — the React
+    // re-render loop on this banner also caused "Maximum update depth
+    // exceeded" warnings that jammed the test. Pin the fix here.
+    useChainMock.mockReturnValue({
+      activeChain: {
+        id: 11155111,
+        name: "Ethereum Sepolia",
+        explorerUrl: "https://sepolia.etherscan.io",
+      },
+      contracts: { EntryPoint: ENTRY_POINT, BlankAccount_Impl_gasWallet: NEW_IMPL },
+    });
+    // Zeroed slot — what counterfactual proxies return.
+    getStorageAtMock.mockResolvedValue(
+      "0x0000000000000000000000000000000000000000000000000000000000000000",
+    );
+    const { findByTestId, queryByLabelText } = render(<GasWalletPanel />);
+    await findByTestId("gas-wallet-address");
+    await new Promise((r) => setTimeout(r, 30));
+    expect(queryByLabelText("Account upgrade available")).toBeNull();
+  });
+
   it("VISIBLE when impl is deployed AND proxy points at older impl", async () => {
     useChainMock.mockReturnValue({
       activeChain: {

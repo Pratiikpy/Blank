@@ -56,7 +56,7 @@ async function main() {
     };
     const acc = accounts[label]!;
     await page.goto(BASE + "/");
-    await page.evaluate(() => localStorage.setItem("blank_active_chain_id", "84532"));
+    await page.evaluate(() => localStorage.setItem("blank:active_chain_id", "84532"));
     await page.goto(BASE + "/app");
     await page.evaluate(
       async ({ chainId, privKey, passphrase, label }: any) => {

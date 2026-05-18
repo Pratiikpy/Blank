@@ -210,12 +210,17 @@ describe("email-request — body + lookup validation (§15.x)", () => {
 
   it("body.payerEmail overrides request.payer_email", async () => {
     const res = makeRes();
+    // Pre-fix this test asserted the vulnerable behavior (override honored
+    // without auth). Unauthenticated callers could drive Blank into
+    // sending "payment request" emails to arbitrary addresses. Now the
+    // override only honors signed requests; unsigned ones silently fall
+    // back to the stored row.
     await handler(
-      makeReq({ body: { ...VALID_BODY, payerEmail: "override@example.com" } }),
+      makeReq({ body: { ...VALID_BODY, payerEmail: "attacker@example.com" } }),
       res,
     );
     expect(res.captured.status).toBe(200);
-    expect(sendEmailMock.mock.calls[0][0].to).toBe("override@example.com");
+    expect(sendEmailMock.mock.calls[0][0].to).toBe("payer@example.com");
   });
 });
 

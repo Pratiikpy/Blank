@@ -34,12 +34,12 @@ export function PasskeyCreationModal({ open, onClose, onSuccess }: PasskeyCreati
       : false; // createAccount is synchronous-ish via useCallback; status drives UI
 
   const canSubmit =
-    passphrase.length >= 8 && passphrase === confirm && createdAddress === null;
+    passphrase.length >= 12 && passphrase === confirm && createdAddress === null;
 
   const handleSubmit = useCallback(async () => {
     setError(null);
-    if (passphrase.length < 8) {
-      setError("Passphrase must be at least 8 characters.");
+    if (passphrase.length < 12) {
+      setError("Passphrase must be at least 12 characters.");
       return;
     }
     if (passphrase !== confirm) {
@@ -142,7 +142,7 @@ export function PasskeyCreationModal({ open, onClose, onSuccess }: PasskeyCreati
           >
             <label className="block">
               <span className="block text-xs text-[var(--text-secondary)] mb-1.5">
-                Passphrase (min 8 characters)
+                Passphrase (min 12 characters)
               </span>
               <input
                 type="password"

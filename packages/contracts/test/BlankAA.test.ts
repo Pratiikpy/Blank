@@ -231,6 +231,42 @@ describe("BlankAccount.isValidSignature (ERC-1271)", () => {
   });
 });
 
+describe("BlankAccount.executeBatch", () => {
+  it("emits Executed once per inner call (mirrors single-call execute)", async () => {
+    const { factory, entryPoint } = await loadFixture(deployAAFixture);
+    await factory.createAccount(11n, 12n, "0x0000000000000000000000000000000000000000", 0n);
+    const accountAddr = await factory["getAddress(uint256,uint256,address,uint256)"](
+      11n, 12n, "0x0000000000000000000000000000000000000000", 0n,
+    );
+    const account = await hre.ethers.getContractAt("BlankAccount", accountAddr);
+
+    // Impersonate the EntryPoint so we can call executeBatch directly
+    // without building a full UserOp (the modifier is onlySelfOrEntryPoint).
+    const entryPointAddress = await entryPoint.getAddress();
+    await hre.network.provider.request({ method: "hardhat_impersonateAccount", params: [entryPointAddress] });
+    await hre.network.provider.send("hardhat_setBalance", [entryPointAddress, "0x10000000000000000"]);
+    const entryPointSigner = await hre.ethers.getSigner(entryPointAddress);
+
+    // Two no-op calls to a payable null sink so we can observe the Executed
+    // events without needing a real callee. Call address(this).owner() reads
+    // are no-ops view-ish but consume calldata, fine for the test.
+    const target = accountAddr; // any non-zero address; calldata is empty
+    const tx = await account.connect(entryPointSigner).executeBatch(
+      [target, target],
+      [0n, 0n],
+      ["0x", "0x"],
+    );
+    await expect(tx).to.emit(account, "Executed").withArgs(target, 0n, "0x");
+    const receipt = await tx.wait();
+    // Count the Executed events to confirm one-per-inner-call (not one total).
+    const executedTopic = hre.ethers.id("Executed(address,uint256,bytes)");
+    const events = receipt!.logs.filter((l) => l.topics[0] === executedTopic);
+    expect(events.length).to.equal(2);
+
+    await hre.network.provider.request({ method: "hardhat_stopImpersonatingAccount", params: [entryPointAddress] });
+  });
+});
+
 describe("BlankPaymaster admin", () => {
   it("setApprovedTarget tracks approvedTargetsCount correctly", async () => {
     const { paymaster, owner } = await loadFixture(deployAAFixture);

@@ -243,14 +243,19 @@ describe("email-invoice — recipient resolution (§15.x)", () => {
     expect(res.captured.status).toBe(400);
   });
 
-  it("body.recipientEmail overrides invoice.client_email", async () => {
+  it("UNSIGNED body.recipientEmail override is IGNORED (anti-phishing) — falls back to client_email", async () => {
+    // Pre-fix this test asserted the vulnerable behavior (override honored
+    // without auth). An unauthenticated caller could use any invoice_id
+    // to drive Blank into sending invoice emails to arbitrary addresses
+    // (open-relay / phishing). Now the override only honors signed
+    // requests; unsigned ones silently fall back to the stored row.
     const res = makeRes();
     await handler(
-      makeReq({ body: { ...VALID_BODY, recipientEmail: "override@example.com" } }),
+      makeReq({ body: { ...VALID_BODY, recipientEmail: "attacker@example.com" } }),
       res,
     );
     expect(res.captured.status).toBe(200);
-    expect(sendEmailMock.mock.calls[0][0].to).toBe("override@example.com");
+    expect(sendEmailMock.mock.calls[0][0].to).toBe("client@example.com");
   });
 });
 

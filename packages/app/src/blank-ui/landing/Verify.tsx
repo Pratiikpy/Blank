@@ -114,11 +114,11 @@ export default function Verify() {
 
     let title: string, description: string;
     if (!proof) {
-      title = "Encrypted proof — Blank";
+      title = "Encrypted proof on Blank";
       description = "Encrypted income / balance proof. Verify on-chain without learning the actual amount.";
     } else if (!proof.isReady) {
       const usd = (Number(proof.threshold) / 1_000_000).toLocaleString();
-      title = `Income ≥ $${usd} — Pending verification`;
+      title = `Income ≥ $${usd}: Pending verification`;
       description = "Encrypted proof on Blank. Anyone can verify the verdict on-chain.";
     } else if (proof.isTrue) {
       const usd = (Number(proof.threshold) / 1_000_000).toLocaleString();
@@ -304,7 +304,7 @@ export default function Verify() {
                   {!isConnected ? (
                     <p className="verify-hint">
                       Connect a wallet to publish the verdict on-chain. Anyone
-                      can do this — no special permission needed. Gas: ~0.0001 ETH.
+                      can do this. No special permission needed. Gas: ~0.0001 ETH.
                     </p>
                   ) : (
                     <button

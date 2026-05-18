@@ -58,7 +58,7 @@ const CONTENT: Record<Audience, AudienceContent> = {
     kicker: "For creators",
     headline: "Accept tips. Hit tier badges. Keep supporter counts private.",
     subhead:
-      "Your audience size is leverage. Don't let your tip totals become a public dashboard for sponsors, competitors, and the algorithm. Run your creator economy on encrypted rails.",
+      "Your audience size is the lever sponsors price you against. Don't let your tip totals become a public dashboard for them, competitors, and the algorithm. Run your creator economy on encrypted rails.",
     leadFeature: {
       title: "Tier badges without surveillance",
       body: "Set bronze / silver / gold thresholds. Supporters tip you encrypted USDC; the contract privately tracks contribution and returns an encrypted tier badge. You see who supports you and at what level. The internet doesn't.",

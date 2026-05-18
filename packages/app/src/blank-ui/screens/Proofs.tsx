@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useEffectiveAddress } from "@/hooks/useEffectiveAddress";
 import {
   ShieldCheck,
@@ -45,16 +45,28 @@ export default function Proofs() {
   const [proofs, setProofs] = useState<Record<string, ProofRecord>>({});
   const [loadingList, setLoadingList] = useState(false);
 
+  // Track unmount so an in-flight refresh() doesn't setState after the
+  // user navigates away. Matches the cancel-on-unmount pattern from
+  // StorefrontPage / CrowdfundPage / ClaimLinkPage.
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+
   const refresh = useCallback(async () => {
     if (!address) return;
     setLoadingList(true);
     const ids = await fetchProofsByUser();
+    if (!mountedRef.current) return;
     setProofIds(ids);
     const records: Record<string, ProofRecord> = {};
     for (const id of ids) {
       const p = await fetchProof(id);
+      if (!mountedRef.current) return;
       if (p) records[id.toString()] = p;
     }
+    if (!mountedRef.current) return;
     setProofs(records);
     setLoadingList(false);
   }, [address, fetchProofsByUser, fetchProof]);

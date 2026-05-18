@@ -32,6 +32,8 @@ import { type Address, encodeFunctionData, isAddress, parseUnits, zeroAddress } 
 import { usePublicClient } from "wagmi";
 import { useScheduledSends } from "@/hooks/useScheduledSends";
 import { useEffectiveAddress } from "@/hooks/useEffectiveAddress";
+import { useEmailAuthSigner } from "@/hooks/useEmailAuthSigner";
+import { buildScheduledSendCreateSignableMessage } from "@/lib/email-client";
 import { useAccountVersion } from "@/hooks/useAccountVersion";
 import { useChain } from "@/providers/ChainProvider";
 import { useUnifiedWrite } from "@/hooks/useUnifiedWrite";
@@ -109,6 +111,10 @@ export default function ScheduledSends() {
   const paymasterMode: "self" | undefined =
     paymasterHealth.status === "unavailable" && aaCanSelfPay ? "self" : undefined;
   const { scopes, isLoading, error, refetch, revokeScope } = useScheduledSends();
+  // #350 — Wallet-signed auth for the keypair-creation request. Proves
+  // the caller controls `effectiveAddress` so an attacker can't spam
+  // keypair generation tied to a victim's AA.
+  const { signEmailAuth } = useEmailAuthSigner();
 
   const validatorAddr = (contracts.SessionKeyValidator ?? ZERO_ADDR) as Address;
   const validatorDeployed = validatorAddr !== ZERO_ADDR;
@@ -166,7 +172,26 @@ export default function ScheduledSends() {
         })) as boolean;
       }
 
-      // Step 2: generate session key via the backend (now persists to
+      // Step 2: sign the scope-creation request so the backend can prove
+      // the caller controls `effectiveAddress`. Without this signature an
+      // attacker could spam keypair generation tied to ANY victim's AA —
+      // server-side anti-pollution gate (#350). The signature is bound
+      // to (account, recipient, spendToken, chainId, signedAt) so a
+      // captured sig cannot be replayed for a different scope.
+      const signedAt = Math.floor(Date.now() / 1000);
+      const sigMsg = buildScheduledSendCreateSignableMessage({
+        account: effectiveAddress,
+        recipient,
+        spendToken: contracts.TestUSDC,
+        chainId: activeChainId,
+        signedAt,
+      });
+      const sig = await signEmailAuth(sigMsg, signedAt);
+      if (!sig) {
+        throw new Error("Wallet signature required to create scheduled send");
+      }
+
+      // Step 3: generate session key via the backend (now persists to
       // an encrypted keystore + cron will fire UserOps from it).
       const res = await fetch("/api/scheduled-sends/create", {
         method: "POST",
@@ -177,6 +202,10 @@ export default function ScheduledSends() {
           recipient,
           spendToken: contracts.TestUSDC,
           label: label.trim() || undefined,
+          signature: sig.signature,
+          signerAddress: sig.signerAddress,
+          signedAt: sig.signedAt,
+          signerChainId: sig.signerChainId,
         }),
       });
       if (!res.ok) {
@@ -196,7 +225,7 @@ export default function ScheduledSends() {
         );
       }
 
-      // Step 3: encode amount + scope.
+      // Step 4: encode amount + scope.
       const amountBase = parseUnits(amount, 6);
       if (amountBase === 0n) {
         throw new Error("Amount below smallest USDC unit (0.000001)");

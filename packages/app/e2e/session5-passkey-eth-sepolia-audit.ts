@@ -89,7 +89,7 @@ async function setupAccount(browser: any, acc: typeof ACCOUNTS.A): Promise<{ ctx
 
   await page.goto(BASE + "/");
   await page.evaluate((chainId: number) => {
-    localStorage.setItem("blank_active_chain_id", String(chainId));
+    localStorage.setItem("blank:active_chain_id", String(chainId));
   }, CHAIN_ID);
 
   await page.goto(BASE + "/app");

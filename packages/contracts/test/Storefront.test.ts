@@ -363,6 +363,49 @@ describe("Storefront", () => {
       await mock_expectPlaintext(ctx.charlie.provider, charlieAfter, usdc(1_000));
     });
 
+    // §1.16 — winner-refund-pre-claim exploit. Pre-fix: after revealWinner,
+    // before claimAuctionWin, the winner could call refundLoserBid on
+    // their own winning index. bid.bidder == msg.sender and !bid.refunded
+    // both passed; the contract sent the winning amount back to the
+    // winner. Subsequent claimAuctionWin reverted because winningBid.refunded
+    // == true, leaving the seller permanently unpaid. The winner kept
+    // their bid AND walked off with the seller's off-chain delivery.
+    // Post-fix: refundLoserBid rejects when msg.sender == l.winner &&
+    // bidIndex == _winningBidIdx[listingId].
+    it("CRITICAL: winner cannot extract winning bid pre-claim", async () => {
+      const ctx = await loadFixture(deployFixture);
+      const encMin = await encUint64(ctx.client, ctx.alice, usdc(0));
+      await ctx.storefront.connect(ctx.alice).createListing(
+        MODE_AUCTION,
+        await ctx.vault.getAddress(),
+        encMin,
+        3600,
+        "Winner-refund test",
+        ZERO_BYTES32,
+        "",
+      );
+
+      const bobBid = await encUint64(ctx.client, ctx.bob, usdc(10));
+      await ctx.storefront.connect(ctx.bob).placeBid(0, bobBid);
+
+      await time.increase(3601);
+      await ctx.storefront.connect(ctx.alice).closeAuction(0);
+      const winnerIdxHandle = await ctx.storefront.getWinnerIdxHandle(0);
+      await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.alice);
+      const proof = await ctx.client.decryptForTx(winnerIdxHandle, FheTypes.Uint8).withoutPermit().execute();
+      await ctx.storefront.connect(ctx.alice).revealWinner(0, Number(proof.decryptedValue), proof.signature);
+
+      // PRE-CLAIM: winner tries to refund their winning bid — must reject.
+      await expect(
+        ctx.storefront.connect(ctx.bob).refundLoserBid(0, 0),
+      ).to.be.revertedWith("Storefront: winning bid, use claimAuctionWin");
+
+      // Honest path still works: winner claims, seller gets paid.
+      await ctx.storefront.connect(ctx.bob).claimAuctionWin(0, ZERO_BYTES32);
+      const aliceAfter = await ctx.vault.balanceOf(ctx.alice.address);
+      await mock_expectPlaintext(ctx.alice.provider, aliceAfter, usdc(1_010));
+    });
+
     it("cannot bid after close", async () => {
       const ctx = await loadFixture(deployFixture);
       const encMin = await encUint64(ctx.client, ctx.alice, usdc(0));

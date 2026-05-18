@@ -91,7 +91,7 @@ export default function PayPage() {
     if (amount) params.set("amount", amount);
     if (note) params.set("note", note);
     else if (target.kind === "invoice" && target.invoice.description) {
-      params.set("note", `Invoice #${target.invoice.invoice_id} — ${target.invoice.description}`);
+      params.set("note", `Invoice #${target.invoice.invoice_id}: ${target.invoice.description}`);
     }
     if (chain) params.set("chain", chain);
     if (path === "send-with-wallet") params.set("wallet", "external");
@@ -187,7 +187,7 @@ export default function PayPage() {
                         Invoice
                       </p>
                       <p className="font-medium text-[var(--text-primary)]">
-                        #{state.result.target.invoice.invoice_id} — {state.result.target.invoice.description}
+                        #{state.result.target.invoice.invoice_id}: {state.result.target.invoice.description}
                       </p>
                     </div>
                     {state.result.target.invoice.due_date && (

@@ -3,13 +3,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { usePublicClient } from "wagmi";
-import toast from "react-hot-toast";
 import {
   Megaphone, AlertCircle, Loader2, CheckCircle2, Clock,
   XCircle,
 } from "lucide-react";
 
 import { useCrowdfund } from "@/hooks/useCrowdfund";
+import { useEffectiveAddress } from "@/hooks/useEffectiveAddress";
 import { CONTRACTS_BY_CHAIN, type SupportedChainId } from "@/lib/constants";
 import { EncryptedCrowdfundAbi } from "@/lib/abis";
 import { FhePipelineProgress } from "@/components/payment/FhePipelineProgress";
@@ -39,9 +39,16 @@ export default function CrowdfundPage() {
   const campaignId = params.campaignId ? Number(params.campaignId) : NaN;
   const publicClient = usePublicClient({ chainId });
   const { state, pipeline, contribute, closeCampaign, claimRelease, claimRefund } = useCrowdfund();
+  const { effectiveAddress } = useEffectiveAddress();
 
   const [onChain, setOnChain] = useState<OnChainCampaign | null>(null);
   const [contributionCount, setContributionCount] = useState(0);
+  // Caller's contribution indices for this campaign (refunding phase only).
+  // Replaces a window.prompt() that asked the user to type an index —
+  // wrong taps cost gas + revealed the typed integer. §1.7 WAVE4_HALF_BAKED
+  // #9.
+  const [myContribs, setMyContribs] = useState<{ index: number; refunded: boolean }[]>([]);
+  const [myContribsLoaded, setMyContribsLoaded] = useState(false);
   const [loadError, setLoadError] = useState<ClassifiedLoadError | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [amount, setAmount] = useState("");
@@ -108,6 +115,52 @@ export default function CrowdfundPage() {
     })();
     return () => { cancelled = true; };
   }, [chainId, campaignId, publicClient, reloadKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setMyContribsLoaded(false);
+    setMyContribs([]);
+    if (
+      !publicClient ||
+      !onChain ||
+      !effectiveAddress ||
+      contributionCount <= 0 ||
+      !(chainId in CONTRACTS_BY_CHAIN)
+    ) {
+      return;
+    }
+    // Only load when the user could actually need to refund.
+    if (onChain.status !== STATUS_REFUNDING && !(onChain.resultPublished && !onChain.goalMet)) {
+      return;
+    }
+    const contracts = CONTRACTS_BY_CHAIN[chainId as SupportedChainId];
+    if (!contracts.EncryptedCrowdfund) return;
+    (async () => {
+      try {
+        const me = effectiveAddress.toLowerCase();
+        const collected: { index: number; refunded: boolean }[] = [];
+        for (let i = 0; i < contributionCount; i++) {
+          const result = (await publicClient.readContract({
+            address: contracts.EncryptedCrowdfund,
+            abi: EncryptedCrowdfundAbi,
+            functionName: "getContribution",
+            args: [BigInt(campaignId), BigInt(i)],
+          })) as readonly [`0x${string}`, boolean];
+          if (cancelled) return;
+          if (result[0].toLowerCase() === me) {
+            collected.push({ index: i, refunded: result[1] });
+          }
+        }
+        if (!cancelled) {
+          setMyContribs(collected);
+          setMyContribsLoaded(true);
+        }
+      } catch {
+        if (!cancelled) setMyContribsLoaded(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [publicClient, onChain, effectiveAddress, contributionCount, chainId, campaignId, reloadKey]);
 
   const phase = useMemo(() => {
     if (!onChain) return "loading";
@@ -245,27 +298,38 @@ export default function CrowdfundPage() {
             <XCircle size={16} className="flex-shrink-0 mt-0.5" />
             <span>Goal not met. Each contributor can pull their amount back.</span>
           </div>
-          <button
-            onClick={() => {
-              const raw = prompt("Your contribution index (check your wallet history):");
-              if (raw === null) return; // user cancelled
-              const trimmed = raw.trim();
-              if (trimmed === "") {
-                toast.error("Contribution index required");
-                return;
-              }
-              const idx = Number.parseInt(trimmed, 10);
-              if (!Number.isFinite(idx) || idx < 0 || String(idx) !== trimmed) {
-                toast.error("Contribution index must be a non-negative integer");
-                return;
-              }
-              claimRefund(campaignId, idx);
-            }}
-            disabled={state.isProcessing}
-            className="w-full h-12 rounded-2xl border border-[var(--border)] hover:bg-[var(--surface-2)] disabled:opacity-40"
-          >
-            Refund my contribution
-          </button>
+          {!effectiveAddress ? (
+            <div className="w-full px-4 py-3 rounded-2xl border border-[var(--border)] text-sm text-[var(--text-secondary)] text-center">
+              Connect your wallet to see your contributions.
+            </div>
+          ) : !myContribsLoaded ? (
+            <div className="w-full h-12 rounded-2xl border border-[var(--border)] flex items-center justify-center text-sm text-[var(--text-secondary)]">
+              <Loader2 size={14} className="animate-spin mr-2" /> Checking your contributions…
+            </div>
+          ) : myContribs.length === 0 ? (
+            <div className="w-full px-4 py-3 rounded-2xl border border-[var(--border)] text-sm text-[var(--text-secondary)] text-center">
+              You didn't contribute to this campaign.
+            </div>
+          ) : (
+            <div className="space-y-2" data-testid="my-contribs-list">
+              <div className="text-xs uppercase tracking-wide text-[var(--text-secondary)]">
+                Your contributions
+              </div>
+              {myContribs.map((c) => (
+                <button
+                  key={c.index}
+                  onClick={() => claimRefund(campaignId, c.index)}
+                  disabled={state.isProcessing || c.refunded}
+                  className="w-full h-12 px-4 rounded-2xl border border-[var(--border)] hover:bg-[var(--surface-2)] disabled:opacity-40 flex items-center justify-between text-sm"
+                >
+                  <span>Contribution #{c.index}</span>
+                  <span className={cn("text-xs", c.refunded ? "text-[var(--text-secondary)]" : "text-[var(--text-primary)] font-medium")}>
+                    {c.refunded ? "Refunded" : state.isProcessing ? "Refunding…" : "Refund"}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

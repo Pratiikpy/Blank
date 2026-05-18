@@ -211,26 +211,28 @@ describe("SmartWallet — create flow validation (§15.x)", () => {
     setSmartAccount({ status: "no-passkey", account: null });
   });
 
-  it("passphrase < 8 chars -> 'Passphrase must be at least 8 characters' toast + createAccount NOT called", async () => {
+  it("passphrase < 12 chars -> 'Passphrase must be at least 12 characters' toast + createAccount NOT called", async () => {
     const { container } = render(<SmartWallet />);
     const inputs = container.querySelectorAll("input[type='password']");
-    fireEvent.change(inputs[0], { target: { value: "short" } });
-    fireEvent.change(inputs[1], { target: { value: "short" } });
+    // 11-char passphrase — one below the new floor of 12.
+    fireEvent.change(inputs[0], { target: { value: "elevenChars" } });
+    fireEvent.change(inputs[1], { target: { value: "elevenChars" } });
     const submit = Array.from(container.querySelectorAll("button"))
       .find((b) => b.textContent?.includes("Create smart wallet")) as HTMLButtonElement;
     await act(async () => {
       fireEvent.click(submit);
       await Promise.resolve();
     });
-    expect(toastErrorMock).toHaveBeenCalledWith("Passphrase must be at least 8 characters");
+    expect(toastErrorMock).toHaveBeenCalledWith("Passphrase must be at least 12 characters");
     expect(createAccountMock).not.toHaveBeenCalled();
   });
 
   it("passphrase mismatch -> 'Passphrases don't match' toast", async () => {
     const { container } = render(<SmartWallet />);
     const inputs = container.querySelectorAll("input[type='password']");
-    fireEvent.change(inputs[0], { target: { value: "longenough1" } });
-    fireEvent.change(inputs[1], { target: { value: "differentpw" } });
+    // Both 12+ chars so the length check passes; mismatch is the assertion.
+    fireEvent.change(inputs[0], { target: { value: "longenough12" } });
+    fireEvent.change(inputs[1], { target: { value: "differentpw12" } });
     const submit = Array.from(container.querySelectorAll("button"))
       .find((b) => b.textContent?.includes("Create smart wallet")) as HTMLButtonElement;
     await act(async () => {

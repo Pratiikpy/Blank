@@ -108,10 +108,25 @@ export default async function handler(req: any, res: any) {
   }
   const request = data as RequestLookup;
 
-  const recipient = body.payerEmail ?? request.payer_email ?? undefined;
+  // payerEmail override is ONLY honored when a valid wallet signature is
+  // attached — otherwise an unauthenticated caller could use any
+  // request_id to make Blank send "you have a payment request" emails
+  // to attacker-chosen addresses (open-relay / phishing pivot). In
+  // soft-auth mode the override is silently dropped and we fall back to
+  // the stored payer_email, which limits abuse to pre-configured
+  // recipients per request row. Mirror of the invoice variant.
+  const callerSigned =
+    body.signature !== undefined &&
+    body.signerAddress !== undefined &&
+    body.signedAt !== undefined &&
+    body.signerChainId !== undefined;
+  const recipient =
+    (callerSigned ? body.payerEmail : undefined) ??
+    request.payer_email ??
+    undefined;
   if (!isPlausibleEmail(recipient)) {
     res.status(400).json({
-      error: "No payer email — pass payerEmail or set payer_email on the request row.",
+      error: "No payer email — pass payerEmail (with wallet signature) or set payer_email on the request row.",
     });
     return;
   }

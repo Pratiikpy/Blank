@@ -139,7 +139,7 @@ const BLOCKED: BlockedItem[] = [
   {
     title: "Mobile app (native)",
     detail:
-      "The PWA works well on mobile today. A native app is appealing but it's a separate codebase and a different distribution problem (App Store review, push notification entitlements, biometric unlock).",
+      "The PWA works well on mobile today. A native app is appealing but it's a separate codebase and a different distribution problem (App Store review, push notification entitlements, biometric authentication).",
     blockedBy: [
       "Real demand from current users (we'll ask, not assume)",
       "Fhenix SDK that compiles to React Native or native iOS/Android",

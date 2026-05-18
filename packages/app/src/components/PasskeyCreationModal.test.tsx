@@ -136,7 +136,7 @@ describe("PasskeyCreationModal — canSubmit gate (§15.x)", () => {
     expect(submit.disabled).toBe(true);
   });
 
-  it("passphrase < 8 chars -> submit disabled", () => {
+  it("passphrase < 12 chars -> submit disabled", () => {
     render(
       <PasskeyCreationModal open={true} onClose={vi.fn()} onSuccess={vi.fn()} />,
     );
@@ -150,15 +150,15 @@ describe("PasskeyCreationModal — canSubmit gate (§15.x)", () => {
     expect(submit.disabled).toBe(true);
   });
 
-  it("8-char passphrase + match -> submit enabled", () => {
+  it("12-char passphrase + match -> submit enabled", () => {
     render(
       <PasskeyCreationModal open={true} onClose={vi.fn()} onSuccess={vi.fn()} />,
     );
     fireEvent.change(screen.getByTestId("passkey-passphrase-new"), {
-      target: { value: "longenough" },
+      target: { value: "longenough12" },
     });
     fireEvent.change(screen.getByTestId("passkey-passphrase-confirm"), {
-      target: { value: "longenough" },
+      target: { value: "longenough12" },
     });
     const submit = screen.getByTestId("passkey-create-submit") as HTMLButtonElement;
     expect(submit.disabled).toBe(false);
@@ -169,7 +169,7 @@ describe("PasskeyCreationModal — canSubmit gate (§15.x)", () => {
       <PasskeyCreationModal open={true} onClose={vi.fn()} onSuccess={vi.fn()} />,
     );
     fireEvent.change(screen.getByTestId("passkey-passphrase-new"), {
-      target: { value: "longenough" },
+      target: { value: "longenough12" },
     });
     fireEvent.change(screen.getByTestId("passkey-passphrase-confirm"), {
       target: { value: "different" },
@@ -178,29 +178,29 @@ describe("PasskeyCreationModal — canSubmit gate (§15.x)", () => {
     expect(submit.disabled).toBe(true);
   });
 
-  it("exactly 8 chars (boundary) -> submit enabled", () => {
+  it("exactly 12 chars (boundary) -> submit enabled", () => {
     render(
       <PasskeyCreationModal open={true} onClose={vi.fn()} onSuccess={vi.fn()} />,
     );
     fireEvent.change(screen.getByTestId("passkey-passphrase-new"), {
-      target: { value: "exactly8" }, // exactly 8 chars
+      target: { value: "exactlyTwelv" }, // exactly 12 chars
     });
     fireEvent.change(screen.getByTestId("passkey-passphrase-confirm"), {
-      target: { value: "exactly8" },
+      target: { value: "exactlyTwelv" },
     });
     const submit = screen.getByTestId("passkey-create-submit") as HTMLButtonElement;
     expect(submit.disabled).toBe(false);
   });
 
-  it("7 chars (boundary minus 1) -> submit disabled", () => {
+  it("11 chars (boundary minus 1) -> submit disabled", () => {
     render(
       <PasskeyCreationModal open={true} onClose={vi.fn()} onSuccess={vi.fn()} />,
     );
     fireEvent.change(screen.getByTestId("passkey-passphrase-new"), {
-      target: { value: "1234567" }, // 7 chars
+      target: { value: "elevenChars" }, // 11 chars
     });
     fireEvent.change(screen.getByTestId("passkey-passphrase-confirm"), {
-      target: { value: "1234567" },
+      target: { value: "elevenChars" },
     });
     const submit = screen.getByTestId("passkey-create-submit") as HTMLButtonElement;
     expect(submit.disabled).toBe(true);
@@ -218,14 +218,14 @@ describe("PasskeyCreationModal — submit success (§15.x)", () => {
       <PasskeyCreationModal open={true} onClose={vi.fn()} onSuccess={onSuccess} />,
     );
     fireEvent.change(screen.getByTestId("passkey-passphrase-new"), {
-      target: { value: "longenough" },
+      target: { value: "longenough12" },
     });
     fireEvent.change(screen.getByTestId("passkey-passphrase-confirm"), {
-      target: { value: "longenough" },
+      target: { value: "longenough12" },
     });
     fireEvent.click(screen.getByTestId("passkey-create-submit"));
     await waitFor(() => {
-      expect(createAccountMock).toHaveBeenCalledWith("longenough");
+      expect(createAccountMock).toHaveBeenCalledWith("longenough12");
     });
     await waitFor(() => {
       expect(onSuccess).toHaveBeenCalledWith(SA_ADDR);
@@ -237,10 +237,10 @@ describe("PasskeyCreationModal — submit success (§15.x)", () => {
       <PasskeyCreationModal open={true} onClose={vi.fn()} onSuccess={vi.fn()} />,
     );
     fireEvent.change(screen.getByTestId("passkey-passphrase-new"), {
-      target: { value: "longenough" },
+      target: { value: "longenough12" },
     });
     fireEvent.change(screen.getByTestId("passkey-passphrase-confirm"), {
-      target: { value: "longenough" },
+      target: { value: "longenough12" },
     });
     fireEvent.click(screen.getByTestId("passkey-create-submit"));
     await waitFor(() => {
@@ -264,10 +264,10 @@ describe("PasskeyCreationModal — submit success (§15.x)", () => {
       <PasskeyCreationModal open={true} onClose={vi.fn()} onSuccess={vi.fn()} />,
     );
     fireEvent.change(screen.getByTestId("passkey-passphrase-new"), {
-      target: { value: "longenough" },
+      target: { value: "longenough12" },
     });
     fireEvent.change(screen.getByTestId("passkey-passphrase-confirm"), {
-      target: { value: "longenough" },
+      target: { value: "longenough12" },
     });
     fireEvent.click(screen.getByTestId("passkey-create-submit"));
     await waitFor(() => {
@@ -279,7 +279,7 @@ describe("PasskeyCreationModal — submit success (§15.x)", () => {
 });
 
 describe("PasskeyCreationModal — submit error paths (§15.x)", () => {
-  it("<8 chars -> error message + createAccount NOT called", async () => {
+  it("<12 chars -> error message + createAccount NOT called", async () => {
     // Submit via form-submit event (bypasses disabled button) by hitting Enter
     render(
       <PasskeyCreationModal open={true} onClose={vi.fn()} onSuccess={vi.fn()} />,
@@ -306,10 +306,10 @@ describe("PasskeyCreationModal — submit error paths (§15.x)", () => {
       <PasskeyCreationModal open={true} onClose={vi.fn()} onSuccess={vi.fn()} />,
     );
     fireEvent.change(screen.getByTestId("passkey-passphrase-new"), {
-      target: { value: "longenough" },
+      target: { value: "longenough12" },
     });
     fireEvent.change(screen.getByTestId("passkey-passphrase-confirm"), {
-      target: { value: "longenough" },
+      target: { value: "longenough12" },
     });
     fireEvent.click(screen.getByTestId("passkey-create-submit"));
     await waitFor(() => {
@@ -326,10 +326,10 @@ describe("PasskeyCreationModal — submit error paths (§15.x)", () => {
       <PasskeyCreationModal open={true} onClose={vi.fn()} onSuccess={vi.fn()} />,
     );
     fireEvent.change(screen.getByTestId("passkey-passphrase-new"), {
-      target: { value: "longenough" },
+      target: { value: "longenough12" },
     });
     fireEvent.change(screen.getByTestId("passkey-passphrase-confirm"), {
-      target: { value: "longenough" },
+      target: { value: "longenough12" },
     });
     fireEvent.click(screen.getByTestId("passkey-create-submit"));
     await waitFor(() => {
@@ -345,10 +345,10 @@ describe("PasskeyCreationModal — submit error paths (§15.x)", () => {
       <PasskeyCreationModal open={true} onClose={vi.fn()} onSuccess={vi.fn()} />,
     );
     fireEvent.change(screen.getByTestId("passkey-passphrase-new"), {
-      target: { value: "longenough" },
+      target: { value: "longenough12" },
     });
     fireEvent.change(screen.getByTestId("passkey-passphrase-confirm"), {
-      target: { value: "longenough" },
+      target: { value: "longenough12" },
     });
     fireEvent.click(screen.getByTestId("passkey-create-submit"));
     await waitFor(() => {
@@ -363,10 +363,10 @@ describe("PasskeyCreationModal — submit error paths (§15.x)", () => {
       <PasskeyCreationModal open={true} onClose={vi.fn()} onSuccess={onSuccess} />,
     );
     fireEvent.change(screen.getByTestId("passkey-passphrase-new"), {
-      target: { value: "longenough" },
+      target: { value: "longenough12" },
     });
     fireEvent.change(screen.getByTestId("passkey-passphrase-confirm"), {
-      target: { value: "longenough" },
+      target: { value: "longenough12" },
     });
     fireEvent.click(screen.getByTestId("passkey-create-submit"));
     await waitFor(() => {
@@ -400,10 +400,10 @@ describe("PasskeyCreationModal — backdrop + cancel (§15.x)", () => {
       <PasskeyCreationModal open={true} onClose={onClose} onSuccess={vi.fn()} />,
     );
     fireEvent.change(screen.getByTestId("passkey-passphrase-new"), {
-      target: { value: "longenough" },
+      target: { value: "longenough12" },
     });
     fireEvent.change(screen.getByTestId("passkey-passphrase-confirm"), {
-      target: { value: "longenough" },
+      target: { value: "longenough12" },
     });
     fireEvent.click(screen.getByTestId("passkey-create-submit"));
     await waitFor(() => {
@@ -438,10 +438,10 @@ describe("PasskeyCreationModal — backdrop + cancel (§15.x)", () => {
       <PasskeyCreationModal open={true} onClose={onClose} onSuccess={vi.fn()} />,
     );
     fireEvent.change(screen.getByTestId("passkey-passphrase-new"), {
-      target: { value: "longenough" },
+      target: { value: "longenough12" },
     });
     fireEvent.change(screen.getByTestId("passkey-passphrase-confirm"), {
-      target: { value: "longenough" },
+      target: { value: "longenough12" },
     });
     fireEvent.click(screen.getByTestId("passkey-create-submit"));
     await waitFor(() => {
@@ -471,10 +471,10 @@ describe("PasskeyCreationModal — data-testid contract (§15.x)", () => {
       <PasskeyCreationModal open={true} onClose={vi.fn()} onSuccess={vi.fn()} />,
     );
     fireEvent.change(screen.getByTestId("passkey-passphrase-new"), {
-      target: { value: "longenough" },
+      target: { value: "longenough12" },
     });
     fireEvent.change(screen.getByTestId("passkey-passphrase-confirm"), {
-      target: { value: "longenough" },
+      target: { value: "longenough12" },
     });
     fireEvent.click(screen.getByTestId("passkey-create-submit"));
     await waitFor(() => {

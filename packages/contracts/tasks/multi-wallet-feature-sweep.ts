@@ -157,6 +157,49 @@ task(
     );
   }
 
+  // Poll ClaimLinks.getLink(linkId) until the RPC returns a sender !=
+  // 0x0, proving the just-mined createLink is now visible to this
+  // node. Base Sepolia's load-balanced RPCs sometimes serve a node
+  // that's 1 block behind, which makes simulateContract revert with
+  // "no such link" instead of the spec'd guard. 5×400ms = 2s max wait.
+  async function waitForLinkVisible(claimLinksAddr: `0x${string}`, linkId: bigint): Promise<void> {
+    for (let i = 0; i < 5; i++) {
+      try {
+        const result = (await publicClient.readContract({
+          address: claimLinksAddr,
+          abi: [
+            {
+              name: "getLink",
+              type: "function",
+              stateMutability: "view",
+              inputs: [{ name: "linkId", type: "uint256" }],
+              outputs: [
+                { name: "sender", type: "address" },
+                { name: "vault", type: "address" },
+                { name: "secretHash", type: "bytes32" },
+                { name: "boundAddress", type: "address" },
+                { name: "mode", type: "uint8" },
+                { name: "createdAt", type: "uint256" },
+                { name: "expiryTimestamp", type: "uint256" },
+                { name: "claimed", type: "bool" },
+                { name: "refunded", type: "bool" },
+                { name: "claimer", type: "address" },
+                { name: "claimedAt", type: "uint256" },
+                { name: "note", type: "string" },
+              ],
+            },
+          ],
+          functionName: "getLink",
+          args: [linkId],
+        })) as readonly [`0x${string}`, ...unknown[]];
+        if (result[0] !== "0x0000000000000000000000000000000000000000") return;
+      } catch {
+        /* RPC blip; try again */
+      }
+      await new Promise((r) => setTimeout(r, 400));
+    }
+  }
+
   // Pre-computed event selectors (keccak256 of the canonical event sig)
   // Used to extract the just-minted id from the create tx receipt.
   // These are race-safe because we're reading OUR tx's logs.
@@ -805,6 +848,30 @@ task(
         console.log(`  Bob: markDelivered escrow #${justCreatedEid} ok  tx=${markHash}`);
         results.push({ feature: "escrow_markDelivered", persona: "Bob", status: "pass", txHash: markHash });
 
+        // Negative 17: Dave calls approveRelease on Alice's escrow.
+        // Fires NOW while status is still Active so the spec'd
+        // "EncryptedEscrow: not depositor" guard reverts, not the
+        // "not active" guard that fires after Alice releases.
+        console.log("[Negative 17] approveRelease from non-depositor — should revert");
+        await expectRevert("Dave unauth-release", "neg_unauth_release", "Dave", async () => {
+          await publicClient.simulateContract({
+            account: privateKeyToAccount(personas[3]!.privKey),
+            address: EncryptedEscrow as `0x${string}`,
+            abi: [
+              {
+                name: "approveRelease",
+                type: "function",
+                stateMutability: "nonpayable",
+                inputs: [{ name: "escrowId", type: "uint256" }],
+                outputs: [],
+              },
+            ],
+            functionName: "approveRelease",
+            args: [justCreatedEid],
+            gas: 2_000_000n,
+          });
+        });
+
         // Alice now approves release.
         const aliceWallet2 = createWalletClient({
           account: privateKeyToAccount(personas[0]!.privKey),
@@ -939,6 +1006,39 @@ task(
       // minted. Race-safe regardless of concurrent writes.
       bearerLinkId = await extractIdFromReceipt(linkHash, ClaimLinks, SIG.LinkCreated);
       bearerSecretHex = secretHex;
+
+      // Negative 16: Dave attempts to claim the just-created bearer
+      // link with an obviously-wrong (all-zero) secret. Runs here, BEFORE
+      // Dave's legitimate claim mines, so the revert fires on the
+      // hash-mismatch guard (the spec) rather than "already claimed".
+      const bearerIdForNeg = bearerLinkId; // narrow null-check
+      if (bearerIdForNeg !== null) {
+        // Wait for the just-mined createLink to be visible to the
+        // simulate's RPC (defeats Base Sepolia's stale-node race).
+        await waitForLinkVisible(ClaimLinks as `0x${string}`, bearerIdForNeg);
+        console.log("[Negative 16] claimBearer with WRONG secret — should revert");
+        await expectRevert("wrong-secret claim", "neg_wrong_secret_claim", "Dave", async () => {
+          await publicClient.simulateContract({
+            account: privateKeyToAccount(personas[3]!.privKey),
+            address: ClaimLinks as `0x${string}`,
+            abi: [
+              {
+                name: "claimBearer",
+                type: "function",
+                stateMutability: "nonpayable",
+                inputs: [
+                  { name: "linkId", type: "uint256" },
+                  { name: "secret", type: "bytes32" },
+                ],
+                outputs: [],
+              },
+            ],
+            functionName: "claimBearer",
+            args: [bearerIdForNeg, "0x0000000000000000000000000000000000000000000000000000000000000000"],
+            gas: 5_000_000n,
+          });
+        });
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message.slice(0, 250) : String(err);
       console.log(`  Bob: createLink FAILED ${msg}`);
@@ -1033,6 +1133,35 @@ task(
       // Race-safe: extract the real linkId from the AddressBound
       // createLink tx's LinkCreated event log.
       const justCreatedAB = await extractIdFromReceipt(linkABHash, ClaimLinks, SIG.LinkCreated);
+
+      // Negative 8d: Dave tries to claim Carol's AddressBound link
+      // BEFORE Carol claims, so the revert hits "not bound address"
+      // (the spec'd guard) rather than the "already claimed" guard
+      // that fires after Carol's claim mines.
+      await waitForLinkVisible(ClaimLinks as `0x${string}`, justCreatedAB);
+      console.log("[Negative 8d] AddressBound claim by non-bound address — should revert");
+      await expectRevert("Dave claims Carol's link", "neg_addr_bound_wrong_caller", "Dave", async () => {
+        await publicClient.simulateContract({
+          account: privateKeyToAccount(personas[3]!.privKey),
+          address: ClaimLinks as `0x${string}`,
+          abi: [
+            {
+              name: "claimAddressBound",
+              type: "function",
+              stateMutability: "nonpayable",
+              inputs: [
+                { name: "linkId", type: "uint256" },
+                { name: "secret", type: "bytes32" },
+              ],
+              outputs: [],
+            },
+          ],
+          functionName: "claimAddressBound",
+          // Even with the correct secret, Dave is not bound (Carol is).
+          args: [justCreatedAB, ABsecretHex],
+          gas: 5_000_000n,
+        });
+      });
 
       const carolWallet = createWalletClient({
         account: privateKeyToAccount(personas[2]!.privKey),
@@ -1191,44 +1320,10 @@ task(
   }
   console.log("");
 
-  // ─── 8d. NEGATIVE: AddressBound claim by WRONG address rejected
-  console.log("[Negative 8d] AddressBound claim by non-bound address — should revert");
-  if (!ClaimLinks) {
-    results.push({ feature: "neg_addr_bound_wrong_caller", persona: "Dave", status: "skip", error: "ClaimLinks not deployed" });
-  } else {
-    // Dave tries to claim Carol's AddressBound link. Should revert
-    // "ClaimLinks: not bound address" even with the secret.
-    await expectRevert("Dave claims Carol's link", "neg_addr_bound_wrong_caller", "Dave", async () => {
-      // Use nextLinkId-1 which is the just-created AddressBound link
-      const nextLinkId3 = (await publicClient.readContract({
-        address: ClaimLinks as `0x${string}`,
-        abi: [{ name: "nextLinkId", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] }],
-        functionName: "nextLinkId",
-      })) as bigint;
-      const targetId = nextLinkId3 > 0n ? nextLinkId3 - 1n : 0n;
-      await publicClient.simulateContract({
-        account: privateKeyToAccount(personas[3]!.privKey),
-        address: ClaimLinks as `0x${string}`,
-        abi: [
-          {
-            name: "claimAddressBound",
-            type: "function",
-            stateMutability: "nonpayable",
-            inputs: [
-              { name: "linkId", type: "uint256" },
-              { name: "secret", type: "bytes32" },
-            ],
-            outputs: [],
-          },
-        ],
-        functionName: "claimAddressBound",
-        // Even with arbitrary secret, Dave is not the bound address (Carol is).
-        args: [targetId, "0x1111111111111111111111111111111111111111111111111111111111111111"],
-        gas: 5_000_000n,
-      });
-    });
-  }
-  console.log("");
+  // Negative 8d now fires earlier inside the AddressBound flow (see
+  // above), so the revert reason is the spec'd "not bound address"
+  // guard rather than the "already claimed" guard that fires after
+  // Carol's claim mines.
 
   // ─── 8b. Claim link — Dave claims Bob's bearer link ────────────
   console.log("[Feature 8b] Dave claims Bob's bearer link");
@@ -2003,43 +2098,9 @@ task(
   }
   console.log("");
 
-  // ─── 16. NEGATIVE: claim with WRONG secret rejected ────────────
-  // Bob created a claim link earlier with a particular secret. Dave
-  // tries to claim it with a different (wrong) secret — should revert.
-  console.log("[Negative 16] claimLink with WRONG secret — should revert");
-  if (!ClaimLinks) {
-    results.push({ feature: "neg_wrong_secret_claim", persona: "Dave", status: "skip", error: "ClaimLinks not deployed" });
-  } else {
-    // We don't have the linkId/secret from the create step in a cross-step
-    // way, but we can probe by trying claim with an obviously-wrong
-    // (zero) secret on linkId 0. The contract should reject either
-    // "no such link" or "bad secret" — either revert reason is correct.
-    await expectRevert("wrong-secret claim", "neg_wrong_secret_claim", "Dave", async () => {
-      // Use the just-created bearer link if available, else try id 0.
-      // Wrong secret = all zeros (will not hash to the stored secretHash).
-      const targetId = bearerLinkId ?? 0n;
-      await publicClient.simulateContract({
-        account: privateKeyToAccount(personas[3]!.privKey),
-        address: ClaimLinks as `0x${string}`,
-        abi: [
-          {
-            name: "claimBearer",
-            type: "function",
-            stateMutability: "nonpayable",
-            inputs: [
-              { name: "linkId", type: "uint256" },
-              { name: "secret", type: "bytes32" },
-            ],
-            outputs: [],
-          },
-        ],
-        functionName: "claimBearer",
-        args: [targetId, "0x0000000000000000000000000000000000000000000000000000000000000000"],
-        gas: 5_000_000n,
-      });
-    });
-  }
-  console.log("");
+  // Negative 16 now fires earlier (right after Bob's bearer createLink,
+  // before Dave's legitimate claim) so the revert reason is the
+  // hash-mismatch guard rather than "already claimed".
 
   // ─── 16a. StealthPayments — Carol sends a stealth payment ──────
   console.log("[Feature 16a] StealthPayments — Carol sends 0.3 USDC stealthly to Dave");
@@ -2166,33 +2227,10 @@ task(
   }
   console.log("");
 
-  // ─── 17. NEGATIVE: unauthorized escrow release rejected ───────
-  // Dave (not the escrow depositor, not the arbiter) tries to call
-  // approveRelease on escrow id 0. Must revert.
-  console.log("[Negative 17] approveRelease from non-depositor — should revert");
-  if (!EncryptedEscrow) {
-    results.push({ feature: "neg_unauth_release", persona: "Dave", status: "skip", error: "EncryptedEscrow not deployed" });
-  } else {
-    await expectRevert("Dave unauth-release", "neg_unauth_release", "Dave", async () => {
-      await publicClient.simulateContract({
-        account: privateKeyToAccount(personas[3]!.privKey),
-        address: EncryptedEscrow as `0x${string}`,
-        abi: [
-          {
-            name: "approveRelease",
-            type: "function",
-            stateMutability: "nonpayable",
-            inputs: [{ name: "escrowId", type: "uint256" }],
-            outputs: [],
-          },
-        ],
-        functionName: "approveRelease",
-        args: [0n],
-        gas: 2_000_000n,
-      });
-    });
-  }
-  console.log("");
+  // Negative 17 now fires earlier (inside the escrow 2nd-leg flow,
+  // between Bob's markDelivered and Alice's approveRelease) so the
+  // revert reason is the spec'd "not depositor" guard rather than
+  // the "not active" guard that fires after Alice releases.
 
   // ─── 18. NEGATIVE: self-tip on CreatorHub rejected ─────────────
   // Bob tries to tip himself. CreatorHub has an explicit

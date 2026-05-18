@@ -112,6 +112,17 @@ describe("claim-links", () => {
     it("email digest normalizes case + trim", () => {
       expect(emailDigest("  ALICE@Example.Com  ")).toEqual(emailDigest("alice@example.com"));
     });
+
+    it("email digest normalizes Unicode (NFC) so NFC and NFD glyphs hash equally", () => {
+      // 'é' in NFC is one code point (U+00E9). The same glyph in NFD
+      // is 'e' + combining acute (U+0065 U+0301). Visually identical,
+      // bytewise different — and would silently mismatch on-chain
+      // claim if either side used the unnormalized form.
+      const nfc = "josé@example.com";          // 1 code point for é
+      const nfd = "josé@example.com";    // 2 code points
+      expect(nfc).not.toEqual(nfd);
+      expect(emailDigest(nfc)).toEqual(emailDigest(nfd));
+    });
   });
 
   // §15.x extension: MODE constants must match the on-chain enum

@@ -45,5 +45,8 @@ import "./fund-mm-test-wallet";
 import "./shield-mm-test-wallet";
 import "./deploy-upgrade-blankaccount-gas-wallet";
 import "./deploy-upgrade-wave4-security";
+import "./deploy-upgrade-storefront-winner-refund";
+import "./deploy-upgrade-privacy-router-handle-getter";
+import "./deploy-upgrade-vault-unshield-uint64";
 import "./multi-wallet-feature-sweep";
 import "./verify-sweep-state";

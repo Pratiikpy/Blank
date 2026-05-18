@@ -95,6 +95,15 @@ async function encryptRecord(
   passphrase: string,
   record: StealthKeyRecord,
 ): Promise<EncryptedEnvelope> {
+  // Mirror the burner-registry floor: a 12-char minimum protects the
+  // AES-GCM/PBKDF2 envelope against realistic human-chosen passphrases
+  // (12-20 bits entropy in practice). Stealth keys live in localStorage
+  // — browser-compromise + weak passphrase compounds. Decrypt path
+  // intentionally has no length check so legacy 6-char envelopes still
+  // unlock; only new saves must meet the higher bar.
+  if (!passphrase || passphrase.length < 12) {
+    throw new Error("Stealth keystore: passphrase must be at least 12 characters");
+  }
   const salt = crypto.getRandomValues(new Uint8Array(SALT_BYTES));
   const iv = crypto.getRandomValues(new Uint8Array(IV_BYTES));
   const key = await deriveKey(passphrase, salt);
@@ -203,6 +212,13 @@ export async function saveStealthKeysAsync(
   passphrase: string,
 ): Promise<boolean> {
   if (!mainAddress) return false;
+  // Mirror burner-registry: 12-char floor at the public-fn entry so the
+  // weak-passphrase rejection fires BEFORE any other validation. Decrypt
+  // path intentionally has no length check so legacy 6-char envelopes
+  // still unlock; only new saves must meet the higher bar.
+  if (!passphrase || passphrase.length < 12) {
+    throw new Error("Stealth keystore: passphrase must be at least 12 characters");
+  }
   const derived = metaAddressFromPrivKeys({
     spendingPrivateKey: record.spendingPrivateKey,
     viewingPrivateKey: record.viewingPrivateKey,

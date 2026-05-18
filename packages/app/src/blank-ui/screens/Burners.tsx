@@ -137,8 +137,8 @@ export default function Burners() {
       return;
     }
     if (!account) return;
-    if (backupPassphrase.length < 6) {
-      toast.error("Passphrase must be at least 6 characters");
+    if (backupPassphrase.length < 12) {
+      toast.error("Passphrase must be at least 12 characters");
       return;
     }
     setBackupBusy(true);
@@ -183,8 +183,8 @@ export default function Burners() {
       return;
     }
     if (!account || !publicClient) return;
-    if (backupPassphrase.length < 6) {
-      toast.error("Passphrase must be at least 6 characters");
+    if (backupPassphrase.length < 12) {
+      toast.error("Passphrase must be at least 12 characters");
       return;
     }
     setBackupBusy(true);
@@ -650,7 +650,7 @@ export default function Burners() {
                   void (backupModal.kind === "backup" ? onBackup() : onRecover());
                 }
               }}
-              placeholder="Passphrase (min 6 chars)"
+              placeholder="Passphrase (min 12 chars)"
               data-testid="burner-backup-passphrase"
               aria-label="Backup passphrase"
               className="h-12 w-full px-4 rounded-xl bg-white/60 dark:bg-white/5 border border-black/10 dark:border-white/15 focus:border-violet-400 focus:ring-4 focus:ring-violet-500/10 outline-none transition-all placeholder:text-[var(--text-tertiary)] mb-2"

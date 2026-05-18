@@ -1,7 +1,7 @@
 {
   "storage": [
     {
-      "astId": 50841,
+      "astId": 51014,
       "contract": "contracts/EventHub.sol:EventHub",
       "label": "whitelisted",
       "offset": 0,
@@ -9,7 +9,7 @@
       "type": "t_mapping(t_address,t_bool)"
     },
     {
-      "astId": 50961,
+      "astId": 51134,
       "contract": "contracts/EventHub.sol:EventHub",
       "label": "__gap",
       "offset": 0,

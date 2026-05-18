@@ -30,10 +30,18 @@ const useParamsMock = vi.hoisted(() => vi.fn());
 const usePublicClientMock = vi.hoisted(() => vi.fn());
 const useCrowdfundMock = vi.hoisted(() => vi.fn());
 const toastErrorMock = vi.hoisted(() => vi.fn());
+// vi.mock factories are hoisted to the top of the file. Referenced
+// variables must therefore also be hoisted via vi.hoisted, otherwise
+// they're in the TDZ when the factory runs at module load. Previously
+// declared as plain `vi.fn()` which silently worked only because nothing
+// imported the module before the test body — broke when vitest config
+// changed in 2026-Q2.
+const useEffectiveAddressMock = vi.hoisted(() => vi.fn());
 
 vi.mock("react-router-dom", () => ({ useParams: useParamsMock }));
 vi.mock("wagmi", () => ({ usePublicClient: usePublicClientMock }));
 vi.mock("@/hooks/useCrowdfund", () => ({ useCrowdfund: useCrowdfundMock }));
+vi.mock("@/hooks/useEffectiveAddress", () => ({ useEffectiveAddress: useEffectiveAddressMock }));
 vi.mock("@/lib/constants", () => ({
   CONTRACTS_BY_CHAIN: {
     11155111: { EncryptedCrowdfund: "0xcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcf" },
@@ -117,10 +125,18 @@ function setHook(overrides: Partial<{
   });
 }
 
-function makeReadContract(campaign: readonly unknown[], contributionCount = 0) {
-  return vi.fn().mockImplementation(async (args: { functionName: string }) => {
+function makeReadContract(
+  campaign: readonly unknown[],
+  contributionCount = 0,
+  contribs: ReadonlyArray<readonly [`0x${string}`, boolean]> = [],
+) {
+  return vi.fn().mockImplementation(async (args: { functionName: string; args?: readonly unknown[] }) => {
     if (args.functionName === "getCampaign") return campaign;
     if (args.functionName === "getContributionCount") return BigInt(contributionCount);
+    if (args.functionName === "getContribution") {
+      const i = Number((args.args ?? [])[1] ?? 0);
+      return contribs[i] ?? (["0x0000000000000000000000000000000000000000", false] as const);
+    }
     return null;
   });
 }
@@ -129,9 +145,12 @@ beforeEach(() => {
   useParamsMock.mockReset();
   usePublicClientMock.mockReset();
   useCrowdfundMock.mockReset();
+  useEffectiveAddressMock.mockReset();
   toastErrorMock.mockReset();
 
   useParamsMock.mockReturnValue({ chainId: "11155111", campaignId: "7" });
+  // Default: no connected viewer. Refund-flow tests override per case.
+  useEffectiveAddressMock.mockReturnValue({ effectiveAddress: undefined });
 
   readContractMock = makeReadContract(buildCampaign(), 3);
   usePublicClientMock.mockReturnValue({ readContract: readContractMock });
@@ -307,14 +326,14 @@ describe("CrowdfundPage — 5-state phase machine (§15.x)", () => {
     expect(await findByText("Creator: claim release")).toBeDefined();
   });
 
-  it("STATUS_REFUNDING -> 'refunding' phase shows 'Refund my contribution' CTA", async () => {
+  it("STATUS_REFUNDING -> 'refunding' phase shows 'Goal not met' banner", async () => {
     readContractMock = makeReadContract(
       buildCampaign({ status: STATUS_REFUNDING, resultPublished: true, goalMet: false }),
     );
     usePublicClientMock.mockReturnValue({ readContract: readContractMock });
     const { findByText, container } = render(<CrowdfundPage />);
-    await findByText("Refund my contribution");
-    expect(container.textContent).toContain("Goal not met. Each contributor can pull their amount back");
+    await findByText(/Goal not met. Each contributor can pull their amount back/);
+    expect(container.textContent).toContain("Goal not met");
   });
 
   it("resultPublished+!goalMet (status still CLOSED) -> 'refunding' branch", async () => {
@@ -323,7 +342,7 @@ describe("CrowdfundPage — 5-state phase machine (§15.x)", () => {
     );
     usePublicClientMock.mockReturnValue({ readContract: readContractMock });
     const { findByText } = render(<CrowdfundPage />);
-    expect(await findByText("Refund my contribution")).toBeDefined();
+    expect(await findByText(/Goal not met/)).toBeDefined();
   });
 });
 
@@ -425,94 +444,69 @@ describe("CrowdfundPage — close + claimRelease (§15.x)", () => {
   });
 });
 
-describe("CrowdfundPage — refund flow (prompt validation) (§15.x)", () => {
+describe("CrowdfundPage — refund via on-chain contribution list (§15.x, replaces prompt validation)", () => {
+  const VIEWER = "0xdddddddddddddddddddddddddddddddddddddddd" as `0x${string}`;
+  const OTHER  = "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" as `0x${string}`;
+
   beforeEach(() => {
+    useEffectiveAddressMock.mockReturnValue({ effectiveAddress: VIEWER });
+  });
+
+  it("no connected wallet -> 'Connect your wallet to see your contributions' fallback", async () => {
+    useEffectiveAddressMock.mockReturnValue({ effectiveAddress: undefined });
     readContractMock = makeReadContract(
       buildCampaign({ status: STATUS_REFUNDING, resultPublished: true, goalMet: false }),
+      3,
+      [[OTHER, false], [OTHER, false], [OTHER, false]],
     );
     usePublicClientMock.mockReturnValue({ readContract: readContractMock });
-  });
-
-  it("user cancels prompt (null) -> claimRefund NOT called (no toast, no action)", async () => {
-    vi.spyOn(window, "prompt").mockReturnValue(null);
     const { findByText } = render(<CrowdfundPage />);
-    fireEvent.click(await findByText("Refund my contribution"));
-    expect(claimRefundMock).not.toHaveBeenCalled();
-    expect(toastErrorMock).not.toHaveBeenCalled();
-  });
-
-  it("empty trimmed input -> 'Contribution index required' toast", async () => {
-    vi.spyOn(window, "prompt").mockReturnValue("   ");
-    const { findByText } = render(<CrowdfundPage />);
-    fireEvent.click(await findByText("Refund my contribution"));
-    expect(toastErrorMock).toHaveBeenCalledWith("Contribution index required");
+    await findByText(/Connect your wallet to see your contributions/);
     expect(claimRefundMock).not.toHaveBeenCalled();
   });
 
-  it("non-numeric input -> 'must be a non-negative integer' toast", async () => {
-    vi.spyOn(window, "prompt").mockReturnValue("abc");
-    const { findByText } = render(<CrowdfundPage />);
-    fireEvent.click(await findByText("Refund my contribution"));
-    expect(toastErrorMock).toHaveBeenCalled();
-    expect((toastErrorMock.mock.calls[0][0] as string)).toContain("non-negative integer");
+  it("viewer has no contributions -> 'You didn't contribute to this campaign.'", async () => {
+    readContractMock = makeReadContract(
+      buildCampaign({ status: STATUS_REFUNDING, resultPublished: true, goalMet: false }),
+      3,
+      [[OTHER, false], [OTHER, false], [OTHER, false]],
+    );
+    usePublicClientMock.mockReturnValue({ readContract: readContractMock });
+    const { findByText, queryByTestId } = render(<CrowdfundPage />);
+    await findByText(/didn't contribute to this campaign/);
+    expect(queryByTestId("my-contribs-list")).toBeNull();
     expect(claimRefundMock).not.toHaveBeenCalled();
   });
 
-  it("negative integer -> 'non-negative integer' toast (NOT silent)", async () => {
-    vi.spyOn(window, "prompt").mockReturnValue("-1");
-    const { findByText } = render(<CrowdfundPage />);
-    fireEvent.click(await findByText("Refund my contribution"));
-    expect(toastErrorMock).toHaveBeenCalled();
-    expect(claimRefundMock).not.toHaveBeenCalled();
-  });
-
-  it("CRITICAL: fractional input '1.5' rejected (String(idx) !== trimmed guard)", async () => {
-    vi.spyOn(window, "prompt").mockReturnValue("1.5");
-    const { findByText } = render(<CrowdfundPage />);
-    fireEvent.click(await findByText("Refund my contribution"));
-    expect(toastErrorMock).toHaveBeenCalled();
-    expect(claimRefundMock).not.toHaveBeenCalled();
-  });
-
-  it("CRITICAL: leading-zero input '007' rejected (String(idx)=='7' != '007')", async () => {
-    vi.spyOn(window, "prompt").mockReturnValue("007");
-    const { findByText } = render(<CrowdfundPage />);
-    fireEvent.click(await findByText("Refund my contribution"));
-    expect(toastErrorMock).toHaveBeenCalled();
-    expect(claimRefundMock).not.toHaveBeenCalled();
-  });
-
-  it("valid integer '0' -> claimRefund(campaignId, 0) called", async () => {
-    vi.spyOn(window, "prompt").mockReturnValue("0");
-    const { findByText } = render(<CrowdfundPage />);
-    const btn = await findByText("Refund my contribution");
+  it("viewer has a single contribution -> 'Contribution #N' row + click calls claimRefund", async () => {
+    readContractMock = makeReadContract(
+      buildCampaign({ status: STATUS_REFUNDING, resultPublished: true, goalMet: false }),
+      3,
+      [[OTHER, false], [VIEWER, false], [OTHER, false]],
+    );
+    usePublicClientMock.mockReturnValue({ readContract: readContractMock });
+    const { findByText, findByTestId } = render(<CrowdfundPage />);
+    await findByTestId("my-contribs-list");
+    const row = await findByText("Contribution #1");
     await act(async () => {
-      fireEvent.click(btn);
+      fireEvent.click(row);
       await Promise.resolve();
     });
-    expect(claimRefundMock).toHaveBeenCalledWith(7, 0);
+    expect(claimRefundMock).toHaveBeenCalledWith(7, 1);
   });
 
-  it("valid integer '5' -> claimRefund(campaignId, 5) called", async () => {
-    vi.spyOn(window, "prompt").mockReturnValue("5");
-    const { findByText } = render(<CrowdfundPage />);
-    const btn = await findByText("Refund my contribution");
-    await act(async () => {
-      fireEvent.click(btn);
-      await Promise.resolve();
-    });
-    expect(claimRefundMock).toHaveBeenCalledWith(7, 5);
-  });
-
-  it("whitespace-padded valid integer ' 3 ' -> claimRefund(7, 3) (trim before parse)", async () => {
-    vi.spyOn(window, "prompt").mockReturnValue("  3  ");
-    const { findByText } = render(<CrowdfundPage />);
-    const btn = await findByText("Refund my contribution");
-    await act(async () => {
-      fireEvent.click(btn);
-      await Promise.resolve();
-    });
-    expect(claimRefundMock).toHaveBeenCalledWith(7, 3);
+  it("already-refunded contributions render as 'Refunded' and are disabled", async () => {
+    readContractMock = makeReadContract(
+      buildCampaign({ status: STATUS_REFUNDING, resultPublished: true, goalMet: false }),
+      2,
+      [[VIEWER, true], [VIEWER, false]],
+    );
+    usePublicClientMock.mockReturnValue({ readContract: readContractMock });
+    const { findByTestId, findByText } = render(<CrowdfundPage />);
+    await findByTestId("my-contribs-list");
+    const refundedRow = await findByText("Contribution #0");
+    expect((refundedRow.closest("button") as HTMLButtonElement).disabled).toBe(true);
+    await findByText("Refund");
   });
 });
 

@@ -175,8 +175,8 @@ export default function SmartWallet() {
   }, [account, unifiedWriteAndWait, publicClient, refreshBalances, contracts]);
 
   const handleCreate = async () => {
-    if (passphrase.length < 8) {
-      toast.error("Passphrase must be at least 8 characters");
+    if (passphrase.length < 12) {
+      toast.error("Passphrase must be at least 12 characters");
       return;
     }
     if (passphrase !== confirmPassphrase) {
@@ -253,7 +253,7 @@ export default function SmartWallet() {
                   type="password"
                   value={passphrase}
                   onChange={(e) => setPassphrase(e.target.value)}
-                  placeholder="At least 8 characters"
+                  placeholder="At least 12 characters"
                   disabled={creating}
                   autoComplete="new-password"
                   autoCorrect="off"

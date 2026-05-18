@@ -258,6 +258,44 @@ describe("FHERC20Vault", () => {
     const resetHandle = await ctx.vault.pendingUnshield(ctx.alice.address);
     await mock_expectPlaintext(ctx.alice.provider, resetHandle, 0n);
   });
+
+  // Pre-fix: requestUnshield overwrote _pendingUnshields on every call. A
+  // user with an outstanding pending could request again — the FIRST
+  // pending's balance was already deducted but its claim slot was lost.
+  // Net: user-side fund loss. Fix: the FHE.eq(pending, ZERO) gate makes
+  // the second request a no-op, preserving the first pending intact.
+  it("CRITICAL: second requestUnshield is no-op when first is unclaimed (anti-overwrite)", async () => {
+    const ctx = await loadFixture(deployBlankFixture);
+    await shield(ctx, ctx.alice, usdc(100));
+
+    // First request — pending should be 30, balance reduced to 70.
+    const enc1 = await encUint64(ctx, ctx.alice, usdc(30));
+    await ctx.vault.connect(ctx.alice).requestUnshield(enc1);
+    const pending1 = await ctx.vault.pendingUnshield(ctx.alice.address);
+    await mock_expectPlaintext(ctx.alice.provider, pending1, usdc(30));
+
+    // Second request BEFORE claiming — must be no-op.
+    // Pre-fix: balance would drop to 50, pending overwritten to 20 — the
+    // original 30 stuck in vault accounting with no path to claim.
+    const enc2 = await encUint64(ctx, ctx.alice, usdc(20));
+    await ctx.vault.connect(ctx.alice).requestUnshield(enc2);
+    const pendingStillSame = await ctx.vault.pendingUnshield(ctx.alice.address);
+    await mock_expectPlaintext(ctx.alice.provider, pendingStillSame, usdc(30)); // unchanged
+    // Balance should also stay at 70 (second request didn't deduct).
+    const balAfter = await ctx.vault.balanceOf(ctx.alice.address);
+    await mock_expectPlaintext(ctx.alice.provider, balAfter, usdc(70));
+
+    // First claim drains the 30 cleanly. User can then make a fresh request.
+    await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.alice);
+    const proof = await ctx.client.decryptForTx(pendingStillSame, FheTypes.Uint64).withoutPermit().execute();
+    await ctx.vault.connect(ctx.alice).claimUnshield(proof.decryptedValue, proof.signature);
+
+    // Now a NEW request works (pending was reset to encrypted zero).
+    const enc3 = await encUint64(ctx, ctx.alice, usdc(20));
+    await ctx.vault.connect(ctx.alice).requestUnshield(enc3);
+    const pending3 = await ctx.vault.pendingUnshield(ctx.alice.address);
+    await mock_expectPlaintext(ctx.alice.provider, pending3, usdc(20));
+  });
 });
 
 // ══════════════════════════════════════════════════════════════════
@@ -1375,6 +1413,22 @@ describe("GroupManager", () => {
         .settleDebt(0, ctx.charlie.address, await ctx.vault.getAddress(), encSettle2),
     ).to.not.be.reverted;
   });
+
+  // Pre-fix: leaveGroup checked `members.length > 1` instead of "another
+  // admin exists". A solo admin in a multi-member group could leave →
+  // group bricked (no one can add members or promote admins).
+  it("solo admin cannot leave a multi-member group (bricked-group DoS)", async () => {
+    const ctx = await loadFixture(deployBlankFixture);
+    await ctx.groupManager.connect(ctx.alice).createGroup("Solo-admin", [ctx.bob.address]);
+    // Alice is the only admin; Bob is a non-admin member. Leaving would
+    // brick the group — must revert.
+    await expect(
+      ctx.groupManager.connect(ctx.alice).leaveGroup(0),
+    ).to.be.revertedWith("GroupManager: last admin cannot leave");
+    // After promoting Bob to admin, Alice CAN leave (an admin remains).
+    await ctx.groupManager.connect(ctx.alice).addAdmin(0, ctx.bob.address);
+    await expect(ctx.groupManager.connect(ctx.alice).leaveGroup(0)).to.not.be.reverted;
+  });
 });
 
 // ══════════════════════════════════════════════════════════════════
@@ -1500,6 +1554,24 @@ describe("InheritanceManager finalizeClaim mutex (#185)", () => {
 
     // Heir2's claim succeeds; the mutex flips again for the new plan.
     expect(await ctx.inheritanceManager.claimFinalized(principal.address)).to.equal(true);
+  });
+
+  // setVaults must reject address(0) — a bad entry would otherwise force
+  // finalizeClaim into the try/catch path needlessly, wasting heir gas
+  // on a guaranteed-skip vault. Cheap rejection at set time + still safe
+  // via the runtime try/catch defense.
+  it("setVaults rejects address(0) in the vaults array", async () => {
+    const ctx = await deployInheritanceFixture();
+    const principal = ctx.alice;
+    const heir = ctx.bob;
+    const MIN_INACTIVITY = 30 * 24 * 3600;
+    await ctx.inheritanceManager.connect(principal).setHeir(heir.address, MIN_INACTIVITY);
+    await expect(
+      ctx.inheritanceManager.connect(principal).setVaults([
+        await ctx.vault.getAddress(),
+        "0x0000000000000000000000000000000000000000",
+      ]),
+    ).to.be.revertedWith("InheritanceManager: zero vault in list");
   });
 });
 

@@ -189,7 +189,7 @@ test.describe("Phase 2 #2 — Send encrypted payment (Base Sepolia)", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/");
     await page.evaluate((chainId) => {
-      localStorage.setItem("blank_active_chain_id", String(chainId));
+      localStorage.setItem("blank:active_chain_id", String(chainId));
     }, setup.chainId);
   });
 

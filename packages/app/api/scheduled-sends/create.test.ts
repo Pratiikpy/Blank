@@ -14,6 +14,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 const checkRateLimitMock = vi.hoisted(() => vi.fn());
 const writeRateLimitHeadersMock = vi.hoisted(() => vi.fn());
 const storeSessionKeyMock = vi.hoisted(() => vi.fn());
+const verifyOwnerSignatureMock = vi.hoisted(() => vi.fn());
+const strictScheduledSendsAuthEnabledMock = vi.hoisted(() => vi.fn());
+const checkTimestampWindowMock = vi.hoisted(() => vi.fn());
+const buildScheduledSendCreateMessageMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../_lib/rate-limit.js", () => ({
   checkRateLimit: checkRateLimitMock,
@@ -22,6 +26,13 @@ vi.mock("../_lib/rate-limit.js", () => ({
 
 vi.mock("../_lib/session-keys-store.js", () => ({
   storeSessionKey: storeSessionKeyMock,
+}));
+
+vi.mock("../_lib/sig-auth.js", () => ({
+  verifyOwnerSignature: verifyOwnerSignatureMock,
+  strictScheduledSendsAuthEnabled: strictScheduledSendsAuthEnabledMock,
+  checkTimestampWindow: checkTimestampWindowMock,
+  buildScheduledSendCreateMessage: buildScheduledSendCreateMessageMock,
 }));
 
 // ethers.Wallet.createRandom hits jsdom's incompatible crypto polyfill
@@ -89,10 +100,22 @@ beforeEach(() => {
   checkRateLimitMock.mockReset();
   writeRateLimitHeadersMock.mockReset();
   storeSessionKeyMock.mockReset();
+  verifyOwnerSignatureMock.mockReset();
+  strictScheduledSendsAuthEnabledMock.mockReset();
+  checkTimestampWindowMock.mockReset();
+  buildScheduledSendCreateMessageMock.mockReset();
   checkRateLimitMock.mockResolvedValue({ ok: true, remaining: 9, resetSeconds: 3600 });
   storeSessionKeyMock.mockResolvedValue(undefined);
-  // Silence the success-path log line during tests.
+  // Default mode for legacy-shape tests: LAX (unsigned requests proceed).
+  // The new strict-mode tests override per-test.
+  strictScheduledSendsAuthEnabledMock.mockReturnValue(false);
+  // Default-good signature verification when sig fields are present.
+  verifyOwnerSignatureMock.mockResolvedValue({ ok: true });
+  checkTimestampWindowMock.mockReturnValue(null);
+  buildScheduledSendCreateMessageMock.mockReturnValue("test-message");
+  // Silence the success-path log line + the unsigned-request warning during tests.
   vi.spyOn(console, "log").mockImplementation(() => {});
+  vi.spyOn(console, "warn").mockImplementation(() => {});
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
@@ -261,6 +284,110 @@ describe("/api/scheduled-sends/create — happy path + CSPRNG randomness (§15.x
     expect(storedArg.sessionKey).toMatch(/^0x[a-fA-F0-9]{40}$/);
     // privateKeyHex MUST be present (it's what the cron uses to sign).
     expect(storedArg.privateKeyHex).toMatch(/^0x[a-fA-F0-9]{64}$/);
+  });
+});
+
+// ─── #350 wallet-signed auth (anti-pollution gate) ──────────────────
+//
+// Pre-fix the endpoint generated + stored a server-side keypair on ANY
+// POST with a syntactically valid body. An attacker who knew (or
+// guessed) a victim's AA address could spam keypair generation tied to
+// that account, exhausting KMS slots and polluting the row store. The
+// fix attaches a wallet signature requirement: the caller must prove
+// they control `body.account` before the server creates the key. Strict
+// mode (default-on) rejects unsigned requests; lax mode (legacy /
+// local dev) accepts them with a warn log.
+
+const SIGNED_BODY = {
+  ...VALID_BODY,
+  signature: "0xabcd" as const,
+  signerAddress: VALID_BODY.account,
+  signedAt: Math.floor(Date.now() / 1000),
+  signerChainId: VALID_BODY.chainId,
+};
+
+describe("/api/scheduled-sends/create — #350 strict-mode auth gate", () => {
+  it("strict mode rejects unsigned requests with 401", async () => {
+    strictScheduledSendsAuthEnabledMock.mockReturnValue(true);
+    const res = makeRes();
+    await handler(makeReq({ body: VALID_BODY }), res);
+    expect(res.captured.status).toBe(401);
+    expect((res.captured.body?.error as string)).toContain("signature required");
+    // The keystore must NOT be touched on rejection.
+    expect(storeSessionKeyMock).not.toHaveBeenCalled();
+  });
+
+  it("strict mode accepts a valid signed request (200)", async () => {
+    strictScheduledSendsAuthEnabledMock.mockReturnValue(true);
+    const res = makeRes();
+    await handler(makeReq({ body: SIGNED_BODY }), res);
+    expect(res.captured.status).toBe(200);
+    expect(verifyOwnerSignatureMock).toHaveBeenCalledOnce();
+  });
+
+  it("lax mode (default) still accepts unsigned requests — keeps legacy callers working", async () => {
+    strictScheduledSendsAuthEnabledMock.mockReturnValue(false);
+    const res = makeRes();
+    await handler(makeReq({ body: VALID_BODY }), res);
+    expect(res.captured.status).toBe(200);
+    // verifyOwnerSignature MUST NOT be called when no sig fields present.
+    expect(verifyOwnerSignatureMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("/api/scheduled-sends/create — #350 signature verification", () => {
+  it("rejects signedAt outside the timestamp window (401)", async () => {
+    checkTimestampWindowMock.mockReturnValue("signedAt is too old (max 90s)");
+    const res = makeRes();
+    await handler(makeReq({ body: SIGNED_BODY }), res);
+    expect(res.captured.status).toBe(401);
+    expect((res.captured.body?.error as string)).toContain("too old");
+    expect(storeSessionKeyMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects when signerAddress doesn't match account (403, anti-impersonation)", async () => {
+    // Attacker signed for their own address but POSTed the victim's
+    // account in the body — must reject before doing crypto.
+    const res = makeRes();
+    await handler(
+      makeReq({
+        body: { ...SIGNED_BODY, signerAddress: "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef" },
+      }),
+      res,
+    );
+    expect(res.captured.status).toBe(403);
+    expect((res.captured.body?.error as string)).toContain("signer does not match account");
+    expect(verifyOwnerSignatureMock).not.toHaveBeenCalled();
+    expect(storeSessionKeyMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects when verifyOwnerSignature returns ok:false (401, sig mismatch)", async () => {
+    verifyOwnerSignatureMock.mockResolvedValue({ ok: false, reason: "ecdsa-mismatch" });
+    const res = makeRes();
+    await handler(makeReq({ body: SIGNED_BODY }), res);
+    expect(res.captured.status).toBe(401);
+    expect((res.captured.body?.error as string)).toContain("ecdsa-mismatch");
+    expect(storeSessionKeyMock).not.toHaveBeenCalled();
+  });
+
+  it("returns 500 if the sig-auth module throws unexpectedly (verifier broken)", async () => {
+    verifyOwnerSignatureMock.mockRejectedValue(new Error("rpc unreachable"));
+    const res = makeRes();
+    await handler(makeReq({ body: SIGNED_BODY }), res);
+    expect(res.captured.status).toBe(500);
+    expect(storeSessionKeyMock).not.toHaveBeenCalled();
+  });
+
+  it("binds account + recipient + spendToken into the signed message (replay protection)", async () => {
+    const res = makeRes();
+    await handler(makeReq({ body: SIGNED_BODY }), res);
+    expect(buildScheduledSendCreateMessageMock).toHaveBeenCalledOnce();
+    const args = buildScheduledSendCreateMessageMock.mock.calls[0][0];
+    expect(args.account).toBe(SIGNED_BODY.account);
+    expect(args.recipient).toBe(SIGNED_BODY.recipient);
+    expect(args.spendToken).toBe(SIGNED_BODY.spendToken);
+    expect(args.chainId).toBe(SIGNED_BODY.chainId);
+    expect(args.signedAt).toBe(SIGNED_BODY.signedAt);
   });
 });
 

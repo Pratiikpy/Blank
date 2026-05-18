@@ -29,7 +29,7 @@ function Hero() {
       <DecodeWord />
       <p className="ll-subline">
         Encrypted invoices. Trustless escrow with automatic refund-on-mismatch.
-        Shareable proof-of-payment links. Powered by Fhenix CoFHE — amounts
+        Shareable proof-of-payment links. Powered by Fhenix CoFHE. Amounts
         stay private end-to-end.
       </p>
       <div className="ll-hero-ctas">
@@ -77,7 +77,7 @@ function ProofOfProduct() {
       </h2>
       <p className="ll-section-lead">
         Two testnets live today. Twelve features shipped. Every flow tested
-        end-to-end through the real UI — no demo videos, no waitlist.
+        end-to-end through the real UI. No demo videos, no waitlist.
       </p>
       <div className="ll-stats-grid">
         {stats.map((s) => (

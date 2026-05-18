@@ -88,7 +88,7 @@ async function setupAccount(browser: any, acc: typeof ACCOUNTS.A): Promise<{ ctx
   attachConsole(page, acc.label);
 
   await page.goto(BASE + "/");
-  await page.evaluate((c: number) => localStorage.setItem("blank_active_chain_id", String(c)), CHAIN_ID);
+  await page.evaluate((c: number) => localStorage.setItem("blank:active_chain_id", String(c)), CHAIN_ID);
   await page.goto(BASE + "/app");
   await page.evaluate(
     async ([c, pk, pass, label]: [number, string, string, string]) => {

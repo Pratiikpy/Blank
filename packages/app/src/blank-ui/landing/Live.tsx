@@ -109,7 +109,7 @@ export default function Live() {
           </h1>
           <p className="ll-section-lead">
             Every payment on Blank is recorded here the moment it's
-            confirmed on-chain. Addresses are public — Ethereum works that
+            confirmed on-chain. Addresses are public; Ethereum works that
             way. The amounts are encrypted. You're looking at the actual
             ledger, minus the privacy violation.
           </p>
@@ -132,7 +132,7 @@ export default function Live() {
           {!isLoading && error && (
             <div className="ll-live-list">
               <div className="ll-live-empty">
-                Couldn't load activity — {error}
+                Couldn't load activity. {error}
               </div>
             </div>
           )}

@@ -102,6 +102,10 @@ export default function History() {
   const [activeFilter, setActiveFilter] = useState<FilterTab>("all");
   const [selectedTx, setSelectedTx] = useState<(typeof activities)[number] | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  // Inline nickname form in the tx detail dialog. Replaces window.prompt()
+  // which jumped focus out of the dialog + was unstyled. WAVE4_HALF_BAKED #9.
+  const [contactDraftAddr, setContactDraftAddr] = useState<string | null>(null);
+  const [contactDraftName, setContactDraftName] = useState("");
 
   const filtered = useMemo(() => {
     if (activeFilter === "all") return activities;
@@ -372,18 +376,61 @@ export default function History() {
                     <ExternalLink size={16} />
                   </a>
                 )}
-                <button
-                  onClick={() => {
-                    const otherAddress = selectedTx.user_from.toLowerCase() === address?.toLowerCase() ? selectedTx.user_to : selectedTx.user_from;
-                    const name = prompt("Nickname for this contact:");
-                    if (name) addContact(otherAddress, name);
-                  }}
-                  className="h-12 w-full rounded-2xl bg-gray-100 text-[var(--text-secondary)] font-medium text-sm hover:bg-gray-200 transition-colors flex items-center justify-center gap-2"
-                  aria-label="Add to contacts"
-                >
-                  <UserPlus size={16} />
-                  Add to Contacts
-                </button>
+                {(() => {
+                  const otherAddress = selectedTx.user_from.toLowerCase() === address?.toLowerCase() ? selectedTx.user_to : selectedTx.user_from;
+                  const isEditing = contactDraftAddr === otherAddress;
+                  const submit = () => {
+                    const trimmed = contactDraftName.trim();
+                    if (trimmed.length === 0) return;
+                    addContact(otherAddress, trimmed);
+                    setContactDraftAddr(null);
+                    setContactDraftName("");
+                  };
+                  if (!isEditing) {
+                    return (
+                      <button
+                        onClick={() => { setContactDraftAddr(otherAddress); setContactDraftName(""); }}
+                        className="h-12 w-full rounded-2xl bg-gray-100 text-[var(--text-secondary)] font-medium text-sm hover:bg-gray-200 transition-colors flex items-center justify-center gap-2"
+                        aria-label="Add to contacts"
+                      >
+                        <UserPlus size={16} />
+                        Add to Contacts
+                      </button>
+                    );
+                  }
+                  return (
+                    <div className="flex items-center gap-2" data-testid="contact-nickname-form">
+                      <input
+                        autoFocus
+                        type="text"
+                        placeholder="Nickname"
+                        value={contactDraftName}
+                        onChange={(e) => setContactDraftName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") submit();
+                          if (e.key === "Escape") { setContactDraftAddr(null); setContactDraftName(""); }
+                        }}
+                        maxLength={40}
+                        className="flex-1 h-12 px-4 rounded-2xl bg-white/70 border border-black/10 text-sm focus:outline-none focus:border-blue-400"
+                        aria-label="Nickname for this contact"
+                      />
+                      <button
+                        onClick={submit}
+                        disabled={contactDraftName.trim().length === 0}
+                        className="h-12 px-4 rounded-2xl bg-[#1D1D1F] text-white font-medium text-sm hover:bg-black transition-colors disabled:opacity-40"
+                      >
+                        Save
+                      </button>
+                      <button
+                        onClick={() => { setContactDraftAddr(null); setContactDraftName(""); }}
+                        className="h-12 px-3 rounded-2xl bg-gray-100 text-[var(--text-secondary)] text-sm hover:bg-gray-200"
+                        aria-label="Cancel"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  );
+                })()}
               </div>
             </div>
           </div>

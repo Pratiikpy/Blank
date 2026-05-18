@@ -65,4 +65,12 @@ describe("looksLikeEnsName", () => {
     expect(looksLikeEnsName("vita/lik.eth")).toBe(false);
     expect(looksLikeEnsName("vita@lik.eth")).toBe(false);
   });
+
+  it("accepts Unicode labels (emoji, international per ENSIP-15)", () => {
+    // Pre-fix, the [a-z0-9-] whitelist rejected valid Unicode ENS names.
+    // Viem's normalize handles the actual ENSIP-15 validation downstream.
+    expect(looksLikeEnsName("josé.eth")).toBe(true);
+    expect(looksLikeEnsName("🦄.eth")).toBe(true);
+    expect(looksLikeEnsName("中文.eth")).toBe(true);
+  });
 });

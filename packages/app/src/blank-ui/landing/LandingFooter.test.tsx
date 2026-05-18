@@ -61,7 +61,7 @@ describe("LandingFooter — copyright + tagline (§15.x)", () => {
   it("renders copyright with current year", () => {
     renderFooter();
     expect(
-      screen.getByText("© 2025 Blank — Private by design."),
+      screen.getByText("© 2025 Blank. Private by design."),
     ).toBeInTheDocument();
   });
 
@@ -69,13 +69,13 @@ describe("LandingFooter — copyright + tagline (§15.x)", () => {
     vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
     renderFooter();
     expect(
-      screen.getByText("© 2026 Blank — Private by design."),
+      screen.getByText("© 2026 Blank. Private by design."),
     ).toBeInTheDocument();
   });
 
-  it("tagline includes the literal '— Private by design.' phrase (with period)", () => {
+  it("tagline includes the literal 'Private by design.' phrase (with period)", () => {
     renderFooter();
-    expect(screen.getByText(/— Private by design\./)).toBeInTheDocument();
+    expect(screen.getByText(/Private by design\./)).toBeInTheDocument();
   });
 });
 

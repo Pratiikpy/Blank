@@ -72,7 +72,7 @@ test.describe("Phase 4 #5 — Creator Support tip (Base Sepolia)", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/");
     await page.evaluate((chainId) => {
-      localStorage.setItem("blank_active_chain_id", String(chainId));
+      localStorage.setItem("blank:active_chain_id", String(chainId));
     }, setup.chainId);
   });
 

@@ -128,6 +128,29 @@ async function bootstrapPersona(
     await page.reload();
     await page.locator('[data-testid="gas-wallet-address"]').waitFor({ state: "visible", timeout: 30_000 });
 
+    // Detect + dismiss the gas-wallet upgrade prompt that overlays fresh AAs
+    // on Base Sepolia (BlankAccountFactory's `accountImplementation` is
+    // immutable and points at the OLDER impl; the newer Impl_gasWallet exists
+    // but isn't auto-applied). The card hides the wallet balance card, so
+    // without this step the balance poll below never finds a match. Click
+    // dispatches a sponsored UserOp via paymaster; the upgrade settles in
+    // ~30-60s on Base Sepolia. After settle, the overlay hides on its own
+    // and the balance card renders normally. Eth Sepolia personas typically
+    // don't see this card (factory there already points at the gas-wallet
+    // impl) so the locator times out fast and we move on.
+    const upgradeCta = page.locator('[data-testid="upgrade-banner-cta"]');
+    if (await upgradeCta.isVisible({ timeout: 3_000 }).catch(() => false)) {
+      await upgradeCta.click();
+      await page
+        .locator('[data-testid="upgrade-banner"]')
+        .waitFor({ state: "hidden", timeout: 90_000 })
+        .catch(() => {
+          // Banner didn't hide in 90s — the upgrade may have settled with
+          // the banner still on screen. Continue and let the balance poll
+          // below tell us whether the wallet card is reachable now.
+        });
+    }
+
     // Wait a beat for the chain RPC to surface the new balance. The
     // mint tx is ~12s confirmation on Sepolia + a few seconds for the
     // public RPC to propagate. We poll the wallet's TestUSDC balance

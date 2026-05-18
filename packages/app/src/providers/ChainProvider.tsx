@@ -7,7 +7,7 @@ import {
   type ChainInfo,
   type ContractMap,
 } from "@/lib/constants";
-import { STORAGE_KEYS, setStoredString } from "@/lib/storage";
+import { STORAGE_KEYS, setStoredString, getStoredString } from "@/lib/storage";
 import { setSupabaseActiveChain } from "@/lib/supabase";
 
 interface ChainContextValue {
@@ -38,7 +38,16 @@ export function useChain(): ChainContextValue {
 }
 
 export function ChainProvider({ children }: { children: React.ReactNode }) {
-  const [activeChainId, setActiveChainIdState] = useState<SupportedChainId>(SUPPORTED_CHAIN_ID);
+  // Restore the user's last-selected chain from localStorage on mount.
+  // Without this, the cross-tab storage handler below only catches CHANGES
+  // from other tabs — first mount defaults to SUPPORTED_CHAIN_ID, so a
+  // user who switched Eth → Base and refreshed lands back on Eth.
+  const [activeChainId, setActiveChainIdState] = useState<SupportedChainId>(() => {
+    if (typeof window === "undefined") return SUPPORTED_CHAIN_ID;
+    const stored = getStoredString(STORAGE_KEYS.activeChainId());
+    const parsed = stored !== null ? Number(stored) : NaN;
+    return parsed in CHAINS ? (parsed as SupportedChainId) : SUPPORTED_CHAIN_ID;
+  });
 
   const setActiveChain = useCallback((id: SupportedChainId) => {
     if (!(id in CHAINS)) return;

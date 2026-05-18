@@ -107,10 +107,21 @@ function buildListing(over: Partial<{
   ];
 }
 
-function makeReadContract(listing: readonly unknown[], bidCount = 0) {
-  return vi.fn().mockImplementation(async (args: { functionName: string }) => {
+function makeReadContract(
+  listing: readonly unknown[],
+  bidCount = 0,
+  // Per-index bid (bidder, refunded) for the "Your bids" list loader.
+  // Defaults to all-zero-addr / not-refunded; tests that want a viewer's
+  // bid to appear in the list override here.
+  bids: ReadonlyArray<readonly [`0x${string}`, boolean]> = [],
+) {
+  return vi.fn().mockImplementation(async (args: { functionName: string; args?: readonly unknown[] }) => {
     if (args.functionName === "getListing") return listing;
     if (args.functionName === "getBidCount") return BigInt(bidCount);
+    if (args.functionName === "getBid") {
+      const i = Number((args.args ?? [])[1] ?? 0);
+      return bids[i] ?? (["0x0000000000000000000000000000000000000000", false] as const);
+    }
     return null;
   });
 }
@@ -485,7 +496,7 @@ describe("StorefrontPage — Auction mode 3-substate machine (§15.x)", () => {
     expect(closeAuctionMock).toHaveBeenCalledWith(5);
   });
 
-  it("closed state (closed=true) + viewer is winner -> 'Winner:' banner + 'Claim your win' + 'Refund my losing bid' buttons", async () => {
+  it("closed state (closed=true) + viewer is winner -> 'Winner:' banner + 'Claim your win'", async () => {
     // C6 fix: Claim CTA is now gated to the actual winner. Connect as
     // WINNER to see the Claim flow + 'You' badge.
     useEffectiveAddressMock.mockReturnValue({ effectiveAddress: WINNER });
@@ -497,7 +508,6 @@ describe("StorefrontPage — Auction mode 3-substate machine (§15.x)", () => {
     await findByText("Claim your win");
     expect(container.textContent).toContain("Winner:");
     expect(container.textContent).toContain("You");
-    expect(container.textContent).toContain("Refund my losing bid");
     expect(container.textContent).toMatch(/0xcccc.{1,3}cccc/i);
   });
 
@@ -533,17 +543,21 @@ describe("StorefrontPage — Auction mode 3-substate machine (§15.x)", () => {
     expect(claimAuctionWinMock).toHaveBeenCalledWith(5);
   });
 
-  it("C6: viewer is NOT winner -> Claim CTA hidden, explanation banner shown, refund still works", async () => {
-    const NON_WINNER = "0xdddddddddddddddddddddddddddddddddddddddd";
+  it("C6: viewer is NOT winner -> Claim CTA hidden, explanation banner shown, refund list lookup runs", async () => {
+    const NON_WINNER = "0xdddddddddddddddddddddddddddddddddddddddd" as `0x${string}`;
     useEffectiveAddressMock.mockReturnValue({ effectiveAddress: NON_WINNER });
+    // Single bid by the actual winner (not NON_WINNER) so the on-chain
+    // bid loop runs and reports "you didn't bid" cleanly.
     readContractMock = makeReadContract(
       buildListing({ mode: MODE_AUCTION, closed: true, winner: WINNER }),
+      1,
+      [[WINNER, false]],
     );
     usePublicClientMock.mockReturnValue({ readContract: readContractMock });
-    const { findByText, container, queryByText } = render(<StorefrontPage />);
+    const { findByText, queryByText } = render(<StorefrontPage />);
     await findByText(/aren't the winner/i);
     expect(queryByText("Claim your win")).toBeNull();
-    expect(container.textContent).toContain("Refund my losing bid");
+    await findByText(/didn't bid on this auction/i);
   });
 
   it("C11: closed state with zero winner (no bids) -> 'closed without bids' state, no Claim, no refund", async () => {
@@ -555,11 +569,12 @@ describe("StorefrontPage — Auction mode 3-substate machine (§15.x)", () => {
     const { findByText, container, queryByText } = render(<StorefrontPage />);
     await findByText(/closed without bids/i);
     expect(queryByText("Claim your win")).toBeNull();
-    expect(queryByText("Refund my losing bid")).toBeNull();
+    // No bids → no "Your bids" list rendered either.
+    expect(queryByText(/Your bids/)).toBeNull();
     expect(container.textContent).not.toContain("Winner:");
   });
 
-  it("C6: no connected wallet on closed auction -> 'Connect your wallet' fallback (no Claim CTA, refund disabled)", async () => {
+  it("C6: no connected wallet on closed auction -> 'Connect your wallet' fallback (no Claim CTA, no bid list)", async () => {
     // Default beforeEach already sets effectiveAddress: undefined.
     readContractMock = makeReadContract(
       buildListing({ mode: MODE_AUCTION, closed: true, winner: WINNER }),
@@ -568,84 +583,91 @@ describe("StorefrontPage — Auction mode 3-substate machine (§15.x)", () => {
     const { findByText, queryByText } = render(<StorefrontPage />);
     await findByText(/Connect your wallet to claim/i);
     expect(queryByText("Claim your win")).toBeNull();
-    // Refund button is rendered but disabled.
-    const refundBtn = await findByText("Refund my losing bid");
-    expect((refundBtn as HTMLButtonElement).disabled).toBe(true);
+    // Without a connected viewer there is no "Your bids" list to render.
+    expect(queryByText(/Your bids/)).toBeNull();
   });
 });
 
-describe("StorefrontPage — refund prompt validation (mirrors CrowdfundPage) (§15.x)", () => {
+describe("StorefrontPage — refund via on-chain bid list (§15.x, replaces prompt validation)", () => {
+  const VIEWER = "0xdddddddddddddddddddddddddddddddddddddddd" as `0x${string}`;
+  const OTHER  = "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" as `0x${string}`;
+
   beforeEach(() => {
-    // Refund requires a connected viewer per the C6 fix (button is
-    // disabled otherwise). The validation tests below all assume a
-    // connected wallet.
-    useEffectiveAddressMock.mockReturnValue({
-      effectiveAddress: "0xdddddddddddddddddddddddddddddddddddddddd",
-    });
+    useEffectiveAddressMock.mockReturnValue({ effectiveAddress: VIEWER });
+  });
+
+  it("viewer has no bids on this closed auction -> 'You didn't bid on this auction.'", async () => {
+    // 3 bids on chain, none placed by the viewer.
     readContractMock = makeReadContract(
       buildListing({ mode: MODE_AUCTION, closed: true, winner: WINNER }),
+      3,
+      [
+        [OTHER, false],
+        [OTHER, false],
+        [OTHER, false],
+      ],
     );
     usePublicClientMock.mockReturnValue({ readContract: readContractMock });
-  });
-
-  it("user cancel (null) -> silent, no toast + no refund call", async () => {
-    vi.spyOn(window, "prompt").mockReturnValue(null);
-    const { findByText } = render(<StorefrontPage />);
-    fireEvent.click(await findByText("Refund my losing bid"));
-    expect(refundLoserBidMock).not.toHaveBeenCalled();
-    expect(toastErrorMock).not.toHaveBeenCalled();
-  });
-
-  it("empty trimmed -> 'Bid index required' toast", async () => {
-    vi.spyOn(window, "prompt").mockReturnValue("   ");
-    const { findByText } = render(<StorefrontPage />);
-    fireEvent.click(await findByText("Refund my losing bid"));
-    expect(toastErrorMock).toHaveBeenCalledWith("Bid index required");
-  });
-
-  it("non-numeric -> 'non-negative integer' toast", async () => {
-    vi.spyOn(window, "prompt").mockReturnValue("abc");
-    const { findByText } = render(<StorefrontPage />);
-    fireEvent.click(await findByText("Refund my losing bid"));
-    expect((toastErrorMock.mock.calls[0][0] as string)).toContain("non-negative integer");
-  });
-
-  it("CRITICAL fractional '1.5' rejected (String(idx)!==trimmed guard)", async () => {
-    vi.spyOn(window, "prompt").mockReturnValue("1.5");
-    const { findByText } = render(<StorefrontPage />);
-    fireEvent.click(await findByText("Refund my losing bid"));
-    expect(toastErrorMock).toHaveBeenCalled();
+    const { findByText, queryByTestId } = render(<StorefrontPage />);
+    await findByText(/didn't bid on this auction/i);
+    expect(queryByTestId("my-bids-list")).toBeNull();
     expect(refundLoserBidMock).not.toHaveBeenCalled();
   });
 
-  it("CRITICAL leading-zero '007' rejected (same guard)", async () => {
-    vi.spyOn(window, "prompt").mockReturnValue("007");
-    const { findByText } = render(<StorefrontPage />);
-    fireEvent.click(await findByText("Refund my losing bid"));
-    expect(toastErrorMock).toHaveBeenCalled();
-    expect(refundLoserBidMock).not.toHaveBeenCalled();
-  });
-
-  it("valid '3' -> refundLoserBid(listingId, 3)", async () => {
-    vi.spyOn(window, "prompt").mockReturnValue("3");
-    const { findByText } = render(<StorefrontPage />);
-    const btn = await findByText("Refund my losing bid");
+  it("viewer has a single losing bid -> 'Bid #N' row appears + click calls refundLoserBid", async () => {
+    // Three bids; viewer placed bid #1.
+    readContractMock = makeReadContract(
+      buildListing({ mode: MODE_AUCTION, closed: true, winner: WINNER }),
+      3,
+      [
+        [OTHER, false],
+        [VIEWER, false],
+        [OTHER, false],
+      ],
+    );
+    usePublicClientMock.mockReturnValue({ readContract: readContractMock });
+    const { findByText, findByTestId } = render(<StorefrontPage />);
+    await findByTestId("my-bids-list");
+    const row = await findByText("Bid #1");
     await act(async () => {
-      fireEvent.click(btn);
+      fireEvent.click(row);
       await Promise.resolve();
     });
-    expect(refundLoserBidMock).toHaveBeenCalledWith(5, 3);
+    expect(refundLoserBidMock).toHaveBeenCalledWith(5, 1);
   });
 
-  it("valid '0' -> refundLoserBid(listingId, 0)", async () => {
-    vi.spyOn(window, "prompt").mockReturnValue("0");
-    const { findByText } = render(<StorefrontPage />);
-    const btn = await findByText("Refund my losing bid");
-    await act(async () => {
-      fireEvent.click(btn);
-      await Promise.resolve();
+  it("already-refunded bids render as 'Refunded' and the button is disabled", async () => {
+    readContractMock = makeReadContract(
+      buildListing({ mode: MODE_AUCTION, closed: true, winner: WINNER }),
+      2,
+      [
+        [VIEWER, true],   // already refunded
+        [VIEWER, false],
+      ],
+    );
+    usePublicClientMock.mockReturnValue({ readContract: readContractMock });
+    const { findByTestId, findByText } = render(<StorefrontPage />);
+    await findByTestId("my-bids-list");
+    const refundedRow = await findByText("Bid #0");
+    expect((refundedRow.closest("button") as HTMLButtonElement).disabled).toBe(true);
+    // Sibling row shows "Refund" text (the unrefunded one).
+    await findByText("Refund");
+  });
+
+  it("loading state: while getBid is pending, 'Checking your bids…' is shown", async () => {
+    // getListing + getBidCount resolve, getBid never resolves.
+    let resolveBid!: (v: unknown) => void;
+    readContractMock = vi.fn().mockImplementation((args: { functionName: string }) => {
+      if (args.functionName === "getListing")
+        return Promise.resolve(buildListing({ mode: MODE_AUCTION, closed: true, winner: WINNER }));
+      if (args.functionName === "getBidCount") return Promise.resolve(BigInt(1));
+      return new Promise((res) => { resolveBid = res; });
     });
-    expect(refundLoserBidMock).toHaveBeenCalledWith(5, 0);
+    usePublicClientMock.mockReturnValue({ readContract: readContractMock });
+    const { findByText } = render(<StorefrontPage />);
+    await findByText(/Checking your bids/);
+    // Resolve so the test doesn't leak a pending promise.
+    await act(async () => { resolveBid([OTHER, false]); await Promise.resolve(); });
   });
 });
 

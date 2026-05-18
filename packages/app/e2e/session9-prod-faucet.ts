@@ -78,7 +78,7 @@ async function main() {
   // Step 1: Force Base Sepolia (84532) via localStorage BEFORE first load.
   // Default is ETH Sepolia (11155111); session6 on Base worked end-to-end.
   await page.goto(`${BASE}/`, { waitUntil: "domcontentloaded" });
-  await page.evaluate(() => localStorage.setItem("blank_active_chain_id", "84532"));
+  await page.evaluate(() => localStorage.setItem("blank:active_chain_id", "84532"));
   await page.goto(`${BASE}/app`, { waitUntil: "domcontentloaded" });
   await page.waitForTimeout(5000);
   await snap(page, "landed");

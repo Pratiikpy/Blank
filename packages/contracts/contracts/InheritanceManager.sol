@@ -60,6 +60,10 @@ contract InheritanceManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
     event ClaimCancelled(address indexed owner, uint256 timestamp);
     event ClaimFinalized(address indexed owner, address indexed heir, uint256 timestamp);
     event VaultsUpdated(address indexed owner, address[] vaults, uint256 timestamp);
+    /// @notice Emitted when a single vault transfer in finalizeClaim fails.
+    /// The rest of the claim continues so one bad vault can't brick the whole
+    /// plan. Off-chain monitors should watch for this + alert the heir.
+    event ClaimVaultSkipped(address indexed owner, address indexed heir, address indexed vault);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() { _disableInitializers(); }
@@ -120,6 +124,13 @@ contract InheritanceManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
         // owner could push hundreds of vaults and permanently lock the
         // claim by making finalizeClaim revert with out-of-gas every time.
         require(_vaults.length <= 20, "InheritanceManager: too many vaults");
+        // Reject address(0) at set time so finalizeClaim doesn't waste gas
+        // on a guaranteed-bad entry. Bad-vault DoS protection in
+        // finalizeClaim's try/catch still defends against a vault that
+        // becomes broken AFTER setVaults (e.g. paused or upgraded badly).
+        for (uint256 i = 0; i < _vaults.length; i++) {
+            require(_vaults[i] != address(0), "InheritanceManager: zero vault in list");
+        }
         plan.vaults = _vaults;
         emit VaultsUpdated(msg.sender, _vaults, block.timestamp);
     }
@@ -161,9 +172,17 @@ contract InheritanceManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
     ///         Transfers all vault balances from the owner to the heir.
     ///
     ///         The heir provides encrypted amounts for each vault — one per vault in the plan.
-    ///         To drain the full balance, encrypt type(uint64).max for each vault.
-    ///         The vault's transferFrom uses FHE.select (no revert on insufficient balance),
-    ///         so over-requesting is safe — it transfers up to the available balance.
+    ///         IMPORTANT: encAmounts[i] MUST be the EXACT balance the heir wants to
+    ///         transfer. FHERC20Vault.transferFromVerified uses
+    ///         `FHE.select(balance >= amount AND allowance >= amount, amount, 0)`,
+    ///         which transfers ZERO (not the available remainder) when the requested
+    ///         amount exceeds either balance or allowance. Encrypting type(uint64).max
+    ///         to "drain everything" is a footgun — it will transfer 0 because the
+    ///         balance is always < max. Heirs must either obtain the principal's
+    ///         encrypted balance off-chain (and decrypt it via their own allow) or
+    ///         coordinate the amount with the principal in advance. The #185 mutex
+    ///         allows finalizeClaim only ONCE per plan; a wrong amount cannot be
+    ///         retried without setHeir being called again by the principal.
     ///
     ///         PREREQUISITE: The owner MUST have approved this contract on each vault
     ///         via vault.approvePlaintext(inheritanceManager, type(uint64).max).
@@ -201,7 +220,12 @@ contract InheritanceManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
         plan.active = false;
         claimFinalized[owner_] = true;
 
-        // Transfer all vault balances from owner to heir
+        // Transfer all vault balances from owner to heir. Each transfer is
+        // wrapped in try/catch so a single bad vault (paused, upgraded to
+        // a broken impl, etc.) can't brick the whole claim — the heir
+        // would otherwise be stuck since the owner is presumed inactive
+        // and can't call setVaults to remove the bad entry. Emits
+        // ClaimVaultSkipped per failure so off-chain monitors can alert.
         for (uint256 i = 0; i < plan.vaults.length; i++) {
             // Verify encrypted input here (msg.sender = heir) before cross-contract call
             euint64 verifiedAmount = FHE.asEuint64(encAmounts[i]);
@@ -210,9 +234,12 @@ contract InheritanceManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
             IFHERC20Vault vault = IFHERC20Vault(plan.vaults[i]);
             // vault.transferFromVerified checks both balance AND allowance via FHE.select
             // Returns the actual encrypted amount transferred (zero if insufficient)
-            euint64 transferred = vault.transferFromVerified(owner_, plan.heir, verifiedAmount);
-            // Grant the heir permission to read the transferred amount handle
-            FHE.allowTransient(transferred, plan.heir);
+            try vault.transferFromVerified(owner_, plan.heir, verifiedAmount) returns (euint64 transferred) {
+                // Grant the heir permission to read the transferred amount handle
+                FHE.allowTransient(transferred, plan.heir);
+            } catch {
+                emit ClaimVaultSkipped(owner_, plan.heir, plan.vaults[i]);
+            }
         }
 
         emit ClaimFinalized(owner_, plan.heir, block.timestamp);

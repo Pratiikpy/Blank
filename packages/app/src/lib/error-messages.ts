@@ -120,7 +120,7 @@ export function toastMappedError(err: unknown, toastId?: string): void {
     if (toastId) toast.dismiss(toastId);
     return;
   }
-  toast.error(`${mapped.title} — ${mapped.body}`, toastId ? { id: toastId } : undefined);
+  toast.error(`${mapped.title}: ${mapped.body}`, toastId ? { id: toastId } : undefined);
 }
 
 /** Normalize any thrown error (or string) into user-readable copy. */

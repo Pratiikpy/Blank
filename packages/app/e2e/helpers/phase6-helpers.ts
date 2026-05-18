@@ -65,7 +65,7 @@ export async function openAccountPage(
 
   await page.goto("/");
   await page.evaluate((id) => {
-    localStorage.setItem("blank_active_chain_id", String(id));
+    localStorage.setItem("blank:active_chain_id", String(id));
   }, chainId);
 
   await page.goto("/app");

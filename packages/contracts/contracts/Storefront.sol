@@ -483,6 +483,16 @@ contract Storefront is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         Bid storage bid = bids[bidIndex];
         require(bid.bidder == msg.sender, "Storefront: not your bid");
         require(!bid.refunded, "Storefront: already refunded");
+        // Post-reveal, the winner cannot extract their winning bid via the
+        // refund path. Without this guard a winner could refundLoserBid the
+        // winning index → seller never paid (claimAuctionWin's
+        // !winningBid.refunded check later reverts). Pre-reveal (l.winner ==
+        // 0x0) the auction has no decided winner so all per-bid refunds
+        // remain individually permissible (each caller bets they lost).
+        require(
+            l.winner == address(0) || msg.sender != l.winner || bidIndex != _winningBidIdx[listingId],
+            "Storefront: winning bid, use claimAuctionWin"
+        );
 
         // Refund: contract → bidder.
         FHE.allowTransient(bid.amount, l.vault);

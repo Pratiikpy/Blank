@@ -4,6 +4,7 @@ import {
   loadStealthKeys,
   hasStealthKeysStored,
   clearStealthKeys,
+  saveStealthKeysAsync,
 } from "./stealth-keystore";
 import { STORAGE_KEYS } from "./storage";
 
@@ -87,5 +88,18 @@ describe("stealth-keystore lock/cache semantics (no real keys)", () => {
     // Bob has no record; must NOT inherit Alice's storage.
     expect(hasStealthKeysStored(ALICE)).toBe(true);
     expect(hasStealthKeysStored(BOB)).toBe(false);
+  });
+
+  it("saveStealthKeysAsync rejects short passphrases (12-char minimum)", async () => {
+    // Real keys aren't needed here — the length check fires before any
+    // crypto runs. Pass a plausibly-shaped record; the function only
+    // validates passphrase first.
+    const fakeRecord = {
+      spendingPrivateKey: "0x" + "11".repeat(32) as `0x${string}`,
+      viewingPrivateKey: "0x" + "22".repeat(32) as `0x${string}`,
+      metaAddress: "st:eth:0x" + "33".repeat(66) as `st:eth:0x${string}`,
+    } as unknown as Parameters<typeof saveStealthKeysAsync>[1];
+    await expect(saveStealthKeysAsync(ALICE, fakeRecord, "")).rejects.toThrow(/at least 12 characters/);
+    await expect(saveStealthKeysAsync(ALICE, fakeRecord, "tooShort")).rejects.toThrow(/at least 12 characters/);
   });
 });

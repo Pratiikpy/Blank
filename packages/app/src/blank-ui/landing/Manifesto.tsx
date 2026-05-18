@@ -37,9 +37,9 @@ export default function Manifesto() {
           <h2>The bill is coming due for public money</h2>
 
           <p>
-            When we started Blank, on-chain privacy looked like a
-            nice-to-have — something enterprise might care about eventually.
-            Then we looked at what transparency had actually cost in 2023 alone:
+            When we started Blank, on-chain privacy looked like a nice-to-have.
+            Something enterprise might care about eventually. Then we looked at
+            what transparency had actually cost in 2023 alone:
           </p>
 
           <ul>
@@ -49,7 +49,7 @@ export default function Manifesto() {
             </li>
             <li>
               <strong>272,000</strong> home addresses leaked from a single
-              hardware-wallet breach — used to physically target holders
+              hardware-wallet breach. Used to physically target holders.
             </li>
             <li>
               <strong>Zero</strong> enterprise treasuries on-chain, because a
@@ -70,7 +70,7 @@ export default function Manifesto() {
           <h2>FHE isn't a buzzword</h2>
 
           <p>
-            Blank is built on Fhenix CoFHE — Fully Homomorphic Encryption.
+            Blank is built on Fhenix CoFHE: Fully Homomorphic Encryption.
             Smart contracts that compute on encrypted data without ever
             decrypting it.
           </p>
@@ -94,7 +94,7 @@ export default function Manifesto() {
           <h2>Private payments aren't a feature</h2>
 
           <p>
-            Blank ships twelve features — P2P send, requests, group bills,
+            Blank ships twelve features: P2P send, requests, group bills,
             creator tips, invoicing, batch payroll, escrow with arbiter,
             stealth transfers, gift envelopes, inheritance, atomic swaps,
             and a privacy router for existing DEXs.
@@ -110,7 +110,7 @@ export default function Manifesto() {
           <p>
             So all twelve had to exist. All twelve had to share one encrypted
             vault. All twelve had to use the same access-control primitive so
-            permits compose. That was the hard part — not the cryptography.
+            permits compose. That was the hard part. Not the cryptography.
             The system design.
           </p>
 
@@ -126,7 +126,7 @@ export default function Manifesto() {
           </p>
 
           <p>
-            And audit permits — so regulators and auditors can verify
+            And audit permits, so regulators and auditors can verify
             compliance without ever seeing individual amounts. Selective
             disclosure as a first-class primitive, not a workaround.
           </p>
@@ -136,10 +136,10 @@ export default function Manifesto() {
             transparent-by-default with a privacy mode bolted on. They'll be
             private-by-default with transparency opt-in, selective, and
             provable. Blank is our attempt at proving that's not only
-            possible — it's shippable today.
+            possible. It's shippable today.
           </p>
 
-          <p className="ll-signature">— The Blank team</p>
+          <p className="ll-signature">The Blank team</p>
 
           <div className="ll-manifesto-ctas">
             <Link to="/app" className="ll-btn ll-btn--hero ll-btn--ink">

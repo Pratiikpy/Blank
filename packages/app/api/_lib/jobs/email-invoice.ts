@@ -128,10 +128,25 @@ export default async function handler(req: any, res: any) {
   }
   const invoice = data as InvoiceLookup;
 
-  const recipient = body.recipientEmail ?? invoice.client_email ?? undefined;
+  // recipientEmail override is ONLY honored when a valid wallet signature
+  // is attached — otherwise an unauthenticated caller could use any
+  // invoice_id to make Blank send invoice emails to attacker-chosen
+  // addresses (open-relay / phishing pivot). In soft-auth mode the
+  // override is silently dropped and we fall back to the stored
+  // client_email, which limits abuse to pre-configured recipients per
+  // invoice row.
+  const callerSigned =
+    body.signature !== undefined &&
+    body.signerAddress !== undefined &&
+    body.signedAt !== undefined &&
+    body.signerChainId !== undefined;
+  const recipient =
+    (callerSigned ? body.recipientEmail : undefined) ??
+    invoice.client_email ??
+    undefined;
   if (!isPlausibleEmail(recipient)) {
     res.status(400).json({
-      error: "No recipient email — pass recipientEmail or set client_email on the invoice row.",
+      error: "No recipient email — pass recipientEmail (with wallet signature) or set client_email on the invoice row.",
     });
     return;
   }

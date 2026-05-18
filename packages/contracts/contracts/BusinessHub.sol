@@ -908,6 +908,11 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         require(beneficiary != address(0) && beneficiary != msg.sender, "BusinessHub: invalid beneficiary");
         require(deadline >= block.timestamp + 1 days, "BusinessHub: deadline must be at least 1 day");
         require(plaintextAmount > 0, "BusinessHub: zero amount");
+        // Encrypted handle below is euint64 — values above 2^64-1 would
+        // truncate silently while safeTransferFrom takes the full
+        // uint256, locking the upper bits' worth of underlying in the
+        // contract. Mirror of the FHERC20Vault.shield cap.
+        require(plaintextAmount <= type(uint64).max, "BusinessHub: amount exceeds uint64");
         require(bytes(description).length <= 512, "BusinessHub: description too long");
 
         // Lock plaintext amount in the underlying ERC20 (not encrypted — escrow needs release)

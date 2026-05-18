@@ -2,8 +2,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   buildInvoiceEmailMessage,
   buildRequestEmailMessage,
+  buildScheduledSendCreateMessage,
   checkTimestampWindow,
   strictEmailAuthEnabled,
+  strictScheduledSendsAuthEnabled,
   verifyOwnerSignature,
   SIGNATURE_WINDOW_SECONDS,
 } from "./sig-auth.js";
@@ -265,5 +267,78 @@ describe("verifyOwnerSignature — unsupported chain path", () => {
     });
     expect(out.ok).toBe(false);
     expect(out.reason).toContain("unsupported chainId");
+  });
+});
+
+describe("buildScheduledSendCreateMessage (#350 server side)", () => {
+  it("binds account + recipient + spendToken + chainId + signedAt into the signed bytes", () => {
+    // Pin the canonical shape — both server (api/_lib/sig-auth.ts) and
+    // client (src/lib/email-client.ts:buildScheduledSendCreateSignableMessage)
+    // emit this. Any drift breaks signature verification with a generic 401.
+    const out = buildScheduledSendCreateMessage({
+      account: "0xAAA00000000000000000000000000000000AAAAA",
+      recipient: "0xBBB00000000000000000000000000000000BBBBB",
+      spendToken: "0xCCC00000000000000000000000000000000CCCCC",
+      chainId: 84532,
+      signedAt: 1_700_000_000,
+    });
+    expect(out).toBe(
+      [
+        "Blank: create scheduled-send session key",
+        "account: 0xaaa00000000000000000000000000000000aaaaa",
+        "recipient: 0xbbb00000000000000000000000000000000bbbbb",
+        "spendToken: 0xccc00000000000000000000000000000000ccccc",
+        "chainId: 84532",
+        "signedAt: 1700000000",
+      ].join("\n"),
+    );
+  });
+
+  it("uses a distinct prefix from invoice/request — sig can't be replayed across endpoints", () => {
+    const sch = buildScheduledSendCreateMessage({
+      account: "0xa", recipient: "0xb", spendToken: "0xc",
+      chainId: 1, signedAt: 1,
+    });
+    const inv = buildInvoiceEmailMessage({
+      invoiceId: 1, recipient: "x@y.z", signedAt: 1, chainId: 1,
+    });
+    const req = buildRequestEmailMessage({
+      requestId: 1, recipient: "x@y.z", signedAt: 1, chainId: 1,
+    });
+    expect(sch.split("\n")[0]).not.toBe(inv.split("\n")[0]);
+    expect(sch.split("\n")[0]).not.toBe(req.split("\n")[0]);
+  });
+
+  it("lowercases account + recipient + spendToken (case-insensitive comparison)", () => {
+    const upper = buildScheduledSendCreateMessage({
+      account: "0xAAA", recipient: "0xBBB", spendToken: "0xCCC",
+      chainId: 1, signedAt: 1,
+    });
+    expect(upper).toContain("account: 0xaaa");
+    expect(upper).toContain("recipient: 0xbbb");
+    expect(upper).toContain("spendToken: 0xccc");
+  });
+});
+
+describe("strictScheduledSendsAuthEnabled (#350)", () => {
+  afterEach(() => {
+    delete process.env.STRICT_SCHEDULED_SENDS_AUTH;
+  });
+
+  it("defaults to true (fail-closed) when env var is unset", () => {
+    delete process.env.STRICT_SCHEDULED_SENDS_AUTH;
+    expect(strictScheduledSendsAuthEnabled()).toBe(true);
+  });
+
+  it("returns false only when env var is EXACTLY '0'", () => {
+    process.env.STRICT_SCHEDULED_SENDS_AUTH = "0";
+    expect(strictScheduledSendsAuthEnabled()).toBe(false);
+  });
+
+  it("returns true for any other env value ('1', 'true', '', 'yes', ...) — only '0' opts out", () => {
+    for (const v of ["1", "true", "", "yes", "off", "false"]) {
+      process.env.STRICT_SCHEDULED_SENDS_AUTH = v;
+      expect(strictScheduledSendsAuthEnabled(), `value=${JSON.stringify(v)}`).toBe(true);
+    }
   });
 });

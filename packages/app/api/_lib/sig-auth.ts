@@ -132,6 +132,39 @@ export function buildRequestEmailMessage(args: {
   ].join("\n");
 }
 
+/** Build the canonical message bytes for a scheduled-send key creation
+ *  request. Binds the request to the caller's AA address AND to the
+ *  intended scope (recipient + spendToken). Without this binding, a sig
+ *  for one scope could be replayed to create a server-side key for a
+ *  DIFFERENT scope on the same account — same account, attacker-chosen
+ *  recipient. Both legs must be in the signed bytes. */
+export function buildScheduledSendCreateMessage(args: {
+  account: string;
+  recipient: string;
+  spendToken: string;
+  chainId: number;
+  signedAt: number;
+}): string {
+  return [
+    "Blank: create scheduled-send session key",
+    `account: ${args.account.toLowerCase()}`,
+    `recipient: ${args.recipient.toLowerCase()}`,
+    `spendToken: ${args.spendToken.toLowerCase()}`,
+    `chainId: ${args.chainId}`,
+    `signedAt: ${args.signedAt}`,
+  ].join("\n");
+}
+
+/** Whether strict-auth is enabled for /api/scheduled-sends/create.
+ *  Default ON: an unsigned call generates a server-side keypair tied to
+ *  ANY caller-supplied AA address. An attacker who knew (or guessed) a
+ *  victim's AA could spam keypair creations bound to that account,
+ *  exhausting KMS slots and polluting the row store. Strict mode rejects
+ *  unsigned requests. Local dev opts out via STRICT_SCHEDULED_SENDS_AUTH=0. */
+export function strictScheduledSendsAuthEnabled(): boolean {
+  return process.env.STRICT_SCHEDULED_SENDS_AUTH !== "0";
+}
+
 /** Whether strict-auth is enabled. Default-on; explicit opt-out via
  *  STRICT_EMAIL_AUTH="0" for local dev. The earlier default-off shape
  *  let anyone who knew an invoice id spam the client's inbox — so the

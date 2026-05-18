@@ -123,7 +123,7 @@ test.describe("Phase 2 #1 — Shield flow (Base Sepolia)", () => {
     // Persist the ACTIVE chain choice so `BlankApp` renders on 84532
     await page.goto("/");
     await page.evaluate((chainId) => {
-      localStorage.setItem("blank_active_chain_id", String(chainId));
+      localStorage.setItem("blank:active_chain_id", String(chainId));
     }, setup.chainId);
   });
 
@@ -177,7 +177,7 @@ test.describe("Phase 2 #1 — Shield flow (Base Sepolia)", () => {
     const debug = await page.evaluate(async () => {
       const passkey = await import("/src/lib/passkey.ts");
       return {
-        activeChainId: localStorage.getItem("blank_active_chain_id"),
+        activeChainId: localStorage.getItem("blank:active_chain_id"),
         hasPasskey_84532: await passkey.hasPasskey(84532),
         hasPasskey_11155111: await passkey.hasPasskey(11155111),
         pubkey_84532: await passkey.getPasskeyPubkey(84532),

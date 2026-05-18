@@ -52,3 +52,4 @@ WAVE*_*.md
 .claude/
 packages/app/TESTING_PLAN.md
 packages/app/TESTING_STATUS.md
+.vercel

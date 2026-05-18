@@ -41,6 +41,8 @@ const useUnifiedWriteMock = vi.hoisted(() => vi.fn());
 const usePaymasterHealthMock = vi.hoisted(() => vi.fn());
 const useBalanceMock = vi.hoisted(() => vi.fn());
 const usePublicClientMock = vi.hoisted(() => vi.fn());
+const useEmailAuthSignerMock = vi.hoisted(() => vi.fn());
+const signEmailAuthMock = vi.hoisted(() => vi.fn());
 const toastErrorMock = vi.hoisted(() => vi.fn());
 const toastSuccessMock = vi.hoisted(() => vi.fn());
 const toastMock = vi.hoisted(() => vi.fn());
@@ -63,6 +65,12 @@ vi.mock("@/hooks/useAccountVersion", () => ({
 }));
 vi.mock("@/providers/ChainProvider", () => ({ useChain: useChainMock }));
 vi.mock("@/hooks/useUnifiedWrite", () => ({ useUnifiedWrite: useUnifiedWriteMock }));
+vi.mock("@/hooks/useEmailAuthSigner", () => ({
+  useEmailAuthSigner: useEmailAuthSignerMock,
+}));
+vi.mock("@/lib/email-client", () => ({
+  buildScheduledSendCreateSignableMessage: () => "test-sig-message",
+}));
 vi.mock("@/hooks/usePaymasterHealth", () => ({ usePaymasterHealth: usePaymasterHealthMock }));
 vi.mock("@/lib/scheduled-sends", () => ({
   PERIOD_PRESETS: [
@@ -151,6 +159,19 @@ beforeEach(() => {
   usePaymasterHealthMock.mockReset();
   useBalanceMock.mockReset();
   usePublicClientMock.mockReset();
+  useEmailAuthSignerMock.mockReset();
+  signEmailAuthMock.mockReset();
+  // Default-good signer that returns a valid auth bundle.
+  signEmailAuthMock.mockResolvedValue({
+    signature: "0xfeedfeed",
+    signerAddress: ME,
+    signedAt: Math.floor(Date.now() / 1000),
+    signerChainId: 84532,
+  });
+  useEmailAuthSignerMock.mockReturnValue({
+    signEmailAuth: signEmailAuthMock,
+    canSign: true,
+  });
   toastMock.mockReset();
   toastErrorMock.mockReset();
   toastSuccessMock.mockReset();
@@ -586,7 +607,7 @@ describe("ScheduledSends — handleCreate flow + stub-mode banner (§15.x)", () 
     // toastMappedError wraps unknown errors with the default "Transaction
     // failed — {message}" shape, then passes undefined as the toast id.
     expect(toastErrorMock).toHaveBeenCalledWith(
-      "Transaction failed — KMS down",
+      "Transaction failed: KMS down",
       undefined,
     );
   });

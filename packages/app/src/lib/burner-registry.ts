@@ -179,8 +179,14 @@ export async function encryptBlob(
   payload: BurnerBackupPayload,
   passphrase: string,
 ): Promise<`0x${string}`> {
-  if (!passphrase || passphrase.length < 6) {
-    throw new Error("Passphrase must be at least 6 characters");
+  // 12-char minimum aligns with OWASP modern guidance. The previous
+  // 6-char floor left realistic human-chosen passphrases (~12-20 bits
+  // entropy) feasible to crack with GPU-accelerated PBKDF2 in hours even
+  // at 200k iterations. Forward-only — existing ciphertexts in
+  // BurnerRegistry stay decryptable with whatever passphrase encrypted
+  // them; only new writes have to meet the higher bar.
+  if (!passphrase || passphrase.length < 12) {
+    throw new Error("Passphrase must be at least 12 characters");
   }
   const subtle = getCrypto();
   const salt = randomBytes(SALT_BYTES);

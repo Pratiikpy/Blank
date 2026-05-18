@@ -84,9 +84,16 @@ export function makeBearerHash(secret: Uint8Array): `0x${string}` {
   return keccak256(packed) as `0x${string}`;
 }
 
-/** keccak256(lowercase(email)). Computed entirely client-side. */
+/** keccak256(NFC(lowercase(email))). Computed entirely client-side.
+ *  NFC normalization closes a corner case where the sender enters
+ *  `JOSÉ@example.com` (precomposed, e.g. macOS pasteboard) and the
+ *  recipient pastes the same glyph from a Linux input source that
+ *  produced NFD bytes. Same visible string, different keccak256 →
+ *  the contract's hash-compare rejects the legitimate claim.
+ *  Most real emails are ASCII so this is the rare-but-real edge.
+ */
 export function emailDigest(email: string): `0x${string}` {
-  return keccak256(toUtf8Bytes(email.trim().toLowerCase())) as `0x${string}`;
+  return keccak256(toUtf8Bytes(email.trim().toLowerCase().normalize("NFC"))) as `0x${string}`;
 }
 
 export function makeEmailHash(secret: Uint8Array, email: string): `0x${string}` {

@@ -153,7 +153,7 @@ export default function Pricing() {
       <main>
         {/* Hero */}
         <section className="ll-hero">
-          <p className="ll-eyebrow">Pricing — shape, not numbers</p>
+          <p className="ll-eyebrow">Pricing: shape, not numbers</p>
           <h1 className="ll-hero-h1">
             Free during testnet.
             <br />
@@ -161,7 +161,7 @@ export default function Pricing() {
           </h1>
           <p className="ll-subline">
             Blank is testnet-only today and free for everyone, forever.
-            Below is how mainnet pricing will be shaped — and the
+            Below is how mainnet pricing will be shaped, and the
             reasoning behind the shape. We don't show numbers because
             we don't know them yet, and we'd rather say that than guess.
           </p>

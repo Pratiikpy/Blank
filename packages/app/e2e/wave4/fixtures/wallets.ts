@@ -108,7 +108,7 @@ export async function injectPasskey(
  */
 export async function setActiveChain(page: Page, chainId: number): Promise<void> {
   await page.evaluate(
-    (id) => localStorage.setItem("blank_active_chain_id", String(id)),
+    (id) => localStorage.setItem("blank:active_chain_id", String(id)),
     chainId,
   );
 }

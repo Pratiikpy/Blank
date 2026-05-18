@@ -1,16 +1,25 @@
 const MAX_STORAGE_KEYS = 100;
-const BLANK_PREFIX = "blank_";
+// cleanupOldStorage below matches BOTH "blank_" (legacy underscore-separator)
+// AND "blank:" (canonical colon-separator, used by buildStorageKey below).
+// Pre-fix the prefix was "blank_" only — so the canonical "blank:scope:addr:chain"
+// keys produced by buildStorageKey were NEVER caught by cleanup, letting
+// localStorage grow unboundedly in any active user's browser.
 
 /**
  * Cleans up old localStorage entries created by the app.
- * Keeps at most MAX_STORAGE_KEYS entries with the "blank_" prefix.
+ * Keeps at most MAX_STORAGE_KEYS entries with the "blank" prefix
+ * (covers both legacy "blank_" and canonical "blank:" forms).
  */
 export function cleanupOldStorage() {
   try {
     const keys: string[] = [];
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
-      if (key?.startsWith(BLANK_PREFIX)) keys.push(key);
+      // Accept both "blank_..." and "blank:..." — anything starting with
+      // "blank" followed by the separator chars used by either convention.
+      if (key && (key.startsWith("blank_") || key.startsWith("blank:"))) {
+        keys.push(key);
+      }
     }
     if (keys.length > MAX_STORAGE_KEYS) {
       keys.sort();

@@ -134,49 +134,59 @@ task(
     })) as bigint;
     report("GroupManager.nextGroupId > 0", nextGid > 0n, `${nextGid}`);
 
-    // Probe the most recent few groups for any one that contains all
-    // four personas — the sweep adds Alice/Bob/Carol/Dave together.
-    // Probing a window handles the case where another test/run bumped
-    // nextGroupId between our sweep and this verification step.
+    // The on-chain GroupManager is GLOBAL — other deployers' tests run
+    // against the same contract too. So the most-recent groups aren't
+    // necessarily ours. Scan a wider window to find one with our four
+    // personas; cap at 500 for sanity.
     if (nextGid > 0n) {
-      const windowSize = nextGid > 5n ? 5n : nextGid;
+      const windowSize = nextGid > 500n ? 500n : nextGid;
       let foundFullGroup = false;
       let foundGid: bigint | null = null;
+      let scannedCount = 0n;
+      let sampleMembers: string | null = null;
       for (let i = 1n; i <= windowSize; i++) {
         const gid = nextGid - i;
-        const checks = await Promise.all(
-          personas.map((p) =>
-            publicClient
-              .readContract({
-                address: deployments.GroupManager as `0x${string}`,
-                abi: [
-                  {
-                    name: "isMember",
-                    type: "function",
-                    stateMutability: "view",
-                    inputs: [
-                      { name: "groupId", type: "uint256" },
-                      { name: "member", type: "address" },
-                    ],
-                    outputs: [{ type: "bool" }],
-                  },
+        try {
+          const result = (await publicClient.readContract({
+            address: deployments.GroupManager as `0x${string}`,
+            abi: [
+              {
+                name: "getGroup",
+                type: "function",
+                stateMutability: "view",
+                inputs: [{ name: "groupId", type: "uint256" }],
+                outputs: [
+                  { name: "name", type: "string" },
+                  { name: "members", type: "address[]" },
+                  { name: "expenseCount", type: "uint256" },
+                  { name: "active", type: "bool" },
                 ],
-                functionName: "isMember",
-                args: [gid, p.address],
-              })
-              .catch(() => false),
-          ),
-        );
-        if (checks.every(Boolean)) {
-          foundFullGroup = true;
-          foundGid = gid;
-          break;
+              },
+            ],
+            functionName: "getGroup",
+            args: [gid],
+          })) as readonly [string, readonly `0x${string}`[], bigint, boolean];
+          scannedCount++;
+          const members = result[1].map((m) => m.toLowerCase());
+          if (sampleMembers === null && members.length > 0) {
+            sampleMembers = `gid ${gid}: ${members.slice(0, 4).join(", ")}`;
+          }
+          const allFour = personas.every((p) => members.includes(p.address.toLowerCase()));
+          if (allFour) {
+            foundFullGroup = true;
+            foundGid = gid;
+            break;
+          }
+        } catch {
+          /* try next */
         }
       }
       report(
         `recent group with all 4 personas as members`,
         foundFullGroup,
-        foundGid !== null ? `groupId=${foundGid}` : `none found in last ${windowSize} groups`,
+        foundGid !== null
+          ? `groupId=${foundGid}`
+          : `scanned ${scannedCount}/${windowSize}; sample: ${sampleMembers ?? "<none>"}`,
       );
     }
   } catch (err) {
@@ -184,44 +194,46 @@ task(
   }
   console.log("");
 
-  // ─── InheritanceManager — heir set for Carol ───────────────────
+  // ─── InheritanceManager — Carol's plan has Dave as heir ───────
+  // The contract exposes `getPlan(owner)` which returns a struct
+  // (heir, inactivityPeriod, lastHeartbeat, claimStartedAt, active,
+  // vaults). Read Carol's plan and verify heir == Dave.
   console.log("[InheritanceManager state]");
   if (deployments.InheritanceManager) {
-    // The struct layout's exact field names vary by version; probe a few
-    // candidate getter shapes. As long as one resolves with a non-zero
-    // heir for Carol, the setHeir tx is verified.
-    const candidates = [
-      { name: "heirOf", inputs: [{ name: "owner", type: "address" }], outputs: [{ type: "address" }] },
-      { name: "heirs", inputs: [{ name: "owner", type: "address" }], outputs: [{ type: "address" }] },
-      { name: "getHeir", inputs: [{ name: "owner", type: "address" }], outputs: [{ type: "address" }] },
-    ];
-    let heir: string | null = null;
-    for (const c of candidates) {
-      try {
-        const h = (await publicClient.readContract({
-          address: deployments.InheritanceManager as `0x${string}`,
-          abi: [{ ...c, type: "function", stateMutability: "view" } as any],
-          functionName: c.name,
-          args: [personas[2]!.address],
-        })) as `0x${string}`;
-        heir = h;
-        break;
-      } catch {
-        /* try next */
-      }
-    }
-    if (heir !== null) {
+    try {
+      const plan = (await publicClient.readContract({
+        address: deployments.InheritanceManager as `0x${string}`,
+        abi: [
+          {
+            name: "getPlan",
+            type: "function",
+            stateMutability: "view",
+            inputs: [{ name: "owner_", type: "address" }],
+            outputs: [
+              { name: "heir", type: "address" },
+              { name: "inactivityPeriod", type: "uint256" },
+              { name: "lastHeartbeat", type: "uint256" },
+              { name: "claimStartedAt", type: "uint256" },
+              { name: "active", type: "bool" },
+              { name: "vaults", type: "address[]" },
+            ],
+          },
+        ],
+        functionName: "getPlan",
+        args: [personas[2]!.address], // Carol
+      })) as readonly [string, bigint, bigint, bigint, boolean, readonly string[]];
+      const heir = plan[0];
+      const active = plan[4];
       const expected = personas[3]!.address.toLowerCase();
-      const ok = heir.toLowerCase() === expected;
+      const heirOk = heir.toLowerCase() === expected;
       report(
-        `Carol's heir == Dave`,
-        ok,
-        ok ? heir : `expected ${expected}, got ${heir}`,
+        `getPlan(Carol).heir == Dave`,
+        heirOk,
+        heirOk ? heir : `expected ${expected}, got ${heir}`,
       );
-    } else {
-      // Fall back to event-based check would be ideal, but for this read-only
-      // task just note the getter shape doesn't match any common pattern.
-      report("Inheritance heir probe", false, "no known getter shape matched");
+      report(`getPlan(Carol).active`, active);
+    } catch (err) {
+      report("getPlan(Carol)", false, String(err).slice(0, 80));
     }
   } else {
     report("InheritanceManager deployed", false, "not in deployment file");

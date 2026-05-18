@@ -4,7 +4,7 @@ import { Link } from "react-router-dom";
 export function LandingFooter() {
   return (
     <footer className="ll-footer">
-      <div>© {new Date().getFullYear()} Blank — Private by design.</div>
+      <div>© {new Date().getFullYear()} Blank. Private by design.</div>
       <div className="ll-footer-links">
         <Link to="/features">Features</Link>
         <Link to="/live">Live</Link>

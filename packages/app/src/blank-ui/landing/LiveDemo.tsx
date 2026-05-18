@@ -122,7 +122,7 @@ export function LiveDemo() {
       <h2 className="ld-title">See it work in 60 seconds.</h2>
       <p className="ld-lead">
         Real testnet. Real encryption. Same code as the production app.
-        Each step is a real on-chain transaction — your balance only
+        Each step is a real on-chain transaction. Your balance only
         appears when <em>you</em> reveal it.
       </p>
 
@@ -286,8 +286,8 @@ export function LiveDemo() {
                 </code>
               </div>
               <p className="ld-reveal-caption">
-                That's the whole point. The blockchain stored your balance —
-                but it can't read it. Only your wallet can decrypt the value.
+                That's the whole point. The blockchain stored your balance.
+                It can't read it. Only your wallet can decrypt the value.
               </p>
             </div>
           )}

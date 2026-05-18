@@ -73,11 +73,25 @@ export const FAUCET_LINKS: Record<SupportedChainId, Array<{ label: string; url: 
   ],
 };
 
-const ACTIVE_CHAIN_KEY = "blank_active_chain_id";
+// Canonical storage key — must match `buildStorageKey("active_chain_id")`
+// in storage.ts which is what ChainProvider writes to. Pre-fix used the
+// underscore-separator legacy shape "blank_active_chain_id" which never
+// collided with the canonical "blank:active_chain_id" → module-level
+// SUPPORTED_CHAIN_ID always defaulted to Eth Sepolia regardless of UI
+// selection. Anything that imports SUPPORTED_CHAIN_ID directly (instead
+// of useChain()) got the wrong chain after the user switched.
+const ACTIVE_CHAIN_KEY = "blank:active_chain_id";
+const LEGACY_ACTIVE_CHAIN_KEY = "blank_active_chain_id";
 
 function readActiveChainId(): SupportedChainId {
   if (typeof localStorage === "undefined") return ETH_SEPOLIA_ID;
-  const stored = localStorage.getItem(ACTIVE_CHAIN_KEY);
+  // Read canonical first, fall back to the legacy key so users with a
+  // pre-fix preference aren't reset on upgrade. We don't write back to
+  // the legacy key here — ChainProvider/setActiveChainId writes to the
+  // canonical one going forward, which will eventually shadow the legacy.
+  const stored =
+    localStorage.getItem(ACTIVE_CHAIN_KEY) ??
+    localStorage.getItem(LEGACY_ACTIVE_CHAIN_KEY);
   if (!stored) return ETH_SEPOLIA_ID;
   const parsed = parseInt(stored, 10) as SupportedChainId;
   return parsed in CHAINS ? parsed : ETH_SEPOLIA_ID;

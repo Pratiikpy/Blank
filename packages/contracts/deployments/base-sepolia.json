@@ -67,5 +67,8 @@
   "EncryptedEscrow": "0x6414742D2da28eCEf06D79b82F406B6b8ab3e421",
   "BlankAccount_Impl_gasWallet": "0x02FDeFB3331c4907501260DF8a4584Bd6D920ADd",
   "EncryptedCrowdfund_Impl_secV2": "0xF6361068175e6E15eB295077091B5d4E688D26d5",
-  "Storefront_Impl_secV2": "0x81D3b8BEA4bDF0EbC5a99324991F9e8ef9c8dc1c"
+  "Storefront_Impl_secV2": "0x81D3b8BEA4bDF0EbC5a99324991F9e8ef9c8dc1c",
+  "Storefront_Impl_winnerRefund": "0x530635bAd81cEbd1c21F115eab03aFc4e4254773",
+  "PrivacyRouter_Impl_handleGetter": "0xE42e3BA99222Be95626DD9786338f22843285b5b",
+  "FHERC20Vault_Impl_unshieldUint64": "0xb2ae6fB51630b5b49c21932651ea7111Aa909959"
 }

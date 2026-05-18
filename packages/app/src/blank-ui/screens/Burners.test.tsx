@@ -21,7 +21,7 @@ import { render, fireEvent, act } from "@testing-library/react";
 //     to set the right mental model: deleting the LABEL only;
 //     address survives forever (deterministic from passkey + salt).
 //     Funds in the burner are still recoverable via re-deriving.
-//   - backup modal passphrase 6-char minimum + Enter-key submit;
+//   - backup modal passphrase 12-char minimum + Enter-key submit;
 //     passphrase NEVER persisted (only form-state, never
 //     localStorage).
 //   - status pills 3-state: Loading -> "Deriving" / Ready / Unavailable.
@@ -528,7 +528,7 @@ describe("Burners — backup modal (§15.x)", () => {
     expect(container.textContent).toContain("never leaves your device");
   });
 
-  it("CRITICAL: passphrase < 6 chars -> Confirm button disabled", () => {
+  it("CRITICAL: passphrase < 12 chars -> Confirm button disabled", () => {
     setBurners([buildBurner({ label: "X" })]);
     const { getByTestId } = render(<Burners />);
     fireEvent.click(getByTestId("burner-backup-b1"));
@@ -538,22 +538,22 @@ describe("Burners — backup modal (§15.x)", () => {
     expect(confirm.disabled).toBe(true);
   });
 
-  it("passphrase >= 6 chars -> Confirm enabled", () => {
+  it("passphrase >= 12 chars -> Confirm enabled", () => {
     setBurners([buildBurner({ label: "X" })]);
     const { getByTestId } = render(<Burners />);
     fireEvent.click(getByTestId("burner-backup-b1"));
     const input = getByTestId("burner-backup-passphrase") as HTMLInputElement;
-    fireEvent.change(input, { target: { value: "secret1" } });
+    fireEvent.change(input, { target: { value: "longpassphrase12" } });
     const confirm = getByTestId("burner-backup-confirm") as HTMLButtonElement;
     expect(confirm.disabled).toBe(false);
   });
 
-  it("Enter key submits when passphrase length >= 6", async () => {
+  it("Enter key submits when passphrase length >= 12", async () => {
     setBurners([buildBurner({ id: "b1", label: "X" })]);
     const { getByTestId } = render(<Burners />);
     fireEvent.click(getByTestId("burner-backup-b1"));
     const input = getByTestId("burner-backup-passphrase") as HTMLInputElement;
-    fireEvent.change(input, { target: { value: "secret1" } });
+    fireEvent.change(input, { target: { value: "longpassphrase12" } });
     await act(async () => {
       fireEvent.keyDown(input, { key: "Enter" });
       await Promise.resolve();
@@ -586,7 +586,7 @@ describe("Burners — backup modal (§15.x)", () => {
     const { getByTestId } = render(<Burners />);
     fireEvent.click(getByTestId("burner-backup-b1"));
     const input = getByTestId("burner-backup-passphrase") as HTMLInputElement;
-    fireEvent.change(input, { target: { value: "secret123" } });
+    fireEvent.change(input, { target: { value: "longpassphrase12" } });
     await act(async () => {
       fireEvent.click(getByTestId("burner-backup-confirm"));
       await Promise.resolve();
@@ -597,7 +597,7 @@ describe("Burners — backup modal (§15.x)", () => {
     // passphrase is passed to encryptBlob but not stored anywhere.
     expect(encryptBlobMock).toHaveBeenCalled();
     const passArg = encryptBlobMock.mock.calls[0][1];
-    expect(passArg).toBe("secret123");
+    expect(passArg).toBe("longpassphrase12");
   });
 
   it("backup encrypts (id+salt+label+createdAt) - NOT just the salt", async () => {
@@ -610,7 +610,7 @@ describe("Burners — backup modal (§15.x)", () => {
     setBurners([burner]);
     const { getByTestId } = render(<Burners />);
     fireEvent.click(getByTestId("burner-backup-b1"));
-    fireEvent.change(getByTestId("burner-backup-passphrase"), { target: { value: "secret123" } });
+    fireEvent.change(getByTestId("burner-backup-passphrase"), { target: { value: "longpassphrase12" } });
     await act(async () => {
       fireEvent.click(getByTestId("burner-backup-confirm"));
       await Promise.resolve();
@@ -628,7 +628,7 @@ describe("Burners — recover flow (§15.x)", () => {
   it("recoverBurnersFromEvents call signature: publicClient + registryAddress + mainAddress + passphrase", async () => {
     const { getByTestId } = render(<Burners />);
     fireEvent.click(getByTestId("burner-recover-button"));
-    fireEvent.change(getByTestId("burner-backup-passphrase"), { target: { value: "secret123" } });
+    fireEvent.change(getByTestId("burner-backup-passphrase"), { target: { value: "longpassphrase12" } });
     await act(async () => {
       fireEvent.click(getByTestId("burner-backup-confirm"));
       await Promise.resolve();
@@ -638,14 +638,14 @@ describe("Burners — recover flow (§15.x)", () => {
     const args = recoverBurnersFromEventsMock.mock.calls[0][0];
     expect(args.registryAddress).toBe(REGISTRY);
     expect(args.mainAddress).toBe(MAIN_ADDR);
-    expect(args.passphrase).toBe("secret123");
+    expect(args.passphrase).toBe("longpassphrase12");
   });
 
   it("recover returns 0 records + 0 failed -> 'No burner backups found' toast", async () => {
     recoverBurnersFromEventsMock.mockResolvedValueOnce({ records: [], failedCount: 0 });
     const { getByTestId } = render(<Burners />);
     fireEvent.click(getByTestId("burner-recover-button"));
-    fireEvent.change(getByTestId("burner-backup-passphrase"), { target: { value: "secret1" } });
+    fireEvent.change(getByTestId("burner-backup-passphrase"), { target: { value: "longpassphrase12" } });
     await act(async () => {
       fireEvent.click(getByTestId("burner-backup-confirm"));
       await Promise.resolve();
@@ -669,7 +669,7 @@ describe("Burners — recover flow (§15.x)", () => {
     importBurnersMock.mockReturnValue(2);
     const { getByTestId } = render(<Burners />);
     fireEvent.click(getByTestId("burner-recover-button"));
-    fireEvent.change(getByTestId("burner-backup-passphrase"), { target: { value: "secret1" } });
+    fireEvent.change(getByTestId("burner-backup-passphrase"), { target: { value: "longpassphrase12" } });
     await act(async () => {
       fireEvent.click(getByTestId("burner-backup-confirm"));
       await Promise.resolve();
@@ -698,7 +698,7 @@ describe("Burners — recover flow (§15.x)", () => {
     importBurnersMock.mockReturnValue(1);
     const { getByTestId } = render(<Burners />);
     fireEvent.click(getByTestId("burner-recover-button"));
-    fireEvent.change(getByTestId("burner-backup-passphrase"), { target: { value: "secret1" } });
+    fireEvent.change(getByTestId("burner-backup-passphrase"), { target: { value: "longpassphrase12" } });
     await act(async () => {
       fireEvent.click(getByTestId("burner-backup-confirm"));
       await Promise.resolve();

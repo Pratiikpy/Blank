@@ -69,6 +69,30 @@ export function buildRequestEmailSignableMessage(args: {
   ].join("\n");
 }
 
+/**
+ * Build the canonical message string the scheduled-send creation endpoint
+ * expects. Mirrors `api/_lib/sig-auth.ts:buildScheduledSendCreateMessage`.
+ * The account + recipient + spendToken triple is in the signed bytes so a
+ * sig for one scope can't be replayed to create a server-side key for a
+ * different scope on the same account.
+ */
+export function buildScheduledSendCreateSignableMessage(args: {
+  account: string;
+  recipient: string;
+  spendToken: string;
+  chainId: number;
+  signedAt: number;
+}): string {
+  return [
+    "Blank: create scheduled-send session key",
+    `account: ${args.account.toLowerCase()}`,
+    `recipient: ${args.recipient.toLowerCase()}`,
+    `spendToken: ${args.spendToken.toLowerCase()}`,
+    `chainId: ${args.chainId}`,
+    `signedAt: ${args.signedAt}`,
+  ].join("\n");
+}
+
 interface EmailSendResult {
   ok: boolean;
   messageId?: string;

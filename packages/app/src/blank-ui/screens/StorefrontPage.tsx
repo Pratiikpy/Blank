@@ -7,7 +7,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { usePublicClient } from "wagmi";
-import toast from "react-hot-toast";
 import {
   Tag,
   Gavel,
@@ -61,6 +60,13 @@ export default function StorefrontPage() {
 
   const [onChain, setOnChain] = useState<OnChainListing | null>(null);
   const [bidCount, setBidCount] = useState<number>(0);
+  // Indices of bids placed by the connected viewer (post-close only). Replaces
+  // a window.prompt() that asked the user to type their bid index — that
+  // routed wrong-index taps to a contract revert ("not your bid") AFTER 30s
+  // of FHE encryption + UserOp prefund. Loading on chain makes wrong taps
+  // impossible. §1.7 of WAVE4_HALF_BAKED #9.
+  const [myBids, setMyBids] = useState<{ index: number; refunded: boolean }[]>([]);
+  const [myBidsLoaded, setMyBidsLoaded] = useState(false);
   const [loadError, setLoadError] = useState<ClassifiedLoadError | null>(null);
   // Retry CTA bumps reloadKey, re-running the effect.
   const [reloadKey, setReloadKey] = useState(0);
@@ -146,6 +152,56 @@ export default function StorefrontPage() {
     if (now < closeTs) return "open";
     return "needsClose";
   }, [onChain]);
+
+  // Load caller's own bids for a closed auction. Walks getBidCount → getBid
+  // and keeps only indices where bidder === effectiveAddress. Cheap on Base
+  // Sepolia (paginated via wagmi multicall under the hood). Refunded bids
+  // stay in the list so the UI can show them disabled with a "refunded"
+  // chip rather than silently dropping them.
+  useEffect(() => {
+    let cancelled = false;
+    setMyBidsLoaded(false);
+    setMyBids([]);
+    if (
+      !publicClient ||
+      !onChain ||
+      onChain.mode !== SALE_MODE.Auction ||
+      !onChain.closed ||
+      !effectiveAddress ||
+      !Number.isFinite(bidCount) ||
+      bidCount <= 0 ||
+      !(chainId in CONTRACTS_BY_CHAIN)
+    ) {
+      return;
+    }
+    const contracts = CONTRACTS_BY_CHAIN[chainId as SupportedChainId];
+    if (!contracts.Storefront) return;
+    (async () => {
+      try {
+        const me = effectiveAddress.toLowerCase();
+        const collected: { index: number; refunded: boolean }[] = [];
+        for (let i = 0; i < bidCount; i++) {
+          const result = (await publicClient.readContract({
+            address: contracts.Storefront,
+            abi: StorefrontAbi,
+            functionName: "getBid",
+            args: [BigInt(listingId), BigInt(i)],
+          })) as readonly [`0x${string}`, boolean];
+          if (cancelled) return;
+          if (result[0].toLowerCase() === me) {
+            collected.push({ index: i, refunded: result[1] });
+          }
+        }
+        if (!cancelled) {
+          setMyBids(collected);
+          setMyBidsLoaded(true);
+        }
+      } catch {
+        if (!cancelled) setMyBidsLoaded(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [publicClient, onChain, effectiveAddress, bidCount, chainId, listingId, reloadKey]);
 
   // ─── Error / loading screens ───────────────────────────────────
 
@@ -296,6 +352,8 @@ export default function StorefrontPage() {
           onClose={() => closeAuction(listingId)}
           onClaim={() => claimAuctionWin(listingId)}
           onRefund={(idx) => refundLoserBid(listingId, idx)}
+          myBids={myBids}
+          myBidsLoaded={myBidsLoaded}
         />
       )}
 
@@ -363,6 +421,8 @@ function AuctionView(props: {
   onClose: () => void;
   onClaim: () => void;
   onRefund: (idx: number) => void;
+  myBids: { index: number; refunded: boolean }[];
+  myBidsLoaded: boolean;
 }) {
   const closeTs = Number(props.onChain.closesAt);
   const now = Math.floor(Date.now() / 1000);
@@ -461,27 +521,34 @@ function AuctionView(props: {
             You aren't the winner. If you bid, you can refund below.
           </div>
         )}
-        <button
-          onClick={() => {
-            const raw = prompt("Your bid index (check your wallet history):");
-            if (raw === null) return; // user cancelled
-            const trimmed = raw.trim();
-            if (trimmed === "") {
-              toast.error("Bid index required");
-              return;
-            }
-            const idx = Number.parseInt(trimmed, 10);
-            if (!Number.isFinite(idx) || idx < 0 || String(idx) !== trimmed) {
-              toast.error("Bid index must be a non-negative integer");
-              return;
-            }
-            props.onRefund(idx);
-          }}
-          disabled={props.isProcessing || !props.viewerAddress}
-          className="w-full h-12 rounded-2xl border border-[var(--border)] hover:bg-[var(--surface-2)] transition-colors disabled:opacity-40"
-        >
-          Refund my losing bid
-        </button>
+        {!props.viewerAddress ? null : !props.myBidsLoaded ? (
+          <div className="w-full h-12 rounded-2xl border border-[var(--border)] flex items-center justify-center text-sm text-[var(--text-secondary)]">
+            <Loader2 size={14} className="animate-spin mr-2" /> Checking your bids…
+          </div>
+        ) : props.myBids.length === 0 ? (
+          <div className="w-full px-4 py-3 rounded-2xl border border-[var(--border)] text-sm text-[var(--text-secondary)] text-center">
+            You didn't bid on this auction.
+          </div>
+        ) : (
+          <div className="space-y-2" data-testid="my-bids-list">
+            <div className="text-xs uppercase tracking-wide text-[var(--text-secondary)]">
+              {viewerIsWinner ? "Your other bids" : "Your bids"}
+            </div>
+            {props.myBids.map((b) => (
+              <button
+                key={b.index}
+                onClick={() => props.onRefund(b.index)}
+                disabled={props.isProcessing || b.refunded || (viewerIsWinner && b.index === props.myBids[props.myBids.length - 1]?.index)}
+                className="w-full h-12 px-4 rounded-2xl border border-[var(--border)] hover:bg-[var(--surface-2)] transition-colors disabled:opacity-40 flex items-center justify-between text-sm"
+              >
+                <span>Bid #{b.index}</span>
+                <span className={cn("text-xs", b.refunded ? "text-[var(--text-secondary)]" : "text-[var(--text-primary)] font-medium")}>
+                  {b.refunded ? "Refunded" : props.isProcessing ? "Refunding…" : "Refund"}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

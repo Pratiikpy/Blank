@@ -50,10 +50,11 @@ describe("encryptBlob + decryptBlob round-trip", () => {
 
   it("rejects empty / too-short passphrase at encrypt time", async () => {
     await expect(encryptBlob(PAYLOAD, "")).rejects.toThrow(
-      /at least 6 characters/,
+      /at least 12 characters/,
     );
-    await expect(encryptBlob(PAYLOAD, "12345")).rejects.toThrow(
-      /at least 6 characters/,
+    // 11-char passphrase — one below the new floor of 12 chars (was 6).
+    await expect(encryptBlob(PAYLOAD, "elevenChars")).rejects.toThrow(
+      /at least 12 characters/,
     );
   });
 

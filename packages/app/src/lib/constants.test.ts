@@ -179,27 +179,31 @@ describe("setActiveChainId (localStorage persistence)", () => {
     localStorage.clear();
   });
 
-  it("persists the new chain id to localStorage under 'blank_active_chain_id'", () => {
+  it("persists the new chain id to localStorage under the canonical key 'blank:active_chain_id'", () => {
     try {
       setActiveChainId(BASE_SEPOLIA_ID);
     } catch {
       // jsdom's location.reload throws on call — ignore; we only care
       // about the localStorage side effect which happens BEFORE the reload.
     }
-    expect(localStorage.getItem("blank_active_chain_id")).toBe(String(BASE_SEPOLIA_ID));
+    // Canonical key, shared with ChainProvider via STORAGE_KEYS.activeChainId.
+    // Pre-fix used the underscore-form "blank_active_chain_id" which never
+    // collided with the colon-form key ChainProvider writes — module-level
+    // SUPPORTED_CHAIN_ID stayed on Eth Sepolia regardless of UI selection.
+    expect(localStorage.getItem("blank:active_chain_id")).toBe(String(BASE_SEPOLIA_ID));
   });
 
   it("overwrites a prior value on a subsequent call (per-call setter, not append-only)", () => {
     try { setActiveChainId(BASE_SEPOLIA_ID); } catch {}
     try { setActiveChainId(ETH_SEPOLIA_ID); } catch {}
-    expect(localStorage.getItem("blank_active_chain_id")).toBe(String(ETH_SEPOLIA_ID));
+    expect(localStorage.getItem("blank:active_chain_id")).toBe(String(ETH_SEPOLIA_ID));
   });
 
-  it("the storage key 'blank_active_chain_id' is namespaced (won't collide with other apps on the same origin)", () => {
+  it("the storage key 'blank:active_chain_id' is namespaced (won't collide with other apps on the same origin)", () => {
     try { setActiveChainId(BASE_SEPOLIA_ID); } catch {}
-    // The key starts with 'blank_' to namespace under our app prefix.
+    // The key starts with 'blank' to namespace under our app prefix.
     const keys = Object.keys(localStorage);
-    expect(keys.some((k) => k.startsWith("blank_"))).toBe(true);
+    expect(keys.some((k) => k.startsWith("blank"))).toBe(true);
   });
 });
 
