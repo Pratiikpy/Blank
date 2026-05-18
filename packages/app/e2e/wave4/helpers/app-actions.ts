@@ -204,9 +204,14 @@ export async function drainPromptsAndCaptureTx(
     interceptedTxHash !== null ||
     (await page.locator('a[href*="/tx/0x"]').first().count()) > 0;
   try {
+    // expectAtLeast: 0 because cofhe permits may already be warmed by an
+    // earlier UserOp in the same browser session (e.g. P5 second/third
+    // claim-link create after the first, P7 income-proof after the
+    // preceding shieldUsdc). The terminateOn check still proves the tx
+    // fired; if it didn't, readTxHashFromSuccess will throw.
     await drainPassphrasePrompts(page, passphrase, {
       windowMs: opts.windowMs ?? 360_000,
-      expectAtLeast: 1,
+      expectAtLeast: 0,
       terminateOn: txVisible,
     });
     if (interceptedTxHash) return interceptedTxHash;
