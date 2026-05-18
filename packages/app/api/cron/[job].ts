@@ -16,6 +16,9 @@ const handlers: Record<string, () => Promise<{ default: (req: any, res: any) => 
   "invoice-reminders": () => import("../_lib/jobs/cron-invoice-reminders.js"),
   "paymaster-monitor": () => import("../_lib/jobs/cron-paymaster-monitor.js"),
   "scheduled-sends-tick": () => import("../_lib/jobs/cron-scheduled-sends-tick.js"),
+  // Frontend-triggered reconciliation (vercel.json rewrites /api/reconcile-user here).
+  // Consolidated under this dispatcher to stay within Hobby's 12-function cap.
+  "reconcile-user": () => import("../_lib/jobs/reconcile-user.js"),
 };
 
 export default async function handler(req: any, res: any) {

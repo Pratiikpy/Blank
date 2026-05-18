@@ -297,7 +297,7 @@ test.describe("Phase 2 — P2P encrypted payments", () => {
     const recipientInput = alicePage.locator('input[placeholder*="0x"]').first();
     await recipientInput.waitFor({ state: "visible", timeout: 30_000 });
     await recipientInput.fill(bobAddress);
-    await alicePage.locator("button").filter({ hasText: /^Next/i }).first().click();
+    await alicePage.locator("main button:visible:not([disabled])").filter({ hasText: /^Continue/i }).first().click();
 
     await alicePage.locator('input[placeholder="0.00"]').first().fill("1000");
     // #377: scope to main + waitForURL to avoid the same sidebar-nav race

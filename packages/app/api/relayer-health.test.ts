@@ -26,7 +26,14 @@ vi.mock("./_lib/signer.js", () => ({
   getSigner: getSignerMock,
 }));
 
-import handler from "./relayer-health.js";
+// Health endpoint dispatches to relayer-balance probe via ?kind=relayer
+// (consolidated from former /api/relayer-health for Hobby 12-function cap).
+import healthHandler from "./health.js";
+
+const handler = (req: any, res: any) => {
+  req.query = { ...(req.query ?? {}), kind: "relayer" };
+  return healthHandler(req, res);
+};
 
 const RELAYER_ADDR = "0xRElaYErAddrEsS00000000000000000000000000";
 

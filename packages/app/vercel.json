@@ -1,6 +1,8 @@
 {
   "rewrites": [
     { "source": "/v/:proofId", "destination": "/api/share/proof?id=:proofId" },
+    { "source": "/api/relayer-health", "destination": "/api/health?kind=relayer" },
+    { "source": "/api/reconcile-user", "destination": "/api/cron/reconcile-user" },
     { "source": "/(.*)", "destination": "/index.html" }
   ],
   "headers": [

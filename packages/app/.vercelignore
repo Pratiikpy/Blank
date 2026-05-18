@@ -1,0 +1,15 @@
+# Exclude test files from Vercel deploy — Vercel's @vercel/node builder
+# turns every .test.ts/.test.tsx in api/ into its own serverless function,
+# which doubled the function count and tripped Hobby plan's 12-function
+# cap during deploy (#380). Tests run only in vitest locally + CI, never
+# as a deployed endpoint.
+
+api/**/*.test.ts
+api/**/*.test.tsx
+
+# Leftover sibling test files at root of api/
+api/*.test.ts
+api/*.test.tsx
+
+# Vitest config + shared test helpers — not needed at runtime
+api/dispatcher.test.ts

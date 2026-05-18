@@ -44,7 +44,7 @@ vi.mock("./_lib/addresses.js", () => ({
   },
 }));
 
-import handler from "./reconcile-user.js";
+import handler from "./_lib/jobs/reconcile-user.js";
 
 // All-lowercase 20-byte address bypasses EIP-55 checksum check inside ethers.isAddress.
 const VALID_ADDR = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";

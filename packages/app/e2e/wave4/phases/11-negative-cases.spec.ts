@@ -115,17 +115,23 @@ test.describe("Phase 11 — negative cases", () => {
 
     // The UI may either accept and let the contract enforce (via the
     // FHE.gt(encGoal, 0) AND in closeCampaign), or reject upfront
-    // with a "goal must be > 0" toast. Both outcomes are valid
-    // negative-case evidence. Capture which one fires.
-    await alice.page.locator("button").filter({ hasText: /^Launch campaign/i }).click();
+    // with a disabled-button gate. Both outcomes are valid negative-
+    // case evidence. Check button-disabled state first (UI gate path)
+    // and only click if it's enabled (contract-enforcement path).
+    const launchBtn = alice.page.locator("button").filter({ hasText: /^Launch campaign/i }).first();
+    await launchBtn.waitFor({ state: "visible", timeout: 15_000 });
+    const isDisabled = await launchBtn.isDisabled().catch(() => true);
 
     let createTx: string | null = null;
     let onChainPath = false;
-    try {
-      createTx = await drainPromptsAndCaptureTx(alice.page, PERSONAS.Alice.passphrase, { readTimeoutMs: 90_000 });
-      onChainPath = true;
-    } catch {
-      // UI guard caught it OR tx-hash didn't surface.
+    if (!isDisabled) {
+      await launchBtn.click();
+      try {
+        createTx = await drainPromptsAndCaptureTx(alice.page, PERSONAS.Alice.passphrase, { readTimeoutMs: 90_000 });
+        onChainPath = true;
+      } catch {
+        // tx didn't surface — fall through to UI-reject branch.
+      }
     }
 
     if (onChainPath) {
