@@ -249,11 +249,14 @@ test.describe("Phase 3 — business tools", () => {
     // New payroll batch. Selectors come from BusinessTools.tsx around
     // placeholder="0xabc..., 0xdef..., 0x123..." for addresses and
     // placeholder="5000, 8000, 3500" for amounts.
+    // The Payroll tab opens with an intro card; the form expands when
+    // the "Run Payroll" button is clicked (also a "+ Run Payroll" CTA
+    // top-right). Match either.
     const newPayrollBtn = alice.page
-      .locator("button").filter({ hasText: /^\\+ Payroll/i })
+      .locator("button").filter({ hasText: /Run Payroll/i })
       .first();
-    await newPayrollBtn.click().catch(() => {
-      // Some builds open the form inline without a separate "New" button.
+    await newPayrollBtn.click({ timeout: 15_000 }).catch((e) => {
+      console.log(`[P3 payroll] Run Payroll click skipped: ${(e as Error).message.slice(0, 80)}`);
     });
 
     const addressesInput = alice.page.locator('input[placeholder*="0xabc"], textarea[placeholder*="0xabc"]').first();
