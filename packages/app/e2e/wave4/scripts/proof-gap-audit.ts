@@ -193,16 +193,23 @@ function main(): void {
         continue;
       }
 
-      // Validate every match's tx hash format. If requiresRealTx, the
-      // hash MUST not be the synthetic 0x0...0 placeholder.
-      for (const m of matches) {
-        if (!HASH_RE.test(m.txHash)) {
+      // Validate hash formats. If requiresRealTx, the tuple needs AT
+      // LEAST ONE entry with a real (non-zero) hash. Older synthetic
+      // entries can co-exist (the file appends, never replaces) so the
+      // gate is "any real hash present" rather than "every hash real."
+      const badFormat = matches.filter((m) => !HASH_RE.test(m.txHash));
+      for (const m of badFormat) {
+        errors.push(
+          `  BAD HASH FORMAT: "${m.phase}" chain ${chainId} → ${m.txHash}`,
+        );
+      }
+      if (exp.requiresRealTx) {
+        const realHashEntry = matches.find(
+          (m) => HASH_RE.test(m.txHash) && m.txHash !== ZERO_HASH,
+        );
+        if (!realHashEntry) {
           errors.push(
-            `  BAD HASH FORMAT: "${m.phase}" chain ${chainId} → ${m.txHash}`,
-          );
-        } else if (exp.requiresRealTx && m.txHash === ZERO_HASH) {
-          errors.push(
-            `  SYNTHETIC HASH ON HAPPY PATH: "${m.phase}" chain ${chainId} expects a real tx hash — got 0x0...0. Did the relay never confirm?`,
+            `  SYNTHETIC HASH ON HAPPY PATH: "${matches[0].phase}" chain ${chainId} expects a real tx hash — all ${matches.length} recorded entr${matches.length === 1 ? "y is" : "ies are"} 0x0...0. Did the relay never confirm?`,
           );
         }
       }
