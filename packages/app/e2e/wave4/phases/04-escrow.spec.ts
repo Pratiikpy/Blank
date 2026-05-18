@@ -169,9 +169,12 @@ test.describe("Phase 4 — escrow", () => {
     // Bob's "Mine" view depends on the Supabase indexer picking up
     // Alice's create-escrow event (typically 15-60s after the on-chain
     // tx confirms). React doesn't auto-refresh the list, so reload
-    // every 30s until the Mark Delivered button surfaces.
+    // every 30s until the Release Funds button surfaces. The UI shows
+    // "Release Funds" for both roles; handleReleaseFunds in BusinessTools
+    // routes internally to markDelivered when the caller is the
+    // beneficiary, approveRelease when the caller is the depositor.
     const markDeliveredBtn = bob.page
-      .locator("button").filter({ hasText: /Mark.*delivered|^Deliver/i })
+      .locator("button").filter({ hasText: /^Release Funds/i })
       .first();
     let markDeliveredFound = false;
     for (let i = 0; i < 6 && !markDeliveredFound; i++) {
