@@ -259,10 +259,70 @@ async function cdpRawClick(popup: Page, x: number, y: number): Promise<boolean> 
 
 const RABBY_CTAS = ["Sign", "Confirm", "Approve", "Connect", "Allow", "Switch network", "Submit"];
 
-async function drivePopupToClose(popup: Page, label: string, ms = 60_000): Promise<{ clicks: number; closed: boolean }> {
+/**
+ * On the Rabby "Connect to Dapp" popup the chain selector defaults to
+ * Ethereum mainnet (chain 1). Blank's wagmi config only allows Sepolia
+ * (11155111) and Base Sepolia (84532), so the Connect button stays
+ * disabled until we switch. Click the Ethereum text → pick the target
+ * chain from the dropdown list.
+ */
+async function selectRabbyChain(popup: Page, chainName: string): Promise<boolean> {
+  // The current chain text is visible top-right. Try clicking by text
+  // "Ethereum" (default) — Rabby's dropdown chip.
+  const triggers = [
+    popup.getByText("Ethereum", { exact: true }).first(),
+    // Some Rabby versions wrap the chip in a span / div / button.
+    popup.locator('[class*="chain-selector"], [class*="ChainSelector"]').first(),
+  ];
+  for (const trig of triggers) {
+    if (await trig.isVisible({ timeout: 2_000 }).catch(() => false)) {
+      const bb = await trig.boundingBox({ timeout: 2_000 }).catch(() => null);
+      if (bb) {
+        await popup.mouse.click(bb.x + bb.width / 2, bb.y + bb.height / 2);
+      } else {
+        await trig.click({ force: true }).catch(() => {});
+      }
+      await popup.waitForTimeout(2_000);
+      log(`  chain-selector: opened dropdown via "${chainName}"-trigger`);
+      break;
+    }
+  }
+  // Pick the target chain from the list.
+  const target = popup.getByText(chainName, { exact: true }).first();
+  if (await target.isVisible({ timeout: 3_000 }).catch(() => false)) {
+    const bb = await target.boundingBox({ timeout: 2_000 }).catch(() => null);
+    if (bb) {
+      await popup.mouse.click(bb.x + bb.width / 2, bb.y + bb.height / 2);
+    } else {
+      await target.click({ force: true }).catch(() => {});
+    }
+    await popup.waitForTimeout(2_000);
+    log(`  chain-selector: ✓ selected "${chainName}"`);
+    return true;
+  }
+  // Fall back to a substring search if exact didn't match.
+  const partial = popup.getByText(new RegExp(chainName.split(" ")[0], "i")).first();
+  if (await partial.isVisible({ timeout: 2_000 }).catch(() => false)) {
+    const bb = await partial.boundingBox({ timeout: 2_000 }).catch(() => null);
+    if (bb) await popup.mouse.click(bb.x + bb.width / 2, bb.y + bb.height / 2);
+    else await partial.click({ force: true }).catch(() => {});
+    await popup.waitForTimeout(2_000);
+    log(`  chain-selector: ✓ selected via partial match "${chainName.split(" ")[0]}"`);
+    return true;
+  }
+  log(`  chain-selector: "${chainName}" not in dropdown`);
+  return false;
+}
+
+async function drivePopupToClose(popup: Page, label: string, ms = 60_000, chainName?: string): Promise<{ clicks: number; closed: boolean }> {
   const start = Date.now();
   let clicks = 0;
   let lastClick = Date.now();
+  // On the Connect popup, switch the chain BEFORE looking for the
+  // primary CTA — otherwise Connect stays disabled forever.
+  if (label.includes("connect") && chainName) {
+    await selectRabbyChain(popup, chainName).catch((e) => log(`  chain-select failed: ${(e as Error).message.slice(0, 80)}`));
+  }
   while (Date.now() - start < ms) {
     if (popup.isClosed()) return { clicks, closed: true };
     if (Date.now() - lastClick > 10_000 && clicks > 0) break;
@@ -610,7 +670,7 @@ async function onboardRabby(rabby: Page, privateKey: string): Promise<void> {
   if (connectPopup) {
     knownPages.add(connectPopup);
     log(`Connect popup at ${connectPopup.url()}`);
-    const r = await drivePopupToClose(connectPopup, "connect");
+    const r = await drivePopupToClose(connectPopup, "connect", 60_000, CHAINS[CHAIN_ID].name);
     log(`Connect popup: ${r.clicks} clicks, closed=${r.closed}`);
   }
   await dapp.waitForTimeout(3_000);
@@ -620,7 +680,7 @@ async function onboardRabby(rabby: Page, privateKey: string): Promise<void> {
   if (siwePopup) {
     knownPages.add(siwePopup);
     log(`SIWE popup at ${siwePopup.url()}`);
-    const r = await drivePopupToClose(siwePopup, "siwe");
+    const r = await drivePopupToClose(siwePopup, "siwe", 60_000);
     log(`SIWE popup: ${r.clicks} clicks, closed=${r.closed}`);
   }
   await dapp.waitForTimeout(5_000);
