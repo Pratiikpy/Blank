@@ -268,10 +268,13 @@ test.describe("Phase 3 — business tools", () => {
 
     await snap(alice.page, shot, "payroll-filled");
 
+    // The modal's submit button is also labeled "Run Payroll" (matches
+    // the outer open-form CTA text). Use .last() to grab the modal's
+    // submit (rendered AFTER the outer button in DOM order).
     await alice.page
-      .locator("button").filter({ hasText: /^Submit/i })
+      .locator("button").filter({ hasText: /^Run Payroll/i })
       .last()
-      .click();
+      .click({ timeout: 15_000 });
     let payrollTxHash: string;
     try {
       payrollTxHash = await drainPromptsAndCaptureTx(alice.page, PERSONAS.Alice.passphrase, { readTimeoutMs: 30_000 });
