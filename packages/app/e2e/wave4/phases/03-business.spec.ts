@@ -164,6 +164,16 @@ test.describe("Phase 3 — business tools", () => {
     // he can pay. Without this wait the locator below resolves to
     // the disabled "Pay via escrow" button and the click never fires.
     await bob.page.goto(previewHref);
+    // Bob must enter the amount (invoice amount is encrypted on-chain;
+    // Bob knows it off-chain — e.g., from the vendor's email — and the
+    // encrypted-equality check on the contract rejects mismatches by
+    // refunding via the FHE.eq path). The Pay button is disabled until
+    // a non-empty amount is entered (InvoicePage.tsx:303).
+    const payAmountInput = bob.page
+      .locator('input[placeholder="Amount in USDC"]')
+      .first();
+    await payAmountInput.waitFor({ state: "visible", timeout: 30_000 });
+    await payAmountInput.fill("25");
     const payBtn = bob.page
       .locator("button:not([disabled])").filter({ hasText: /^Pay/i })
       .first();
