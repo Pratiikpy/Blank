@@ -1,4 +1,4 @@
-# Blank — Wave 4
+# Blank: Wave 4
 
 Private payments for the real world. Transaction amounts encrypted with FHE on Base Sepolia and Ethereum Sepolia.
 
@@ -12,14 +12,14 @@ Wave 4 closes the "what does a real human do with private payments" loop. Three 
 
 ### #244 Magic Claim Links
 
-`/claim/:chainId/:linkId#mode:secret` — send any amount via a link. Three modes: **Bearer** (anyone with the link), **EmailBound** (only the email owner), **AddressBound** (only the named wallet). Recipient lands on a public page, claims with one click. Refund after 365-day max expiry.
+`/claim/:chainId/:linkId#mode:secret`. Send any amount via a link. Three modes: **Bearer** (anyone with the link), **EmailBound** (only the email owner), **AddressBound** (only the named wallet). Recipient lands on a public page, claims with one click. Refund after 365-day max expiry.
 
 FHE primitive: `FHE.eq` on the email digest for EmailBound mode.
 Deployed: Eth Sepolia `0x9E2189149deec5e78cB2976d8DF64CAec40B12Be`, Base Sepolia `0x2eD78815299C2B1F2cBd2313CF763B56A0654665`.
 
 ### #254 Storefront + Sealed-Bid Auction
 
-`/shop/:chainId/:listingId` — sell a product with one of three modes: **FixedPrice** (encrypted price, buyer matches), **Auction** (sealed-bid, max wins), **PayWhatYouWant** (buyer names the amount).
+`/shop/:chainId/:listingId`. Sell a product with one of three modes: **FixedPrice** (encrypted price, buyer matches), **Auction** (sealed-bid, max wins), **PayWhatYouWant** (buyer names the amount).
 
 Sealed-bid auctions are the headline FHE feature. Bids stay encrypted end-to-end. At close, the contract runs an FHE-tournament over the bid array using `FHE.gt` + `FHE.select` to pick the encrypted winner index, then `revealWinner(plaintext, signature)` lands the Threshold Network verdict. No bidder ever learns another's bid; only the winner's address surfaces publicly.
 
@@ -28,7 +28,7 @@ Deployed: Eth Sepolia `0x786C85880e0FCF123D726600D9784ee88B84695b`, Base Sepolia
 
 ### #257 Encrypted Crowdfunding
 
-`/fund/:chainId/:campaignId` — privately-funded campaigns. Goal AND individual contributions are encrypted. After deadline, the contract computes `FHE.gte(raised, goal)` and publishes only the verdict (true/false). On success the creator pulls; on failure each contributor refunds independently.
+`/fund/:chainId/:campaignId`. Privately-funded campaigns. Goal AND individual contributions are encrypted. After deadline, the contract computes `FHE.gte(raised, goal)` and publishes only the verdict (true/false). On success the creator pulls; on failure each contributor refunds independently.
 
 FHE primitives: `FHE.gte` (verdict), `FHE.gt` (Wave 4 §1.14 A4 zero-goal grief guard), `FHE.add` (running raised total).
 Deployed: Eth Sepolia `0x383B58973f7e8DC3E47D1C2f55393E2ac48b24e1`, Base Sepolia `0x0F21705575e2CC83dC410AE2af6973B150a4183C`.
@@ -48,7 +48,7 @@ A user creates a proof in two clicks (Proofs screen), auto-publish defaults ON s
 
 ### §1.13 Self-Owned Gas Wallet
 
-Until now, every passkey UserOp routed through BlankPaymaster (we pay gas). When the paymaster runs dry, users are stuck. Wave 4 ships a UUPS upgrade on `BlankAccount.sol` so the smart account `receive()` auto-deposits incoming ETH into the EntryPoint as gas credit. Users can deposit ETH **from anywhere** — exchange withdrawal, hardware wallet, primary EOA — and the contract converts it. The `useUnifiedWrite` hook then automatically routes UserOps via self-pay (`paymasterAndData = "0x"`) when the deposit covers gas. Explicit caller overrides still win.
+Until now, every passkey UserOp routed through BlankPaymaster (we pay gas). When the paymaster runs dry, users are stuck. Wave 4 ships a UUPS upgrade on `BlankAccount.sol` so the smart account `receive()` auto-deposits incoming ETH into the EntryPoint as gas credit. Users can deposit ETH **from anywhere** (exchange withdrawal, hardware wallet, primary EOA) and the contract converts it. The `useUnifiedWrite` hook then automatically routes UserOps via self-pay (`paymasterAndData = "0x"`) when the deposit covers gas. Explicit caller overrides still win.
 
 The frontend exposes a Gas wallet panel on the SmartWallet screen with: Copy address CTA, live `entryPoint.balanceOf` per chain, idle-balance display, "Self-paying mode active" badge, and a self-upgrade prompt that fires when the proxy's EIP-1967 impl slot doesn't match the deployed gas-wallet impl.
 
@@ -67,7 +67,7 @@ A 12-item sprint week (§1.1-§1.12 in `WAVE4.md`) plus a parallel §3.x hooks-d
 
 ### Engineering posture
 
-Multi-chain (Eth Sepolia + Base Sepolia), ERC-4337 v0.8 + WebAuthn passkeys, dedicated mainnet ENS client for `.eth` / `.base.eth` resolution (not a wagmi chain — users don't switch). 5868+ vitest tests across 257 files. UUPS upgrades for every state-bearing contract; `pnpm storage:check` enforces append-only storage across 19 contracts.
+Multi-chain (Eth Sepolia + Base Sepolia), ERC-4337 v0.8 + WebAuthn passkeys, dedicated mainnet ENS client for `.eth` / `.base.eth` resolution (not a wagmi chain, users don't switch). 5868+ vitest tests across 257 files. UUPS upgrades for every state-bearing contract; `pnpm storage:check` enforces append-only storage across 19 contracts.
 
 ### Things that exist in code and ship working
 
@@ -75,9 +75,9 @@ Twelve sixteen surfaces total: Send, Request, Invoice, Payroll, Escrow, Group Sp
 
 ### Honest about deferred
 
-- B1 (wire `useEncryptedEscrow` into BusinessTools) — hook is complete, UI integration deferred to a focused session because it requires reconciling the legacy plaintext BusinessHub escrow with the new encrypted path under one UX.
-- B3/B4 (sender-side "Your sent links / listings / campaigns" management tabs) — the hooks expose `refundLink` / `deactivateListing` etc; the management UI is deferred.
-- G8 (`addSelfToGroup` unauthenticated) — Supabase RLS migration deferred; current behavior is testnet-acceptable (anyone who knows a group ID can join, adds spam expense rows, no fund-loss).
+- B1 (wire `useEncryptedEscrow` into BusinessTools): hook is complete, UI integration deferred to a focused session because it requires reconciling the legacy plaintext BusinessHub escrow with the new encrypted path under one UX.
+- B3/B4 (sender-side "Your sent links / listings / campaigns" management tabs): the hooks expose `refundLink` / `deactivateListing` etc; the management UI is deferred.
+- G8 (`addSelfToGroup` unauthenticated): Supabase RLS migration deferred; current behavior is testnet-acceptable (anyone who knows a group ID can join, adds spam expense rows, no fund-loss).
 - Wave 4 docs refresh: this submission doc + per-feature READMEs are current; full `docs/ARCHITECTURE.md` regen + `docs/CODEMAPS/*` regen pending.
 
 ### Live links

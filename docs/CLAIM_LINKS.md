@@ -1,6 +1,6 @@
 # Magic Claim Links
 
-Send an amount via a link. The recipient lands on a public page (`/claim/:chainId/:linkId#mode:secret`), clicks Claim, and receives the funds into their smart account or EOA — no prior relationship with the sender, no on-chain match required at send time.
+Send an amount via a link. The recipient lands on a public page (`/claim/:chainId/:linkId#mode:secret`), clicks Claim, and receives the funds into their smart account or EOA. No prior relationship with the sender, no on-chain match required at send time.
 
 ## Modes
 
@@ -20,7 +20,7 @@ The amount is encrypted from create through claim. The sender does **not** retai
 
 ## Refunds + expiry
 
-- `MAX_EXPIRY_SECONDS = 365 days` cap (audit §1.5 fix — prior unbounded expiry enabled fund-then-grief).
+- `MAX_EXPIRY_SECONDS = 365 days` cap (audit §1.5 fix; prior unbounded expiry enabled fund-then-grief).
 - `expirySeconds == 0` → default 30 days.
 - After expiry, the sender calls `refundLink(linkId)` to pull funds back.
 
@@ -55,10 +55,10 @@ function refundLink(uint256 linkId) external;
 - Hook: `packages/app/src/hooks/useClaimLinks.ts` (`createLink`, `claim`, `refund`)
 - Create screen: `packages/app/src/blank-ui/screens/CreateClaimLink.tsx`
 - Public claim page: `packages/app/src/blank-ui/screens/ClaimLinkPage.tsx`
-- URL utility: `packages/app/src/lib/claim-links.ts` — domain hash, secret-32-bytes round-trip, URL build/parse.
+- URL utility: `packages/app/src/lib/claim-links.ts`: domain hash, secret-32-bytes round-trip, URL build/parse.
 
 ## Tests
 
-- Contract: `packages/contracts/test/ClaimLinks.test.ts` — 13 tests covering create + 3-mode claim + refund + double-claim/double-refund + expiry cap.
-- Lib: `packages/app/src/lib/claim-links.test.ts` — 38 tests pinning DOMAIN derivation, MODE enum alignment, secret-bytes32 round-trip, cryptographic invariants (3-way distinct hashes, deterministic per-secret), buildClaimUrl validation, parseClaimUrl defensive null handling.
+- Contract: `packages/contracts/test/ClaimLinks.test.ts`: 13 tests covering create + 3-mode claim + refund + double-claim/double-refund + expiry cap.
+- Lib: `packages/app/src/lib/claim-links.test.ts`: 38 tests pinning DOMAIN derivation, MODE enum alignment, secret-bytes32 round-trip, cryptographic invariants (3-way distinct hashes, deterministic per-secret), buildClaimUrl validation, parseClaimUrl defensive null handling.
 - Screens: `ClaimLinkPage.test.tsx` (35 tests), `CreateClaimLink.test.tsx` (37 tests).
