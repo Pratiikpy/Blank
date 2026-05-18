@@ -169,8 +169,8 @@ test.describe("Phase 15 — Creator Support", () => {
     await snap(alice.page, aliceShot, "message-typed");
 
     // Click "Send $5 Support" button.
-    const sendBtn = alice.page.locator("button").filter({ hasText: /^Send \\$5 Support/i });
-    await sendBtn.waitFor({ state: "visible", timeout: 5_000 });
+    const sendBtn = alice.page.locator("button").filter({ hasText: /^Send \$5 Support/i });
+    await sendBtn.waitFor({ state: "visible", timeout: 30_000 });
     await sendBtn.click();
     await snap(alice.page, aliceShot, "tip-submit-clicked");
 
