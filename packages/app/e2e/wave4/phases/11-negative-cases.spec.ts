@@ -189,8 +189,16 @@ test.describe("Phase 11 — negative cases", () => {
     // Create escrow with empty arbiter input → contract stores
     // arbiter=0x0.
     await alice.page.goto("/app/business");
-    await alice.page.getByText(/^Escrow$/).first().click({ timeout: 30_000 }).catch(() => undefined);
-    await alice.page.locator("button").filter({ hasText: /^\\+ Escrow/i }).first().click();
+    await alice.page
+      .getByRole("tab", { name: /^Escrow$/i })
+      .first()
+      .click({ timeout: 30_000 })
+      .catch(() => undefined);
+    await alice.page
+      .locator("main button:visible:not([disabled])")
+      .filter({ hasText: /New Escrow|Create your first escrow/i })
+      .first()
+      .click();
 
     await alice.page.locator('input[placeholder="0x..."]').first().fill(bob.address);
     await alice.page.locator('input[placeholder="0.00"]').first().fill("10");
