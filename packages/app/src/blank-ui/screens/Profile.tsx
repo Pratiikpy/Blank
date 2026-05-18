@@ -97,7 +97,26 @@ export default function Profile() {
     },
   ];
 
-  if (!address) return null;
+  // Loading state: render the page shell with the h1 so the route is
+  // visibly addressable even before the smart account materializes
+  // (caught in P13 render sweep — pages returning null on no-address
+  // appear blank to crawlers + the e2e sweep).
+  if (!address) {
+    return (
+      <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+        <div className="max-w-5xl mx-auto">
+          <div className="mb-8">
+            <h1 className="text-4xl sm:text-5xl font-heading font-semibold text-[var(--text-primary)] tracking-tight mb-2">
+              Profile
+            </h1>
+            <p className="text-base text-[var(--text-primary)]/50 leading-relaxed">
+              Loading your account...
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">

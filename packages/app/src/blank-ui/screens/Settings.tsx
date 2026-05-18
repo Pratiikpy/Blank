@@ -189,7 +189,31 @@ export default function Settings() {
     navigate("/", { replace: true });
   }, [address, disconnect, navigate]);
 
-  if (!address) return null;
+  // Loading state: render the page shell with the h1 so the route is
+  // visibly addressable even before the smart account materializes
+  // (caught in P13 render sweep — pages returning null on no-address
+  // appear blank to crawlers + the e2e sweep).
+  if (!address) {
+    return (
+      <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+        <div className="max-w-3xl mx-auto">
+          <div className="flex items-center gap-4 mb-8">
+            <div className="flex-1">
+              <h1
+                className="text-3xl font-semibold tracking-tight text-[var(--text-primary)]"
+                style={{ fontFamily: "'Outfit', sans-serif" }}
+              >
+                Settings
+              </h1>
+              <p className="text-sm text-[var(--text-secondary)]">
+                Loading your account...
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
