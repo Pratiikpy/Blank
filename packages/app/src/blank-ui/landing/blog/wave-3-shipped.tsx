@@ -18,7 +18,7 @@ const post: BlogPost = {
         reasoning behind each call.
       </p>
 
-      <h2>Private invoice escrow — the wedge</h2>
+      <h2>Private invoice escrow: the wedge</h2>
       <p>
         Until Wave 3, Blank had a powerful primitive (encrypted
         amounts) but no clear answer to "what's the first thing a
@@ -63,7 +63,7 @@ const post: BlogPost = {
         you're building on the same stack.
       </p>
 
-      <h2>Workspace modes — the hide-the-menu fix</h2>
+      <h2>Workspace modes: the hide-the-menu fix</h2>
       <p>
         Twelve product surfaces in one app is a feature pile that
         scares new users. The fix: pick a focus mode (Freelancer,

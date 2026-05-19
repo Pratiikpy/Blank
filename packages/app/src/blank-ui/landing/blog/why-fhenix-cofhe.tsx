@@ -34,10 +34,10 @@ const post: BlogPost = {
         Most FHE-on-blockchain projects choose one of two paths.
       </p>
       <p>
-        <strong>Path 1 — FHE Layer 1.</strong> Every node in the network
+        <strong>Path 1: FHE Layer 1.</strong> Every node in the network
         runs FHE operations. The chain itself is FHE-native. Inco and
         parts of Zama's roadmap point this direction. The benefit is
-        purity — the security model collapses to "if the chain is
+        purity. The security model collapses to "if the chain is
         secure, FHE is secure." The cost is that you've built a new
         chain, with all the bootstrapping problems that implies:
         wallets don't natively support it, bridges have to exist,
@@ -45,11 +45,11 @@ const post: BlogPost = {
         be ported or replaced.
       </p>
       <p>
-        <strong>Path 2 — FHE co-processor.</strong> The base chain is
+        <strong>Path 2: FHE co-processor.</strong> The base chain is
         plain Ethereum (or any EVM L2). FHE operations are delegated
         to a specialised network of operators that compute on
         ciphertext, return results, and produce permits the EVM can
-        verify. This is what Fhenix CoFHE is — explicitly a <em>co-
+        verify. That's what Fhenix CoFHE is: explicitly a <em>co-
         processor</em>, not a chain. Their FHE compute happens off the
         main chain; the EVM contract code references handles
         (<code>euint64</code>, <code>ebool</code>) and dispatches work
@@ -172,7 +172,7 @@ FHE.allowSender(balance);`}
         surface instead of one well-tested feature.
       </p>
 
-      <h2>Where Fhenix is still maturing — honestly</h2>
+      <h2>Where Fhenix is still maturing, honestly</h2>
       <p>
         This wouldn't be a credible post if we didn't name the gaps.
       </p>
