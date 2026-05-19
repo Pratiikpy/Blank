@@ -133,21 +133,36 @@ async function main(): Promise<void> {
   // Recipient input — placeholder includes "0x... (address)" per the form.
   const recipientInput = dapp.locator('input[placeholder*="0x"]').first();
   await recipientInput.waitFor({ state: "visible", timeout: 5_000 });
-  // Use Dave's own address as recipient (self-gift is allowed and proves the flow).
   await recipientInput.fill("0x000000000000000000000000000000000000dEaD");
+  // Trigger blur so React's controlled-input state catches up. fill()
+  // alone sometimes leaves React's state empty until blur fires.
+  await recipientInput.press("Tab");
   console.log(`✓ Filled recipient: 0x...dEaD`);
+  await dapp.waitForTimeout(800);
   await dapp.screenshot({ path: resolve(OUT, "03-recipient-filled.png"), fullPage: true });
 
-  // Click "Send Gift Envelope".
-  const submitBtn = dapp
-    .locator("button:visible:not([disabled])")
-    .filter({ hasText: /Send Gift Envelope/i })
-    .first();
-  if (!(await submitBtn.isVisible({ timeout: 5_000 }).catch(() => false))) {
-    console.error("✘ Send Gift Envelope button not visible/enabled");
-    await dapp.screenshot({ path: resolve(OUT, "04-no-submit.png"), fullPage: true });
+  // Click "Send Gift Envelope". The button (Gifts.tsx:635-650) is
+  // disabled while !giftAmount || (!giftRecipient.trim() && recipients.length === 0).
+  // After fill + Tab the state should be valid. Relax selector — find
+  // by text first, then check if disabled.
+  const submitBtn = dapp.locator("button").filter({ hasText: /Send Gift Envelope/i }).first();
+  const exists = await submitBtn.count().catch(() => 0);
+  console.log(`  submit button count in DOM: ${exists}`);
+  if (exists === 0) {
+    console.error("✘ Send Gift Envelope button NOT in DOM — form may be in different state");
+    await dapp.screenshot({ path: resolve(OUT, "04-no-submit-button.png"), fullPage: true });
     await ctx.close();
     process.exit(11);
+  }
+  // Scroll into view + check enabled state.
+  await submitBtn.scrollIntoViewIfNeeded({ timeout: 5_000 }).catch(() => {});
+  const isDisabled = await submitBtn.isDisabled({ timeout: 2_000 }).catch(() => true);
+  console.log(`  submit button disabled: ${isDisabled}`);
+  if (isDisabled) {
+    console.error("✘ Send Gift Envelope button is disabled — form validation failed");
+    await dapp.screenshot({ path: resolve(OUT, "04-submit-disabled.png"), fullPage: true });
+    await ctx.close();
+    process.exit(12);
   }
   await submitBtn.click();
   console.log("✓ Create gift submitted");
