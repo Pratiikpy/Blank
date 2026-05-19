@@ -245,17 +245,36 @@ test.describe("Phase 12 — mobile sweep", () => {
 
     // SendConfirm → final Send → multiple passphrase prompts (cofhe
     // self-permit + UserOp submission). drainPromptsAndCaptureTx handles
-    // every back-to-back prompt and intercepts the relay tx hash. The
-    // older `enterPassphrase + readTxHashFromSuccess` pair only typed
-    // ONE passphrase, leaving the second prompt empty — useUnifiedWrite
-    // then threw "Cancelled" which surfaced as "Transaction failed —
-    // Cancelled" on the Confirm screen.
+    // every back-to-back prompt; in parallel we listen for the relay
+    // response directly so the tx hash is captured race-free even when
+    // SendSuccess auto-redirects to /app after 8s (which would beat a
+    // DOM-scrape readTxHashFromSuccess fallback).
+    const relayResponsePromise = alice.page
+      .waitForResponse(
+        (resp) => /\/api\/relay(\b|\/|\?)/.test(resp.url()) && resp.status() >= 200 && resp.status() < 300,
+        { timeout: 240_000 },
+      )
+      .catch(() => null);
+
     await alice.page.locator("button").filter({ hasText: /^(Confirm|Send)/i }).last().tap();
     await snap(alice.page, shotA, "send-confirm-tapped");
 
-    const txHash = await drainPromptsAndCaptureTx(alice.page, PERSONAS.Alice.passphrase, {
-      readTimeoutMs: 120_000,
-    });
+    let txHash: string;
+    try {
+      txHash = await drainPromptsAndCaptureTx(alice.page, PERSONAS.Alice.passphrase, {
+        readTimeoutMs: 30_000,
+      });
+    } catch {
+      // Fallback: parse the relay response we kept a promise on. This
+      // captures the hash directly from /api/relay's JSON body even
+      // after the SendSuccess auto-redirect has fired and DOM-scrape
+      // sources are gone.
+      const relayResp = await relayResponsePromise;
+      const body = relayResp ? await relayResp.text().catch(() => "") : "";
+      const m = body.match(/"hash"\s*:\s*"(0x[0-9a-fA-F]{64})"/);
+      if (!m) throw new Error("relay response did not include a tx hash");
+      txHash = m[1];
+    }
     const finalShot = await snap(alice.page, shotA, "send-success");
 
     recordProof({
