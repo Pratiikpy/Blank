@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, fireEvent, act } from "@testing-library/react";
+import { render, fireEvent, act, waitFor } from "@testing-library/react";
 
 // §15.x test for Gifts screen. Encrypted gift envelope flow with
 // 4 themes, multi-recipient splits, ISO expiry timestamps, and
@@ -337,6 +337,59 @@ describe("Gifts — envelope-expiry fetch (§15.x)", () => {
       .map((a) => Number(a.args[0] as bigint));
     expect(envelopeIds).toContain(42);
     expect(envelopeIds).toContain(7);
+  });
+
+  it("CRITICAL claimed received gift reads opened and disables Claim", async () => {
+    readContractMock.mockImplementation((args) => {
+      if (args.functionName === "opened") return Promise.resolve(true);
+      return Promise.resolve(["0xowner", "0xvault", 1n, 1n, "ipfs", 0n, true, 0n]);
+    });
+    useActivityFeedMock.mockReturnValue({
+      activities: [buildActivity({ note: "[envelope:42] claimed gift" })],
+    });
+
+    const { container } = render(<Gifts />);
+
+    await waitFor(() => expect(container.textContent).toContain("claimed"));
+    expect(container.textContent).toContain("Claimed");
+    expect(
+      Array.from(container.querySelectorAll("button")).some((b) => b.textContent === "Claim"),
+    ).toBe(false);
+    expect(readContractMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        functionName: "opened",
+        args: [42n, ME.toLowerCase()],
+      }),
+    );
+  });
+
+  it("CRITICAL claimed sent gift shows claimed and hides Deactivate", async () => {
+    readContractMock.mockImplementation((args) => {
+      if (args.functionName === "opened") return Promise.resolve(true);
+      return Promise.resolve(["0xowner", "0xvault", 1n, 1n, "ipfs", 0n, true, 0n]);
+    });
+    useActivityFeedMock.mockReturnValue({
+      activities: [
+        buildActivity({
+          id: "sent-claimed",
+          user_from: ME.toLowerCase(),
+          user_to: BOB.toLowerCase(),
+          note: "[envelope:45] opened by Bob",
+        }),
+      ],
+    });
+
+    const { container } = render(<Gifts />);
+    fireEvent.click(container.querySelector('button[aria-label="Sent gifts"]')!);
+
+    await waitFor(() => expect(container.textContent).toContain("claimed"));
+    expect(container.textContent).not.toContain("Deactivate");
+    expect(readContractMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        functionName: "opened",
+        args: [45n, BOB.toLowerCase()],
+      }),
+    );
   });
 
   it("CRITICAL no public client -> NO readContract calls (defensive)", async () => {

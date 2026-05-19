@@ -137,6 +137,7 @@ export default function Gifts() {
   // badge and disable claim on stale envelopes. Map keyed by envelopeId.
   // Value is the unix-second expiry timestamp (0 means "no expiry").
   const [envelopeExpiry, setEnvelopeExpiry] = useState<Record<number, number>>({});
+  const [envelopeOpened, setEnvelopeOpened] = useState<Record<string, boolean>>({});
 
   const [activeTab, setActiveTab] = useState<TabValue>("received");
   const [selectedTheme, setSelectedTheme] = useState<number | null>(null);
@@ -191,42 +192,80 @@ export default function Gifts() {
     return Array.from(ids);
   }, [receivedGifts, sentGifts]);
 
-  // Fetch on-chain expiry for envelopes we haven't seen yet. Keep batches
-  // small (parallel via Promise.allSettled) and only update state once at the
-  // end so we don't churn renders.
+  const visibleOpenChecks = useMemo(() => {
+    const checks = new Map<string, { envelopeId: number; recipient: `0x${string}` }>();
+    for (const a of receivedGifts) {
+      const id = parseEnvelopeId(a.note);
+      if (id == null || !address) continue;
+      const recipient = address.toLowerCase() as `0x${string}`;
+      checks.set(`${id}:${recipient}`, { envelopeId: id, recipient });
+    }
+    for (const a of sentGifts) {
+      const id = parseEnvelopeId(a.note);
+      if (id == null) continue;
+      const recipient = a.user_to.toLowerCase() as `0x${string}`;
+      checks.set(`${id}:${recipient}`, { envelopeId: id, recipient });
+    }
+    return Array.from(checks.entries()).map(([key, value]) => ({ key, ...value }));
+  }, [address, receivedGifts, sentGifts]);
+
+  // Fetch on-chain expiry + opened state for envelopes we haven't seen yet.
+  // Keep batches small and update state once at the end so we don't churn renders.
   useEffect(() => {
-    if (!publicClient || visibleEnvelopeIds.length === 0) return;
+    if (!publicClient) return;
     const unknown = visibleEnvelopeIds.filter((id) => !(id in envelopeExpiry));
-    if (unknown.length === 0) return;
+    const unknownOpened = visibleOpenChecks.filter((item) => !(item.key in envelopeOpened));
+    if (unknown.length === 0 && unknownOpened.length === 0) return;
     let cancelled = false;
     (async () => {
-      const results = await Promise.allSettled(
-        unknown.map((id) =>
-          publicClient.readContract({
-            address: contracts.GiftMoney as `0x${string}`,
-            abi: GiftMoneyAbi,
-            functionName: "getEnvelope",
-            args: [BigInt(id)],
-          }),
-        ),
-      );
+      const expiryJobs = unknown.map((id) => ({
+        kind: "expiry" as const,
+        id,
+        promise: publicClient.readContract({
+          address: contracts.GiftMoney as `0x${string}`,
+          abi: GiftMoneyAbi,
+          functionName: "getEnvelope",
+          args: [BigInt(id)],
+        }),
+      }));
+      const openedJobs = unknownOpened.map((item) => ({
+        kind: "opened" as const,
+        key: item.key,
+        promise: publicClient.readContract({
+          address: contracts.GiftMoney as `0x${string}`,
+          abi: GiftMoneyAbi,
+          functionName: "opened",
+          args: [BigInt(item.envelopeId), item.recipient],
+        }),
+      }));
+      const jobs = [...expiryJobs, ...openedJobs];
+      const results = await Promise.allSettled(jobs.map((job) => job.promise));
       if (cancelled) return;
       const next: Record<number, number> = {};
+      const nextOpened: Record<string, boolean> = {};
       results.forEach((r, i) => {
         if (r.status === "fulfilled") {
-          // getEnvelope returns a tuple; expiryTimestamp is the 8th field (index 7).
-          const tuple = r.value as readonly [unknown, unknown, unknown, unknown, unknown, unknown, unknown, bigint];
-          next[unknown[i]] = Number(tuple[7] ?? 0n);
+          const job = jobs[i];
+          if (job.kind === "expiry") {
+            // getEnvelope returns a tuple; expiryTimestamp is the 8th field (index 7).
+            const tuple = r.value as readonly [unknown, unknown, unknown, unknown, unknown, unknown, unknown, bigint];
+            next[job.id] = Number(tuple[7] ?? 0n);
+          } else {
+            nextOpened[job.key] = Boolean(r.value);
+          }
         }
       });
       if (Object.keys(next).length > 0) {
         setEnvelopeExpiry((prev) => ({ ...prev, ...next }));
       }
+      if (Object.keys(nextOpened).length > 0) {
+        setEnvelopeOpened((prev) => ({ ...prev, ...nextOpened }));
+      }
     })();
     return () => {
       cancelled = true;
     };
-  }, [publicClient, contracts.GiftMoney, visibleEnvelopeIds, envelopeExpiry]);
+  }, [publicClient, contracts.GiftMoney, visibleEnvelopeIds, visibleOpenChecks, envelopeExpiry, envelopeOpened]);
 
   const addRecipient = () => {
     const trimmed = recipientInput.trim();
@@ -731,6 +770,11 @@ export default function Gifts() {
                   : activity.user_from;
                 const envelopeId = parseEnvelopeId(activity.note);
                 const displayNote = stripEnvelopePrefix(activity.note);
+                const openRecipient = (isSent ? activity.user_to : address)?.toLowerCase();
+                const isOpened =
+                  envelopeId != null && openRecipient
+                    ? envelopeOpened[`${envelopeId}:${openRecipient}`] ?? false
+                    : false;
 
                 // #255: derive expired state from on-chain envelope expiry.
                 // expiryTs == 0 means "no expiry" per the GiftMoney contract.
@@ -795,22 +839,26 @@ export default function Gifts() {
                             "inline-flex px-2 py-1 rounded-full text-xs font-medium border",
                             isExpired
                               ? "bg-amber-50 text-amber-700 border-amber-200"
+                              : isOpened
+                                ? "bg-blue-50 text-blue-700 border-blue-100"
                               : "bg-emerald-50 text-emerald-700 border-emerald-100",
                           )}
                         >
-                          {isExpired ? "expired" : isSent ? "sent" : "received"}
+                          {isExpired ? "expired" : isOpened ? "claimed" : isSent ? "sent" : "received"}
                         </div>
                       </div>
                       {/* Auto-claim for received gifts with known envelope ID */}
                       {!isSent && envelopeId != null && (
                         <button
                           onClick={() => handleClaim(envelopeId)}
-                          disabled={isProcessing || isExpired}
+                          disabled={isProcessing || isExpired || isOpened}
                           title={isExpired ? "Envelope expired. No longer claimable" : undefined}
                           className="h-10 px-4 rounded-xl bg-emerald-500 text-white text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           {isProcessing ? (
                             <Loader2 size={16} className="animate-spin" />
+                          ) : isOpened ? (
+                            "Claimed"
                           ) : isExpired ? (
                             "Expired"
                           ) : (
@@ -847,7 +895,7 @@ export default function Gifts() {
                         </div>
                       )}
                       {/* Deactivate button for sent gifts */}
-                      {isSent && envelopeId != null && (
+                      {isSent && envelopeId != null && !isOpened && (
                         <button
                           onClick={() => {
                             if (window.confirm("Deactivate this envelope? This cannot be undone.")) {
