@@ -24,7 +24,7 @@ import { renderHook, act } from "@testing-library/react";
 //   - gas param passes through to callGasLimit on the AA path —
 //     without this the UserOp uses buildUserOp's 2M default which is
 //     too low for batch FHE ops (runPayroll multi-recipient).
-//   - §3.18 RPC settlement delay: 2.5s sleep after a SUCCESSFUL AA
+//   - §3.18 RPC settlement delay: 6s sleep after a SUCCESSFUL AA
 //     receipt before returning. Public RPC nodes lag a block or two
 //     for EntryPoint.getNonce(); without this delay, back-to-back
 //     unifiedWriteAndWait calls (approve then write) read pre-mine
@@ -592,6 +592,7 @@ describe("useUnifiedWrite — AA path (§15.x)", () => {
 
 describe("useUnifiedWrite — unifiedWriteAndWait receipt (§15.x)", () => {
   it("AA + relayer returns blockNumber + status -> receipt forwarded", async () => {
+    vi.useFakeTimers();
     asAA();
     sendUserOpMock.mockResolvedValue({
       txHash: "0xaa",
@@ -602,12 +603,19 @@ describe("useUnifiedWrite — unifiedWriteAndWait receipt (§15.x)", () => {
     });
     const { result } = renderHook(() => useUnifiedWrite());
     let r: { hash: `0x${string}`; receipt?: { blockNumber: bigint; status: string; logs: unknown[] } } | undefined;
-    await act(async () => {
-      r = await result.current.unifiedWriteAndWait({
+    let p!: Promise<void>;
+    act(() => {
+      p = result.current.unifiedWriteAndWait({
         address: TARGET,
         abi: [],
         functionName: "transfer",
+      }).then((value) => {
+        r = value;
       });
+    });
+    await vi.advanceTimersByTimeAsync(6_000);
+    await act(async () => {
+      await p;
     });
     expect(r!.hash).toBe("0xaa");
     expect(r!.receipt).toBeDefined();
@@ -655,6 +663,7 @@ describe("useUnifiedWrite — unifiedWriteAndWait receipt (§15.x)", () => {
   });
 
   it("AA + logs missing in result -> receipt.logs defaults to []", async () => {
+    vi.useFakeTimers();
     asAA();
     sendUserOpMock.mockResolvedValue({
       txHash: "0xaa",
@@ -664,12 +673,19 @@ describe("useUnifiedWrite — unifiedWriteAndWait receipt (§15.x)", () => {
     });
     const { result } = renderHook(() => useUnifiedWrite());
     let r: { receipt?: { logs: unknown[] } } = {};
-    await act(async () => {
-      r = await result.current.unifiedWriteAndWait({
+    let p!: Promise<void>;
+    act(() => {
+      p = result.current.unifiedWriteAndWait({
         address: TARGET,
         abi: [],
         functionName: "transfer",
+      }).then((value) => {
+        r = value;
       });
+    });
+    await vi.advanceTimersByTimeAsync(6_000);
+    await act(async () => {
+      await p;
     });
     expect(r.receipt!.logs).toEqual([]);
   });
@@ -680,7 +696,7 @@ describe("useUnifiedWrite — unifiedWriteAndWait receipt (§15.x)", () => {
 // ───────────────────────────────────────────────────────────
 
 describe("useUnifiedWrite — §3.18 RPC settlement delay (§15.x)", () => {
-  it("AA + success receipt -> 2.5s delay before return (prevents AA25 nonce-lag on back-to-back writes)", async () => {
+  it("AA + success receipt -> 6s delay before return (prevents AA25 nonce-lag on back-to-back writes)", async () => {
     vi.useFakeTimers();
     asAA();
     sendUserOpMock.mockResolvedValue({
@@ -701,11 +717,11 @@ describe("useUnifiedWrite — §3.18 RPC settlement delay (§15.x)", () => {
         resolved = true;
       });
     });
-    // Allow microtasks + sendUserOp to resolve, but DON'T cross the 2.5s mark
+    // Allow microtasks + sendUserOp to resolve, but do not cross the 6s mark.
     await vi.advanceTimersByTimeAsync(100);
     expect(resolved).toBe(false);
-    // Cross the 2.5s boundary
-    await vi.advanceTimersByTimeAsync(2_500);
+    // Cross the 6s boundary.
+    await vi.advanceTimersByTimeAsync(6_000);
     await act(async () => {
       await p;
     });
@@ -980,10 +996,10 @@ describe("useUnifiedWrite — humanizeWriteError mapping (§15.x)", () => {
   it("AA31 / paymaster deposit too low -> 'gas sponsor is out of funds'", () =>
     expectMappedError("AA31 paymaster deposit too low", "gas sponsor is out of funds"));
 
-  it("EntryPoint reverted with reason=null -> paymaster-funding copy", () =>
+  it("EntryPoint reverted with reason=null -> generic retry copy", () =>
     expectMappedError(
       "entrypoint.handleops failed: ... reason=null",
-      "gas sponsor is out of funds",
+      "rejected on-chain with no reason returned",
     ));
 
   it("EntryPoint reverted (other reason) -> 'smart wallet rejected this transaction'", () =>

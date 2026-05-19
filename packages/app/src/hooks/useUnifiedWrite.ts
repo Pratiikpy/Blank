@@ -1,7 +1,9 @@
 import { useCallback } from "react";
 import { useWriteContract, usePublicClient, useAccount } from "wagmi";
 import {
+  createPublicClient,
   encodeFunctionData,
+  http,
   type Abi,
   type Address,
   type Hex,
@@ -11,6 +13,9 @@ import { useSmartAccount } from "./useSmartAccount";
 import { useChain } from "@/providers/ChainProvider";
 import { usePassphrasePrompt } from "@/components/PassphrasePrompt";
 import { log } from "@/lib/log";
+import { getRpcUrls } from "@/lib/rpc";
+import { chainIdToViemChain } from "@/lib/viem-chains";
+import type { SupportedChainId } from "@/lib/constants";
 
 // Module-load marker — proves Vite served fresh module to the page.
 // If you don't see this in the browser console at app boot, the page is
@@ -49,6 +54,7 @@ export interface UnifiedWriteParams {
   args?: readonly unknown[];
   value?: bigint;
   gas?: bigint;
+  chainId?: SupportedChainId;
   /** Gas-payment mode for the AA path (Phase 7.5). Ignored for EOA path.
    *   • `"sponsored"` (default) — BlankPaymaster covers gas
    *   • `"self"` — AA pays gas from its own ETH balance
@@ -78,7 +84,7 @@ export interface UnifiedReceipt {
 
 export interface UnifiedWriteAndWaitResult {
   hash: Hex;
-  /** AA path: present (relayer-side `tx.wait()` already completed). EOA path: undefined — caller must poll itself. */
+  /** Present when the write path can confirm a mined receipt before returning. */
   receipt?: UnifiedReceipt;
 }
 
@@ -140,6 +146,15 @@ const ENTRY_POINT_BALANCE_OF_ABI = [
     outputs: [{ type: "uint256" }],
   },
 ] as const;
+
+function clientForChain(chainId: SupportedChainId): PublicClient {
+  const [rpc] = getRpcUrls(chainId);
+  if (!rpc) throw new Error(`No RPC configured for chain ${chainId}`);
+  return createPublicClient({
+    chain: chainIdToViemChain(chainId),
+    transport: http(rpc),
+  }) as PublicClient;
+}
 
 /**
  * Read the smart account's gas-credit balance from EntryPoint. Returns
@@ -213,7 +228,12 @@ function humanizeWriteError(err: unknown): string {
     return "Two transactions raced for the same nonce. Wait a few seconds and try again.";
   }
   // AA22: expired signature. Past the UserOp's validUntil window.
-  if (s.includes("aa22") || s.includes("expired")) {
+  if (
+    s.includes("aa22") ||
+    (s.includes("expired") &&
+      !s.includes("claimlinks:") &&
+      !s.includes("encryptedescrow:"))
+  ) {
     return "The signed transaction expired before it could land. Try again.";
   }
   // Paymaster funding issues — narrow trigger now that AA25 has its own
@@ -356,6 +376,7 @@ export function useUnifiedWrite(): UseUnifiedWriteReturn {
             args: params.args ?? [],
             value: params.value,
             gas: params.gas,
+            chainId: params.chainId ?? activeChainId,
           } as any);
           return hash as Hex;
         } catch (err) {
@@ -435,6 +456,7 @@ export function useUnifiedWrite(): UseUnifiedWriteReturn {
         );
       }
       if (!isSmartAccount) {
+        const targetChainId = params.chainId ?? activeChainId;
         const hash = await writeContractAsync({
           address: params.address,
           abi: params.abi,
@@ -442,8 +464,34 @@ export function useUnifiedWrite(): UseUnifiedWriteReturn {
           args: params.args ?? [],
           value: params.value,
           gas: params.gas,
+          chainId: targetChainId,
         } as any);
-        return { hash: hash as Hex };
+        if (!/^0x[0-9a-fA-F]{64}$/.test(hash as string)) {
+          return { hash: hash as Hex };
+        }
+        const waitClient =
+          targetChainId === activeChainId && publicClient?.waitForTransactionReceipt
+            ? (publicClient as PublicClient)
+            : clientForChain(targetChainId);
+        const receipt = await waitClient.waitForTransactionReceipt({
+          hash: hash as Hex,
+          confirmations: 1,
+          timeout: 300_000,
+        });
+        if (receipt.status === "reverted") throw new Error("Transaction reverted on-chain");
+        return {
+          hash: hash as Hex,
+          receipt: {
+            blockNumber: receipt.blockNumber,
+            blockHash: receipt.blockHash,
+            status: receipt.status,
+            logs: receipt.logs.map((l) => ({
+              address: l.address as Hex,
+              topics: [...l.topics] as Hex[],
+              data: l.data as Hex,
+            })),
+          },
+        };
       }
 
       const data = encodeFunctionData({
@@ -494,14 +542,14 @@ export function useUnifiedWrite(): UseUnifiedWriteReturn {
       // (useExchange, useSendPayment, useBusinessHub) when the local
       // nonce hint hasn't propagated. The real nonce-poll-until-incremented
       // fix lives in useSmartAccount.submitCallData where the consumed
-      // nonce is in scope; this fixed wait is the fallback for EOA path.
+      // nonce is in scope; this fixed wait is the fallback for AA callers.
       if (isSmartAccount && receipt?.status === "success") {
         await new Promise((r) => setTimeout(r, RPC_SETTLEMENT_DELAY_MS));
       }
 
       return { hash: result.txHash, receipt };
     },
-    [isSmartAccount, writeContractAsync, smartAccount, passphrasePrompt, publicClient, contracts],
+    [isSmartAccount, eoaAddress, activeChainId, writeContractAsync, smartAccount, passphrasePrompt, publicClient, contracts],
   );
 
   const unifiedWriteBatch = useCallback(

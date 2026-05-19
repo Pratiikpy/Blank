@@ -140,6 +140,20 @@ const CCTP_DOMAIN_TO_CHAIN: Record<number, SupportedChainId> = {
   6: BASE_SEPOLIA_ID,
 };
 
+async function switchInjectedWalletChain(chainId: SupportedChainId): Promise<void> {
+  if (typeof window === "undefined") return;
+  const eth = (window as unknown as {
+    ethereum?: {
+      request(args: { method: string; params?: unknown[] }): Promise<unknown>;
+    };
+  }).ethereum;
+  if (!eth) return;
+  await eth.request({
+    method: "wallet_switchEthereumChain",
+    params: [{ chainId: `0x${chainId.toString(16)}` }],
+  });
+}
+
 export function useBridgeUSDC(): UseBridgeUSDCReturn {
   const { effectiveAddress } = useEffectiveAddress();
   const { setActiveChain, activeChainId } = useChain();
@@ -418,8 +432,8 @@ export function useBridgeUSDC(): UseBridgeUSDCReturn {
     if (activeChainId !== destChainId) {
       try {
         setStep("switching");
+        await switchInjectedWalletChain(destChainId);
         setActiveChain(destChainId);
-        // Give ChainProvider a tick to propagate the switch to wagmi.
         await new Promise((r) => setTimeout(r, 200));
       } catch (switchErr) {
         setError(switchErr instanceof Error ? switchErr.message : String(switchErr));
@@ -436,7 +450,11 @@ export function useBridgeUSDC(): UseBridgeUSDCReturn {
         functionName: "receiveMessage",
         args: [attestation.message, attestation.attestation],
         gas: BigInt(300_000),
+        chainId: destChainId,
       });
+      if (mintTx.receipt?.status === "reverted") {
+        throw new Error("Bridge mint reverted on destination chain");
+      }
       setTxHashes((h) => ({ ...h, mint: mintTx.hash }));
       setStep("complete");
       // Bridge fully landed — persisted record is no longer useful.
