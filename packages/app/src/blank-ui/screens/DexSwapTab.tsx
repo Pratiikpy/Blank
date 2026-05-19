@@ -451,7 +451,7 @@ export default function DexSwapTab() {
         <Info size={18} className="text-indigo-600 dark:text-indigo-400 shrink-0 mt-0.5" />
         <p className="text-sm text-indigo-900 dark:text-indigo-300 leading-snug">
           DEX swaps run on plaintext token amounts. If your balance is encrypted,
-          unshield first — the swap window is publicly visible on-chain.
+          unshield first. The swap window is publicly visible on-chain.
         </p>
       </div>
 
