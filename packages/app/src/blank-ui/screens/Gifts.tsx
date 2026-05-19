@@ -787,19 +787,19 @@ export default function Gifts() {
                   <div
                     key={activity.id}
                     className={cn(
-                      "flex items-center justify-between p-6 rounded-2xl border transition-all",
+                      "flex flex-col gap-4 p-4 rounded-2xl border transition-all sm:flex-row sm:items-center sm:justify-between sm:p-6",
                       isExpired
                         ? "bg-amber-50/60 border-amber-200 hover:bg-amber-50/80"
                         : "bg-white/50 border-black/5 hover:bg-white/70",
                     )}
                   >
-                    <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 rounded-xl bg-pink-50 flex items-center justify-center">
+                    <div className="flex min-w-0 items-center gap-4">
+                      <div className="w-12 h-12 shrink-0 rounded-xl bg-pink-50 flex items-center justify-center">
                         <Gift size={24} className="text-pink-600" />
                       </div>
-                      <div>
-                        <p className="font-medium text-[var(--text-primary)] flex items-center gap-2">
-                          <span>
+                      <div className="min-w-0">
+                        <p className="font-medium text-[var(--text-primary)] flex flex-wrap items-center gap-2">
+                          <span className="break-all">
                             {isSent ? "To" : "From"}{" "}
                             {otherAddress.slice(0, 6)}...{otherAddress.slice(-4)}
                           </span>
@@ -811,7 +811,7 @@ export default function Gifts() {
                             </span>
                           )}
                         </p>
-                        <p className="text-sm text-[var(--text-primary)]/50">
+                        <p className="text-sm text-[var(--text-primary)]/50 break-words">
                           {displayNote}
                           {envelopeId != null && (
                             <span className="ml-1 text-xs font-mono text-[var(--text-primary)]/30">
@@ -829,7 +829,7 @@ export default function Gifts() {
                         )}
                       </div>
                     </div>
-                    <div className="flex items-center gap-4">
+                    <div className="flex w-full flex-wrap items-center justify-between gap-3 sm:w-auto sm:justify-end sm:gap-4">
                       <div className="text-right">
                         <p className="text-lg font-heading font-medium encrypted-text">
                           ${"\u2022\u2022\u2022\u2022\u2022.\u2022\u2022"}
@@ -853,7 +853,7 @@ export default function Gifts() {
                           onClick={() => handleClaim(envelopeId)}
                           disabled={isProcessing || isExpired || isOpened}
                           title={isExpired ? "Envelope expired. No longer claimable" : undefined}
-                          className="h-10 px-4 rounded-xl bg-emerald-500 text-white text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                          className="h-10 shrink-0 px-4 rounded-xl bg-emerald-500 text-white text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           {isProcessing ? (
                             <Loader2 size={16} className="animate-spin" />

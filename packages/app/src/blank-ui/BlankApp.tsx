@@ -415,7 +415,7 @@ export function BlankApp() {
 
       <main className={cn("min-h-dvh", !isMobile && "ml-72")}>
         <Suspense fallback={<LoadingSpinner />}>
-          <div className={cn("p-8", isMobile && "pb-20 p-4")}>
+          <div className={cn("p-8", isMobile && "p-4", isMobile && (showNav ? "pb-36" : "pb-6"))}>
             {/* Top bar — Global Search + Roles bell.
                 Desktop: full search bar left, bell right.
                 Mobile: compact icons justified right. */}

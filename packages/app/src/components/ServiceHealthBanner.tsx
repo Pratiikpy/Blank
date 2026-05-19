@@ -46,7 +46,7 @@ export function ServiceHealthBanner() {
         tone="warn"
         icon={<AlertTriangle size={14} />}
         title="Smart-wallet relay unavailable"
-        body="You can still use the app with a connected wallet (MetaMask / WalletConnect)."
+        body="Connected wallets can still send. Passkey gas sponsorship may fail."
       />
     );
   }
@@ -81,12 +81,14 @@ function Banner({
   return (
     <div
       role="status"
-      className={`sticky top-0 z-[95] border-b px-4 py-2 text-xs ${toneClasses}`}
+      className={`sticky top-0 z-[95] border-b px-3 py-1.5 text-[11px] leading-snug sm:px-4 sm:py-2 sm:text-xs ${toneClasses}`}
     >
-      <div className="max-w-7xl mx-auto flex items-center gap-2">
-        {icon}
-        <span className="font-medium">{title}</span>
-        <span className="opacity-70">· {body}</span>
+      <div className="max-w-7xl mx-auto flex items-start gap-2">
+        <span className="mt-0.5 shrink-0">{icon}</span>
+        <p className="min-w-0">
+          <span className="font-medium">{title}</span>
+          <span className="opacity-75">. {body}</span>
+        </p>
       </div>
     </div>
   );
