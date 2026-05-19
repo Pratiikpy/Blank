@@ -140,17 +140,17 @@ async function driveInheritance(dapp: Page, ctx: BrowserContext, extId: string, 
     .first();
   await safeFill(heirInput, "0x000000000000000000000000000000000000bEEf");
   await snap(dapp, "inheritance-form-filled");
-  // Submit. Modal CTAs vary: "Save Plan", "Create Plan", "Confirm".
-  const submit = dapp.locator("button:visible:not([disabled])").filter({ hasText: /Save.*Plan|Create.*Plan|Set.*Plan|^Confirm$|^Submit$/i }).first();
+  // Submit — modal CTA is "+ Set Heir" (Inheritance.tsx, confirmed via screenshot).
+  const submit = dapp.locator("button:visible:not([disabled])").filter({ hasText: /\+?\s*Set Heir|^Set Heir$/i }).first();
   if (!(await submit.isVisible({ timeout: 3_000 }).catch(() => false))) {
-    return { name, status: "red", notes: "Submit CTA not visible in modal", screenshot: await snap(dapp, "inheritance-no-submit") };
+    return { name, status: "red", notes: "Set Heir CTA not visible in modal", screenshot: await snap(dapp, "inheritance-no-submit") };
   }
   await submit.click();
   await drainPopups(ctx, extId, known, "inheritance");
   await dapp.waitForTimeout(5_000);
   const txHash = txFromText((await dapp.locator("body").textContent().catch(() => "")) ?? "");
-  // Success indicator: "Plan Active" or "Heir set" text appears.
-  const planActive = await dapp.locator("text=/Plan Active|Active Plan|Check In Now|Plan created/i").first().isVisible({ timeout: 3_000 }).catch(() => false);
+  // Success indicator: "Plan Active" or "Heir set" or "Check In Now" appears.
+  const planActive = await dapp.locator("text=/Plan Active|Active Plan|Check In Now|Plan created|Heir.*set/i").first().isVisible({ timeout: 3_000 }).catch(() => false);
   return {
     name,
     status: txHash || planActive ? "green" : "red",
@@ -192,15 +192,18 @@ async function driveProof(dapp: Page, ctx: BrowserContext, extId: string, known:
   await createBtn.click();
   await drainPopups(ctx, extId, known, "proof");
   await dapp.waitForTimeout(5_000);
-  // Success: "Pending" / "Verified" / share URL `/v/`
+  // Success: Proof appears in "Your proofs" list with "Proof #N created..."
+  // Or share URL `/v/` appears.
   const shareUrl = await dapp.locator('a[href*="/v/"]').first().getAttribute("href", { timeout: 3_000 }).catch(() => null);
-  const txHash = txFromText((await dapp.locator("body").textContent().catch(() => "")) ?? "");
+  const bodyText = (await dapp.locator("body").textContent().catch(() => "")) ?? "";
+  const proofCreated = /Proof #\d+|Income ≥|created \d/i.test(bodyText);
+  const txHash = txFromText(bodyText);
   return {
     name,
-    status: shareUrl || txHash ? "green" : "red",
+    status: shareUrl || proofCreated || txHash ? "green" : "red",
     txHash,
     shareUrl: shareUrl ?? undefined,
-    notes: shareUrl ? `share URL: ${shareUrl}` : txHash ? "tx captured" : "no proof",
+    notes: shareUrl ? `share URL: ${shareUrl}` : proofCreated ? "proof visible in Your-proofs list" : txHash ? "tx captured" : "no proof",
     screenshot: await snap(dapp, "proof-final"),
   };
 }
@@ -339,42 +342,44 @@ async function driveClaimLink(dapp: Page, ctx: BrowserContext, extId: string, kn
   // Use Many mode (which is the claim-link mode per the screenshot).
   await dapp.goto(`${VERCEL_URL}/app/claim-link`, { waitUntil: "domcontentloaded", timeout: 30_000 });
   await dapp.waitForTimeout(3_500);
-  // Click "Many" toggle if visible — switches to claim-link mode.
+  // Click "Many" toggle if visible — switches to claim-link / send-by-link mode.
   const manyToggle = dapp.locator("button").filter({ hasText: /^Many$/i }).first();
   if (await manyToggle.isVisible({ timeout: 3_000 }).catch(() => false)) {
     await manyToggle.click();
     await dapp.waitForTimeout(1_500);
   }
   await snap(dapp, "claim-link-mode-many");
-  // After clicking Many, the form should change. Try filling amount + Continue.
-  // Or look for a direct "Create claim link" button.
-  const claimCta = dapp.locator("button:visible:not([disabled])").filter({ hasText: /Create.*[Ll]ink|Generate.*[Ll]ink|^Continue$/i }).first();
-  if (!(await claimCta.isVisible({ timeout: 5_000 }).catch(() => false))) {
-    return { name, status: "skipped", notes: "No Create-link / Continue CTA visible after Many toggle", screenshot: await snap(dapp, "claim-link-no-cta") };
+  // After Many → "Send by link" form. Pick "Anyone" (open link, no email).
+  const anyoneBtn = dapp.locator("button").filter({ hasText: /^Anyone$|Anyone\b/i }).first();
+  if (await anyoneBtn.isVisible({ timeout: 3_000 }).catch(() => false)) {
+    await anyoneBtn.click();
+    await dapp.waitForTimeout(800);
   }
-  await claimCta.click();
-  await dapp.waitForTimeout(2_000);
-  // Likely an amount input next.
-  const amount = dapp.locator('input[placeholder="0.00"]').first();
-  if (await amount.isVisible({ timeout: 3_000 }).catch(() => false)) {
-    await safeFill(amount, "0.1");
-  }
+  // Fill amount — placeholder "10.00" or "0.00".
+  const amount = dapp.locator('input[placeholder="10.00"], input[placeholder="0.00"]').first();
+  await safeFill(amount, "0.1");
   await snap(dapp, "claim-link-amount");
-  // Final submit.
-  const submit = dapp.locator("button:visible:not([disabled])").filter({ hasText: /Generate|^Create|^Send/i }).last();
-  if (await submit.isVisible({ timeout: 3_000 }).catch(() => false)) {
-    await submit.click();
+  // Click "Create link" — should be enabled now.
+  const submit = dapp.locator("button:visible:not([disabled])").filter({ hasText: /^Create link$|^Create Link$/i }).first();
+  if (!(await submit.isVisible({ timeout: 5_000 }).catch(() => false))) {
+    return { name, status: "red", notes: "Create-link not enabled", screenshot: await snap(dapp, "claim-link-disabled") };
   }
+  await submit.click();
   await drainPopups(ctx, extId, known, "claim-link");
   await dapp.waitForTimeout(4_000);
-  const claimUrl = await dapp.locator('a[href*="/claim/"]').first().getAttribute("href", { timeout: 3_000 }).catch(() => null);
-  const txHash = txFromText((await dapp.locator("body").textContent().catch(() => "")) ?? "");
+  // Success: URL surfaced as a/text containing /c/ or /claim/.
+  const claimUrl = await dapp.locator('a[href*="/claim/"], a[href*="/c/"]').first().getAttribute("href", { timeout: 3_000 }).catch(() => null);
+  const bodyText = (await dapp.locator("body").textContent().catch(() => "")) ?? "";
+  // Look for URL pattern in text body (Storefront/Crowdfund pattern: vercel.app/<path>/...).
+  const urlMatch = bodyText.match(/blank-omega-jade\.vercel\.app\/(claim|c)\/[\w-]+/);
+  const txHash = txFromText(bodyText);
+  const fallbackUrl = urlMatch ? urlMatch[0] : null;
   return {
     name,
-    status: claimUrl || txHash ? "green" : "red",
+    status: claimUrl || fallbackUrl || txHash ? "green" : "red",
     txHash,
-    shareUrl: claimUrl ?? undefined,
-    notes: claimUrl ? `URL: ${claimUrl}` : txHash ? "tx captured" : "no proof",
+    shareUrl: claimUrl ?? fallbackUrl ?? undefined,
+    notes: claimUrl ? `URL: ${claimUrl}` : fallbackUrl ? `URL (text): ${fallbackUrl}` : txHash ? "tx captured" : "no proof",
     screenshot: await snap(dapp, "claim-link-final"),
   };
 }
@@ -407,14 +412,20 @@ async function driveStorefront(dapp: Page, ctx: BrowserContext, extId: string, k
   await submit.click();
   await drainPopups(ctx, extId, known, "storefront");
   await dapp.waitForTimeout(4_000);
+  // "Listing live" success state renders the URL as plain text + Copy link
+  // button. Match both <a href> and plain-text URL patterns.
   const shopUrl = await dapp.locator('a[href*="/shop/"]').first().getAttribute("href", { timeout: 3_000 }).catch(() => null);
-  const txHash = txFromText((await dapp.locator("body").textContent().catch(() => "")) ?? "");
+  const bodyText = (await dapp.locator("body").textContent().catch(() => "")) ?? "";
+  const urlMatch = bodyText.match(/blank-omega-jade\.vercel\.app\/shop\/\d+\/\d+/);
+  const listingLive = /Listing live/i.test(bodyText);
+  const txHash = txFromText(bodyText);
+  const fallbackUrl = urlMatch ? urlMatch[0] : null;
   return {
     name,
-    status: shopUrl || txHash ? "green" : "red",
+    status: shopUrl || fallbackUrl || listingLive || txHash ? "green" : "red",
     txHash,
-    shareUrl: shopUrl ?? undefined,
-    notes: shopUrl ? `URL: ${shopUrl}` : txHash ? "tx captured" : "no proof",
+    shareUrl: shopUrl ?? fallbackUrl ?? undefined,
+    notes: shopUrl ? `URL: ${shopUrl}` : fallbackUrl ? `URL (text): ${fallbackUrl}` : listingLive ? "Listing live banner" : txHash ? "tx captured" : "no proof",
     screenshot: await snap(dapp, "storefront-final"),
   };
 }
@@ -442,14 +453,19 @@ async function driveCrowdfund(dapp: Page, ctx: BrowserContext, extId: string, kn
   await submit.click();
   await drainPopups(ctx, extId, known, "crowdfund");
   await dapp.waitForTimeout(4_000);
+  // "Campaign live" success state renders the URL as plain text.
   const fundUrl = await dapp.locator('a[href*="/fund/"]').first().getAttribute("href", { timeout: 3_000 }).catch(() => null);
-  const txHash = txFromText((await dapp.locator("body").textContent().catch(() => "")) ?? "");
+  const bodyText = (await dapp.locator("body").textContent().catch(() => "")) ?? "";
+  const urlMatch = bodyText.match(/blank-omega-jade\.vercel\.app\/fund\/\d+\/\d+/);
+  const campaignLive = /Campaign live/i.test(bodyText);
+  const txHash = txFromText(bodyText);
+  const fallbackUrl = urlMatch ? urlMatch[0] : null;
   return {
     name,
-    status: fundUrl || txHash ? "green" : "red",
+    status: fundUrl || fallbackUrl || campaignLive || txHash ? "green" : "red",
     txHash,
-    shareUrl: fundUrl ?? undefined,
-    notes: fundUrl ? `URL: ${fundUrl}` : txHash ? "tx captured" : "no proof",
+    shareUrl: fundUrl ?? fallbackUrl ?? undefined,
+    notes: fundUrl ? `URL: ${fundUrl}` : fallbackUrl ? `URL (text): ${fallbackUrl}` : campaignLive ? "Campaign live banner" : txHash ? "tx captured" : "no proof",
     screenshot: await snap(dapp, "crowdfund-final"),
   };
 }
