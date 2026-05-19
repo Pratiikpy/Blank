@@ -656,7 +656,7 @@ export default function Burners() {
               className="h-12 w-full px-4 rounded-xl bg-white/60 dark:bg-white/5 border border-black/10 dark:border-white/15 focus:border-violet-400 focus:ring-4 focus:ring-violet-500/10 outline-none transition-all placeholder:text-[var(--text-tertiary)] mb-2"
             />
             <p className="text-[11px] text-[var(--text-tertiary)] leading-snug mb-5">
-              Choose something memorable — losing this passphrase makes the
+              Choose something memorable. Losing this passphrase makes the
               backup unrecoverable. We can't help you reset it (we never see it).
             </p>
 

@@ -188,7 +188,7 @@ export default function SendContacts() {
             </h1>
             <p className="text-base text-[var(--text-secondary)] leading-relaxed">
               {mode === "many"
-                ? `Pick up to ${MAX_BATCH_RECIPIENTS} recipients — one batched, encrypted tx.`
+                ? `Pick up to ${MAX_BATCH_RECIPIENTS} recipients. One batched, encrypted tx.`
                 : "Transfer money privately with encrypted amounts"}
             </p>
           </div>

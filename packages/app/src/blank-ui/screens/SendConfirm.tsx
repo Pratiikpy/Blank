@@ -569,7 +569,7 @@ export default function SendConfirm() {
                 </p>
                 <p className="text-sm text-rose-700 dark:text-rose-400/80 break-words">
                   Top up ~0.001 ETH on your smart wallet to keep sending.
-                  We'll walk you through it — tap the button below.
+                  We'll walk you through it. Tap the button below.
                 </p>
               </div>
             </div>
