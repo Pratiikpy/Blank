@@ -170,11 +170,10 @@ test.describe("Phase 12 — mobile sweep", () => {
     await snap(alice.page, shotA, "alice-shielded-5usdc");
 
     // Send flow — drive via the BottomNav Send button so we exercise
-    // the mobile entry point, not the desktop sidebar.
-    // useMediaQuery has a brief moment after navigation where the
-    // initial render flips between desktop and mobile layouts as it
-    // re-measures the viewport. Wait long enough to let it settle.
-    const sendNav = alice.page.locator('nav[aria-label="Main navigation"] button[aria-label="Send"]');
+    // the mobile entry point, not the desktop sidebar. BottomNav uses
+    // react-router <Link> (renders as <a>), NOT <button>. The earlier
+    // selector wanted button[aria-label="Send"] which never matched.
+    const sendNav = alice.page.locator('nav[aria-label="Main navigation"] [aria-label="Send"]');
     await sendNav.waitFor({ state: "visible", timeout: 30_000 });
     await sendNav.tap();
     await snap(alice.page, shotA, "send-screen-entered");
