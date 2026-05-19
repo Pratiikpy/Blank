@@ -7,7 +7,6 @@ import {
   unlockRabby,
   waitAndConfirmRabbyPopup,
   dismissRabbyWhatsNew,
-  enableRabbyTestnets,
 } from "../../fixtures/rabby/rabby-driver";
 import { CHAINS, type ChainKey } from "../fixtures/wallets";
 import { snap, resetCounter } from "../helpers/screenshot";
@@ -139,13 +138,11 @@ test.describe("Phase 9 — Rabby smoke (Dave EOA)", () => {
       // notification popups we drive later.
       await dismissRabbyWhatsNew(rabby.rabbyPage);
 
-      // Enable Testnet visibility. Without this the Connect popup's
-      // Testnets tab shows "No chains" and Connect stays disabled
-      // (observed via test-failed-1.png in prior run). The helper is
-      // idempotent — probes aria-checked first and skips the click if
-      // already on. Pass SHOTS_DIR so the settings page is captured
-      // for offline debugging when the toggle isn't found.
-      await enableRabbyTestnets(rabby.rabbyPage, rabby.rabbyExtensionId, SHOTS_DIR);
+      // Testnet visibility must already be ON in this profile. Run
+      // `pnpm exec tsx packages/app/e2e/fixtures/rabby/enable-rabby-testnets.ts`
+      // once if Connect popup later shows "No chains" for Sepolia — that
+      // helper opens Rabby for a one-time interactive toggle, then the
+      // setting persists across all future smoke runs.
       await snap(rabby.rabbyPage, shot, "rabby-unlocked");
 
       // — Open the dApp.
