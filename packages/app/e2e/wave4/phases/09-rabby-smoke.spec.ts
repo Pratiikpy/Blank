@@ -180,53 +180,68 @@ test.describe("Phase 9 — Rabby smoke (Dave EOA)", () => {
       // connector reports either "Rabby Wallet", "Injected", or
       // "MetaMask" (Rabby spoofs MM for legacy dApp compat). Match
       // any of those, but prefer Rabby-flavoured.
+      //
+      // BUT — if the persistent profile carries a cached site
+      // permission from a prior smoke run, wagmi can auto-connect
+      // between the carousel loop's `isVisible` check and this
+      // explicit waitFor. In that case, the dApp jumps straight to
+      // the dashboard ("Good afternoon, 0x...") and the
+      // WalletChoiceCard testid disappears. Detect that and skip
+      // the Connect popup drive entirely.
       const existingCard = dapp.locator('[data-testid="wallet-choice-existing"]');
-      await existingCard.waitFor({ state: "visible", timeout: 15_000 });
-      let connectClicked = false;
-      for (const pattern of [/Rabby/i, /MetaMask/i, /Injected/i, /^Connect/i]) {
-        const btn = existingCard.locator("button").filter({ hasText: pattern }).first();
-        if (await btn.isVisible({ timeout: 1_500 }).catch(() => false)) {
-          const bbox = await btn.boundingBox({ timeout: 2_000 }).catch(() => null);
-          if (bbox) await dapp.mouse.click(bbox.x + bbox.width / 2, bbox.y + bbox.height / 2);
-          else await btn.click({ force: true }).catch(() => {});
-          connectClicked = true;
-          break;
-        }
-      }
-      expect(connectClicked, "No Connect button found in WalletChoiceCard").toBe(true);
-      await snap(dapp, shot, "connect-clicked");
+      const dashboardLanded = await dapp
+        .locator("text=/Good afternoon|Total Balance|FHE Protected/i")
+        .first()
+        .isVisible({ timeout: 5_000 })
+        .catch(() => false);
 
-      // The Rabby Connect popup is conditional — if the persistent
-      // profile already granted site-permission to this origin on a
-      // previous run, Rabby auto-injects `window.ethereum.selectedAddress`
-      // and wagmi's connect() resolves with no popup. Treat both
-      // "popup appeared + clicked through" AND "silent auto-connect"
-      // as success. The real proof of connection is the final Send
-      // tx hash downstream, not a popup-click count.
-      const connect = await waitAndConfirmRabbyPopup(
-        rabby.context,
-        rabby.rabbyExtensionId,
-        knownPages,
-        SHOTS_DIR,
-        "rabby-connect",
-        15_000,
-        { chainName: chain.chainName },
-      );
-      if (connect.clicks > 0) {
-        await snap(dapp, shot, "rabby-connected-via-popup");
+      let connectClicked = false;
+      if (!dashboardLanded) {
+        await existingCard.waitFor({ state: "visible", timeout: 15_000 });
+        for (const pattern of [/Rabby/i, /MetaMask/i, /Injected/i, /^Connect/i]) {
+          const btn = existingCard.locator("button").filter({ hasText: pattern }).first();
+          if (await btn.isVisible({ timeout: 1_500 }).catch(() => false)) {
+            const bbox = await btn.boundingBox({ timeout: 2_000 }).catch(() => null);
+            if (bbox) await dapp.mouse.click(bbox.x + bbox.width / 2, bbox.y + bbox.height / 2);
+            else await btn.click({ force: true }).catch(() => {});
+            connectClicked = true;
+            break;
+          }
+        }
+        expect(connectClicked, "No Connect button found in WalletChoiceCard").toBe(true);
+        await snap(dapp, shot, "connect-clicked");
       } else {
-        // No popup surfaced — confirm the dApp is past the picker
-        // (silent connect) before continuing. If it isn't, the click
-        // didn't take effect at all and we should fail here, not later.
-        const stillOnPicker = await dapp
-          .locator('[data-testid="wallet-choice-existing"]')
-          .isVisible({ timeout: 1_000 })
-          .catch(() => false);
-        expect(
-          stillOnPicker,
-          "WalletChoiceCard still visible after Connect click — neither popup fired nor silent-connect advanced the dApp",
-        ).toBe(false);
-        await snap(dapp, shot, "rabby-connected-silently");
+        await snap(dapp, shot, "dashboard-already-connected");
+      }
+
+      // Only drive the Rabby Connect popup if we actually clicked the
+      // Connect button above. If the dApp had already auto-connected
+      // (dashboardLanded), there's no popup to drive.
+      if (connectClicked) {
+        const connect = await waitAndConfirmRabbyPopup(
+          rabby.context,
+          rabby.rabbyExtensionId,
+          knownPages,
+          SHOTS_DIR,
+          "rabby-connect",
+          15_000,
+          { chainName: chain.chainName },
+        );
+        if (connect.clicks > 0) {
+          await snap(dapp, shot, "rabby-connected-via-popup");
+        } else {
+          // No popup surfaced — confirm the dApp is past the picker
+          // (silent connect) before continuing.
+          const stillOnPicker = await dapp
+            .locator('[data-testid="wallet-choice-existing"]')
+            .isVisible({ timeout: 1_000 })
+            .catch(() => false);
+          expect(
+            stillOnPicker,
+            "WalletChoiceCard still visible after Connect click — neither popup fired nor silent-connect advanced the dApp",
+          ).toBe(false);
+          await snap(dapp, shot, "rabby-connected-silently");
+        }
       }
 
       // SIWE: Blank uses wagmi + SIWE for EOA auth. The signature
