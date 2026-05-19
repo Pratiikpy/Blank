@@ -206,17 +206,27 @@ function humanizeWriteError(err: unknown): string {
   if (s.includes("connector not connected")) {
     return "Wallet not connected. If you signed up with a passphrase, try refreshing the page.";
   }
-  // Paymaster funding issues — symptoms include "aa31", "paymaster deposit",
-  // and also the bare "transaction execution reverted (..., reason=null)"
-  // that EntryPoint emits when the paymaster's stake is too low to
-  // pre-fund the UserOp. The user-visible root cause is paymaster funding,
-  // not their own wallet.
-  if (
-    s.includes("aa31") ||
-    s.includes("paymaster deposit too low") ||
-    (s.includes("entrypoint.handleops failed") && s.includes("reason=null"))
-  ) {
+  // AA25: account nonce already consumed. Happens when two UserOps signed
+  // close together race a public-RPC lag and pick the same nonce. The
+  // fix is to wait and retry; the user-visible action is "try again."
+  if (s.includes("aa25") || s.includes("invalid account nonce")) {
+    return "Two transactions raced for the same nonce. Wait a few seconds and try again.";
+  }
+  // AA22: expired signature. Past the UserOp's validUntil window.
+  if (s.includes("aa22") || s.includes("expired")) {
+    return "The signed transaction expired before it could land. Try again.";
+  }
+  // Paymaster funding issues — narrow trigger now that AA25 has its own
+  // branch above (was being incorrectly humanized as paymaster-out-of-funds
+  // before). Only fire when the error message actually mentions a
+  // paymaster-related code.
+  if (s.includes("aa31") || s.includes("paymaster deposit too low")) {
     return "The gas sponsor is out of funds. The Blank team has been notified; please try again in a few minutes.";
+  }
+  // Generic bare-reason-null fallback. Could be many root causes;
+  // suggest retry without claiming knowledge of paymaster funding.
+  if (s.includes("entrypoint.handleops failed") && s.includes("reason=null")) {
+    return "The transaction was rejected on-chain with no reason returned. Try again in a moment.";
   }
   if (s.includes("entrypoint") && s.includes("reverted")) {
     return "The smart wallet rejected this transaction. Check the amount and try again.";
