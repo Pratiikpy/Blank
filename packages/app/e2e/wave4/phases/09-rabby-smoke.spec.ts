@@ -143,8 +143,9 @@ test.describe("Phase 9 — Rabby smoke (Dave EOA)", () => {
       // Testnets tab shows "No chains" and Connect stays disabled
       // (observed via test-failed-1.png in prior run). The helper is
       // idempotent — probes aria-checked first and skips the click if
-      // already on.
-      await enableRabbyTestnets(rabby.rabbyPage, rabby.rabbyExtensionId);
+      // already on. Pass SHOTS_DIR so the settings page is captured
+      // for offline debugging when the toggle isn't found.
+      await enableRabbyTestnets(rabby.rabbyPage, rabby.rabbyExtensionId, SHOTS_DIR);
       await snap(rabby.rabbyPage, shot, "rabby-unlocked");
 
       // — Open the dApp.

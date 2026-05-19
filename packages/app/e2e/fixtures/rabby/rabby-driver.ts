@@ -127,9 +127,16 @@ export async function unlockRabby(rabbyPage: Page, password: string): Promise<bo
 export async function enableRabbyTestnets(
   rabbyPage: Page,
   extensionId: string,
+  diagDir?: string,
 ): Promise<boolean> {
   await rabbyPage.goto(`chrome-extension://${extensionId}/index.html#/settings`).catch(() => {});
   await rabbyPage.waitForTimeout(3_500);
+
+  if (diagDir) {
+    await rabbyPage
+      .screenshot({ path: path.join(diagDir, "rabby-settings-page.png"), fullPage: true })
+      .catch(() => {});
+  }
 
   // First, find the row whose label mentions "testnet". Rabby copies the
   // label text inside a div/label sibling of the actual <button
@@ -140,8 +147,33 @@ export async function enableRabbyTestnets(
     .filter({ hasText: /testnet/i })
     .first();
   if (!(await row.isVisible({ timeout: 5_000 }).catch(() => false))) {
+    // Settings page didn't have a row mentioning "testnet". Try the
+    // chain-list page as a fallback — Rabby has migrated this control
+    // between sub-pages across versions.
+    await rabbyPage.goto(`chrome-extension://${extensionId}/index.html#/chain-list`).catch(() => {});
+    await rabbyPage.waitForTimeout(3_000);
+    if (diagDir) {
+      await rabbyPage
+        .screenshot({ path: path.join(diagDir, "rabby-chain-list-page.png"), fullPage: true })
+        .catch(() => {});
+    }
+    const altRow = rabbyPage
+      .locator("div, label")
+      .filter({ hasText: /testnet|test network/i })
+      .first();
+    if (!(await altRow.isVisible({ timeout: 5_000 }).catch(() => false))) {
+      await rabbyPage.goto(`chrome-extension://${extensionId}/index.html`).catch(() => {});
+      return false;
+    }
+    // Recurse with the alternative row in scope — but to keep it
+    // simple, just click near right edge of altRow and exit.
+    const bb = await altRow.boundingBox({ timeout: 2_000 }).catch(() => null);
+    if (bb) {
+      await rabbyPage.mouse.click(Math.round(bb.x + bb.width - 24), Math.round(bb.y + bb.height / 2));
+      await rabbyPage.waitForTimeout(1_500);
+    }
     await rabbyPage.goto(`chrome-extension://${extensionId}/index.html`).catch(() => {});
-    return false;
+    return Boolean(bb);
   }
 
   // Detect current state via aria-checked OR via Rabby's Ant Design
