@@ -2,10 +2,9 @@ import { useRef, useCallback } from "react";
 import { RealtimeDedup } from "@/lib/realtime-dedup";
 
 /**
- * Shared activity-dedup primitive (#249) — both useActivityFeed and
- * useRealtimeNotifications use the SAME instance via this hook so a single
- * tx_hash being seen by one component prevents the other from re-acting on
- * it.
+ * Shared activity-dedup primitive (#249) for activity feeds. Multiple feed
+ * instances for the same address and chain share one instance so duplicate
+ * realtime channel deliveries do not prepend the same tx_hash twice.
  *
  * Backed by a module-level Map so the same instance persists across mounts
  * (useful for StrictMode double-mount + cross-component sharing).

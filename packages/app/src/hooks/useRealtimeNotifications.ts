@@ -3,7 +3,6 @@ import toast from "react-hot-toast";
 import { supabase, fetchActivities } from "@/lib/supabase";
 import { useEffectiveAddress } from "./useEffectiveAddress";
 import { useChain } from "@/providers/ChainProvider";
-import { useActivityDedup } from "./useActivityDedup";
 import { formatActivityMessage, iconForActivityType } from "@/lib/activity-messages";
 
 /** Add a value to a Set, evicting the oldest half when maxSize is reached. */
@@ -33,12 +32,9 @@ export function useRealtimeNotifications() {
   //
   // #190: when the smart account is active, counterparties may still target
   // the EOA (legacy flows, non-AA-aware apps, etc.). Subscribe on BOTH
-  // addresses so we don't miss any notifications. Dedup via `notified`.
+  // addresses so we don't miss any notifications.
   const { effectiveAddress, eoa } = useEffectiveAddress();
   const { activeChainId } = useChain();
-  // #249: shared dedup with useActivityFeed — same tx_hash already seen by
-  // either hook is suppressed in the other. Backed by a module-level Map.
-  const { accept: acceptTx } = useActivityDedup(effectiveAddress, activeChainId);
 
   const addresses = useMemo(() => {
     const list: string[] = [];
@@ -49,7 +45,8 @@ export function useRealtimeNotifications() {
     return list;
   }, [eoa, effectiveAddress]);
 
-  // Backup: per-hook seen-set kept as a safety net.
+  // Toast-only dedup. Keep this local so a notification can never consume an
+  // activity before useActivityFeed has a chance to render it.
   const notified = useRef(new Set<string>());
 
   useEffect(() => {
@@ -67,8 +64,6 @@ export function useRealtimeNotifications() {
         for (const row of recent) {
           const createdAt = new Date(row.created_at).getTime();
           if (createdAt < fiveMinAgo) continue;
-          // #249: shared dedup gate (with useActivityFeed) — backup local Set.
-          if (!acceptTx({ tx_hash: row.tx_hash })) continue;
           if (notified.current.has(row.tx_hash)) continue;
           addToCappedSet(notified.current, row.tx_hash);
 
@@ -101,8 +96,6 @@ export function useRealtimeNotifications() {
         activity_type: string;
         note: string;
       };
-      // #249: shared dedup gate (with useActivityFeed) — backup local Set.
-      if (!acceptTx({ tx_hash: row.tx_hash })) return;
       if (notified.current.has(row.tx_hash)) return;
       addToCappedSet(notified.current, row.tx_hash);
 
@@ -186,5 +179,5 @@ export function useRealtimeNotifications() {
         supabase!.removeChannel(ch);
       }
     };
-  }, [addresses, acceptTx]);
+  }, [addresses, activeChainId]);
 }

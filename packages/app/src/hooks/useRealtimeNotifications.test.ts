@@ -9,7 +9,6 @@ import { renderHook, act, waitFor } from "@testing-library/react";
 const fetchActivitiesMock = vi.hoisted(() => vi.fn());
 const useEffectiveAddressMock = vi.hoisted(() => vi.fn());
 const useChainMock = vi.hoisted(() => vi.fn());
-const acceptTxMock = vi.hoisted(() => vi.fn());
 
 // Captured channel handlers per (channel-name-substring) so tests can
 // invoke the right one.
@@ -36,10 +35,6 @@ vi.mock("@/providers/ChainProvider", () => ({
   useChain: useChainMock,
 }));
 
-vi.mock("./useActivityDedup", () => ({
-  useActivityDedup: () => ({ accept: acceptTxMock }),
-}));
-
 vi.mock("@/lib/activity-messages", () => ({
   formatActivityMessage: (type: string, from: string, note: string) =>
     `${from} sent you a ${type}${note ? `: ${note}` : ""}`,
@@ -61,7 +56,6 @@ beforeEach(() => {
   fetchActivitiesMock.mockReset();
   useEffectiveAddressMock.mockReset();
   useChainMock.mockReset();
-  acceptTxMock.mockReset();
   supabaseChannelMock.mockReset();
   supabaseRemoveChannelMock.mockReset();
   toastMock.mockReset();
@@ -71,7 +65,6 @@ beforeEach(() => {
   useEffectiveAddressMock.mockReturnValue({ effectiveAddress: ME, eoa: undefined });
   useChainMock.mockReturnValue({ activeChainId: 11155111 });
   fetchActivitiesMock.mockResolvedValue([]);
-  acceptTxMock.mockReturnValue(true);
 
   // Channel mock captures the handler keyed by channel-name fragment.
   supabaseChannelMock.mockImplementation((channelName: string) => {
@@ -201,11 +194,7 @@ describe("useRealtimeNotifications — initial fetch (5-min window) (§15.x)", (
     expect(toastMock).not.toHaveBeenCalled();
   });
 
-  it("acceptTx dedup gate prevents duplicate toasts for the same tx_hash", async () => {
-    acceptTxMock
-      .mockReturnValueOnce(true)
-      .mockReturnValueOnce(false); // 2nd call: dedup blocks
-
+  it("local notified Set prevents duplicate missed toasts for the same tx_hash", async () => {
     const recent = new Date(Date.now() - 60_000).toISOString();
     fetchActivitiesMock.mockResolvedValue([
       { tx_hash: "0xdup", user_from: ALICE, user_to: ME, activity_type: "payment", note: "", created_at: recent },
@@ -296,26 +285,10 @@ describe("useRealtimeNotifications — realtime INSERT handler (§15.x)", () => 
     expect(toastMock.mock.calls[0][0]).toContain("Web design");
   });
 
-  it("realtime activity handler respects acceptTx dedup", async () => {
-    acceptTxMock.mockReturnValue(false); // dedup blocks every call
-    renderHook(() => useRealtimeNotifications());
-    await waitFor(() => expect(channelHandlers.byChannelName.size).toBeGreaterThan(0));
-
-    const handler = channelHandlers.byChannelName.get(`notify_activity_incoming_${ME.toLowerCase()}`)!;
-    act(() => {
-      handler({
-        new: { tx_hash: "0xpay", user_from: ALICE, user_to: ME, activity_type: "payment", note: "" },
-      });
-    });
-    expect(toastMock).not.toHaveBeenCalled();
-  });
-
   it("realtime activity handler uses LOCAL notified Set as backup dedup", async () => {
     renderHook(() => useRealtimeNotifications());
     await waitFor(() => expect(channelHandlers.byChannelName.size).toBeGreaterThan(0));
 
-    // acceptTx allows both; local Set should block the 2nd.
-    acceptTxMock.mockReturnValue(true);
     const handler = channelHandlers.byChannelName.get(`notify_activity_incoming_${ME.toLowerCase()}`)!;
     const row = { tx_hash: "0xdup", user_from: ALICE, user_to: ME, activity_type: "payment", note: "" };
 

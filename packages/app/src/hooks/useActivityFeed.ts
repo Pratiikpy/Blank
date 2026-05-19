@@ -69,8 +69,8 @@ export function useActivityFeed() {
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [isOffline, setIsOffline] = useState(false);
   const [hasMore, setHasMore] = useState(true);
-  // #249: shared dedup with useRealtimeNotifications — same tx_hash seen by
-  // either hook is suppressed in the other. Backed by a module-level Map.
+  // #249: shared feed dedup — a tx_hash seen through one feed subscription is
+  // suppressed in sibling feed instances for the same address and chain.
   const { accept: acceptTx } = useActivityDedup(address, activeChainId);
   // Backup: per-hook seen-set for the "have we already cached this tx?" check
   // used by loadActivities() / loadMore() / cache hydration. Kept as a
@@ -217,9 +217,9 @@ export function useActivityFeed() {
 
     function handleInsert(payload: { new: Record<string, unknown> }) {
       const newActivity = payload.new as unknown as ActivityRow;
-      // #249: shared dedup gate — same tx_hash seen by useRealtimeNotifications
-      // (or vice versa) is suppressed here. Local notifiedTxs Set kept as a
-      // backup safety net for cache-hydration / loadMore paths.
+      // #249: shared feed dedup gate. Toast notifications keep their own local
+      // dedup so they cannot consume an activity before the feed renders it.
+      // Local notifiedTxs Set is a backup for cache-hydration / loadMore paths.
       if (!acceptTx({ tx_hash: newActivity.tx_hash })) return;
       if (notifiedTxs.current.has(newActivity.tx_hash)) return;
       addToCappedSet(notifiedTxs.current, newActivity.tx_hash);
