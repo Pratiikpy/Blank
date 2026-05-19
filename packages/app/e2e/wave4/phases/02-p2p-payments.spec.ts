@@ -224,9 +224,13 @@ test.describe("Phase 2 — P2P encrypted payments", () => {
     const aliceAddress = (await alicePage.locator('[data-testid="gas-wallet-address"]').textContent())?.trim() ?? "";
     await faucetUsdc(alicePage, aliceAddress, chain.chainId, url);
 
-    // Wait for the TestUSDC balance to surface, then shield.
+    // faucetUsdc above probes RPC and returns a synthetic hash when the
+    // AA is already funded. The on-screen balance widget on /app/wallet
+    // is hidden by the gas-wallet upgrade banner on Base Sepolia (AA on
+    // older impl) — waiting on it spuriously times out. shieldUsdc
+    // navigates to /app (Dashboard) where the balance card renders
+    // unconditionally, so let it do the funding sanity itself.
     await alicePage.reload();
-    await alicePage.locator("text=/\\d+(?:\\.\\d+)?\\s*USDC/").first().waitFor({ state: "visible", timeout: 60_000 });
     await snap(alicePage, shotCtx, "pre-shield");
     await shieldUsdc(alicePage, "20", alice.passphrase);
     await snap(alicePage, shotCtx, "post-shield");

@@ -221,18 +221,15 @@ test.describe("Phase 5 — public deep-link create", () => {
       .first()
       .click();
 
-    await alice.page.locator('input[placeholder*="title" i], input[placeholder*="Wave 4" i], input').first().fill("E2E Auction Item");
-    // Auction min-bid input — placeholder includes "Minimum bid"
-    // or just generic numeric. Falls back to first numeric input.
-    await alice.page
-      .locator('input[placeholder*="Minimum"], input[placeholder*="bid"], input[inputmode="decimal"]')
-      .first()
-      .fill("1");
-    // Delivery channel
-    await alice.page
-      .locator('input[placeholder*="DM" i], input[placeholder*="email" i], input[placeholder*="deliver" i]')
-      .last()
-      .fill("DM @e2e-test on Telegram");
+    // CreateListing's Field component renders <label>+<input> as siblings
+    // without an htmlFor↔id association, so getByLabel may not resolve.
+    // Scope by the parent div: find a div that contains a label with the
+    // expected text, then the input inside. Avoids matching the global
+    // search bar at the top of the page (the prior fall-through-to-input
+    // selector hit it).
+    await alice.page.locator('div:has(> label:text-is("Product title")) input').fill("E2E Auction Item");
+    await alice.page.locator('div:has(> label:text-is("Minimum bid (USDC, 0 = any)")) input').fill("1");
+    await alice.page.locator('div:has(> label:text-is("How will you deliver?")) input').fill("DM @e2e-test on Telegram");
 
     await snap(alice.page, shot, "auction-form-filled");
 
@@ -270,11 +267,12 @@ test.describe("Phase 5 — public deep-link create", () => {
     await alice.page.goto("/app/fundraise");
     await snap(alice.page, shot, "create-campaign-landing");
 
-    await alice.page.locator('input').nth(0).fill("Wave 4 E2E Campaign");
-    // Description (textarea via Field multiline=true).
-    await alice.page.locator('textarea').first().fill("Headless E2E test campaign. Bob + Carol contribute in phase 6.");
-    // Goal input.
-    await alice.page.locator('input[placeholder*="500" i], input[inputmode="decimal"], input').nth(2).fill("50");
+    // Scope by parent div containing the labeled field — same pattern as
+    // the auction listing test. Avoids hitting the global search bar
+    // (which earlier nth(0) selectors did).
+    await alice.page.locator('div:has(> label:text-is("Campaign title")) input').fill("Wave 4 E2E Campaign");
+    await alice.page.locator('div:has(> label:text-is("Description")) textarea').fill("Headless E2E test campaign. Bob + Carol contribute in phase 6.");
+    await alice.page.locator('div:has(> label:text-is("Funding goal (USDC)")) input').fill("50");
 
     await snap(alice.page, shot, "campaign-form-filled");
 

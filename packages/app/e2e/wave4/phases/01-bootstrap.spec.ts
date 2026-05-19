@@ -9,6 +9,7 @@ import {
 } from "../fixtures/wallets";
 import { snap, resetCounter } from "../helpers/screenshot";
 import { recordProof } from "../helpers/testing-todo";
+import { drainPassphrasePrompts } from "../helpers/app-actions";
 
 // ──────────────────────────────────────────────────────────────────
 //  Phase 1 — bootstrap. Spawns Alice/Bob/Carol passkeys per chain
@@ -141,6 +142,16 @@ async function bootstrapPersona(
     const upgradeCta = page.locator('[data-testid="upgrade-banner-cta"]');
     if (await upgradeCta.isVisible({ timeout: 3_000 }).catch(() => false)) {
       await upgradeCta.click();
+      // The upgrade click fires a unifiedWrite UserOp that needs the
+      // passphrase signature. Without driving the prompt the upgrade
+      // hangs, the banner stays visible, and the balance card stays
+      // hidden. Drain whatever prompts appear during the 90s upgrade
+      // window.
+      await drainPassphrasePrompts(page, PERSONAS[personaKey].passphrase, {
+        windowMs: 90_000,
+        gapMs: 30_000,
+        expectAtLeast: 0,
+      });
       await page
         .locator('[data-testid="upgrade-banner"]')
         .waitFor({ state: "hidden", timeout: 90_000 })

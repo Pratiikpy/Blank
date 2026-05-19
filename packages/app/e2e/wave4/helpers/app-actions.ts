@@ -15,9 +15,13 @@ import type { Page } from "@playwright/test";
  *  first; only call /api/faucet/usdc when balance is under the threshold.
  *  Returns a synthetic 0x-hash when the drip was skipped (callers only
  *  need "balance is now sufficient" downstream). */
+// Must match the TestUSDC contract `/api/faucet/usdc` mints into —
+// i.e. Blank's own TestUSDC, not Circle's FiatToken. Otherwise the
+// balance probe queries the wrong token, always sees 0, and falls
+// through to the rate-limited faucet endpoint.
 const FAUCET_USDC_BY_CHAIN: Record<number, string> = {
   11155111: "0x16369CD4B9533795dCdc0D67DB3E4c621ef97D68",
-  84532: "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+  84532: "0x6377eF23B3464019EcF35528be6Eb6d6D57d0b1a",
 };
 const FAUCET_RPC_BY_CHAIN: Record<number, string> = {
   11155111: "https://ethereum-sepolia.publicnode.com",
@@ -76,19 +80,37 @@ export async function enterPassphrase(page: Page, passphrase: string, timeoutMs 
   // caller hit a retry loop above.
   const input = page.locator('input[type="password"][placeholder*="assphrase" i]:visible').first();
   await input.waitFor({ state: "visible", timeout: timeoutMs });
-  // Set value via the React 18 native setter + dispatch input event —
-  // see shieldUsdc for the rationale (modal re-render races detach
-  // Playwright element handles mid-type). Submit button label is
-  // "Unlock" (NOT Submit/Sign).
-  await input.evaluate((el, value) => {
-    const setter = Object.getOwnPropertyDescriptor(
-      window.HTMLInputElement.prototype,
-      "value",
-    )?.set;
-    if (setter) setter.call(el, value);
-    el.dispatchEvent(new Event("input", { bubbles: true }));
-  }, passphrase);
+  // Type into the input as a real keyboard would. Earlier code used the
+  // React 18 native-setter + dispatchEvent escape hatch, but that races
+  // with React 18's render batching: the setter mutates the DOM, the
+  // 'input' event fires synchronously, React schedules a state update,
+  // and Playwright clicks submit a few ms later — sometimes before the
+  // re-render flips `disabled={!value}` to enabled. The click then sits
+  // for 5s, falls back to press("Enter"), and the form's onSubmit sees
+  // value === "" (state never updated in time) and does not call
+  // close(value). Modal sits until the 60s queue auto-timer fires null.
+  //
+  // pressSequentially() dispatches real keydown/keypress/input/keyup
+  // events one char at a time, so React's onChange fires per keystroke
+  // and the controlled-input state is guaranteed to be settled before
+  // we attempt the submit.
+  await input.click({ timeout: 5_000 }).catch(() => { /* may already be focused */ });
+  await input.fill(""); // clear any residual value from a prior prompt
+  await input.pressSequentially(passphrase, { delay: 15 });
+  // Wait for the submit button to actually enable (React re-rendered).
   const submit = page.locator('button:visible').filter({ hasText: /^(Decrypt|Unlock)$/i }).first();
+  await submit.waitFor({ state: "visible", timeout: 5_000 });
+  await page.waitForFunction(
+    () => {
+      const btns = Array.from(document.querySelectorAll("button"));
+      const b = btns.find(
+        (x) => /^(Decrypt|Unlock)$/i.test((x.textContent ?? "").trim()) && (x as HTMLElement).offsetParent !== null,
+      );
+      return b !== undefined && !(b as HTMLButtonElement).disabled;
+    },
+    null,
+    { timeout: 5_000 },
+  ).catch(() => undefined);
   await submit.click({ timeout: 5_000 }).catch(() => input.press("Enter"));
 }
 
@@ -204,24 +226,90 @@ export async function drainPromptsAndCaptureTx(
     }
   };
   await page.route(routePredicate, routeHandler);
-  const txVisible = async () =>
-    interceptedTxHash !== null ||
-    (await page.locator('a[href*="/tx/0x"]').first().count()) > 0;
+  // Baseline: hashes already on screen at the time we hooked the route.
+  // P5 fired a shieldUsdc before iteration 1 of the claim-link create;
+  // its tx anchor lingered on the dashboard / activity surface, which
+  // satisfied terminateOn before drainPassphrasePrompts could fill the
+  // new prompt — drain exited early, readTxHashFromSuccess returned
+  // the stale hash, readShareUrl couldn't find /claim/ (because the
+  // real flow never ran), and the test threw inside iteration 1.
+  const baselineHashes = new Set<string>(
+    await page.evaluate(() => {
+      const seen = new Set<string>();
+      for (const a of Array.from(document.querySelectorAll('a[href*="/tx/0x"]'))) {
+        const m = (a as HTMLAnchorElement).href.match(/\/tx\/(0x[0-9a-fA-F]{64})/);
+        if (m) seen.add(m[1].toLowerCase());
+      }
+      return Array.from(seen);
+    }).catch(() => []),
+  );
+  const txVisible = async () => {
+    if (interceptedTxHash !== null) return true;
+    const onScreen = await page.evaluate(() => {
+      const out: string[] = [];
+      for (const a of Array.from(document.querySelectorAll('a[href*="/tx/0x"]'))) {
+        const m = (a as HTMLAnchorElement).href.match(/\/tx\/(0x[0-9a-fA-F]{64})/);
+        if (m) out.push(m[1].toLowerCase());
+      }
+      return out;
+    }).catch(() => [] as string[]);
+    return onScreen.some((h) => !baselineHashes.has(h));
+  };
   try {
     // expectAtLeast: 0 because cofhe permits may already be warmed by an
     // earlier UserOp in the same browser session (e.g. P5 second/third
     // claim-link create after the first, P7 income-proof after the
     // preceding shieldUsdc). The terminateOn check still proves the tx
     // fired; if it didn't, readTxHashFromSuccess will throw.
+    // Multi-tx flows (createClaimLink, createListing, createCampaign)
+    // need two signed UserOps: first setVaultApproval, then the actual
+    // create call. An eager terminateOn that returned true on the FIRST
+    // relay receipt broke them — drain exited before the second prompt
+    // appeared and the create tx never fired. The gap-aware predicate
+    // below requires the interceptedTxHash to remain stable for STABLE_MS
+    // after no further prompts have appeared, so multi-tx flows get
+    // their full sequence while single-tx flows still exit promptly.
+    // STABLE_MS must be long enough to bridge the LONGEST gap between
+    // any two consecutive prompts inside a single flow. On Base Sepolia
+    // createClaimLink has 3 prompts:
+    //   1. Sign approvePlaintext  (UserOp → relay tx → interceptedTxHash set)
+    //   2. Authorize decryption   (cofhe permit signTypedData — no relay)
+    //   3. Sign createLink        (UserOp → relay)
+    // The gap between #2 close and #3 open is the cofhe encryption window
+    // — observed ~17s on Base Sepolia testnet. 40s covers that plus
+    // margin for slow public-RPC ticks without making single-tx specs
+    // pay an unbounded wait.
+    const STABLE_MS = 40_000;
+    let stableSince: number | null = null;
+    let lastSeenHash: string | null = null;
+    const txStable = async (): Promise<boolean> => {
+      if (interceptedTxHash === null) {
+        stableSince = null;
+        lastSeenHash = null;
+        return false;
+      }
+      if (lastSeenHash !== interceptedTxHash) {
+        // New tx surfaced — reset the stability timer.
+        lastSeenHash = interceptedTxHash;
+        stableSince = Date.now();
+        return false;
+      }
+      const stableFor = Date.now() - (stableSince ?? Date.now());
+      // Also require that there is currently no passphrase prompt visible
+      // — a new prompt that hasn't been filled yet means another tx is
+      // coming and we should not exit.
+      const modalOpen = await page
+        .locator('input[type="password"][placeholder*="assphrase" i]:visible')
+        .first()
+        .isVisible()
+        .catch(() => false);
+      return stableFor >= STABLE_MS && !modalOpen;
+    };
     await drainPassphrasePrompts(page, passphrase, {
       windowMs: opts.windowMs ?? 360_000,
-      // Sepolia AA flows commonly take 60-120s between the last passphrase
-      // prompt and the /api/relay receipt. Default gapMs of 60s was cutting
-      // out before relay returned for createClaimLink, createListing,
-      // createCampaign. 150s gives the bundler enough headroom.
       gapMs: 150_000,
       expectAtLeast: 0,
-      terminateOn: txVisible,
+      terminateOn: txStable,
     });
     // After drainPassphrasePrompts exits, give in-flight relay calls a
     // little more time to land before falling back to DOM scraping.
