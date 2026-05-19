@@ -387,3 +387,52 @@ test or verify in any angle of the product on testnet, on Vercel,
 across both chains, both viewports, all wallet paths, all feature
 flows, all writing surfaces. Anything short of that is not "done."
 
+
+---
+
+## N. Stop-and-ask rule for compromise
+
+When the user gives an explicit instruction and you are about to do
+**less than asked**, **differently than asked**, or **substitute** a
+different approach, you must STOP IMMEDIATELY before doing anything
+else and surface the compromise to the user. Do not proceed until they
+confirm.
+
+Format the stop as a clear one-liner:
+
+> Compromise check: you asked for X. I'm about to do Y instead because Z.
+> Confirm I should proceed, or tell me how to do X properly.
+
+Examples of compromises that must trigger this stop:
+
+- User says "test with Rabby in a new browser session" → you are about
+  to test in the same session → STOP and ask.
+- User says "no DOM-only QA, use real Chrome with screenshots and
+  screen recordings" → you are about to drive selectors without video
+  capture → STOP and ask.
+- User says "test every feature on the live Vercel URL" → you are
+  about to skip a feature because it's hard or hits a quota → STOP and
+  ask (unless the skip reason is one of the §A allowed blockers).
+- User says "use real wallets, real testnet, real txs" → you are about
+  to mock a wallet → STOP and ask.
+- User says "drive 4 personas multi-wallet" → you are about to collapse
+  it to 2 personas → STOP and ask.
+
+When you are doing **more** than asked because you understood the
+user's intent, do not stop — that's helpful follow-through, not a
+compromise. The rule only triggers when you are about to do LESS or
+DIFFERENT than instructed.
+
+The cost of asking once is low. The cost of letting the user discover
+hours later that the work didn't match the instruction is very high
+(work redo, wasted compute, broken trust). Always ask up front.
+
+## O. Loop is a safety net, not a driver
+
+When the user sets up a `/loop` cron, treat it as a backstop that fires
+if you go quiet — NOT as a polling driver. Do not yield turn-by-turn
+waiting for the loop to fire. Work autonomously between iterations:
+push code, run scripts, sweep writing, inspect output, do anything
+that moves the goal forward. The user is not watching the loop because
+they want a poll, they're watching it because they want assurance you
+haven't stopped.
