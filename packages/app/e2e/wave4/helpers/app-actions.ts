@@ -207,6 +207,10 @@ export async function drainPromptsAndCaptureTx(
     /\/api\/relay(\b|\/|\?)/.test(url.toString());
   const routeHandler = async (route: { fetch: () => Promise<{ status: () => number; headers: () => Record<string, string>; text: () => Promise<string> }>; fulfill: (opts: { status: number; headers: Record<string, string>; body: string }) => Promise<void>; continue: () => Promise<void> }): Promise<void> => {
     relayInFlight += 1;
+    // Track whether we already settled the route (fulfilled or continued)
+    // to avoid "Route is already handled!" when an error thrown AFTER
+    // route.fulfill races with the catch block's route.continue() call.
+    let settled = false;
     try {
       const fetched = await route.fetch();
       const status = fetched.status();
@@ -219,8 +223,11 @@ export async function drainPromptsAndCaptureTx(
         }
       }
       await route.fulfill({ status, headers, body: raw });
+      settled = true;
     } catch {
-      await route.continue();
+      if (!settled) {
+        await route.continue().catch(() => undefined);
+      }
     } finally {
       relayInFlight -= 1;
     }

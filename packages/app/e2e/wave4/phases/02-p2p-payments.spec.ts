@@ -327,9 +327,11 @@ test.describe("Phase 2 — P2P encrypted payments", () => {
     //   B) UI allows Send + Confirm and surfaces an error post-relay.
     //
     // Try path B first; if Send is disabled within 5s we accept path A.
+    // SendAmount's advance CTA was renamed "Continue" (was "Send")
+    // — match either so this passes against both UI versions.
     const sendBtn = alicePage
       .locator("main button:visible")
-      .filter({ hasText: /^Send/i })
+      .filter({ hasText: /^(Send|Continue)/i })
       .last();
     await sendBtn.waitFor({ state: "visible", timeout: 30_000 });
     const sendDisabledFrontLoad = await sendBtn.isDisabled().catch(() => false);

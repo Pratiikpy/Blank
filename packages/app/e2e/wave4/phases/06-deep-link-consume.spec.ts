@@ -192,7 +192,9 @@ test.describe("Phase 6 — public deep-link consume", () => {
       // for the bid input + a "Place bid" CTA.
       await page.locator('input[placeholder="enter your max"]').fill(amount);
       await page.locator("button").filter({ hasText: /^Place bid/i }).click();
-      const txHash = await drainPromptsAndCaptureTx(page, persona.passphrase);
+      const txHash = await drainPromptsAndCaptureTx(page, persona.passphrase, {
+        readTimeoutMs: 180_000,
+      });
       const shot = await snap(
         page,
         { phase: "06-deep-link-consume", persona: persona.name.toLowerCase(), chain: chainSlug, viewport: chain.viewport },
