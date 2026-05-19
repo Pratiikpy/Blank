@@ -319,14 +319,23 @@ export async function selectRabbyChain(popup: Page, chainName: string): Promise<
   }
   await popup.waitForTimeout(2_000);
 
-  // Step 2: Rabby may default to the Mainnets tab. Click Testnets if
-  // present so Sepolia surfaces.
-  const testnetTab = popup.getByText("Testnets", { exact: true }).first();
-  if (await testnetTab.isVisible({ timeout: 2_000 }).catch(() => false)) {
-    const tBb = await testnetTab.boundingBox({ timeout: 1_500 }).catch(() => null);
-    if (tBb) await popup.mouse.click(tBb.x + tBb.width / 2, tBb.y + tBb.height / 2);
-    else await testnetTab.click({ force: true }).catch(() => {});
+  // Step 2: Chains added via Rabby's "Quick add from Chainlist" land
+  // under the "Custom Network" tab, NOT the built-in "Testnets" tab.
+  // Try Custom Network first; fall back to Testnets if it isn't there.
+  const customTab = popup.getByText(/^(Custom Network|Custom)$/i).first();
+  if (await customTab.isVisible({ timeout: 2_000 }).catch(() => false)) {
+    const cBb = await customTab.boundingBox({ timeout: 1_500 }).catch(() => null);
+    if (cBb) await popup.mouse.click(cBb.x + cBb.width / 2, cBb.y + cBb.height / 2);
+    else await customTab.click({ force: true }).catch(() => {});
     await popup.waitForTimeout(1_500);
+  } else {
+    const testnetTab = popup.getByText("Testnets", { exact: true }).first();
+    if (await testnetTab.isVisible({ timeout: 2_000 }).catch(() => false)) {
+      const tBb = await testnetTab.boundingBox({ timeout: 1_500 }).catch(() => null);
+      if (tBb) await popup.mouse.click(tBb.x + tBb.width / 2, tBb.y + tBb.height / 2);
+      else await testnetTab.click({ force: true }).catch(() => {});
+      await popup.waitForTimeout(1_500);
+    }
   }
 
   // Step 3: search field filters the list. Type a partial chain name.
@@ -334,7 +343,12 @@ export async function selectRabbyChain(popup: Page, chainName: string): Promise<
     .locator('input[type="text"], input[placeholder*="Search" i], input[placeholder*="search" i]')
     .first();
   if (await searchInput.isVisible({ timeout: 2_000 }).catch(() => false)) {
-    await searchInput.fill("Sepolia").catch(() => {});
+    // Use a more specific search term per chain so the list isn't
+    // polluted with Sepolia L2 forks (Orderly Sepolia, Mantle Sepolia,
+    // etc.). For Base Sepolia search "Base", for Eth Sepolia "Ethereum
+    // Sepolia" which uniquely matches the canonical entry.
+    const searchTerm = chainName.includes("Base") ? "Base Sepolia" : "Ethereum Sepolia";
+    await searchInput.fill(searchTerm).catch(() => {});
     await popup.waitForTimeout(1_200);
   }
 
