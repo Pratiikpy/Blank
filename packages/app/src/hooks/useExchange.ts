@@ -342,7 +342,7 @@ export function useExchange() {
         setStep("error");
         setError(msg);
         if (/not active|cancelled|expired|already filled/i.test(msg)) {
-          toast.error("This offer is no longer available — it was cancelled or filled by another user");
+          toast.error("This offer is no longer available. It was cancelled or filled by another user.");
         } else {
           toast.error("Transaction failed: " + msg.slice(0, 100));
         }
@@ -399,7 +399,7 @@ export function useExchange() {
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         if (/not active|cancelled|expired|already filled/i.test(msg)) {
-          toast.error("This offer is no longer available — it was cancelled or filled by another user");
+          toast.error("This offer is no longer available. It was cancelled or filled by another user.");
         } else {
           toast.error("Transaction failed: " + msg.slice(0, 100));
         }

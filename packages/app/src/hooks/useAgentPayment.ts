@@ -148,7 +148,7 @@ export function useAgentPayment() {
           model: data.model,
         };
         setLastAttestation(attestation);
-        toast.success("Agent derived amount — review and submit", { id: toastId });
+        toast.success("Agent derived amount. Review and submit.", { id: toastId });
         setStep("idle");
         return attestation;
       } catch (err) {
@@ -179,7 +179,7 @@ export function useAgentPayment() {
       // block time + tx inclusion lag + a small safety buffer).
       const referenceTs = blockTimestamp ?? Math.floor(Date.now() / 1000);
       if (attestation.expiry - referenceTs <= 30) {
-        toast.error("Attestation about to expire — re-derive");
+        toast.error("Attestation about to expire. Re-derive.");
         return null;
       }
       try {

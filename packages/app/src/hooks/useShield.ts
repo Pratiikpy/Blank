@@ -246,7 +246,7 @@ export function useShield() {
     // nothing happen. Surface this case clearly + wait briefly.
     const isPasskeyOnly = !eoaAddress && smartAccount.status !== "no-passkey";
     if (isPasskeyOnly && smartAccount.status !== "ready") {
-      toast.error("Wallet still loading — try again in a moment");
+      toast.error("Wallet still loading. Try again in a moment.");
       return null;
     }
 

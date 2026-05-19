@@ -213,7 +213,7 @@ export function useBridgeUSDC(): UseBridgeUSDCReturn {
         return;
       }
       if (!sourcePublicClient) {
-        toast.error("RPC unavailable on the active chain — try again");
+        toast.error("RPC unavailable on the active chain. Try again.");
         return;
       }
       if (args.sourceChain !== activeChainId) {

@@ -497,7 +497,7 @@ export function useSendPayment() {
       // races the click before useSmartAccount finishes its first
       // resolveAccount, address is undefined here. Surface as a real
       // error instead of the silent return that hid this for hours.
-      toast.error("Smart wallet not ready yet — please wait a moment and try again.");
+      toast.error("Smart wallet not ready yet. Please wait a moment and try again.");
       return;
     }
     // #272: synchronous latch — prevents double-submit during the React
@@ -662,7 +662,7 @@ export function useSendPayment() {
   const confirmBatchSend = useCallback(
     async (paymasterMode?: "sponsored" | "self") => {
       if (!address) {
-        toast.error("Smart wallet not ready yet — please wait a moment and try again.");
+        toast.error("Smart wallet not ready yet. Please wait a moment and try again.");
         return;
       }
       if (submittingRef.current) return;
@@ -692,7 +692,7 @@ export function useSendPayment() {
         return;
       }
       if (amounts.length !== recipientList.length) {
-        toast.error("Recipient and amount counts disagree — re-enter amounts");
+        toast.error("Recipient and amount counts disagree. Re-enter amounts.");
         return;
       }
       for (const a of amounts) {

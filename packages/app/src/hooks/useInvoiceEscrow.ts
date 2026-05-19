@@ -100,7 +100,7 @@ export function useInvoiceEscrow() {
         return null;
       }
       if (!publicClient) {
-        toast.error("Connection lost — please refresh");
+        toast.error("Connection lost. Please refresh.");
         return null;
       }
       if (step !== "idle") return null;
@@ -165,7 +165,7 @@ export function useInvoiceEscrow() {
         broadcastAction("activity_added");
         invalidateBalanceQueries();
 
-        toast.success("Payment funded — finalize to release to vendor");
+        toast.success("Payment funded. Finalize to release to vendor.");
         finishTransiently("success");
         return hash;
       } catch (err) {
@@ -195,7 +195,7 @@ export function useInvoiceEscrow() {
         return null;
       }
       if (!publicClient) {
-        toast.error("Connection lost — please refresh");
+        toast.error("Connection lost. Please refresh.");
         return null;
       }
       if (step !== "idle") return null;
