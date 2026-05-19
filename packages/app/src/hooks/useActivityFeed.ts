@@ -5,6 +5,7 @@ import { useEffectiveAddress } from "./useEffectiveAddress";
 import { useChain } from "@/providers/ChainProvider";
 import { STORAGE_KEYS, getStoredJson, setStoredJson } from "@/lib/storage";
 import { useActivityDedup } from "./useActivityDedup";
+import { CONTRACTS_BY_CHAIN } from "@/lib/constants";
 
 /** Add a value to a Set, evicting the oldest half when maxSize is reached. */
 function addToCappedSet(set: Set<string>, value: string, maxSize = 500) {
@@ -46,6 +47,15 @@ function sortActivitiesStable<T extends { created_at: string; tx_hash: string }>
 // history, the cache only exists to make the first paint feel instant.
 const CACHE_CAP = 100;
 const ACTIVITY_REFRESH_INTERVAL_MS = 30_000;
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+
+function contractSet(values: unknown[]): Set<string> {
+  return new Set(
+    values
+      .filter((v): v is string => typeof v === "string" && v.startsWith("0x") && v.toLowerCase() !== ZERO_ADDRESS)
+      .map((v) => v.toLowerCase()),
+  );
+}
 
 /**
  * Activity feed — works in 3 modes:
@@ -64,7 +74,7 @@ export function useActivityFeed() {
   // complete regardless of which address a given counterparty targeted.
   const { effectiveAddress, eoa } = useEffectiveAddress();
   const address = effectiveAddress;
-  const { activeChainId } = useChain();
+  const { activeChainId, contracts } = useChain();
   const [activities, setActivities] = useState<ActivityRow[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -96,6 +106,27 @@ export function useActivityFeed() {
     return list;
   }, [eoa, effectiveAddress]);
 
+  const currentChainContracts = useMemo(
+    () => contractSet(Object.values(contracts ?? {})),
+    [contracts],
+  );
+  const otherChainContracts = useMemo(() => {
+    const values = Object.entries(CONTRACTS_BY_CHAIN)
+      .filter(([id]) => Number(id) !== activeChainId)
+      .flatMap(([, map]) => Object.values(map));
+    return contractSet(values);
+  }, [activeChainId]);
+
+  const isActivityForActiveChain = useCallback((activity: ActivityRow) => {
+    if (typeof activity.chain_id === "number") return activity.chain_id === activeChainId;
+    const rowContracts = [activity.contract_address, activity.token_address]
+      .filter((v): v is string => typeof v === "string" && v.startsWith("0x"))
+      .map((v) => v.toLowerCase());
+    if (rowContracts.some((addr) => currentChainContracts.has(addr))) return true;
+    if (rowContracts.some((addr) => otherChainContracts.has(addr))) return false;
+    return true;
+  }, [activeChainId, currentChainContracts, otherChainContracts]);
+
   const cacheKey = address
     ? STORAGE_KEYS.activities(address, activeChainId)
     : null;
@@ -117,8 +148,9 @@ export function useActivityFeed() {
 
     try {
       const data = await fetchActivities(addresses, PAGE_SIZE, undefined, activeChainId);
-      if (data.length > 0) {
-        const sorted = sortActivitiesStable(data);
+      const filtered = data.filter(isActivityForActiveChain);
+      if (filtered.length > 0) {
+        const sorted = sortActivitiesStable(filtered);
         setActivities(sorted);
         sorted.forEach((a) => addToCappedSet(notifiedTxs.current, a.tx_hash));
         // Cache — capped at CACHE_CAP so the cache stays small.
@@ -135,7 +167,7 @@ export function useActivityFeed() {
     }
 
     setIsLoading(false);
-  }, [addresses, cacheKey, activeChainId]);
+  }, [addresses, cacheKey, activeChainId, isActivityForActiveChain]);
 
   /**
    * Load the next page of older activities using the oldest current row's
@@ -162,7 +194,7 @@ export function useActivityFeed() {
       // Dedupe against existing tx_hashes in the list — avoids any chance
       // of a realtime insert landing between loadMore calls duplicating a row.
       const existing = new Set(activities.map((a) => a.tx_hash));
-      const fresh = data.filter((a) => !existing.has(a.tx_hash));
+      const fresh = data.filter((a) => isActivityForActiveChain(a) && !existing.has(a.tx_hash));
 
       if (fresh.length === 0) {
         setHasMore(false);
@@ -181,7 +213,7 @@ export function useActivityFeed() {
     } finally {
       setIsLoadingMore(false);
     }
-  }, [addresses, activities, isLoadingMore, activeChainId]);
+  }, [addresses, activities, isLoadingMore, activeChainId, isActivityForActiveChain]);
 
   // Real-time subscription
   useEffect(() => {
@@ -218,6 +250,7 @@ export function useActivityFeed() {
 
     function handleInsert(payload: { new: Record<string, unknown> }) {
       const newActivity = payload.new as unknown as ActivityRow;
+      if (!isActivityForActiveChain(newActivity)) return;
       // #249: shared feed dedup gate. Toast notifications keep their own local
       // dedup so they cannot consume an activity before the feed renders it.
       // Local notifiedTxs Set is a backup for cache-hydration / loadMore paths.
@@ -267,7 +300,7 @@ export function useActivityFeed() {
       }
       flushInserts();
     };
-  }, [addresses, loadActivities, cacheKey, acceptTx]);
+  }, [addresses, loadActivities, cacheKey, acceptTx, isActivityForActiveChain]);
 
   // Cross-tab sync: when another tab performs an action, refetch activities
   useEffect(() => {

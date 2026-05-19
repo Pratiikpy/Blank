@@ -46,6 +46,7 @@ vi.mock("./useActivityDedup", () => ({
 
 import { useActivityFeed } from "./useActivityFeed";
 import { STORAGE_KEYS } from "@/lib/storage";
+import { CONTRACTS_BY_CHAIN } from "@/lib/constants";
 
 const ME = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const EOA = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
@@ -86,7 +87,7 @@ beforeEach(() => {
   localStorage.clear();
 
   useEffectiveAddressMock.mockReturnValue({ effectiveAddress: ME, eoa: undefined });
-  useChainMock.mockReturnValue({ activeChainId: CHAIN });
+  useChainMock.mockReturnValue({ activeChainId: CHAIN, contracts: CONTRACTS_BY_CHAIN[CHAIN] });
   fetchActivitiesMock.mockResolvedValue([]);
   acceptTxMock.mockReturnValue(true);
   onCrossTabActionMock.mockReturnValue(() => {});
@@ -157,6 +158,27 @@ describe("useActivityFeed — server fetch (§15.x)", () => {
     const { result } = renderHook(() => useActivityFeed());
     await waitFor(() => expect(result.current.activities.length).toBe(2));
     expect(result.current.isOffline).toBe(false);
+  });
+
+  it("filters legacy no-chain rows from known contracts on other chains", async () => {
+    fetchActivitiesMock.mockResolvedValue([
+      row({
+        tx_hash: "0xeth",
+        id: "eth",
+        chain_id: undefined,
+        contract_address: CONTRACTS_BY_CHAIN[11155111].PaymentHub,
+      }),
+      row({
+        tx_hash: "0xbase",
+        id: "base",
+        chain_id: undefined,
+        contract_address: CONTRACTS_BY_CHAIN[84532].PaymentHub,
+      }),
+    ]);
+
+    const { result } = renderHook(() => useActivityFeed());
+    await waitFor(() => expect(result.current.activities.length).toBe(1));
+    expect(result.current.activities[0].tx_hash).toBe("0xeth");
   });
 
   it("sets isOffline=true when fetchActivities throws", async () => {
