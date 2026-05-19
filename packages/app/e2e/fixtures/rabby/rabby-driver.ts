@@ -116,6 +116,39 @@ export async function unlockRabby(rabbyPage: Page, password: string): Promise<bo
 }
 
 /**
+ * Dismiss Rabby's "What's new" patch-notes modal if it surfaces on the
+ * home tab after unlock. The modal blocks no further interaction on the
+ * home tab itself (notification popups still surface) but its presence
+ * makes screenshots harder to read and risks intercepting future clicks
+ * if the test ever interacts with the home tab. Idempotent.
+ */
+export async function dismissRabbyWhatsNew(rabbyPage: Page): Promise<boolean> {
+  if (rabbyPage.isClosed()) return false;
+  const closeCandidates = [
+    rabbyPage.getByRole("button", { name: /^close|^dismiss|^got it/i }).first(),
+    rabbyPage.locator('[aria-label="Close"]').first(),
+    rabbyPage.locator('button:has(svg[data-icon="close"])').first(),
+  ];
+  for (const c of closeCandidates) {
+    if (await c.isVisible({ timeout: 1_500 }).catch(() => false)) {
+      await c.click({ timeout: 2_000, force: true }).catch(() => {});
+      await rabbyPage.waitForTimeout(800);
+      return true;
+    }
+  }
+  // Fallback: the modal has a visible "What's new" heading and the X is
+  // at top-right of the card. Click the heading first to ensure focus,
+  // then press Escape.
+  const heading = rabbyPage.getByText(/What.?s new/i).first();
+  if (await heading.isVisible({ timeout: 1_500 }).catch(() => false)) {
+    await rabbyPage.keyboard.press("Escape").catch(() => {});
+    await rabbyPage.waitForTimeout(600);
+    return true;
+  }
+  return false;
+}
+
+/**
  * Block until Rabby surfaces a new notification.html popup OR the timeout
  * elapses. The popup is a separate Page object inside the same
  * BrowserContext; this scans all open pages on each iteration.
@@ -147,6 +180,71 @@ export async function waitForRabbyPopup(
 
 /** Rabby's primary-CTA labels in the order we should try them. */
 const RABBY_PRIMARY_CTAS = ["Sign", "Confirm", "Approve", "Connect", "Allow", "Switch network"];
+
+/**
+ * On Rabby's Connect popup the chain chip defaults to Ethereum mainnet.
+ * Blank's wagmi config only allows Sepolia + Base Sepolia, so the
+ * Connect CTA stays disabled until we switch. Ported from
+ * `scripts/rabby-live-smoke.ts::selectRabbyChain` — that pattern was
+ * proven across both chains. Returns true if the chain switch landed,
+ * false if no switch was attempted (popup may already be on the right
+ * chain or the dropdown widget wasn't found).
+ *
+ * @param chainName "Ethereum Sepolia" or "Base Sepolia"
+ */
+export async function selectRabbyChain(popup: Page, chainName: string): Promise<boolean> {
+  // Let the popup finish rendering its dApp metadata. Rabby fetches
+  // "Listed by" / "Site popularity" on open and the chain chip text
+  // only finalises after that returns.
+  await popup.waitForTimeout(4_500);
+
+  // Step 1: open the chain dropdown. The chip text varies: "Ethereum"
+  // when default, or the previously-selected chain. Match either the
+  // default mainnet label or any chain chip in the popup header.
+  const trig = popup.getByText(/^(Ethereum|Sepolia|Base|Polygon|Optimism)/i).first();
+  if (!(await trig.isVisible({ timeout: 6_000 }).catch(() => false))) {
+    return false;
+  }
+  const bb = await trig.boundingBox({ timeout: 2_000 }).catch(() => null);
+  if (bb) {
+    await popup.mouse.click(bb.x + bb.width / 2, bb.y + bb.height / 2);
+  } else {
+    await trig.click({ force: true }).catch(() => {});
+  }
+  await popup.waitForTimeout(2_000);
+
+  // Step 2: Rabby may default to the Mainnets tab. Click Testnets if
+  // present so Sepolia surfaces.
+  const testnetTab = popup.getByText("Testnets", { exact: true }).first();
+  if (await testnetTab.isVisible({ timeout: 2_000 }).catch(() => false)) {
+    const tBb = await testnetTab.boundingBox({ timeout: 1_500 }).catch(() => null);
+    if (tBb) await popup.mouse.click(tBb.x + tBb.width / 2, tBb.y + tBb.height / 2);
+    else await testnetTab.click({ force: true }).catch(() => {});
+    await popup.waitForTimeout(1_500);
+  }
+
+  // Step 3: search field filters the list. Type a partial chain name.
+  const searchInput = popup
+    .locator('input[type="text"], input[placeholder*="Search" i], input[placeholder*="search" i]')
+    .first();
+  if (await searchInput.isVisible({ timeout: 2_000 }).catch(() => false)) {
+    await searchInput.fill("Sepolia").catch(() => {});
+    await popup.waitForTimeout(1_200);
+  }
+
+  // Step 4: pick the row. Rabby labels Eth Sepolia as "Sepolia" and
+  // Base Sepolia as "Base Sepolia".
+  const target = chainName.includes("Base") ? "Base Sepolia" : "Sepolia";
+  const targetLoc = popup.getByText(target, { exact: false }).first();
+  if (await targetLoc.isVisible({ timeout: 2_500 }).catch(() => false)) {
+    const tb = await targetLoc.boundingBox({ timeout: 2_000 }).catch(() => null);
+    if (tb) await popup.mouse.click(tb.x + tb.width / 2, tb.y + tb.height / 2);
+    else await targetLoc.click({ force: true }).catch(() => {});
+    await popup.waitForTimeout(2_000);
+    return true;
+  }
+  return false;
+}
 
 async function cdpRawClick(popup: Page, x: number, y: number): Promise<boolean> {
   try {
@@ -191,7 +289,16 @@ export async function confirmRabbyPopup(
   popup: Page,
   shotsDir: string,
   label: string,
+  opts: { chainName?: string } = {},
 ): Promise<{ clicks: number; closed: boolean }> {
+  // For Connect popups, switch chain BEFORE looking for CTAs — the
+  // Connect button stays disabled until the chain matches the dApp's
+  // wagmi config. `label.includes("connect")` is the convention used
+  // by the spec to identify these.
+  if (opts.chainName && /connect/i.test(label)) {
+    await selectRabbyChain(popup, opts.chainName).catch(() => false);
+  }
+
   const start = Date.now();
   let clicks = 0;
   let lastClick = Date.now();
@@ -241,9 +348,10 @@ export async function waitAndConfirmRabbyPopup(
   shotsDir: string,
   label: string,
   timeoutMs = 30_000,
+  opts: { chainName?: string } = {},
 ): Promise<{ popup: Page | null; clicks: number; closed: boolean }> {
   const popup = await waitForRabbyPopup(ctx, extId, knownPages, timeoutMs);
   if (!popup) return { popup: null, clicks: 0, closed: false };
-  const result = await confirmRabbyPopup(popup, shotsDir, label);
+  const result = await confirmRabbyPopup(popup, shotsDir, label, opts);
   return { popup, ...result };
 }

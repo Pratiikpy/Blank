@@ -6,6 +6,7 @@ import {
   launchRabby,
   unlockRabby,
   waitAndConfirmRabbyPopup,
+  dismissRabbyWhatsNew,
 } from "../../fixtures/rabby/rabby-driver";
 import { CHAINS, type ChainKey } from "../fixtures/wallets";
 import { snap, resetCounter } from "../helpers/screenshot";
@@ -131,20 +132,63 @@ test.describe("Phase 9 — Rabby smoke (Dave EOA)", () => {
     try {
       // — Unlock.
       await unlockRabby(rabby.rabbyPage, RABBY_PASSWORD);
+      // Rabby surfaces a "What's new" patch-notes modal after unlock
+      // (version 0.93.x onwards). Dismiss it so the home tab is clean
+      // for later screenshots + so it doesn't steal focus from the
+      // notification popups we drive later.
+      await dismissRabbyWhatsNew(rabby.rabbyPage);
       await snap(rabby.rabbyPage, shot, "rabby-unlocked");
 
       // — Open the dApp.
       const dapp = await rabby.context.newPage();
-      await dapp.goto(`${url}/app`);
+      await dapp.goto(`${url}/app`, { waitUntil: "domcontentloaded", timeout: 60_000 });
+      // The /app route mounts Onboarding pre-connect (Onboarding.tsx
+      // line 49: `if (!address) return 0;`). The 4-step carousel
+      // ("Send money privately" → ... → WalletChoiceCard) ALWAYS shows
+      // before connect — there is no "Sign in" button on this app, the
+      // gate is the wallet picker on the last carousel slide.
+      await dapp.waitForTimeout(2_000);
       await snap(dapp, shot, "dapp-loaded");
 
       // Track known pages so popup detection only fires on NEW windows.
       const knownPages = new Set<Page>(rabby.context.pages());
 
-      // Click Sign in. Rabby's connect popup fires.
-      const signInBtn = dapp.locator("button").filter({ hasText: /^Sign in/i }).first();
-      await signInBtn.waitFor({ state: "visible", timeout: 30_000 });
-      await signInBtn.click();
+      // Walk the onboarding carousel until WalletChoiceCard appears.
+      // Each Next click advances one slide; the card surfaces on the
+      // final slide. Capped at 6 iterations — onboarding has 4 slides,
+      // 6 gives us 2 free clicks of slack against animation timing.
+      for (let i = 0; i < 6; i++) {
+        const card = dapp.locator('[data-testid="wallet-choice-existing"]');
+        if (await card.isVisible({ timeout: 1_500 }).catch(() => false)) break;
+        const nextBtn = dapp.locator("button").filter({ hasText: /^Next/i }).first();
+        if (!(await nextBtn.isVisible({ timeout: 2_000 }).catch(() => false))) break;
+        const bbox = await nextBtn.boundingBox({ timeout: 2_000 }).catch(() => null);
+        if (bbox) await dapp.mouse.click(bbox.x + bbox.width / 2, bbox.y + bbox.height / 2);
+        else await nextBtn.click({ force: true }).catch(() => {});
+        await dapp.waitForTimeout(1_200);
+      }
+      await snap(dapp, shot, "wallet-choice-visible");
+
+      // Click the first Connect button inside the existing-wallet
+      // card. Rabby injects window.ethereum so wagmi's injected
+      // connector reports either "Rabby Wallet", "Injected", or
+      // "MetaMask" (Rabby spoofs MM for legacy dApp compat). Match
+      // any of those, but prefer Rabby-flavoured.
+      const existingCard = dapp.locator('[data-testid="wallet-choice-existing"]');
+      await existingCard.waitFor({ state: "visible", timeout: 15_000 });
+      let connectClicked = false;
+      for (const pattern of [/Rabby/i, /MetaMask/i, /Injected/i, /^Connect/i]) {
+        const btn = existingCard.locator("button").filter({ hasText: pattern }).first();
+        if (await btn.isVisible({ timeout: 1_500 }).catch(() => false)) {
+          const bbox = await btn.boundingBox({ timeout: 2_000 }).catch(() => null);
+          if (bbox) await dapp.mouse.click(bbox.x + bbox.width / 2, bbox.y + bbox.height / 2);
+          else await btn.click({ force: true }).catch(() => {});
+          connectClicked = true;
+          break;
+        }
+      }
+      expect(connectClicked, "No Connect button found in WalletChoiceCard").toBe(true);
+      await snap(dapp, shot, "connect-clicked");
 
       const connect = await waitAndConfirmRabbyPopup(
         rabby.context,
@@ -153,6 +197,7 @@ test.describe("Phase 9 — Rabby smoke (Dave EOA)", () => {
         SHOTS_DIR,
         "rabby-connect",
         30_000,
+        { chainName: chain.chainName },
       );
       expect(connect.clicks, "Rabby connect popup did not advance").toBeGreaterThan(0);
       await snap(dapp, shot, "rabby-connected");
@@ -164,7 +209,7 @@ test.describe("Phase 9 — Rabby smoke (Dave EOA)", () => {
         knownPages,
         SHOTS_DIR,
         "rabby-siwe",
-        15_000,
+        20_000,
       );
       if (siwe.clicks > 0) await snap(dapp, shot, "rabby-siwe-signed");
 
@@ -174,11 +219,31 @@ test.describe("Phase 9 — Rabby smoke (Dave EOA)", () => {
         "0x000000000000000000000000000000000000dEaD";
       await dapp.goto(`${url}/app/send`);
 
+      // Send-flow labels (see SendContacts.tsx, SendAmount.tsx,
+      // SendConfirm.tsx) — copied from phase 02's proven pattern:
+      //  - SendContacts advance CTA = "Continue"
+      //  - SendAmount advance CTA = "Continue" (legacy: "Send")
+      //  - SendConfirm final CTA = "Confirm & Send" (matches /^Confirm/)
       await dapp.locator('input[placeholder*="0x"]').first().fill(recipient);
-      await dapp.locator("button").filter({ hasText: /^Next/i }).first().click();
+      await dapp
+        .locator("main button:visible:not([disabled])")
+        .filter({ hasText: /^(Continue|Next)/i })
+        .last()
+        .click();
+      await dapp.locator('input[placeholder="0.00"]').first().waitFor({ state: "visible", timeout: 15_000 });
       await dapp.locator('input[placeholder="0.00"]').first().fill("0.01");
-      await dapp.locator("button").filter({ hasText: /^Send/i }).last().click();
-      await dapp.locator("button").filter({ hasText: /^Confirm/i }).last().click();
+      await dapp
+        .locator("main button:visible:not([disabled])")
+        .filter({ hasText: /^(Continue|Review|Next|Send)/i })
+        .last()
+        .click();
+      // Wait for /app/send/confirm to actually load before clicking.
+      await dapp.waitForURL(/\/app\/send\/confirm/, { timeout: 15_000 }).catch(() => {});
+      await dapp
+        .locator("main button")
+        .filter({ hasText: /Confirm.*Send|Send to stealth|Continue stealth send|^Send/i })
+        .last()
+        .click();
 
       const send = await waitAndConfirmRabbyPopup(
         rabby.context,
