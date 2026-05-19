@@ -57,7 +57,7 @@ const post: BlogPost = {
       </p>
       <p>
         The trade-off is real. The co-processor model adds a trust
-        assumption — the threshold network of operators must not collude
+        assumption, the threshold network of operators must not collude
         to decrypt or forge results. The L1 model has no such
         assumption (only the chain's consensus). But the co-processor
         gets you something the L1 can't: <strong>your contracts deploy
@@ -69,7 +69,7 @@ const post: BlogPost = {
       <p>
         For a payments app this matters more than for almost any other
         category. We need users with regular wallets, paying regular
-        addresses, in a regular way — except for one specific field
+        addresses, in a regular way, except for one specific field
         (the amount) which is encrypted. That's exactly the shape
         co-processor architecture gives you, and it's exactly the
         shape an FHE L1 makes harder.
@@ -85,19 +85,19 @@ balance = FHE.add(balance, amount);
 FHE.allowSender(balance);`}
       </pre>
       <p>
-        The on-chain code stores a 32-byte handle — a reference to
+        The on-chain code stores a 32-byte handle, a reference to
         ciphertext that lives in the co-processor network's storage,
         not in the EVM. <code>FHE.add</code> doesn't actually compute
         anything on-chain. It dispatches a task to the on-chain
         TaskManager; the co-processor picks it up, performs the
         homomorphic addition off-chain, and writes a result handle
-        back. <code>FHE.allowSender</code> records permits — a list
+        back. <code>FHE.allowSender</code> records permits, a list
         of addresses authorised to ask the threshold network for
         decryption permits later.
       </p>
       <p>
-        This split — handles on-chain, ciphertext off-chain, threshold
-        network in the middle — is the right division of labour. It
+        This split, handles on-chain, ciphertext off-chain, threshold
+        network in the middle, is the right division of labour. It
         means our gas costs are sane (the EVM doesn't run TFHE; it
         runs handle bookkeeping). It means decryption happens
         asynchronously by addresses you've explicitly granted access
@@ -115,10 +115,10 @@ FHE.allowSender(balance);`}
         <strong>FHE.select() instead of branching.</strong> A normal
         Solidity contract checks balances with <code>require(balance
         &gt;= amount)</code>. That revert leaks one bit of information
-        per attempt — enough reverts and an attacker reconstructs your
+        per attempt, enough reverts and an attacker reconstructs your
         balance. Fhenix bakes <code>FHE.select(condition, ifTrue,
         ifFalse)</code> directly into the API as a first-class
-        primitive — branching on encrypted data without leaking which
+        primitive, branching on encrypted data without leaking which
         branch was taken. It's a small thing. Across our codebase it
         eliminated a class of bugs we would have written on autopilot
         if the primitive hadn't been right there.
@@ -141,11 +141,11 @@ FHE.allowSender(balance);`}
         This one bit us during Wave 3 and we've since come to
         appreciate why it had to be that way. When a user submits an
         encrypted input, <code>FHE.asEuint64(encInput)</code> verifies
-        the ZK proof attached to it — but the verification is bound to{" "}
+        the ZK proof attached to it, but the verification is bound to{" "}
         <code>msg.sender</code> at the moment <code>asEuint64</code>{" "}
         runs. If our hub contract calls our vault contract and lets
         the vault verify the input, <code>msg.sender</code> is the hub,
-        not the original user — and the proof fails. Took us a day to
+        not the original user, and the proof fails. Took us a day to
         diagnose. The fix was a <code>transferVerified</code> primitive
         on the vault that accepts an already-verified handle. Once we
         understood the design, we agreed with it: the alternative
@@ -156,7 +156,7 @@ FHE.allowSender(balance);`}
         <strong>The TFHE WASM client.</strong> Encryption happens in
         the user's browser, not on a server we operate. Plaintext
         never leaves the device. Fhenix's <code>@cofhe/sdk</code> ships
-        a TFHE WASM module that runs in a Web Worker — fast enough that
+        a TFHE WASM module that runs in a Web Worker, fast enough that
         encrypting a 64-bit amount feels like any other JS operation.
         For a privacy app, "client-side encryption with no server
         round-trip" is non-negotiable, and getting it to work browser-
@@ -165,7 +165,7 @@ FHE.allowSender(balance);`}
       <p>
         <strong>Hardhat plugin + mock contracts for local dev.</strong>{" "}
         Fhenix's <code>@cofhe/hardhat-plugin</code> ships a complete
-        mock of the threshold network that runs locally — in tests, in
+        mock of the threshold network that runs locally, in tests, in
         dev, anywhere. We have 154 contract tests that exercise real
         FHE flows without touching a real threshold operator. That
         completeness is what let us actually ship a full product
@@ -183,21 +183,21 @@ FHE.allowSender(balance);`}
         decentralization roadmap, and we trust the direction, but the
         mainnet-ready answer to "is the operator set sufficiently
         decentralised" is: not yet. We're testnet-only because of
-        this (and because of audits — see the roadmap).
+        this (and because of audits, see the roadmap).
       </p>
       <p>
         <strong>Decryption latency.</strong> Threshold decryption on
         testnet takes long enough that we had to design the UX around
-        it — showing last-known plaintext optimistically, treating
+        it, showing last-known plaintext optimistically, treating
         decrypt as async, never blocking the screen on it. On mainnet
         performance targets will tighten; on testnet today it's the
         single biggest UX constraint we work against.
       </p>
       <p>
         <strong>Maturity of the broader ecosystem.</strong> Fhenix's
-        own SDKs are excellent. The wider tooling — wallet integrations
+        own SDKs are excellent. The wider tooling, wallet integrations
         that natively understand FHE handles, indexers that can mirror
-        encrypted state, audit firms with FHE-specific expertise — is
+        encrypted state, audit firms with FHE-specific expertise, is
         thin. Anyone shipping in this space is partly building tooling
         for the next person. We accept that and we publish what we
         learn.
@@ -219,7 +219,7 @@ FHE.allowSender(balance);`}
         <li>
           <strong>The API design holds up under real use.</strong>{" "}
           <code>FHE.select</code>-over-revert, the four-tier ACL,
-          context-bound input verification, TFHE in the browser — each
+          context-bound input verification, TFHE in the browser, each
           of these is a deliberate, security-aware choice, and the way
           they compose across a real codebase is what convinced us the
           bigger architectural calls were equally considered.
@@ -229,8 +229,8 @@ FHE.allowSender(balance);`}
           Threshold operator decentralisation is hard but it's a
           well-understood problem. Mainnet-ready FHE means a more
           decentralised operator set; that's on Fhenix's roadmap and
-          we believe they'll get there. The harder bet — that FHE
-          can be made practical at all — was already won by the time
+          we believe they'll get there. The harder bet, that FHE
+          can be made practical at all, was already won by the time
           we picked.
         </li>
       </ol>
@@ -243,7 +243,7 @@ FHE.allowSender(balance);`}
         <li>
           A payment app where amounts are encrypted but the rest of
           Ethereum still works. Wallets, addresses, etherscan,
-          composability — all untouched.
+          composability, all untouched.
         </li>
         <li>
           A shared encrypted vault that every product surface plugs
@@ -254,7 +254,7 @@ FHE.allowSender(balance);`}
         <li>
           A path forward. As the threshold network decentralises and
           decryption gets faster, every feature we've already shipped
-          benefits — we don't have to migrate.
+          benefits, we don't have to migrate.
         </li>
       </ul>
 
@@ -285,8 +285,8 @@ FHE.allowSender(balance);`}
       <p>
         We're not the right team to tell anyone "build on Fhenix
         because Fhenix." We are the right team to tell you that for
-        the specific shape of problem we have — encrypted amounts on
-        Ethereum, with all of Ethereum's tooling intact — Fhenix's
+        the specific shape of problem we have, encrypted amounts on
+        Ethereum, with all of Ethereum's tooling intact, Fhenix's
         co-processor architecture is the right answer, the API design
         is the right shape, and the trade-offs we accept are ones we
         knowingly accept.

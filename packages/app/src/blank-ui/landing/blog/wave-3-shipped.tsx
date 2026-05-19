@@ -53,7 +53,7 @@ const post: BlogPost = {
       </ol>
       <p>
         The thing that actually took the longest wasn't the contract
-        — it was the cross-contract input verification primitive,{" "}
+       , it was the cross-contract input verification primitive,{" "}
         <code>transferVerified(to, euint64)</code>. BusinessHub
         verifies the client's encrypted input in its own{" "}
         <code>msg.sender</code> context, then hands the verified
@@ -70,12 +70,12 @@ const post: BlogPost = {
         Business, Privacy, Full), and the nav, search, and feature
         surface adapt to your role. Single source of truth in{" "}
         <code>nav-registry.ts</code> drives the desktop sidebar,
-        mobile bottom-bar, and search index — adding a screen lights
+        mobile bottom-bar, and search index, adding a screen lights
         up everywhere at once.
       </p>
       <p>
         The mode picker is a localStorage preference, not an
-        on-chain identity. Switching modes never hides your data —
+        on-chain identity. Switching modes never hides your data;
         every screen still works via direct URL. This is a
         presentation-layer optimization, not a permission system.
       </p>
@@ -86,8 +86,8 @@ const post: BlogPost = {
         Basescan/Etherscan link to the settlement transaction.
         Sounds small. It changes the trust dynamic completely:
         the proof of payment is the chain, not our database. The
-        vendor can hand the link to anyone — accountant, auditor,
-        a skeptical buyer wondering if the invoice cleared — and
+        vendor can hand the link to anyone, accountant, auditor,
+        a skeptical buyer wondering if the invoice cleared, and
         it's verifiable without trusting Blank.
       </p>
 
@@ -122,7 +122,7 @@ const post: BlogPost = {
           <strong>Security headers landed in vercel.json.</strong> CSP,
           X-Frame-Options DENY, Permissions-Policy, Referrer-Policy.
           (And then we found out our CSP was too strict for Web3
-          libraries — wrote that up separately.)
+          libraries, wrote that up separately.)
         </li>
       </ul>
 

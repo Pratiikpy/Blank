@@ -39,7 +39,7 @@ const post: BlogPost = {
         </li>
         <li>
           <strong>Bootstrapping liquidity.</strong> Cheap to issue,
-          credibly scarce, traded on day one — solves the
+          credibly scarce, traded on day one, solves the
           "how-do-we-pay-for-things-before-we-have-revenue" problem.
         </li>
         <li>
@@ -48,11 +48,11 @@ const post: BlogPost = {
         </li>
       </ol>
       <p>
-        Now look at Blank. We don't run infrastructure — we sit on top of
+        Now look at Blank. We don't run infrastructure, we sit on top of
         Fhenix's threshold network and Ethereum. We don't need to align
-        users at the protocol level — we're a payment app, the alignment
+        users at the protocol level, we're a payment app, the alignment
         is "the app gets paid when payments work." We don't need
-        bootstrap liquidity — payments don't need a token to settle.
+        bootstrap liquidity, payments don't need a token to settle.
         That leaves only the fourth problem: speculation. We're
         deliberately not solving for it.
       </p>
@@ -70,7 +70,7 @@ const post: BlogPost = {
       </p>
       <p>
         For a privacy-payments app the choice is even sharper. Our
-        users aren't here for upside — they're here because their
+        users aren't here for upside, they're here because their
         salary is on a public ledger and they don't love that. The
         token would attract a completely different audience whose
         interests don't overlap with the actual user.
@@ -84,7 +84,7 @@ const post: BlogPost = {
         <li>
           <strong>A funding path.</strong> Most web3 raises happen via
           token instruments. Closing that door means we have to fund
-          via revenue, equity, or grants — slower, narrower, but each
+          via revenue, equity, or grants, slower, narrower, but each
           of those rounds comes with people who care about the product
           working, not the chart.
         </li>
@@ -96,7 +96,7 @@ const post: BlogPost = {
         <li>
           <strong>A category default.</strong> Every conversation about
           a web3 startup eventually defaults to "what's the token?"
-          We'll be answering "no token" for a long time. Good — it's
+          We'll be answering "no token" for a long time. Good, it's
           a clarifying question every time.
         </li>
       </ul>
@@ -115,16 +115,16 @@ const post: BlogPost = {
       <h2>Could we change our mind?</h2>
       <p>
         On one specific axis: if Blank ever becomes infrastructure that
-        third parties run nodes for — a decentralized threshold-decrypt
-        operator set that we no longer control — there's a legitimate
+        third parties run nodes for, a decentralized threshold-decrypt
+        operator set that we no longer control, there's a legitimate
         case for a token to coordinate the operators. That's not what
         Blank is today. If it ever becomes that, we'd write a separate
         post explaining the new model. Until then, the answer is
         unchanged.
       </p>
       <p>
-        For everything else — speculation, growth-hacking, "community"
-        — no token, ever.
+        For everything else, speculation, growth-hacking, "community"
+       , no token, ever.
       </p>
     </>
   ),

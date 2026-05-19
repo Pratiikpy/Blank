@@ -14,7 +14,7 @@ const post: BlogPost = {
       <p>
         Anyone who's looked at Blank for more than five minutes has
         asked the same question: <em>why FHE and not zero-knowledge?</em>{" "}
-        It's a fair question — both are real privacy primitives, both
+        It's a fair question, both are real privacy primitives, both
         are deployed in production today, and both can give you "private
         amounts on a public chain" if you squint. But they're not
         interchangeable. They're different verbs. Picking the right one
@@ -25,7 +25,7 @@ const post: BlogPost = {
       <p>
         <strong>Zero-knowledge proofs</strong> let you prove a statement
         about hidden data without revealing the data. "I know an{" "}
-        <code>X</code> such that <code>f(X) = y</code>" — the verifier
+        <code>X</code> such that <code>f(X) = y</code>", the verifier
         sees the proof and the output, never the input. ZK is a{" "}
         <em>communication primitive</em>: it compresses what's
         verifiable.
@@ -39,14 +39,14 @@ const post: BlogPost = {
         on hidden values.
       </p>
       <p>
-        That phrasing — communication vs. computation — is the cleanest
+        That phrasing, communication vs. computation, is the cleanest
         way to keep them apart. ZK proves things <em>about</em> hidden
         data. FHE computes <em>on</em> hidden data. If your problem
         decomposes to "I have a number, the chain needs to add it,
         compare it, and move it around, and then someone needs to
-        decrypt the answer" — that's a computation problem. If it
+        decrypt the answer", that's a computation problem. If it
         decomposes to "I have a secret, I need to convince someone of
-        a statement about it" — that's a communication problem.
+        a statement about it", that's a communication problem.
       </p>
 
       <h2>The shape of our problem</h2>
@@ -95,7 +95,7 @@ const post: BlogPost = {
       <ol>
         <li>
           The chain holds a Merkle tree of <strong>commitments</strong>{" "}
-          to balances or notes — opaque hashes, not the values themselves.
+          to balances or notes, opaque hashes, not the values themselves.
         </li>
         <li>
           To transfer, the sender generates a ZK proof: "I know a leaf
@@ -104,14 +104,14 @@ const post: BlogPost = {
         </li>
         <li>
           The chain verifies the proof and updates the tree. It never
-          sees the value, the sender, or the recipient — just opaque
+          sees the value, the sender, or the recipient, just opaque
           hashes.
         </li>
       </ol>
       <p>
         This works. It also has a strong property we don't actually
         want: <strong>sender and receiver are also hidden</strong>.
-        That's why mixers got the regulatory treatment they did — when
+        That's why mixers got the regulatory treatment they did, when
         you can't tell who paid whom, it's hard to comply with travel
         rules, OFAC sanctions screening, or basic accounting. Aztec
         and zkBob have well-thought-out compliance stories, but
@@ -119,8 +119,8 @@ const post: BlogPost = {
         primitive.
       </p>
       <p>
-        For our wedge — freelancers and small businesses who want
-        private invoicing — sender-and-receiver privacy is actively
+        For our wedge, freelancers and small businesses who want
+        private invoicing, sender-and-receiver privacy is actively
         wrong. The freelancer <em>wants</em> the chain to record that
         their client paid them. The auditor needs to see the
         counterparty link. The IRS, eventually, will too. What the
@@ -130,8 +130,8 @@ const post: BlogPost = {
 
       <h2>What an FHE design looks like</h2>
       <p>
-        With FHE, the chain stores the balance as a ciphertext —
-        specifically <code>euint64</code> in Fhenix's CoFHE — bound to
+        With FHE, the chain stores the balance as a ciphertext,
+        specifically <code>euint64</code> in Fhenix's CoFHE, bound to
         an address that's public. Operations:
       </p>
       <ul>
@@ -141,7 +141,7 @@ const post: BlogPost = {
         </li>
         <li>
           <strong>Add:</strong> <code>FHE.add(recipientBalance, amount)</code>.
-          Same — ciphertext in, ciphertext out.
+          Same, ciphertext in, ciphertext out.
         </li>
         <li>
           <strong>Compare:</strong> <code>FHE.eq(escrowedAmount, expectedAmount)</code>{" "}
@@ -163,7 +163,7 @@ const post: BlogPost = {
       <p>
         The state itself is encrypted. There's no commitment scheme
         on top. There's no separate shielded pool. Sender and
-        receiver are public — they're just the <code>msg.sender</code>{" "}
+        receiver are public, they're just the <code>msg.sender</code>{" "}
         and the recipient address, like any normal ERC-20 transfer.
       </p>
       <p>
@@ -181,7 +181,7 @@ const post: BlogPost = {
       </p>
       <ul>
         <li>
-          <strong>Speed.</strong> FHE operations are slow — each one
+          <strong>Speed.</strong> FHE operations are slow, each one
           is orders of magnitude slower than a regular EVM opcode.
           Threshold decryption adds 60–180 seconds on Sepolia today.
           Modern ZK proof systems verify in milliseconds (proving is
@@ -190,7 +190,7 @@ const post: BlogPost = {
         </li>
         <li>
           <strong>Trust assumption.</strong> Decryption goes through
-          Fhenix's threshold network — a t-of-n committee of operators.
+          Fhenix's threshold network, a t-of-n committee of operators.
           You trust the majority isn't colluding. ZK with STARKs has
           no comparable trust assumption (the proof is information-
           theoretically sound). ZK with SNARKs has trusted-setup
@@ -206,9 +206,9 @@ const post: BlogPost = {
         </li>
         <li>
           <strong>Sender/receiver privacy.</strong> If your problem
-          actually needs that — if you're building anonymous donations,
+          actually needs that, if you're building anonymous donations,
           or whistleblower payments, or genuinely uncorrelated
-          transactions — FHE doesn't give you that for free. ZK with
+          transactions, FHE doesn't give you that for free. ZK with
           a shielded pool does.
         </li>
       </ul>
@@ -245,7 +245,7 @@ const post: BlogPost = {
         Yes, and people are. You can use FHE for the encrypted
         compute and ZK to prove that the FHE operations were applied
         correctly (some research designs do exactly this). For our
-        threat model that's overkill — the FHE operations are
+        threat model that's overkill, the FHE operations are
         executed by the EVM itself, which is already trustlessly
         verified by Ethereum's consensus. We don't need a second
         proof layer over the same execution.
@@ -281,7 +281,7 @@ const post: BlogPost = {
         </li>
       </ul>
       <p>
-        For our wedge — private invoicing for freelancers and teams —
+        For our wedge, private invoicing for freelancers and teams,
         the diagnostic comes out FHE every time. So that's what we ship.
         Anyone telling you "X is better than Y" without naming the
         problem is selling X.
