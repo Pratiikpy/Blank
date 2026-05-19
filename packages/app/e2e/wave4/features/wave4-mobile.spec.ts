@@ -194,8 +194,22 @@ test.describe("Phase 12 — mobile sweep", () => {
       .tap();
     await snap(alice.page, shotA, "send-recipient-entered");
 
-    // SendAmount → 1 USDC.
-    await alice.page.locator('input[placeholder="0.00"]').first().fill("1");
+    // SendAmount → 1 USDC. Mobile renders a NumericKeypad (no input
+    // field) by default; fallback to tapping the "1" key when the
+    // plaintext input isn't there. Same dual-path as the desktop
+    // driveSendFlow helper.
+    const amountInput = alice.page.locator('input[placeholder="0.00"]').first();
+    const inputVisible = await amountInput
+      .waitFor({ state: "visible", timeout: 5_000 })
+      .then(() => true)
+      .catch(() => false);
+    if (inputVisible) {
+      await amountInput.fill("1");
+    } else {
+      const oneKey = alice.page.locator('button[aria-label="1"]:visible').first();
+      await oneKey.waitFor({ state: "visible", timeout: 10_000 });
+      await oneKey.tap();
+    }
     await alice.page
       .locator("button").filter({ hasText: /^Send/i })
       .last()
