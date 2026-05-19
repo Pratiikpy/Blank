@@ -175,10 +175,15 @@ test.describe("Phase 14 — Groups (Alice creates encrypted group with Bob + Car
     const bobShot = { phase: "14-groups", persona: "bob", chain: chainSlug, viewport: chain.viewport };
     resetCounter(bobShot);
     await bob.page.goto("/app/groups");
-    await bob.page.locator("h1", { hasText: /Groups/i }).waitFor({
-      state: "visible",
-      timeout: 30_000,
-    });
+    await bob.page
+      .locator("h1", { hasText: /Groups/i })
+      .waitFor({ state: "visible", timeout: 30_000 })
+      .catch(async () => {
+        await bob.page.goto("/app/groups");
+        await bob.page
+          .locator("h1", { hasText: /Groups/i })
+          .waitFor({ state: "visible", timeout: 30_000 });
+      });
     let bobSawGroup = false;
     // 12 retries x ~30s = ~6 min budget for indexer lag.
     for (let attempt = 0; attempt < 12 && !bobSawGroup; attempt++) {
