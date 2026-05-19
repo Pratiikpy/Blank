@@ -63,12 +63,16 @@ export function useInheritance() {
   // Migrated finalizeClaim to unifiedWrite (already imported above) which
   // accepts InEuint64 values directly and routes through both EOA and AA paths.
 
-  // Read current plan
+  // Read current plan. blockTag:"pending" bypasses the public RPC's
+  // eth_call cache — without it, a getPlan read immediately after the
+  // setHeir UserOp confirms can return the pre-set state, leaving the
+  // UI stuck on "Set Up Inheritance Plan" instead of "Plan Active".
   const { data: planData, refetch: refetchPlan } = useReadContract({
     address: contracts.InheritanceManager,
     abi: InheritanceManagerAbi,
     functionName: "getPlan",
     args: address ? [address] : undefined,
+    blockTag: "pending",
     query: { enabled: !!address, refetchInterval: 60_000 },
   });
 

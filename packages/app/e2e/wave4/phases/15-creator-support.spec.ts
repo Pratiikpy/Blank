@@ -104,7 +104,15 @@ test.describe("Phase 15 — Creator Support", () => {
         .fill("Demo creator profile for judge-replay coverage.");
       await snap(bob.page, bobShot, "profile-form-filled");
 
-      await bob.page.locator("button").filter({ hasText: /^Create Profile/i }).click();
+      // Button text is "Create Profile" when isEditMode=false, or
+      // "Update Profile" when isEditMode=true (a stale isEditMode flag
+      // from a previous run renders the latter even on a fresh create
+      // form). Match either + .first() to avoid the Cancel sibling.
+      await bob.page
+        .locator("button")
+        .filter({ hasText: /^(Create|Update) Profile/i })
+        .first()
+        .click();
       await snap(bob.page, bobShot, "profile-passphrase-entered");
 
       let profileTxHash: string;
