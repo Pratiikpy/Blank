@@ -184,6 +184,19 @@ test.describe("Phase 2 — P2P encrypted payments", () => {
     const bobAddress = (await bobAddrLoc.textContent())?.trim() ?? "";
     expect(bobAddress).toMatch(/^0x[0-9a-fA-F]{40}$/);
 
+    // Capture Bob's activity-row count BEFORE Alice's send so we can
+    // verify count increased post-send (catches the case where Bob
+    // already had stale activity from a prior run — without this
+    // baseline, the downstream-reactivity check is a no-op).
+    await bobPage.goto("/app");
+    await bobPage.locator("h3", { hasText: /^Recent Activity$/i })
+      .waitFor({ state: "visible", timeout: 30_000 })
+      .catch(() => undefined);
+    const bobActivityCountBefore = await bobPage
+      .locator("text=/Received|Sent|Shielded|Gift|Tip|Bid|Contribution/i")
+      .count()
+      .catch(() => 0);
+
     // — Alice's context: faucet + shield + send.
     const aliceCtx = await browser.newContext({
       viewport: { width: 1280, height: 800 },
@@ -244,13 +257,49 @@ test.describe("Phase 2 — P2P encrypted payments", () => {
 
     expect(sendOut.txHash).toMatch(/^0x[0-9a-fA-F]{64}$/);
 
+    // ─── Bob-side reactivity verification ──────────────────────
+    // Alice's send succeeded but a "real human" UX requires Bob's app
+    // to update too. Drive Bob to /app and wait until his activity-row
+    // count INCREASED (vs the baseline captured before Alice sent).
+    // Exercises the on-chain → indexer → Supabase → useActivityFeed
+    // → ActivityList loop end-to-end.
+    const bobShot = { phase: "02-p2p", persona: "bob", chain: chainSlug, viewport: chain.viewport };
+    resetCounter(bobShot);
+    await bobPage.goto("/app");
+    await bobPage.locator("h3", { hasText: /^Recent Activity$/i }).waitFor({
+      state: "visible",
+      timeout: 30_000,
+    });
+    let bobActivityIncreased = false;
+    for (let attempt = 0; attempt < 6 && !bobActivityIncreased; attempt++) {
+      const countNow = await bobPage
+        .locator("text=/Received|Sent|Shielded|Gift|Tip|Bid|Contribution/i")
+        .count()
+        .catch(() => 0);
+      if (countNow > bobActivityCountBefore) {
+        bobActivityIncreased = true;
+        break;
+      }
+      await bobPage.waitForTimeout(20_000);
+      await bobPage.reload();
+      await bobPage.locator("h3", { hasText: /^Recent Activity$/i }).waitFor({
+        state: "visible",
+        timeout: 30_000,
+      });
+    }
+    await snap(bobPage, bobShot, "bob-recent-activity-after-send");
+    expect(
+      bobActivityIncreased,
+      `Bob's Recent Activity must reflect Alice's send within ~3min (indexer + UI reactivity). Count before: ${bobActivityCountBefore}`,
+    ).toBe(true);
+
     recordProof({
       phase: `${PHASE} · Alice → Bob`,
       chainName: chain.chainName,
       chainId: chain.chainId,
       txHash: sendOut.txHash,
       screenshotPath: finalShot,
-      note: `Alice → Bob, 5 USDC encrypted`,
+      note: `Alice → Bob, 5 USDC encrypted · Bob's Recent Activity updates downstream (indexer + reactivity verified)`,
       viewport: chain.viewport,
     });
 
