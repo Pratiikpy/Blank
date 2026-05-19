@@ -1,4 +1,4 @@
-# Pay with Blank — Chrome Extension
+# Pay with Blank, Chrome Extension
 
 Inject a one-click "Pay" button next to every Ethereum address (`0x…`) and
 ENS / Basenames name (`pratik.eth`, `pratik.base.eth`) you see on the web.
@@ -13,7 +13,7 @@ pre-filled.
 4. Pick this folder: `packages/extension/`
 5. The "Pay with Blank" extension appears in your toolbar.
 6. Visit any page with an Ethereum address (Etherscan, Twitter, Discord,
-   GitHub) — buttons should appear next to addresses within ~1s.
+   GitHub). Buttons should appear next to addresses within ~1s.
 
 ## Configure target URL
 
@@ -38,7 +38,7 @@ local Blank dev server (`http://localhost:3000`) or your own deployment.
 | `content.js`      | DOM scan + button injection                            |
 | `content.css`     | Injected button styles (scoped + `!important`)         |
 | `popup.html`      | Settings popup                                         |
-| `popup.js`        | Popup logic — saves App URL to `chrome.storage.sync`   |
+| `popup.js`        | Popup logic, saves App URL to `chrome.storage.sync`    |
 | `background.js`   | MV3 SW stub (no-op for now)                            |
 
 ## Wave 4+ TODO
