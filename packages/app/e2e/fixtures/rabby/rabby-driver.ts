@@ -116,6 +116,75 @@ export async function unlockRabby(rabbyPage: Page, password: string): Promise<bo
 }
 
 /**
+ * Enable Rabby's testnet visibility (Settings → "Enable Testnets")
+ * once per profile so the Connect popup's chain dropdown actually
+ * lists Sepolia + Base Sepolia. Without this, the Testnets tab in
+ * the chain switcher shows "No chains" and the Connect button stays
+ * disabled. Idempotent — no-op if already enabled.
+ *
+ * Ported from scripts/rabby-live-smoke.ts step 5b.
+ */
+export async function enableRabbyTestnets(
+  rabbyPage: Page,
+  extensionId: string,
+): Promise<boolean> {
+  await rabbyPage.goto(`chrome-extension://${extensionId}/index.html#/settings`).catch(() => {});
+  await rabbyPage.waitForTimeout(3_500);
+
+  // First, find the row whose label mentions "testnet". Rabby copies the
+  // label text inside a div/label sibling of the actual <button
+  // role="switch"> or <input type="checkbox">. We scope to the row,
+  // then find the switch inside it, then probe its aria-checked.
+  const row = rabbyPage
+    .locator("div, label")
+    .filter({ hasText: /testnet/i })
+    .first();
+  if (!(await row.isVisible({ timeout: 5_000 }).catch(() => false))) {
+    await rabbyPage.goto(`chrome-extension://${extensionId}/index.html`).catch(() => {});
+    return false;
+  }
+
+  // Detect current state via aria-checked OR via Rabby's Ant Design
+  // class convention (`.ant-switch-checked` when on).
+  const sw = row
+    .locator('[role="switch"], button.ant-switch, .ant-switch, input[type="checkbox"]')
+    .first();
+  let alreadyOn = false;
+  if (await sw.isVisible({ timeout: 1_500 }).catch(() => false)) {
+    const aria = await sw.getAttribute("aria-checked").catch(() => null);
+    if (aria === "true") {
+      alreadyOn = true;
+    } else {
+      const cls = await sw.getAttribute("class").catch(() => "");
+      if (cls && /\bant-switch-checked\b/.test(cls)) alreadyOn = true;
+    }
+  }
+  if (alreadyOn) {
+    await rabbyPage.goto(`chrome-extension://${extensionId}/index.html`).catch(() => {});
+    await rabbyPage.waitForTimeout(800);
+    return false; // no-op, already on
+  }
+
+  // Click the switch — prefer hitting the actual control. Fall back to
+  // the right edge of the row if the switch isn't directly clickable.
+  let toggled = false;
+  if (await sw.isVisible({ timeout: 1_500 }).catch(() => false)) {
+    await sw.click({ timeout: 2_500, force: true }).catch(() => {});
+    toggled = true;
+  } else {
+    const bb = await row.boundingBox({ timeout: 2_000 }).catch(() => null);
+    if (bb) {
+      await rabbyPage.mouse.click(Math.round(bb.x + bb.width - 24), Math.round(bb.y + bb.height / 2));
+      toggled = true;
+    }
+  }
+  await rabbyPage.waitForTimeout(1_500);
+  await rabbyPage.goto(`chrome-extension://${extensionId}/index.html`).catch(() => {});
+  await rabbyPage.waitForTimeout(1_000);
+  return toggled;
+}
+
+/**
  * Dismiss Rabby's "What's new" patch-notes modal if it surfaces on the
  * home tab after unlock. The modal blocks no further interaction on the
  * home tab itself (notification popups still surface) but its presence

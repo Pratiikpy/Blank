@@ -7,6 +7,7 @@ import {
   unlockRabby,
   waitAndConfirmRabbyPopup,
   dismissRabbyWhatsNew,
+  enableRabbyTestnets,
 } from "../../fixtures/rabby/rabby-driver";
 import { CHAINS, type ChainKey } from "../fixtures/wallets";
 import { snap, resetCounter } from "../helpers/screenshot";
@@ -137,6 +138,13 @@ test.describe("Phase 9 — Rabby smoke (Dave EOA)", () => {
       // for later screenshots + so it doesn't steal focus from the
       // notification popups we drive later.
       await dismissRabbyWhatsNew(rabby.rabbyPage);
+
+      // Enable Testnet visibility. Without this the Connect popup's
+      // Testnets tab shows "No chains" and Connect stays disabled
+      // (observed via test-failed-1.png in prior run). The helper is
+      // idempotent — probes aria-checked first and skips the click if
+      // already on.
+      await enableRabbyTestnets(rabby.rabbyPage, rabby.rabbyExtensionId);
       await snap(rabby.rabbyPage, shot, "rabby-unlocked");
 
       // — Open the dApp.
