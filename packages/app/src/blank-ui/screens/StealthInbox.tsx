@@ -59,7 +59,7 @@ function formatAmountForDisplay(
 export default function StealthInbox() {
   const navigate = useNavigate();
   const { activeChainId, contracts } = useChain();
-  const { entries, isScanning, scanProgress, hasKeys, scan } = useStealthInbox();
+  const { entries, isScanning, scanProgress, hasKeys, locked, unlock, scan } = useStealthInbox();
   const sweeper = useStealthSweep();
   const [sweepingTxHash, setSweepingTxHash] = useState<string | null>(null);
 
@@ -110,8 +110,35 @@ export default function StealthInbox() {
           </p>
         </div>
 
+        {/* Locked (encrypted keys stored, not yet unlocked) → Unlock CTA.
+            Distinct from the "no keys at all" case below — clicking Set
+            up would regenerate and overwrite existing encrypted keys. */}
+        {!hasKeys && locked && (
+          <div className="rounded-3xl glass-card-static p-8 flex flex-col items-center text-center gap-4">
+            <div className="w-12 h-12 rounded-2xl bg-amber-50 dark:bg-amber-500/10 flex items-center justify-center text-amber-600 dark:text-amber-400">
+              <KeyRound size={22} />
+            </div>
+            <div>
+              <h2 className="text-lg font-medium text-[var(--text-primary)] mb-1">
+                Unlock your stealth inbox
+              </h2>
+              <p className="text-sm text-[var(--text-secondary)] max-w-md">
+                Your spending and viewing keys are encrypted on this device.
+                Enter your passphrase to decrypt them and scan for incoming
+                stealth payments.
+              </p>
+            </div>
+            <button
+              onClick={() => void unlock()}
+              className="h-11 px-6 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-medium transition-colors"
+            >
+              Unlock with passphrase
+            </button>
+          </div>
+        )}
+
         {/* No keys → setup CTA */}
-        {!hasKeys && (
+        {!hasKeys && !locked && (
           <div className="rounded-3xl glass-card-static p-8 flex flex-col items-center text-center gap-4">
             <div className="w-12 h-12 rounded-2xl bg-emerald-50 dark:bg-emerald-500/10 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
               <KeyRound size={22} />
