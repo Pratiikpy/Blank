@@ -2,7 +2,12 @@ import { test, expect, type Page } from "@playwright/test";
 import { PERSONAS, injectPasskey, setActiveChain, type ChainKey } from "../fixtures/wallets";
 import { snap, resetCounter } from "../helpers/screenshot";
 import { recordProof, readEntries } from "../helpers/testing-todo";
-import { enterPassphrase, readTxHashFromSuccess, shieldUsdc } from "../helpers/app-actions";
+import {
+  drainPassphrasePrompts,
+  enterPassphrase,
+  readTxHashFromSuccess,
+  shieldUsdc,
+} from "../helpers/app-actions";
 
 // ──────────────────────────────────────────────────────────────────
 //  Phase 12 — mobile viewport sweep (iPhone 13, 375x812).
@@ -74,6 +79,27 @@ async function bringUpMobile(
   await page.goto("/app/wallet");
   await page.locator('[data-testid="gas-wallet-address"]').waitFor({ state: "visible", timeout: 30_000 });
   const address = (await page.locator('[data-testid="gas-wallet-address"]').textContent())?.trim() ?? "";
+
+  // Mirror the desktop bootstrap's upgrade-banner handling. If the AA
+  // was deployed on an earlier impl (factory.accountImplementation is
+  // immutable on both chains), the first UserOp the new impl validates
+  // will fail with "Transaction failed - Cancelled" at the relay layer.
+  // Drain the upgrade prompt here so every mobile spec inherits a
+  // post-upgrade AA — same behaviour a real human gets on first visit.
+  const upgradeCta = page.locator('[data-testid="upgrade-banner-cta"]');
+  if (await upgradeCta.isVisible({ timeout: 3_000 }).catch(() => false)) {
+    await upgradeCta.click();
+    await drainPassphrasePrompts(page, persona.passphrase, {
+      windowMs: 90_000,
+      gapMs: 30_000,
+      expectAtLeast: 0,
+    });
+    await page
+      .locator('[data-testid="upgrade-banner"]')
+      .waitFor({ state: "hidden", timeout: 90_000 })
+      .catch(() => undefined);
+  }
+
   return { page, context, address };
 }
 
