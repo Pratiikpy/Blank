@@ -334,17 +334,6 @@ export function BlankApp() {
   // `isConnected=false` but `isReconnecting=true` — show a brief spinner
   // instead of flashing Onboarding, which is jarring on every reload.
   if (!isConnected && !hasPasskeyAccount && (isConnecting || isReconnecting)) {
-    if (typeof window !== "undefined") {
-      (window as unknown as { __BLANK_GATE?: unknown }).__BLANK_GATE = {
-        state: "loading-spinner",
-        isConnected,
-        hasPasskeyAccount,
-        smartAccountStatus,
-        smartAccount: smartAccount ? smartAccount.address : null,
-        isConnecting,
-        isReconnecting,
-      };
-    }
     return (
       <div className="blank-app min-h-dvh flex items-center justify-center">
         <LoadingSpinner />
