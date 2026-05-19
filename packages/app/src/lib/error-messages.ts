@@ -79,10 +79,21 @@ const PATTERNS: Array<{ test: RegExp; map: MappedError }> = [
     },
   },
   {
-    test: /network.*(?:error|unreachable)|fetch failed|ECONNREFUSED|ENOTFOUND/i,
+    test: /network.*(?:error|unreachable)|fetch failed|ECONNREFUSED|ENOTFOUND|ECONNRESET|EPIPE|socket hang up/i,
     map: {
       title: "Network error",
-      body: "Couldn't reach the RPC. Check your connection and retry.",
+      body: "The RPC dropped the connection. Retry in a moment.",
+      userCancelled: false,
+    },
+  },
+  {
+    // Relay / EntryPoint plumbing errors. handleOps surfaces ECONNRESET +
+    // 5xx during periods of public-RPC instability. The user shouldn't see
+    // the entrypoint method name; surface a retry-able friendly message.
+    test: /entryPoint\.handleOps|handleOps failed|relay.*(?:failed|error)|bundler.*(?:failed|error)/i,
+    map: {
+      title: "Relay error",
+      body: "The bundler couldn't submit your transaction. Retry in a moment.",
       userCancelled: false,
     },
   },
