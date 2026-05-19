@@ -456,8 +456,8 @@ export function useUnifiedWrite(): UseUnifiedWriteReturn {
         title: `Sign ${params.functionName}`,
         subtitle:
           params.paymaster === "self"
-            ? `Submit via your smart wallet — paid from your wallet's ETH.`
-            : `Submit via your smart wallet — gas sponsored.`,
+            ? `Submit via your smart wallet. Paid from your wallet's ETH.`
+            : `Submit via your smart wallet. Gas sponsored.`,
       });
       if (!passphrase) throw new Error("Cancelled");
 
