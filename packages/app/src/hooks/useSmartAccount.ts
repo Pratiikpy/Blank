@@ -24,6 +24,11 @@ import {
 } from "@/lib/userop";
 import { broadcastAction, onCrossTabAction } from "@/lib/cross-tab";
 import { log } from "@/lib/log";
+import {
+  reserveNonce,
+  getReservedNext,
+  rollbackReservation,
+} from "@/lib/aa-nonce-reservation";
 
 // Result shape returned from submitCallData / sendUserOp. The optional
 // blockNumber/blockHash/status/logs are forwarded from /api/relay which
@@ -145,6 +150,9 @@ function clearSaCache(chainId: number): void {
     /* ignore */
   }
 }
+
+// Cross-instance nonce reservation lives in @/lib/aa-nonce-reservation
+// so the cofhe-bridge adapter can read/write the same Map.
 
 export function useSmartAccount() {
   const { activeChainId, contracts } = useChain();
@@ -372,14 +380,20 @@ export function useSmartAccount() {
         setStatus(isFirstOp ? "deploying" : "submitting");
 
         try {
-          // #123 part B: local nonce counter. The on-chain read returns N
-          // only after the previous tx mines. If two sends happen back-to-back,
-          // both would read N and collide. Keep a local hint and take the max.
+          // #123 part B: local + module-level nonce reservation. The
+          // on-chain read returns N only after the previous tx mines;
+          // viem caches eth_call for 4s; multiple useSmartAccount hook
+          // instances (per-component) all read independently. Take the
+          // max of on-chain (now bypassed via blockTag:"pending"),
+          // per-instance local hint, AND cross-instance reservation.
           const onChainNonce = await getNextNonce(publicClient, account.address, 0n);
           const localHint = pendingNonceRef.current;
-          const nonce =
-            localHint !== null && localHint > onChainNonce ? localHint : onChainNonce;
+          const reserved = getReservedNext(account.address, activeChainId);
+          let nonce = onChainNonce;
+          if (localHint !== null && localHint > nonce) nonce = localHint;
+          if (reserved !== undefined && reserved > nonce) nonce = reserved;
           pendingNonceRef.current = nonce + 1n;
+          reserveNonce(account.address, activeChainId, nonce);
 
           // First UserOp must include initCode so EntryPoint deploys via factory.
           let initCode: Hex = "0x";
@@ -453,8 +467,14 @@ export function useSmartAccount() {
 
           if (!res.ok) {
             const body = await res.json().catch(() => ({}));
-            // Relay failed — roll back local nonce so next attempt doesn't skip.
+            // Relay failed — roll back both per-instance and module-level
+            // nonce hints so the next attempt doesn't skip past this slot.
+            // If the relay error was AA25 (nonce already used), the
+            // rollback is a no-op because the chain advanced past us
+            // anyway; if it was anything else, the next attempt will pick
+            // up the same nonce.
             pendingNonceRef.current = nonce;
+            rollbackReservation(account.address, activeChainId, nonce);
             throw new Error((body as any).error ?? `relay HTTP ${res.status}`);
           }
           const resBody = (await res.json()) as {

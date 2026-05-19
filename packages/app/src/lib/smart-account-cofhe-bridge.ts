@@ -47,6 +47,11 @@ import {
 } from "./userop";
 import { signHash } from "./passkey";
 import { broadcastAction } from "./cross-tab";
+import {
+  reserveNonce,
+  getReservedNext,
+  rollbackReservation,
+} from "./aa-nonce-reservation";
 
 export interface BlankSmartAccountRef {
   /** Counterfactual / deployed address of the smart account. */
@@ -244,7 +249,14 @@ export function buildBlankSmartAccountClient(
     async sendTransaction(tx) {
       const callData = encodeExecuteCall(tx.to, tx.value ?? 0n, tx.data ?? "0x");
 
-      const onChainNonce = await getNextNonce(publicClient, account.address, 0n);
+      // Use the cross-instance nonce reservation map shared with
+      // useSmartAccount, so a UserOp fired by the React hook can't
+      // collide with a parallel UserOp fired by the cofhe SDK (and
+      // vice versa).
+      const onChainRaw = await getNextNonce(publicClient, account.address, 0n);
+      const reserved = getReservedNext(account.address, chainId);
+      const onChainNonce = reserved !== undefined && reserved > onChainRaw ? reserved : onChainRaw;
+      reserveNonce(account.address, chainId, onChainNonce);
       // initCode stays empty — we require the account to be deployed
       // before the cofhe bridge runs. Undeployed accounts can't be
       // ERC-1271-verified anyway (no code at the address). Callers
@@ -283,6 +295,7 @@ export function buildBlankSmartAccountClient(
         body: JSON.stringify({ userOp: serializeUserOp(userOp), chainId }),
       });
       if (!res.ok) {
+        rollbackReservation(account.address, chainId, onChainNonce);
         const body = await res.json().catch(() => ({}));
         throw new Error((body as { error?: string }).error ?? `relay HTTP ${res.status}`);
       }
