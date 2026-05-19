@@ -250,6 +250,41 @@ test.describe("Phase 20 , Gift envelopes (Alice gifts Bob $5)", () => {
       viewport: chain.viewport,
     });
 
+    // ─── Alice-side downstream reactivity check ─────────────────
+    // After Bob claims, Alice's /app/gifts Sent tab must reflect the
+    // status change (pending → claimed). Catches the case where the
+    // contract event fires but Alice's UI doesn't refresh — same
+    // class of bug as P3 invoice and P2 activity-feed reactivity.
+    await alice.page.goto("/app/gifts");
+    const sentTab = alice.page
+      .getByRole("tab", { name: /^Sent$/i })
+      .first();
+    await sentTab
+      .click()
+      .catch(async () => {
+        await alice.page
+          .getByRole("button", { name: /^Sent$/i })
+          .first()
+          .click()
+          .catch(() => undefined);
+      });
+    let aliceSawClaimed = false;
+    for (let attempt = 0; attempt < 6 && !aliceSawClaimed; attempt++) {
+      aliceSawClaimed = await alice.page
+        .locator("text=/Claimed|claimed/i")
+        .first()
+        .isVisible({ timeout: 30_000 })
+        .catch(() => false);
+      if (aliceSawClaimed) break;
+      await alice.page.reload();
+      await sentTab.click().catch(() => undefined);
+    }
+    await snap(alice.page, aliceShot, "alice-gift-claimed-status");
+    expect(
+      aliceSawClaimed,
+      "Alice's Sent gifts tab must show the envelope as Claimed within ~3min (indexer + UI reactivity)",
+    ).toBe(true);
+
     await alice.context.close();
     await bob.context.close();
   });

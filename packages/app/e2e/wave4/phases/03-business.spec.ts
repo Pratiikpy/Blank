@@ -191,6 +191,44 @@ test.describe("Phase 3 — business tools", () => {
     expect(invoiceCreateTxHash).toMatch(/^0x[0-9a-fA-F]{64}$/);
     expect(payTxHash).toMatch(/^0x[0-9a-fA-F]{64}$/);
 
+    // ─── Alice-side downstream reactivity check ─────────────────
+    // After Bob pays, Alice's Invoices tab must reflect the new status.
+    // The invoice status transitions: pending → payment_pending (after
+    // Bob.payInvoice). Alice's list re-fetches from Supabase via
+    // fetchVendorInvoices. Poll up to ~3min for the status badge to
+    // change, matching the Supabase indexer lag profile.
+    await alice.page.goto("/app/business");
+    await alice.page
+      .getByRole("tab", { name: /^Invoices$/i })
+      .first()
+      .click()
+      .catch(async () => {
+        await alice.page
+          .getByRole("button", { name: /^Invoices$/i })
+          .first()
+          .click();
+      });
+    let aliceSawPaid = false;
+    for (let attempt = 0; attempt < 6 && !aliceSawPaid; attempt++) {
+      aliceSawPaid = await alice.page
+        .locator("text=/Payment Pending|Paid|payment_pending/i")
+        .first()
+        .isVisible({ timeout: 30_000 })
+        .catch(() => false);
+      if (aliceSawPaid) break;
+      await alice.page.reload();
+      await alice.page
+        .getByRole("tab", { name: /^Invoices$/i })
+        .first()
+        .click()
+        .catch(() => undefined);
+    }
+    await snap(alice.page, aliceShot, "alice-invoice-status-after-pay");
+    expect(
+      aliceSawPaid,
+      "Alice's Invoices tab must show the invoice as paid within ~3min (indexer + UI reactivity)",
+    ).toBe(true);
+
     recordProof({
       phase: `${PHASE} · invoice create (Alice)`,
       chainName: chain.chainName,
@@ -202,13 +240,13 @@ test.describe("Phase 3 — business tools", () => {
       viewport: chain.viewport,
     });
     recordProof({
-      phase: `${PHASE} · invoice pay (Bob)`,
+      phase: `${PHASE} · invoice pay (Bob) + Alice reactivity`,
       chainName: chain.chainName,
       chainId: chain.chainId,
       txHash: payTxHash,
       screenshotPath: `wave4-shots/03-business/${chainSlug}/${chain.viewport}/bob-*after-pay*`,
       urlArtifact: new URL(previewHref, url).toString(),
-      note: `Bob paid Alice's invoice (25 USDC)`,
+      note: `Bob paid Alice's invoice (25 USDC) · Alice's Invoices tab status flipped to Payment Pending`,
       viewport: chain.viewport,
     });
 
