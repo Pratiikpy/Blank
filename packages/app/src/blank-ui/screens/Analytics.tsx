@@ -344,7 +344,7 @@ export default function Analytics() {
               Private Analytics
             </h1>
             <p className="text-base text-[var(--text-primary)]/50 leading-relaxed">
-              Only visible to you -- all amounts encrypted
+              Only visible to you. All amounts encrypted.
             </p>
           </div>
           <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-purple-50 border border-purple-100">

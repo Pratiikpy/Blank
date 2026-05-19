@@ -32,8 +32,8 @@ const FAQ_ITEMS: FAQItem[] = [
       <p>
         Blank is an encrypted payment platform built on Fhenix CoFHE and Base
         Sepolia. Transaction amounts are invisible on-chain using Fully
-        Homomorphic Encryption (FHE). Social context -- who sent to whom, when,
-        and why -- remains public, but financial details stay completely private.
+        Homomorphic Encryption (FHE). Social context (who sent to whom, when,
+        and why) remains public, but financial details stay completely private.
       </p>
     ),
   },
@@ -47,7 +47,7 @@ const FAQ_ITEMS: FAQItem[] = [
         Fully Homomorphic Encryption (FHE) lets smart contracts compute on
         encrypted data without ever decrypting it. This means balances,
         transfers, and amounts are processed entirely in ciphertext. Only the
-        owner of the data -- you -- can decrypt and view the actual values using
+        owner of the data (you) can decrypt and view the actual values using
         your FHE permit.
       </p>
     ),
@@ -64,7 +64,7 @@ const FAQ_ITEMS: FAQItem[] = [
           { step: 2, text: "Switch to the Ethereum Sepolia testnet if not already connected" },
           { step: 3, text: "Get test USDC from an Ethereum Sepolia faucet" },
           { step: 4, text: "Shield your tokens to convert public USDC into encrypted USDC in your vault" },
-          { step: 5, text: "Send privately -- recipients see the payment but not the amount" },
+          { step: 5, text: "Send privately. Recipients see the payment but not the amount." },
         ].map(({ step, text }) => (
           <li key={step} className="flex gap-3">
             <div className="w-7 h-7 rounded-full bg-blue-50 dark:bg-blue-500/10 flex items-center justify-center shrink-0">
@@ -90,8 +90,8 @@ const FAQ_ITEMS: FAQItem[] = [
         Amounts are encrypted on-chain using FHE. The masked display
         (\u2022\u2022\u2022\u2022.\u2022\u2022) indicates that the value is stored as ciphertext.
         Only you can decrypt your own balance and transaction amounts using your
-        FHE permit. Tap or click the eye icon to reveal your decrypted balance
-        -- it will auto-hide after 10 seconds for security.
+        FHE permit. Tap or click the eye icon to reveal your decrypted balance.
+        It will auto-hide after 10 seconds for security.
       </p>
     ),
   },

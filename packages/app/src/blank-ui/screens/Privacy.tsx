@@ -108,7 +108,7 @@ export default function Privacy() {
               </h3>
               <p className="text-sm text-[var(--text-secondary)]">
                 {hasPermit && !isExpired
-                  ? "Active -- your data is accessible"
+                  ? "Active. Your data is accessible."
                   : "No active permit"}
               </p>
             </div>
@@ -306,7 +306,7 @@ export default function Privacy() {
               { n: 1, text: "Your wallet signs a message to derive a sealing key" },
               { n: 2, text: "The permit allows you to decrypt your own encrypted data" },
               { n: 3, text: "The Local Access Log lets you track who you intend to share encrypted data with" },
-              { n: 4, text: "Permits expire after 7 days for security -- reconnect to renew" },
+              { n: 4, text: "Permits expire after 7 days for security. Reconnect to renew." },
             ].map(({ n, text }) => (
               <div key={n} className="flex gap-3">
                 <div className="w-7 h-7 rounded-full bg-blue-50 flex items-center justify-center shrink-0">

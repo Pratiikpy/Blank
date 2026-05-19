@@ -1349,7 +1349,7 @@ export default function Stealth() {
                     {!isWaitingForDecryption && (
                       <div className="w-full p-4 rounded-2xl bg-emerald-50 border border-emerald-200 mb-6">
                         <p className="text-sm text-emerald-700 font-medium">
-                          Decryption complete -- you can finalize below or it was auto-finalized.
+                          Decryption complete. You can finalize below or it was auto-finalized.
                         </p>
                       </div>
                     )}
