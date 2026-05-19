@@ -322,7 +322,13 @@ test.describe("Phase 9 — Rabby smoke (Dave EOA)", () => {
       );
       expect(send.clicks, "Rabby send popup did not advance").toBeGreaterThan(0);
 
-      const sendTxHash = await waitForExplorerTxHash(dapp, 120_000);
+      // Bump timeout to 240s for live-Vercel runs — the SendConfirm to
+      // SendSuccess transition awaits a tx receipt, and Vercel's
+      // public-RPC backend for Base Sepolia is observably slower than
+      // localhost dev. The actual broadcast already happened (nonce
+      // advances regardless); we're just waiting for the dApp's poll
+      // to pick up the receipt.
+      const sendTxHash = await waitForExplorerTxHash(dapp, 240_000);
       const finalShot = await snap(dapp, shot, "rabby-send-success");
 
       recordProof({
