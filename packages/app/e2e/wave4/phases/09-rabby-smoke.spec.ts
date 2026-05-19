@@ -190,26 +190,50 @@ test.describe("Phase 9 — Rabby smoke (Dave EOA)", () => {
       expect(connectClicked, "No Connect button found in WalletChoiceCard").toBe(true);
       await snap(dapp, shot, "connect-clicked");
 
+      // The Rabby Connect popup is conditional — if the persistent
+      // profile already granted site-permission to this origin on a
+      // previous run, Rabby auto-injects `window.ethereum.selectedAddress`
+      // and wagmi's connect() resolves with no popup. Treat both
+      // "popup appeared + clicked through" AND "silent auto-connect"
+      // as success. The real proof of connection is the final Send
+      // tx hash downstream, not a popup-click count.
       const connect = await waitAndConfirmRabbyPopup(
         rabby.context,
         rabby.rabbyExtensionId,
         knownPages,
         SHOTS_DIR,
         "rabby-connect",
-        30_000,
+        15_000,
         { chainName: chain.chainName },
       );
-      expect(connect.clicks, "Rabby connect popup did not advance").toBeGreaterThan(0);
-      await snap(dapp, shot, "rabby-connected");
+      if (connect.clicks > 0) {
+        await snap(dapp, shot, "rabby-connected-via-popup");
+      } else {
+        // No popup surfaced — confirm the dApp is past the picker
+        // (silent connect) before continuing. If it isn't, the click
+        // didn't take effect at all and we should fail here, not later.
+        const stillOnPicker = await dapp
+          .locator('[data-testid="wallet-choice-existing"]')
+          .isVisible({ timeout: 1_000 })
+          .catch(() => false);
+        expect(
+          stillOnPicker,
+          "WalletChoiceCard still visible after Connect click — neither popup fired nor silent-connect advanced the dApp",
+        ).toBe(false);
+        await snap(dapp, shot, "rabby-connected-silently");
+      }
 
-      // SIWE may surface immediately after. Drive it if present.
+      // SIWE: Blank uses wagmi + SIWE for EOA auth. The signature
+      // popup is conditional on the dApp actually triggering signMessage.
+      // If the cached profile already has a valid session token in
+      // localStorage, SIWE may also be skipped. Drive only if present.
       const siwe = await waitAndConfirmRabbyPopup(
         rabby.context,
         rabby.rabbyExtensionId,
         knownPages,
         SHOTS_DIR,
         "rabby-siwe",
-        20_000,
+        15_000,
       );
       if (siwe.clicks > 0) await snap(dapp, shot, "rabby-siwe-signed");
 
