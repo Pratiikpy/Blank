@@ -100,10 +100,21 @@ test.describe("Phase 22 — Agent Payments (derive + encrypt + submit)", () => {
     await alice.page.goto("/app/agents");
     // Actual h1 is "Pay with an AI agent". Old pattern looked for
     // "Agent Payments" which doesn't exist on the screen.
+    // 30s -> 60s: the lazy-loaded /app/agents bundle is ~2x larger
+    // than other route bundles (cofhe + agent UI), so first-visit load
+    // can exceed 30s on slow networks. Also retry once if the goto
+    // didn't actually navigate (Eth Sepolia P4 same-class bug).
     await alice.page
       .locator("h1", { hasText: /Pay with an AI agent|Agent payments|payroll line/i })
       .first()
-      .waitFor({ state: "visible", timeout: 30_000 });
+      .waitFor({ state: "visible", timeout: 60_000 })
+      .catch(async () => {
+        await alice.page.goto("/app/agents");
+        await alice.page
+          .locator("h1", { hasText: /Pay with an AI agent|Agent payments|payroll line/i })
+          .first()
+          .waitFor({ state: "visible", timeout: 30_000 });
+      });
     await snap(alice.page, shot, "agents-landing");
 
     // The Send tab is default. Smart-payroll-line template should be

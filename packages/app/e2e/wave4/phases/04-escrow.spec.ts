@@ -70,6 +70,22 @@ async function bringUpWallet(
 /** Open /app/business → Escrow tab. */
 async function openEscrowTab(page: Page): Promise<void> {
   await page.goto("/app/business");
+  // Eth Sepolia P4 failure mode: goto silently returns before the page
+  // has navigated client-side (history.pushState race), leaving the
+  // tablist on the prior route (e.g. /app/wallet). Wait for the
+  // BusinessTools "Business Tools" h1 before tab-searching.
+  await page
+    .locator("h1", { hasText: /Business Tools/i })
+    .first()
+    .waitFor({ state: "visible", timeout: 30_000 })
+    .catch(async () => {
+      // If h1 didn't surface, force-reload once to break the state.
+      await page.goto("/app/business");
+      await page
+        .locator("h1", { hasText: /Business Tools/i })
+        .first()
+        .waitFor({ state: "visible", timeout: 30_000 });
+    });
   // The tab is a `<button role="tab" aria-label="Escrow">` — must match
   // by ARIA role tab, not button (button-role getByRole won't find
   // role="tab" elements). The text-based fallback was finding the wrong

@@ -185,7 +185,12 @@ test.describe("Phase 5 — public deep-link create", () => {
         .click();
 
       const txHash = await drainPromptsAndCaptureTx(alice.page, PERSONAS.Alice.passphrase, {
-        readTimeoutMs: 180_000,
+        // 300s budget: claim-link create has the FHE encryption pipeline
+        // (load WASM module + fetch keys + encrypt + ZK proof + submit
+        // + confirm) PLUS the on-chain UserOp. First iteration of the
+        // 3-mode loop (Bearer/Email/Address) bears the cold-cache cost.
+        readTimeoutMs: 300_000,
+        windowMs: 600_000,
       });
       const shareUrl = await readShareUrl(alice.page, "/claim/", url);
       const successShot = await snap(alice.page, shot, `claim-${mode.key.toLowerCase()}-success`);
