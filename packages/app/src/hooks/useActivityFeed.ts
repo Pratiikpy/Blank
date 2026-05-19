@@ -45,6 +45,7 @@ function sortActivitiesStable<T extends { created_at: string; tx_hash: string }>
 // this cap don't get cached — the server is the source of truth for deep
 // history, the cache only exists to make the first paint feel instant.
 const CACHE_CAP = 100;
+const ACTIVITY_REFRESH_INTERVAL_MS = 30_000;
 
 /**
  * Activity feed — works in 3 modes:
@@ -276,6 +277,17 @@ export function useActivityFeed() {
       }
     });
   }, [loadActivities]);
+
+  // Realtime is the fast path, but payment surfaces must self-heal if a
+  // browser misses a Supabase push while the tab stays open.
+  useEffect(() => {
+    if (addresses.length === 0 || !supabase) return;
+    const id = window.setInterval(() => {
+      if (document.visibilityState === "hidden") return;
+      void loadActivities();
+    }, ACTIVITY_REFRESH_INTERVAL_MS);
+    return () => window.clearInterval(id);
+  }, [addresses, loadActivities]);
 
   // Add activity locally for immediate UI feedback (even without Supabase)
   const addLocalActivity = useCallback((activity: Omit<ActivityRow, "id" | "created_at">) => {

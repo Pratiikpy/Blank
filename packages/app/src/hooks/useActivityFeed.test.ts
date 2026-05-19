@@ -324,6 +324,26 @@ describe("useActivityFeed — cross-tab sync (§15.x)", () => {
   });
 });
 
+describe("useActivityFeed — missed realtime recovery", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  it("polls the feed every 30 seconds while the tab is visible", async () => {
+    renderHook(() => useActivityFeed());
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(fetchActivitiesMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      vi.advanceTimersByTime(30_000);
+    });
+
+    expect(fetchActivitiesMock).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe("useActivityFeed — addLocalActivity optimistic UI (§15.x)", () => {
   it("prepends a local activity to the feed without a server fetch", async () => {
     fetchActivitiesMock.mockResolvedValue([]);
