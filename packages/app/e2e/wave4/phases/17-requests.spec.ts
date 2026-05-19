@@ -102,7 +102,7 @@ test.describe("Phase 17 — Payment Requests (Alice requests, Bob pays)", () => 
     await alice.page.locator('input[placeholder="0.00"]').fill("7");
     await alice.page
       .locator('textarea[placeholder="Dinner split, rent, etc."]')
-      .fill("Wave 4 demo request — encrypted via FHE.");
+      .fill("Wave 4 demo request, encrypted via FHE.");
     await snap(alice.page, aliceShot, "request-form-filled");
 
     // Submit Send Request.

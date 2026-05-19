@@ -173,7 +173,7 @@ test.describe("Phase 15 — Creator Support", () => {
     // Optional message.
     await alice.page
       .locator('textarea[placeholder="Say something nice..."]')
-      .fill("Wave 4 demo tip — encrypted via FHE.");
+      .fill("Wave 4 demo tip, encrypted via FHE.");
     await snap(alice.page, aliceShot, "message-typed");
 
     // Click "Send $5 Support" button.
