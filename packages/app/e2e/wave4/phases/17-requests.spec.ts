@@ -184,6 +184,47 @@ test.describe("Phase 17 — Payment Requests (Alice requests, Bob pays)", () => 
       viewport: chain.viewport,
     });
 
+    // ─── Alice-side downstream reactivity check ─────────────────
+    // After Bob fulfills, Alice's /app/requests Outgoing tab must
+    // reflect the fulfilled status. Same indexer + reactivity loop
+    // pattern as P2/P3/P20.
+    await alice.page.goto("/app/requests");
+    await alice.page.locator("h1", { hasText: /Payment Requests/i }).waitFor({
+      state: "visible",
+      timeout: 30_000,
+    });
+    await alice.page
+      .getByRole("tab", { name: /^Outgoing$/i })
+      .first()
+      .click()
+      .catch(async () => {
+        await alice.page
+          .getByRole("button", { name: /^Outgoing$/i })
+          .first()
+          .click()
+          .catch(() => undefined);
+      });
+    let aliceSawFulfilled = false;
+    for (let attempt = 0; attempt < 6 && !aliceSawFulfilled; attempt++) {
+      aliceSawFulfilled = await alice.page
+        .locator("text=/Fulfilled|fulfilled|Paid/i")
+        .first()
+        .isVisible({ timeout: 30_000 })
+        .catch(() => false);
+      if (aliceSawFulfilled) break;
+      await alice.page.reload();
+      await alice.page
+        .getByRole("tab", { name: /^Outgoing$/i })
+        .first()
+        .click()
+        .catch(() => undefined);
+    }
+    await snap(alice.page, aliceShot, "alice-request-fulfilled-status");
+    expect(
+      aliceSawFulfilled,
+      "Alice's Outgoing requests tab must show the request as Fulfilled within ~3min (indexer + UI reactivity)",
+    ).toBe(true);
+
     await alice.context.close();
     await bob.context.close();
   });
