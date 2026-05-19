@@ -1055,15 +1055,15 @@ function BalanceCard({ balance, privacyMode, onTogglePrivacy, hasPermit, onCreat
   const displayAmount = privacyMode && !balance.isRevealed;
 
   return (
-    <div className="rounded-[2rem] glass-card-static p-8 relative overflow-hidden h-full">
+    <div className="rounded-[2rem] glass-card-static p-6 sm:p-8 relative overflow-hidden h-full">
       {/* Glass reflection effect */}
       <div className="absolute inset-0 bg-gradient-to-tr from-white/10 to-white/40 dark:from-white/5 dark:to-white/10 pointer-events-none" />
 
       <div className="relative z-10 h-full flex flex-col justify-between">
         {/* Top section */}
         <div>
-          <div className="flex items-center justify-between mb-12">
-            <div>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8 sm:mb-12">
+            <div className="min-w-0">
               <p className="text-sm text-[var(--text-secondary)] font-medium tracking-wide uppercase mb-2">
                 Total Balance
               </p>
@@ -1072,7 +1072,7 @@ function BalanceCard({ balance, privacyMode, onTogglePrivacy, hasPermit, onCreat
                 <h2
                   className={cn(
                     "font-medium",
-                    large ? "text-6xl" : "text-5xl",
+                    large ? "text-5xl sm:text-6xl" : "text-4xl sm:text-5xl",
                     displayAmount
                       ? "encrypted-text text-[var(--text-tertiary)]"
                       : "decrypted-text text-[var(--text-primary)]",
@@ -1098,9 +1098,9 @@ function BalanceCard({ balance, privacyMode, onTogglePrivacy, hasPermit, onCreat
                 </button>
               )}
             </div>
-            <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-500/10 border border-emerald-500/20">
-              <Shield size={16} className="text-emerald-600 dark:text-emerald-400" />
-              <span className="text-sm font-medium text-emerald-600 dark:text-emerald-400">
+            <div className="self-start shrink-0 flex items-center gap-2 px-3 sm:px-4 py-2 rounded-full bg-emerald-500/10 border border-emerald-500/20">
+              <Shield size={16} className="shrink-0 text-emerald-600 dark:text-emerald-400" />
+              <span className="text-sm font-medium whitespace-nowrap text-emerald-600 dark:text-emerald-400">
                 FHE Protected
               </span>
             </div>
@@ -1139,30 +1139,30 @@ function BalanceCard({ balance, privacyMode, onTogglePrivacy, hasPermit, onCreat
           </div>
 
           {/* Stats Row */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="rounded-2xl bg-white/50 dark:bg-white/5 border border-black/5 dark:border-white/10 p-6">
+          <div className="grid grid-cols-2 gap-3 sm:gap-4">
+            <div className="rounded-2xl bg-white/50 dark:bg-white/5 border border-black/5 dark:border-white/10 p-4 sm:p-6">
               <div className="flex items-center gap-2 mb-2">
-                <TrendingUp size={20} className="text-emerald-600 dark:text-emerald-400" strokeWidth={2.2} />
+                <TrendingUp size={18} className="shrink-0 text-emerald-600 dark:text-emerald-400 sm:w-5 sm:h-5" strokeWidth={2.2} />
                 <p className="text-sm text-[var(--text-secondary)] font-medium">
                   This Month
                 </p>
               </div>
               <p
-                className="text-2xl font-medium text-[var(--text-primary)]"
+                className="text-xl sm:text-2xl font-medium text-[var(--text-primary)]"
                 style={{ fontFamily: "'Outfit', sans-serif" }}
               >
                 {activityCount} transactions
               </p>
             </div>
-            <div className="rounded-2xl bg-white/50 dark:bg-white/5 border border-black/5 dark:border-white/10 p-6">
+            <div className="rounded-2xl bg-white/50 dark:bg-white/5 border border-black/5 dark:border-white/10 p-4 sm:p-6">
               <div className="flex items-center gap-2 mb-2">
-                <CheckCircle size={20} className="text-blue-500" strokeWidth={2.2} />
+                <CheckCircle size={18} className="shrink-0 text-blue-500 sm:w-5 sm:h-5" strokeWidth={2.2} />
                 <p className="text-sm text-[var(--text-secondary)] font-medium">
                   All-time
                 </p>
               </div>
               <p
-                className="text-2xl font-medium text-[var(--text-primary)]"
+                className="text-xl sm:text-2xl font-medium text-[var(--text-primary)]"
                 style={{ fontFamily: "'Outfit', 'Inter', sans-serif" }}
               >
                 {totalActivityCount}
