@@ -129,8 +129,35 @@ export async function enableRabbyTestnets(
   extensionId: string,
   diagDir?: string,
 ): Promise<boolean> {
-  await rabbyPage.goto(`chrome-extension://${extensionId}/index.html#/settings`).catch(() => {});
-  await rabbyPage.waitForTimeout(3_500);
+  // Start from Rabby home — settings is reached via the gear icon in
+  // the top-right header. The hash routes (#/settings, #/chain-list)
+  // do NOT render properly when navigated via `goto` because Rabby's
+  // React hashchange listener is set up after initial mount; full page
+  // reload bypasses it, leaving a blank page. In-app gear-icon click
+  // triggers the proper SPA routing.
+  await rabbyPage.goto(`chrome-extension://${extensionId}/index.html`).catch(() => {});
+  await rabbyPage.waitForTimeout(2_500);
+
+  // Open the settings/preferences side panel via in-app navigation.
+  // Rabby's gear icon is at the very top-right of the header. Match by
+  // common selectors: aria-label "Settings", or the SVG path used by
+  // Rabby's gear icon. If not found, scroll to the right-most icon
+  // button in the header.
+  let opened = false;
+  const gearCandidates = [
+    rabbyPage.getByRole("button", { name: /^settings$/i }).first(),
+    rabbyPage.locator('[aria-label="Settings" i]').first(),
+    rabbyPage.locator('[aria-label*="setting" i]').first(),
+    rabbyPage.locator('header [role="button"], header button').last(),
+  ];
+  for (const g of gearCandidates) {
+    if (await g.isVisible({ timeout: 1_500 }).catch(() => false)) {
+      await g.click({ timeout: 2_000, force: true }).catch(() => {});
+      await rabbyPage.waitForTimeout(2_500);
+      opened = true;
+      break;
+    }
+  }
 
   if (diagDir) {
     await rabbyPage
@@ -138,42 +165,20 @@ export async function enableRabbyTestnets(
       .catch(() => {});
   }
 
-  // First, find the row whose label mentions "testnet". Rabby copies the
-  // label text inside a div/label sibling of the actual <button
-  // role="switch"> or <input type="checkbox">. We scope to the row,
-  // then find the switch inside it, then probe its aria-checked.
+  // Now the settings panel is open via in-app routing. Find the row
+  // whose label mentions "testnet" or "test network".
   const row = rabbyPage
     .locator("div, label")
-    .filter({ hasText: /testnet/i })
+    .filter({ hasText: /testnet|test network/i })
     .first();
-  if (!(await row.isVisible({ timeout: 5_000 }).catch(() => false))) {
-    // Settings page didn't have a row mentioning "testnet". Try the
-    // chain-list page as a fallback — Rabby has migrated this control
-    // between sub-pages across versions.
-    await rabbyPage.goto(`chrome-extension://${extensionId}/index.html#/chain-list`).catch(() => {});
-    await rabbyPage.waitForTimeout(3_000);
+  if (!opened || !(await row.isVisible({ timeout: 5_000 }).catch(() => false))) {
     if (diagDir) {
       await rabbyPage
-        .screenshot({ path: path.join(diagDir, "rabby-chain-list-page.png"), fullPage: true })
+        .screenshot({ path: path.join(diagDir, "rabby-settings-no-toggle.png"), fullPage: true })
         .catch(() => {});
     }
-    const altRow = rabbyPage
-      .locator("div, label")
-      .filter({ hasText: /testnet|test network/i })
-      .first();
-    if (!(await altRow.isVisible({ timeout: 5_000 }).catch(() => false))) {
-      await rabbyPage.goto(`chrome-extension://${extensionId}/index.html`).catch(() => {});
-      return false;
-    }
-    // Recurse with the alternative row in scope — but to keep it
-    // simple, just click near right edge of altRow and exit.
-    const bb = await altRow.boundingBox({ timeout: 2_000 }).catch(() => null);
-    if (bb) {
-      await rabbyPage.mouse.click(Math.round(bb.x + bb.width - 24), Math.round(bb.y + bb.height / 2));
-      await rabbyPage.waitForTimeout(1_500);
-    }
     await rabbyPage.goto(`chrome-extension://${extensionId}/index.html`).catch(() => {});
-    return Boolean(bb);
+    return false;
   }
 
   // Detect current state via aria-checked OR via Rabby's Ant Design
