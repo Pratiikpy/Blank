@@ -88,7 +88,7 @@ export function usePrivacy() {
     setIsCreating(true);
     try {
       await navigateToCreate();
-      toast.success("Permit created — balance unlocked", { icon: "\uD83D\uDD13" });
+      toast.success("Permit created. Balance unlocked.", { icon: "\uD83D\uDD13" });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to create permit";
       toast.error(msg);

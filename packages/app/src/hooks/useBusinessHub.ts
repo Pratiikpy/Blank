@@ -658,7 +658,7 @@ export function useBusinessHub() {
         broadcastAction("activity_added");
         invalidateBalanceQueries();
 
-        toast.success(matchPlaintext ? "Invoice finalized!" : "Invoice refunded — amount mismatch");
+        toast.success(matchPlaintext ? "Invoice finalized!" : "Invoice refunded. Amount mismatch.");
         setStepWithReset("success", 6000);
       } catch (err) {
         log.error("useBusinessHub.finalizeInvoice.error", err instanceof Error ? err : new Error(String(err)));

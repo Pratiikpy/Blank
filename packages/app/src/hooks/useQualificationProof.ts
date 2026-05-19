@@ -107,7 +107,7 @@ export function useQualificationProof() {
         broadcastAction("activity_added");
 
         setStep("success");
-        toast.success(`Proof created — id ${proofId.toString()}`);
+        toast.success(`Proof created. ID ${proofId.toString()}`);
         return proofId;
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Proof creation failed";
@@ -307,7 +307,7 @@ export function useQualificationProof() {
         broadcastAction("activity_added");
         // Balances unaffected by proof publish — skip invalidateBalanceQueries
 
-        toast.success(plaintext ? "Verified — proof holds" : "Verified — proof is false", {
+        toast.success(plaintext ? "Verified. Proof holds." : "Verified. Proof is false.", {
           id: toastId,
         });
         setStep("success");

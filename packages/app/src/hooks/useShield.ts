@@ -478,8 +478,8 @@ export function useShield() {
     }
 
     setUnshieldStep("error");
-    setUnshieldError(lastErr ?? "Decryption timed out — pending unshield will retry on next page load");
-    toast.error(lastErr ?? "Decryption timed out — claim still pending");
+    setUnshieldError(lastErr ?? "Decryption timed out. Pending unshield will retry on next page load.");
+    toast.error(lastErr ?? "Decryption timed out. Claim still pending.");
     return false;
   }, [address, publicClient, decryptForTx, unifiedWrite, waitAndRefetch, refetchPending, contracts, activeChainId]);
 
