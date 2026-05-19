@@ -152,10 +152,26 @@ export function useAgentPayment() {
         setStep("idle");
         return attestation;
       } catch (err) {
-        const msg = err instanceof Error ? err.message : "Agent derivation failed";
+        const raw = err instanceof Error ? err.message : "Agent derivation failed";
+        // Map raw provider errors to humanized copy. API-key / auth failures
+        // leak implementation detail (ANTHROPIC_API_KEY not set, x-api-key
+        // invalid, HTTP 401 from a specific provider) — users see jargon
+        // and lose trust. Translate to honest user-facing messages.
+        let friendly: string;
+        if (/api[\s_-]?key|x-api-key|invalid_request_error|401|403|unauthor/i.test(raw)) {
+          friendly = "AI agent is offline. The operator is rotating provider keys; please retry shortly.";
+        } else if (/429|rate.?limit|too many/i.test(raw)) {
+          friendly = "AI agent is rate-limited. Wait a moment and retry.";
+        } else if (/500|502|503|504|ECONNREFUSED|ENOTFOUND|fetch failed|network/i.test(raw)) {
+          friendly = "Couldn't reach the AI agent backend. Check your connection and retry.";
+        } else if (/timeout|timed out/i.test(raw)) {
+          friendly = "AI agent took too long. Try again with a shorter prompt.";
+        } else {
+          friendly = "AI agent couldn't derive an amount. Try rephrasing or use a different example.";
+        }
         setStep("error");
-        setError(msg);
-        toast.error(msg, { id: toastId });
+        setError(friendly);
+        toast.error(friendly, { id: toastId });
         return null;
       }
     },
