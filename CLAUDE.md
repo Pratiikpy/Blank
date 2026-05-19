@@ -436,3 +436,28 @@ push code, run scripts, sweep writing, inspect output, do anything
 that moves the goal forward. The user is not watching the loop because
 they want a poll, they're watching it because they want assurance you
 haven't stopped.
+
+## P. Foreground vs background discipline
+
+The user's loop fires every minute. Yielding after each iteration with
+nothing but a "still running" check is unproductive — it wastes the
+loop's purpose (assurance that work continues).
+
+Rule:
+- **One PRIMARY task drives the turn.** If something useful can be done
+  right now without conflicting with a running long task, do it.
+- Long testnet-style suites (>10 min) MUST run in background — foreground
+  would freeze the conversation for the full duration. That's worse than
+  yielding.
+- When the foreground action would just be "check progress and yield,"
+  switch to something productive: sweep writing, snap live Vercel,
+  inspect screenshots from completed phases, fix one selector, push a
+  commit, run the live-vercel-snap script against a fresh deploy.
+- Avoid running multiple tool-launched playwright processes in parallel
+  against the same Vite dev server — they share state and will collide.
+  But the live-vercel-snap script uses its own browser context against
+  the Vercel preview, so it does not conflict with the local suite.
+
+If `/loop` fires and the only available action is "check the same log
+file again," that's a sign to start a NEW productive task, not to yield
+again. Find a sweep, a fix, a screenshot review, or a doc update.
