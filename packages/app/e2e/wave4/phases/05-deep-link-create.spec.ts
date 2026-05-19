@@ -76,7 +76,14 @@ async function bringUpAlice(
  *  rendered in a font-mono div with the `/claim/`, `/shop/`, or
  *  `/fund/` path prefix. */
 async function readShareUrl(page: Page, pathPrefix: string, baseURL: string): Promise<string> {
-  const deadline = Date.now() + 60_000;
+  // 120s deadline (was 60s). The createLink path needs to settle
+  // through: cofhe encrypt → relay submit → waitForTransactionReceipt
+  // → extractEventId → setState({step:"success",shareableUrl}). On a
+  // slow Sepolia tick the receipt alone can take 30-40s, leaving 20s
+  // for the DOM transition. Doubling the budget removes the cascade
+  // where all 3 modes (Bearer/EmailBound/AddressBound) timeout in
+  // sequence on a single suite run.
+  const deadline = Date.now() + 120_000;
   while (Date.now() < deadline) {
     const text = (await page
       .locator(`text=/${pathPrefix.replace(/\//g, "\\/")}\\S+/`)
@@ -177,7 +184,9 @@ test.describe("Phase 5 — public deep-link create", () => {
         .locator("button").filter({ hasText: /^Create link/i })
         .click();
 
-      const txHash = await drainPromptsAndCaptureTx(alice.page, PERSONAS.Alice.passphrase);
+      const txHash = await drainPromptsAndCaptureTx(alice.page, PERSONAS.Alice.passphrase, {
+        readTimeoutMs: 180_000,
+      });
       const shareUrl = await readShareUrl(alice.page, "/claim/", url);
       const successShot = await snap(alice.page, shot, `claim-${mode.key.toLowerCase()}-success`);
 

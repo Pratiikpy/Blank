@@ -177,7 +177,11 @@ test.describe("Phase 4 — escrow", () => {
       .locator("button").filter({ hasText: /^Release Funds/i })
       .first();
     let markDeliveredFound = false;
-    for (let i = 0; i < 6 && !markDeliveredFound; i++) {
+    // Bump 6→12 retries (180s→360s total). Supabase indexer lag on a
+    // slow tick can extend past 3 minutes, especially when the chain's
+    // public RPC is rate-limiting. Each iteration reloads to force a
+    // fresh Supabase query — eventually the row surfaces.
+    for (let i = 0; i < 12 && !markDeliveredFound; i++) {
       markDeliveredFound = await markDeliveredBtn
         .isVisible({ timeout: 30_000 })
         .catch(() => false);
@@ -186,7 +190,7 @@ test.describe("Phase 4 — escrow", () => {
       await openEscrowTab(bob.page);
     }
     if (!markDeliveredFound) {
-      throw new Error("Mark Delivered button never appeared after 6 retries (180s)");
+      throw new Error("Mark Delivered button never appeared after 12 retries (360s)");
     }
     await markDeliveredBtn.click();
     let deliverTxHash: string;
