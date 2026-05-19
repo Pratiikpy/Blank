@@ -185,8 +185,11 @@ test.describe("Phase 12 — mobile sweep", () => {
       .locator('input[placeholder*="0x"]')
       .first()
       .fill(bob.address);
+    // SendContacts advance button is "Continue" (line 76 of
+    // SendContacts.tsx). "Next" is a fallback synonym some older
+    // builds used. Match either.
     await alice.page
-      .locator("button").filter({ hasText: /^Next/i })
+      .locator("button").filter({ hasText: /^(Continue|Next)/i })
       .first()
       .tap();
     await snap(alice.page, shotA, "send-recipient-entered");
