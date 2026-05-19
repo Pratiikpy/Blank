@@ -13,3 +13,10 @@ api/*.test.tsx
 
 # Vitest config + shared test helpers — not needed at runtime
 api/dispatcher.test.ts
+
+# Local QA artifacts and browser profiles are large and not runtime inputs.
+test-results/
+playwright-report/
+e2e/
+dist/
+node_modules/
