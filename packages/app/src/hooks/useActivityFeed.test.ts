@@ -52,6 +52,11 @@ const EOA = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 const ALICE = "0xcccccccccccccccccccccccccccccccccccccccc";
 const CHAIN = 11155111;
 
+function channelByPrefix(prefix: string) {
+  const key = Array.from(channelHandlers.byChannelName.keys()).find((name) => name.startsWith(prefix));
+  return key ? channelHandlers.byChannelName.get(key) : undefined;
+}
+
 function row(opts: Partial<Record<string, unknown>> = {}) {
   return {
     tx_hash: "0xtx",
@@ -195,8 +200,8 @@ describe("useActivityFeed — realtime channel registration (§15.x #88 fix)", (
   it("opens 2 channels per address: incoming (user_to) AND outgoing (user_from)", async () => {
     renderHook(() => useActivityFeed());
     await waitFor(() => expect(channelHandlers.byChannelName.size).toBeGreaterThan(0));
-    expect(channelHandlers.byChannelName.has(`activities_in_${ME.toLowerCase()}`)).toBe(true);
-    expect(channelHandlers.byChannelName.has(`activities_out_${ME.toLowerCase()}`)).toBe(true);
+    expect(channelByPrefix(`activities_in_${ME.toLowerCase()}_`)).toBeDefined();
+    expect(channelByPrefix(`activities_out_${ME.toLowerCase()}_`)).toBeDefined();
   });
 
   it("opens 4 total channels when AA + EOA distinct (2 per address)", async () => {
@@ -229,7 +234,7 @@ describe("useActivityFeed — insert-buffer 100ms debounce (§15.x #251)", () =>
       await Promise.resolve();
     });
 
-    const handler = channelHandlers.byChannelName.get(`activities_in_${ME.toLowerCase()}`)!;
+    const handler = channelByPrefix(`activities_in_${ME.toLowerCase()}_`)!;
     expect(handler).toBeDefined();
 
     // Fire 3 inserts back-to-back (simulates a batchSend tx emitting N events).
@@ -258,7 +263,7 @@ describe("useActivityFeed — insert-buffer 100ms debounce (§15.x #251)", () =>
       await Promise.resolve();
     });
 
-    const handler = channelHandlers.byChannelName.get(`activities_in_${ME.toLowerCase()}`)!;
+    const handler = channelByPrefix(`activities_in_${ME.toLowerCase()}_`)!;
     act(() => {
       handler({ new: row({ tx_hash: "0xdup", id: "d" }) });
     });

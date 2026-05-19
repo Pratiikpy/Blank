@@ -230,10 +230,11 @@ export function useActivityFeed() {
       flushTimerRef.current = setTimeout(flushInserts, 100);
     }
 
+    const subscriptionId = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
     const channels = addresses.flatMap((a) => {
       const addrLower = a.toLowerCase();
       const incoming = supabase!
-        .channel(`activities_in_${addrLower}`)
+        .channel(`activities_in_${addrLower}_${subscriptionId}`)
         .on(
           "postgres_changes",
           { event: "INSERT", schema: "public", table: "activities", filter: `user_to=eq.${addrLower}` },
@@ -242,7 +243,7 @@ export function useActivityFeed() {
         .subscribe();
 
       const outgoing = supabase!
-        .channel(`activities_out_${addrLower}`)
+        .channel(`activities_out_${addrLower}_${subscriptionId}`)
         .on(
           "postgres_changes",
           { event: "INSERT", schema: "public", table: "activities", filter: `user_from=eq.${addrLower}` },
