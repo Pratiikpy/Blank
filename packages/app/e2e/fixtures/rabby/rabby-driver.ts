@@ -419,6 +419,23 @@ export async function confirmRabbyPopup(
     await selectRabbyChain(popup, opts.chainName).catch(() => false);
   }
 
+  // Rabby shows a security alert bar on low-popularity dApps ("Listed by:
+  // None" / "Site popularity: Very Low") that GATES the Connect button.
+  // Bar contains an "Ignore all" link. Dismiss it once so the CTA loop
+  // below isn't stuck waiting for a disabled button. Safe to run on
+  // every popup — no-op if the bar isn't there.
+  const ignoreLink = popup.getByText(/^Ignore all$/i).first();
+  if (await ignoreLink.isVisible({ timeout: 1_500 }).catch(() => false)) {
+    const ibb = await ignoreLink.boundingBox({ timeout: 1_500 }).catch(() => null);
+    if (ibb) {
+      await popup.mouse.click(ibb.x + ibb.width / 2, ibb.y + ibb.height / 2);
+      await popup.waitForTimeout(800);
+    } else {
+      await ignoreLink.click({ force: true }).catch(() => {});
+      await popup.waitForTimeout(800);
+    }
+  }
+
   const start = Date.now();
   let clicks = 0;
   let lastClick = Date.now();
