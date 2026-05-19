@@ -210,14 +210,16 @@ test.describe("Phase 12 — mobile sweep", () => {
       await oneKey.waitFor({ state: "visible", timeout: 10_000 });
       await oneKey.tap();
     }
+    // SendAmount's advance button is "Continue" (SendAmount.tsx:385),
+    // not "Send". Match Continue OR Next OR Send for resilience.
     await alice.page
-      .locator("button").filter({ hasText: /^Send/i })
+      .locator("button").filter({ hasText: /^(Continue|Next|Send)/i })
       .last()
       .tap();
     await snap(alice.page, shotA, "send-amount-entered");
 
     // SendConfirm → final Send → passphrase prompt → encrypting.
-    await alice.page.locator("button").filter({ hasText: /^Confirm/i }).last().tap();
+    await alice.page.locator("button").filter({ hasText: /^(Confirm|Send)/i }).last().tap();
     await snap(alice.page, shotA, "send-confirm-tapped");
 
     await enterPassphrase(alice.page, PERSONAS.Alice.passphrase);
