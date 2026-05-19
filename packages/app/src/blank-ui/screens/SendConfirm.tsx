@@ -126,7 +126,7 @@ export default function SendConfirm() {
   // tops up their AA's ETH the next send actually self-pays via the
   // EntryPoint prefund mechanism (see `useSmartAccount.ts` self-pay branch).
   const { effectiveAddress } = useEffectiveAddress();
-  const { activeChainId, contracts } = useChain();
+  const { activeChainId, activeChain, contracts } = useChain();
   const paymasterHealth = usePaymasterHealth();
   const aaBalance = useBalance({
     address: effectiveAddress as `0x${string}` | undefined,
@@ -521,7 +521,7 @@ export default function SendConfirm() {
                     ? "Approving encrypted transfers..."
                     : isEncrypting
                       ? "Encrypting payment amount..."
-                      : "Broadcasting to Ethereum Sepolia..."}
+                      : `Broadcasting to ${activeChain.name}...`}
                 </p>
                 <p className="text-sm text-[var(--text-secondary)]">
                   {step === "approving"
