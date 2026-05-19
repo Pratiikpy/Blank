@@ -271,7 +271,9 @@ test.describe("Phase 2 — P2P encrypted payments", () => {
       timeout: 30_000,
     });
     let bobActivityIncreased = false;
-    for (let attempt = 0; attempt < 6 && !bobActivityIncreased; attempt++) {
+    // 12 retries x ~50s (count + reload + wait) = ~10 min budget. Same
+    // reasoning as P3/P4: Base Sepolia indexer lag exceeds 3 min sometimes.
+    for (let attempt = 0; attempt < 12 && !bobActivityIncreased; attempt++) {
       const countNow = await bobPage
         .locator("text=/Received|Sent|Shielded|Gift|Tip|Bid|Contribution/i")
         .count()

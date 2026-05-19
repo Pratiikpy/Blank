@@ -205,7 +205,8 @@ test.describe("Phase 17 — Payment Requests (Alice requests, Bob pays)", () => 
           .catch(() => undefined);
       });
     let aliceSawFulfilled = false;
-    for (let attempt = 0; attempt < 6 && !aliceSawFulfilled; attempt++) {
+    // 12 retries x ~30s = ~6 min for indexer lag on Base Sepolia.
+    for (let attempt = 0; attempt < 12 && !aliceSawFulfilled; attempt++) {
       aliceSawFulfilled = await alice.page
         .locator("text=/Fulfilled|fulfilled|Paid/i")
         .first()

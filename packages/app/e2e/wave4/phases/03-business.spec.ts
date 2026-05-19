@@ -209,7 +209,11 @@ test.describe("Phase 3 — business tools", () => {
           .click();
       });
     let aliceSawPaid = false;
-    for (let attempt = 0; attempt < 6 && !aliceSawPaid; attempt++) {
+    // 12 retries × 30s = 360s budget. Same as P4 escrow: Supabase
+    // indexer on Base Sepolia can lag 3-5 min on slow ticks. If the
+    // status flip is real, this finds it; if the indexer is hung,
+    // the test fails honestly.
+    for (let attempt = 0; attempt < 12 && !aliceSawPaid; attempt++) {
       aliceSawPaid = await alice.page
         .locator("text=/Payment Pending|Paid|payment_pending/i")
         .first()

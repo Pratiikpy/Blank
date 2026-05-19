@@ -180,7 +180,8 @@ test.describe("Phase 14 — Groups (Alice creates encrypted group with Bob + Car
       timeout: 30_000,
     });
     let bobSawGroup = false;
-    for (let attempt = 0; attempt < 6 && !bobSawGroup; attempt++) {
+    // 12 retries x ~30s = ~6 min budget for indexer lag.
+    for (let attempt = 0; attempt < 12 && !bobSawGroup; attempt++) {
       bobSawGroup = await bob.page
         .locator("text=/Wave 4 demo group/i")
         .first()

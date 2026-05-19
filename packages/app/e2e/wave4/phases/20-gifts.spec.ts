@@ -269,7 +269,8 @@ test.describe("Phase 20 , Gift envelopes (Alice gifts Bob $5)", () => {
           .catch(() => undefined);
       });
     let aliceSawClaimed = false;
-    for (let attempt = 0; attempt < 6 && !aliceSawClaimed; attempt++) {
+    // 12 retries x ~30s = ~6 min for indexer lag on Base Sepolia.
+    for (let attempt = 0; attempt < 12 && !aliceSawClaimed; attempt++) {
       aliceSawClaimed = await alice.page
         .locator("text=/Claimed|claimed/i")
         .first()
