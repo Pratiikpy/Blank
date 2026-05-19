@@ -4,8 +4,7 @@ import { snap, resetCounter } from "../helpers/screenshot";
 import { recordProof, readEntries } from "../helpers/testing-todo";
 import {
   drainPassphrasePrompts,
-  enterPassphrase,
-  readTxHashFromSuccess,
+  drainPromptsAndCaptureTx,
   shieldUsdc,
 } from "../helpers/app-actions";
 
@@ -244,17 +243,19 @@ test.describe("Phase 12 — mobile sweep", () => {
       .tap();
     await snap(alice.page, shotA, "send-amount-entered");
 
-    // SendConfirm → final Send → passphrase prompt → encrypting.
+    // SendConfirm → final Send → multiple passphrase prompts (cofhe
+    // self-permit + UserOp submission). drainPromptsAndCaptureTx handles
+    // every back-to-back prompt and intercepts the relay tx hash. The
+    // older `enterPassphrase + readTxHashFromSuccess` pair only typed
+    // ONE passphrase, leaving the second prompt empty — useUnifiedWrite
+    // then threw "Cancelled" which surfaced as "Transaction failed —
+    // Cancelled" on the Confirm screen.
     await alice.page.locator("button").filter({ hasText: /^(Confirm|Send)/i }).last().tap();
     await snap(alice.page, shotA, "send-confirm-tapped");
 
-    await enterPassphrase(alice.page, PERSONAS.Alice.passphrase);
-    await snap(alice.page, shotA, "passphrase-submitted-encrypting");
-
-    // Wait for success. The transition states (encrypting → submitting
-    // → finalizing → success) all surface visibly; we capture the
-    // final one because intermediate transitions are caught by video.
-    const txHash = await readTxHashFromSuccess(alice.page);
+    const txHash = await drainPromptsAndCaptureTx(alice.page, PERSONAS.Alice.passphrase, {
+      readTimeoutMs: 120_000,
+    });
     const finalShot = await snap(alice.page, shotA, "send-success");
 
     recordProof({
