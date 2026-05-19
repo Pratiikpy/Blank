@@ -59,7 +59,17 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const SHOTS_DIR = path.resolve(__dirname, "../../../test-results/wave4-rabby-shots");
 const RABBY_EXT_DIR = path.resolve(__dirname, "../../fixtures/rabby/ext");
-const RABBY_PROFILE_DIR = path.resolve(__dirname, "../../../../..", ".rabby-profile");
+// Accept either canonical name or "-blank" suffix (some setup scripts seed
+// under the latter so the seed dir doesn't accidentally match an
+// in-use Chrome instance during local dev).
+const RABBY_PROFILE_CANDIDATES = [
+  path.resolve(__dirname, "../../../../..", ".rabby-profile"),
+  path.resolve(__dirname, "../../../../..", ".rabby-profile-blank"),
+];
+const RABBY_PROFILE_DIR =
+  process.env.RABBY_PROFILE_DIR ??
+  RABBY_PROFILE_CANDIDATES.find((p) => fs.existsSync(p) && fs.readdirSync(p).length > 0) ??
+  RABBY_PROFILE_CANDIDATES[0];
 
 function chainContextFromProject(): { chainId: number; chainName: string; viewport: string; chainKey: ChainKey } {
   const meta = test.info().project.metadata as
