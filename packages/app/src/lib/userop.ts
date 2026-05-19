@@ -264,7 +264,14 @@ export async function computeUserOpHash(
   })) as Hex;
 }
 
-/** Read the next nonce for a smart account from the EntryPoint. */
+/** Read the next nonce for a smart account from the EntryPoint.
+ *
+ *  Bypasses viem's default 4s eth_call cache by reading at the explicit
+ *  "pending" block tag. Without this, back-to-back UserOps within the
+ *  4-second cache window read the same pre-tx nonce and the second
+ *  submission gets AA25 (invalid account nonce) at EntryPoint. This
+ *  was the actual root cause of the P5/P6/P8 wave-4 failures that the
+ *  paymaster + retry + poll fixes only masked. */
 export async function getNextNonce(
   publicClient: PublicClient,
   sender: Address,
@@ -276,6 +283,7 @@ export async function getNextNonce(
     abi: ENTRYPOINT_ABI,
     functionName: "getNonce",
     args: [sender, key],
+    blockTag: "pending",
   })) as bigint;
 }
 
