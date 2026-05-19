@@ -167,6 +167,38 @@ test.describe("Phase 14 — Groups (Alice creates encrypted group with Bob + Car
       viewport: chain.viewport,
     });
 
+    // ─── Member-side downstream reactivity check ────────────────
+    // After Alice creates the group, Bob + Carol must see it in their
+    // /app/groups list. Catches the case where the createGroup tx
+    // succeeds on chain but member-side fetchUserGroups doesn't pick
+    // it up — same indexer + reactivity loop class as P2/P3/P17/P20.
+    const bobShot = { phase: "14-groups", persona: "bob", chain: chainSlug, viewport: chain.viewport };
+    resetCounter(bobShot);
+    await bob.page.goto("/app/groups");
+    await bob.page.locator("h1", { hasText: /Groups/i }).waitFor({
+      state: "visible",
+      timeout: 30_000,
+    });
+    let bobSawGroup = false;
+    for (let attempt = 0; attempt < 6 && !bobSawGroup; attempt++) {
+      bobSawGroup = await bob.page
+        .locator("text=/Wave 4 demo group/i")
+        .first()
+        .isVisible({ timeout: 30_000 })
+        .catch(() => false);
+      if (bobSawGroup) break;
+      await bob.page.reload();
+      await bob.page.locator("h1", { hasText: /Groups/i }).waitFor({
+        state: "visible",
+        timeout: 30_000,
+      });
+    }
+    await snap(bob.page, bobShot, "bob-sees-group-after-create");
+    expect(
+      bobSawGroup,
+      "Bob's Groups list must show 'Wave 4 demo group' within ~3min of Alice creating it (indexer + UI reactivity)",
+    ).toBe(true);
+
     await alice.context.close();
     await bob.context.close();
     await carol.context.close();
