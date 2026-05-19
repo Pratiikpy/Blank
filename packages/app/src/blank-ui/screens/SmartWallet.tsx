@@ -70,11 +70,17 @@ export default function SmartWallet() {
     // read when no EOA is connected.
     if (!publicClient || !account) return;
     try {
+      // blockTag:"pending" bypasses the public RPC's eth_call cache
+      // (4s on Base public RPC, sometimes longer on Eth). Without it,
+      // balanceOf reads immediately after a faucet/mint can return
+      // empty bytes from the cache, surfacing as "balanceOf returned
+      // no data" and a stuck "—" balance in the UI.
       const s = (await publicClient.readContract({
         address: contracts.TestUSDC,
         abi: TestUSDCAbi,
         functionName: "balanceOf",
         args: [account.address],
+        blockTag: "pending",
       })) as bigint;
       setSmartUsdc(s);
 
@@ -84,6 +90,7 @@ export default function SmartWallet() {
           abi: TestUSDCAbi,
           functionName: "balanceOf",
           args: [eoaAddress],
+          blockTag: "pending",
         })) as bigint;
         setEoaUsdc(e);
       } else {
