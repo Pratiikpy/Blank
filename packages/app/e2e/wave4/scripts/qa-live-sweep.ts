@@ -57,6 +57,7 @@ const RABBY_PROFILE_DIR =
 const RABBY_PASSWORD = process.env.RABBY_PASSWORD ?? "RabbyPass123!QA";
 const OUT = resolve(REPO, "packages/app/test-results/qa-live-sweep");
 
+// Full list copied from BlankApp.tsx <Route path=...> entries.
 const ROUTES: Array<{ path: string; label: string }> = [
   { path: "/app", label: "01-dashboard" },
   { path: "/app/wallet", label: "02-wallet" },
@@ -65,25 +66,35 @@ const ROUTES: Array<{ path: string; label: string }> = [
   { path: "/app/history", label: "05-history" },
   { path: "/app/business", label: "06-business-tools" },
   { path: "/app/groups", label: "07-groups" },
-  { path: "/app/creators", label: "08-creators" },
-  { path: "/app/p2p", label: "09-p2p-exchange" },
-  { path: "/app/stealth", label: "10-stealth-payments" },
-  { path: "/app/inheritance", label: "11-inheritance" },
-  { path: "/app/proofs", label: "12-encrypted-proofs" },
-  { path: "/app/gifts", label: "13-gifts" },
-  { path: "/app/sell", label: "14-storefront-create" },
-  { path: "/app/fundraise", label: "15-crowdfund-create" },
-  { path: "/app/requests", label: "16-payment-requests" },
-  { path: "/app/contacts", label: "17-contacts" },
-  { path: "/app/analytics", label: "18-analytics" },
-  { path: "/app/agent", label: "19-agent-payments" },
-  { path: "/app/explore", label: "20-explore" },
+  { path: "/app/creators", label: "08-creator-support" },
+  { path: "/app/stealth", label: "09-stealth" },
+  { path: "/app/stealth/inbox", label: "10-stealth-inbox" },
+  { path: "/app/stealth/setup", label: "11-stealth-meta-setup" },
+  { path: "/app/inheritance", label: "12-inheritance" },
+  { path: "/app/proofs", label: "13-encrypted-proofs" },
+  { path: "/app/gifts", label: "14-gifts" },
+  { path: "/app/sell", label: "15-storefront-create" },
+  { path: "/app/fundraise", label: "16-crowdfund-create" },
+  { path: "/app/requests", label: "17-payment-requests" },
+  { path: "/app/contacts", label: "18-contacts" },
+  { path: "/app/analytics", label: "19-analytics" },
+  { path: "/app/agents", label: "20-agent-payments" },
+  { path: "/app/explore", label: "21-explore" },
+  { path: "/app/profile", label: "22-profile" },
+  { path: "/app/burners", label: "23-burners" },
+  { path: "/app/scheduled", label: "24-scheduled" },
+  { path: "/app/claim-link", label: "25-claim-link-create" },
+  { path: "/app/swap", label: "26-swap" },
+  { path: "/app/bridge", label: "27-bridge" },
+  { path: "/app/privacy", label: "28-privacy" },
+  { path: "/app/settings", label: "29-settings" },
+  { path: "/app/help", label: "30-help" },
 ];
 
 interface Report {
   route: string;
   label: string;
-  status: "ok" | "blank" | "error" | "crash";
+  status: "ok" | "blank" | "error" | "crash" | "404";
   notes: string;
   screenshotPath: string;
 }
@@ -186,24 +197,36 @@ async function main(): Promise<void> {
     try {
       await dapp.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 });
       await dapp.waitForTimeout(3_500);
-      // Detect blank-screen (no visible <h1>, <h2>, or main text).
-      const hasHeader = await dapp
-        .locator("h1, h2, h3, [role='heading']")
-        .first()
-        .isVisible({ timeout: 3_000 })
-        .catch(() => false);
-      // Detect error overlay.
-      const errorText = await dapp
-        .locator("text=/Something went wrong|Error|Failed to load|Crash/i")
+      // Detect 404 page first — BlankApp routes unknown paths to
+      // NotFoundPage which shows "404 Page not found".
+      const notFound = await dapp
+        .locator("text=/^\\s*404\\s*$|Page not found/i")
         .first()
         .isVisible({ timeout: 1_500 })
         .catch(() => false);
-      if (errorText) {
-        status = "error";
-        notes = "error-overlay visible";
-      } else if (!hasHeader) {
-        status = "blank";
-        notes = "no header/heading rendered";
+      if (notFound) {
+        status = "404";
+        notes = "NotFoundPage rendered — route does not exist";
+      } else {
+        // Detect blank-screen (no visible <h1>, <h2>, or main text).
+        const hasHeader = await dapp
+          .locator("h1, h2, h3, [role='heading']")
+          .first()
+          .isVisible({ timeout: 3_000 })
+          .catch(() => false);
+        // Detect error overlay.
+        const errorText = await dapp
+          .locator("text=/Something went wrong|Failed to load|Crash/i")
+          .first()
+          .isVisible({ timeout: 1_500 })
+          .catch(() => false);
+        if (errorText) {
+          status = "error";
+          notes = "error-overlay visible";
+        } else if (!hasHeader) {
+          status = "blank";
+          notes = "no header/heading rendered";
+        }
       }
       screenshotPath = resolve(OUT, `${label}.png`);
       await dapp.screenshot({ path: screenshotPath, fullPage: true });
@@ -234,6 +257,7 @@ async function main(): Promise<void> {
     ``,
     `## Summary`,
     `- ok: ${reports.filter((r) => r.status === "ok").length}`,
+    `- 404: ${reports.filter((r) => r.status === "404").length}`,
     `- blank: ${reports.filter((r) => r.status === "blank").length}`,
     `- error: ${reports.filter((r) => r.status === "error").length}`,
     `- crash: ${reports.filter((r) => r.status === "crash").length}`,
