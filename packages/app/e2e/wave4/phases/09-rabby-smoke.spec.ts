@@ -267,6 +267,8 @@ test.describe("Phase 9 — Rabby smoke (Dave EOA)", () => {
       // Send-flow labels (see SendContacts.tsx, SendAmount.tsx,
       // SendConfirm.tsx) — copied from phase 02's proven pattern:
       //  - SendContacts advance CTA = "Continue"
+      //  - SendAmount can be EITHER plaintext input (wide viewport) OR
+      //    a NumericKeypad with button[aria-label="0..9"] (default).
       //  - SendAmount advance CTA = "Continue" (legacy: "Send")
       //  - SendConfirm final CTA = "Confirm & Send" (matches /^Confirm/)
       await dapp.locator('input[placeholder*="0x"]').first().fill(recipient);
@@ -275,8 +277,26 @@ test.describe("Phase 9 — Rabby smoke (Dave EOA)", () => {
         .filter({ hasText: /^(Continue|Next)/i })
         .last()
         .click();
-      await dapp.locator('input[placeholder="0.00"]').first().waitFor({ state: "visible", timeout: 15_000 });
-      await dapp.locator('input[placeholder="0.00"]').first().fill("0.01");
+
+      // Dual-path amount entry. Try plaintext input first; fall back
+      // to NumericKeypad if the input isn't present.
+      const amountInput = dapp.locator('input[placeholder="0.00"]').first();
+      const amountInputVisible = await amountInput
+        .waitFor({ state: "visible", timeout: 5_000 })
+        .then(() => true)
+        .catch(() => false);
+      if (amountInputVisible) {
+        await amountInput.fill("0.01");
+      } else {
+        // NumericKeypad: each digit is a button with aria-label. Type
+        // "0.01" by clicking 0, ., 0, 1.
+        for (const ch of "0.01") {
+          const key = dapp.locator(`button[aria-label="${ch}"]:visible`).first();
+          await key.waitFor({ state: "visible", timeout: 10_000 });
+          await key.click();
+        }
+      }
+      await snap(dapp, shot, "amount-entered");
       await dapp
         .locator("main button:visible:not([disabled])")
         .filter({ hasText: /^(Continue|Review|Next|Send)/i })
