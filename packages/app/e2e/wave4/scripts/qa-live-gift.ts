@@ -141,6 +141,20 @@ async function main(): Promise<void> {
   await dapp.waitForTimeout(800);
   await dapp.screenshot({ path: resolve(OUT, "03-recipient-filled.png"), fullPage: true });
 
+  // Pick a gift theme — required by Gifts.tsx:590 (selectedTheme gates
+  // the Send button render). Theme cards have visible labels like
+  // "Birthday", "Celebration", "Love", "Thank You". Click the first
+  // visible theme card.
+  const themeBtn = dapp
+    .locator("button")
+    .filter({ hasText: /^(Birthday|Celebration|Love|Thank You)$/i })
+    .first();
+  await themeBtn.waitFor({ state: "visible", timeout: 5_000 });
+  await themeBtn.click();
+  console.log(`✓ Selected gift theme`);
+  await dapp.waitForTimeout(800);
+  await dapp.screenshot({ path: resolve(OUT, "03b-theme-selected.png"), fullPage: true });
+
   // Click "Send Gift Envelope". The button (Gifts.tsx:635-650) is
   // disabled while !giftAmount || (!giftRecipient.trim() && recipients.length === 0).
   // After fill + Tab the state should be valid. Relax selector — find
