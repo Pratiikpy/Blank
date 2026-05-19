@@ -288,10 +288,12 @@ test.describe("Phase 9 — Rabby smoke (Dave EOA)", () => {
       if (amountInputVisible) {
         await amountInput.fill("0.01");
       } else {
-        // NumericKeypad: each digit is a button with aria-label. Type
-        // "0.01" by clicking 0, ., 0, 1.
+        // NumericKeypad (NumericKeypad.tsx:18): digit buttons use
+        // aria-label="<digit>", but the period button uses
+        // aria-label="Decimal point". Map each char to the right label.
+        const labelFor = (ch: string) => (ch === "." ? "Decimal point" : ch);
         for (const ch of "0.01") {
-          const key = dapp.locator(`button[aria-label="${ch}"]:visible`).first();
+          const key = dapp.locator(`button[aria-label="${labelFor(ch)}"]:visible`).first();
           await key.waitFor({ state: "visible", timeout: 10_000 });
           await key.click();
         }
