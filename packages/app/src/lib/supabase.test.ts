@@ -373,6 +373,51 @@ describe("chain_id stamping via setSupabaseActiveChain", () => {
   });
 });
 
+// ─── exchange_offers invariants ────────────────────────────────────
+
+describe("exchange_offers writes", () => {
+  it("stamps chain_id on P2P offers", async () => {
+    const mod = await import("./supabase");
+    mod.setSupabaseActiveChain(84532);
+    enqueue({ data: null, error: null });
+    await mod.insertExchangeOffer({
+      offer_id: 35,
+      maker_address: "0xmaker",
+      token_give: "0xusdc",
+      token_want: "0xusdt",
+      amount_give: 1000,
+      amount_want: 1000,
+      expiry: new Date(Date.now() + 3600_000).toISOString(),
+      status: "active",
+      taker_address: "",
+      tx_hash: "0xtx",
+    } as never);
+    const payload = insertedPayloads.payloads.find(p => p.table === "exchange_offers");
+    expect(payload).toBeTruthy();
+    expect((payload!.row as Record<string, unknown>).chain_id).toBe(84532);
+  });
+
+  it("throws when the on-chain offer cannot be mirrored into the order book", async () => {
+    const mod = await import("./supabase");
+    enqueue({
+      data: null,
+      error: { code: "22P02", message: "invalid input syntax for type bigint: \"0.001\"" },
+    });
+    await expect(mod.insertExchangeOffer({
+      offer_id: 36,
+      maker_address: "0xmaker",
+      token_give: "0xusdc",
+      token_want: "0xusdt",
+      amount_give: 0.001,
+      amount_want: 0.001,
+      expiry: new Date(Date.now() + 3600_000).toISOString(),
+      status: "active",
+      taker_address: "",
+      tx_hash: "0xtx",
+    } as never)).rejects.toThrow(/order book did not update/);
+  });
+});
+
 // ─── Address-lowercasing invariants ────────────────────────────────
 
 describe("address lowercasing on inserts", () => {

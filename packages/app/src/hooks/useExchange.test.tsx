@@ -478,8 +478,10 @@ describe("useExchange — createOffer happy path (§15.x)", () => {
     const offerRow = insertExchangeOfferMock.mock.calls[0][0];
     expect(offerRow.offer_id).toBe(7);
     expect(offerRow.maker_address).toBe(ME.toLowerCase());
-    expect(offerRow.amount_give).toBe(100);
-    expect(offerRow.amount_want).toBe(50);
+    expect(offerRow.amount_give).toBe(100_000_000);
+    expect(offerRow.amount_want).toBe(50_000_000);
+    expect(offerRow.token_want).toBe(VAULT_USDT);
+    expect(offerRow.chain_id).toBe(11155111);
     expect(offerRow.status).toBe("active");
     expect(insertActivityMock).toHaveBeenCalledTimes(1);
     expect(insertActivityMock.mock.calls[0][0].activity_type).toBe("offer_created");
@@ -580,11 +582,11 @@ describe("useExchange — fillOffer (§15.x)", () => {
     const offer = {
       offer_id: 42,
       maker_address: MAKER,
-      amount_give: 100,
-      amount_want: 50,
+      amount_give: 100_000_000,
+      amount_want: 50_000_000,
       status: "active",
       token_give: VAULT_USDC,
-      token_want: VAULT_USDC,
+      token_want: VAULT_USDT,
       tx_hash: "0xseed",
     };
     fetchActiveOffersMock.mockResolvedValue([offer]);
@@ -640,6 +642,8 @@ describe("useExchange — fillOffer (§15.x)", () => {
     expect(unifiedWriteAndWaitMock.mock.calls[0][0].functionName).toBe(
       "approvePlaintext",
     );
+    expect(unifiedWriteAndWaitMock.mock.calls[0][0].address).toBe(VAULT_USDT);
+    expect(verifyVaultApprovedMock).toHaveBeenCalledWith(P2P, ME, VAULT_USDT, expect.anything());
     expect(unifiedWriteAndWaitMock.mock.calls[1][0].functionName).toBe("fillOffer");
     expect(markVaultApprovedMock).toHaveBeenCalledWith(P2P);
   });
@@ -679,8 +683,8 @@ describe("useExchange — fillOffer (§15.x)", () => {
     const offer = {
       offer_id: 42,
       maker_address: ME, // maker is the caller
-      amount_give: 100,
-      amount_want: 50,
+      amount_give: 100_000_000,
+      amount_want: 50_000_000,
       status: "active",
     };
     fetchActiveOffersMock.mockResolvedValue([offer]);
@@ -712,7 +716,7 @@ describe("useExchange — fillOffer (§15.x)", () => {
       await result.current.fillOffer(42);
     });
     expect(toastErrorMock).toHaveBeenCalledWith(
-      "This offer is no longer available — it was cancelled or filled by another user",
+      "This offer is no longer available. It was cancelled or filled by another user.",
     );
   });
 
@@ -724,7 +728,7 @@ describe("useExchange — fillOffer (§15.x)", () => {
       await result.current.fillOffer(42);
     });
     expect(toastErrorMock).toHaveBeenCalledWith(
-      "This offer is no longer available — it was cancelled or filled by another user",
+      "This offer is no longer available. It was cancelled or filled by another user.",
     );
   });
 
@@ -736,7 +740,7 @@ describe("useExchange — fillOffer (§15.x)", () => {
       await result.current.fillOffer(42);
     });
     expect(toastErrorMock).toHaveBeenCalledWith(
-      "This offer is no longer available — it was cancelled or filled by another user",
+      "This offer is no longer available. It was cancelled or filled by another user.",
     );
   });
 
@@ -748,7 +752,7 @@ describe("useExchange — fillOffer (§15.x)", () => {
       await result.current.fillOffer(42);
     });
     expect(toastErrorMock).toHaveBeenCalledWith(
-      "This offer is no longer available — it was cancelled or filled by another user",
+      "This offer is no longer available. It was cancelled or filled by another user.",
     );
   });
 
@@ -842,7 +846,7 @@ describe("useExchange — cancelOffer (§15.x)", () => {
       await result.current.cancelOffer(42);
     });
     expect(toastErrorMock).toHaveBeenCalledWith(
-      "This offer is no longer available — it was cancelled or filled by another user",
+      "This offer is no longer available. It was cancelled or filled by another user.",
     );
   });
 

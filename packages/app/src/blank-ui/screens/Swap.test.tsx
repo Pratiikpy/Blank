@@ -88,8 +88,8 @@ function buildOffer(over: Partial<OfferRow> = {}): OfferRow {
   return {
     id: 1,
     maker_address: ALICE.toLowerCase(),
-    amount_give: 100,
-    amount_want: 100,
+    amount_give: 100_000_000,
+    amount_want: 100_000_000,
     status: "active",
     created_at: new Date().toISOString(),
     expiry: new Date(Date.now() + 24 * 3600_000).toISOString(),
@@ -402,13 +402,13 @@ describe("Swap — P2PTab offers list partition (§15.x)", () => {
     const fresh = buildOffer({
       id: 1,
       maker_address: ALICE.toLowerCase(),
-      amount_give: 50,
+      amount_give: 50_000_000,
       expiry: new Date(Date.now() + 3600_000).toISOString(), // 1h future
     });
     const expired = buildOffer({
       id: 2,
       maker_address: ALICE.toLowerCase(),
-      amount_give: 999,
+      amount_give: 999_000_000,
       expiry: new Date(Date.now() - 1000).toISOString(), // past
     });
     setExchange({ offers: [fresh, expired] });
@@ -421,7 +421,7 @@ describe("Swap — P2PTab offers list partition (§15.x)", () => {
     const filled = buildOffer({
       id: 1,
       maker_address: ALICE.toLowerCase(),
-      amount_give: 777,
+      amount_give: 777_000_000,
       status: "filled",
     });
     setExchange({ offers: [filled] });

@@ -1071,7 +1071,11 @@ export async function insertExchangeOffer(offer: Omit<ExchangeOfferRow, "id" | "
     ...offer,
     chain_id: offer.chain_id ?? _activeChainIdForSupabase,
   });
-  if (!result.ok) log.warn("supabase.insertExchangeOffer.failed", { error: String(result.error) });
+  if (!result.ok) {
+    const error = String(result.error);
+    log.warn("supabase.insertExchangeOffer.failed", { error });
+    throw new Error(`Offer was created on-chain but the order book did not update: ${error}`);
+  }
 }
 
 export async function fetchActiveOffers(): Promise<ExchangeOfferRow[]> {
@@ -1081,6 +1085,7 @@ export async function fetchActiveOffers(): Promise<ExchangeOfferRow[]> {
     .select("*")
     .eq("status", "active")
     .eq("chain_id", _activeChainIdForSupabase)
+    .gt("expiry", new Date().toISOString())
     .order("created_at", { ascending: false });
   if (error) { log.warn("supabase.fetchActiveOffers.failed", { error: error.message }); return []; }
   return data || [];

@@ -28,6 +28,21 @@ import { isVaultApproved, markVaultApproved, clearVaultApproval, verifyVaultAppr
 
 type Step = "idle" | "approving" | "sending" | "success" | "error";
 
+function toSafeDbAmount(amount: bigint): number {
+  const asNumber = Number(amount);
+  if (!Number.isSafeInteger(asNumber)) {
+    throw new Error("Amount is too large for the order book");
+  }
+  return asNumber;
+}
+
+function fromDbAmount(amount: number): bigint {
+  if (!Number.isFinite(amount) || amount < 0) {
+    throw new Error("Offer amount is invalid");
+  }
+  return BigInt(Math.trunc(amount));
+}
+
 export function useExchange() {
   const { effectiveAddress: address } = useEffectiveAddress();
   const { contracts, activeChainId } = useChain();
@@ -185,13 +200,14 @@ export function useExchange() {
           offer_id: offerId,
           maker_address: address.toLowerCase(),
           token_give: contracts.FHERC20Vault_USDC,
-          token_want: contracts.FHERC20Vault_USDC,
-          amount_give: parsedGive,
-          amount_want: parsedWant,
+          token_want: (contracts.FHERC20Vault_USDT ?? contracts.FHERC20Vault_USDC) as `0x${string}`,
+          amount_give: toSafeDbAmount(giveWei),
+          amount_want: toSafeDbAmount(wantWei),
           expiry: expiryDate,
           status: "active",
           taker_address: "",
           tx_hash: hash,
+          chain_id: activeChainId,
         });
 
         await insertActivity({
@@ -223,7 +239,7 @@ export function useExchange() {
         toast.error("Failed to create offer");
       }
     },
-    [address, publicClient, step, unifiedWrite, unifiedWriteAndWait, loadOffers, contracts]
+    [address, publicClient, step, unifiedWrite, unifiedWriteAndWait, loadOffers, contracts, activeChainId]
   );
 
   // Fill (accept) an offer
@@ -241,20 +257,21 @@ export function useExchange() {
       try {
         const offer = offers.find((o) => o.offer_id === offerId);
         if (!offer) throw new Error("Offer not found");
+        const takerVault = (offer.token_want || contracts.FHERC20Vault_USDC) as `0x${string}`;
 
         // Approve vault for P2PExchange — skip if allowance already on-chain
         // from a prior session (cross-device recovery / fresh localStorage).
         const alreadyApproved = await verifyVaultApproved(
           contracts.P2PExchange as `0x${string}`,
           address as `0x${string}`,
-          contracts.FHERC20Vault_USDC as `0x${string}`,
+          takerVault,
           publicClient,
         );
         if (!alreadyApproved) {
           // Use unifiedWriteAndWait — the relay already confirmed the tx
           // server-side, so we skip the unreliable public-RPC poll.
           const approveResult = await unifiedWriteAndWait({
-            address: contracts.FHERC20Vault_USDC,
+            address: takerVault,
             abi: FHERC20VaultAbi,
             functionName: "approvePlaintext",
             args: [contracts.P2PExchange, MAX_UINT64],
@@ -271,8 +288,8 @@ export function useExchange() {
         }
 
         // Encrypt both amounts for the fill
-        const takerAmount = parseUnits(String(offer.amount_want), 6);
-        const makerAmount = parseUnits(String(offer.amount_give), 6);
+        const takerAmount = fromDbAmount(offer.amount_want);
+        const makerAmount = fromDbAmount(offer.amount_give);
 
         const [encTakerPayment, encMakerPayment] = await encryptInputsAsync([
           Encryptable.uint64(takerAmount),

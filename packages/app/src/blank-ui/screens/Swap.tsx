@@ -25,6 +25,7 @@ import toast from "react-hot-toast";
 import DexSwapTab from "./DexSwapTab";
 import Bridge from "./Bridge";
 import { cn } from "@/lib/cn";
+import { formatUnits } from "viem";
 
 // Phase 5.3 — Exchange screen restructure: P2P (existing) | DEX (new) | Bridge.
 // `?tab=` is the source of truth so deeplinks like /app/swap?tab=dex work, and
@@ -40,6 +41,12 @@ const TAB_DEFS: Array<{ id: ExchangeTab; label: string; Icon: typeof Users; subl
   { id: "dex", label: "DEX", Icon: Repeat, sublabel: "Uniswap v3" },
   { id: "bridge", label: "Bridge", Icon: Workflow, sublabel: "CCTP V2" },
 ];
+
+function formatOfferAmount(amount: number): string {
+  if (!Number.isFinite(amount) || amount < 0) return "0";
+  const raw = formatUnits(BigInt(Math.trunc(amount)), 6);
+  return raw.replace(/(\.\d*?[1-9])0+$/, "$1").replace(/\.0+$/, "");
+}
 
 function parseTab(raw: string | null): ExchangeTab {
   return raw && VALID_TABS.has(raw as ExchangeTab) ? (raw as ExchangeTab) : "p2p";
@@ -453,7 +460,7 @@ function P2PTab() {
                     </div>
                     <div>
                       <p className="font-medium text-[var(--text-primary)]">
-                        {offer.amount_give} USDC &rarr; {offer.amount_want} USDT
+                        {formatOfferAmount(offer.amount_give)} USDC &rarr; {formatOfferAmount(offer.amount_want)} USDT
                       </p>
                       <p className="text-sm text-[var(--text-primary)]/50">
                         {offer.maker_address.slice(0, 6)}...{offer.maker_address.slice(-4)} &middot; {formatTime(offer.created_at)}
@@ -494,7 +501,7 @@ function P2PTab() {
                     </div>
                     <div>
                       <p className="font-medium text-[var(--text-primary)]">
-                        Offering {offer.amount_give} USDC for {offer.amount_want} USDT
+                        Offering {formatOfferAmount(offer.amount_give)} USDC for {formatOfferAmount(offer.amount_want)} USDT
                       </p>
                       <p className="text-sm text-[var(--text-primary)]/50">
                         Created {formatTime(offer.created_at)}
@@ -548,7 +555,7 @@ function P2PTab() {
                       </div>
                       <div>
                         <p className="font-medium text-[var(--text-primary)]">
-                          {isMaker ? "Sold" : "Bought"} {offer.amount_give} USDC for {offer.amount_want} USDT
+                          {isMaker ? "Sold" : "Bought"} {formatOfferAmount(offer.amount_give)} USDC for {formatOfferAmount(offer.amount_want)} USDT
                         </p>
                         <p className="text-sm text-[var(--text-primary)]/50">
                           Filled {formatTime(offer.created_at)} &middot; Offer #{offer.offer_id}
@@ -607,7 +614,7 @@ function P2PTab() {
                     </div>
                     <div>
                       <p className="font-medium text-[var(--text-primary)]/50">
-                        {offer.amount_give} USDC &rarr; {offer.amount_want} USDT
+                        {formatOfferAmount(offer.amount_give)} USDC &rarr; {formatOfferAmount(offer.amount_want)} USDT
                       </p>
                       <p className="text-sm text-[var(--text-primary)]/30">
                         {offer.maker_address.slice(0, 6)}...{offer.maker_address.slice(-4)} &middot; Expired {formatTime(offer.expiry!)}
