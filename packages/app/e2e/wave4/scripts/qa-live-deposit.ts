@@ -18,6 +18,8 @@ import { chromium, type Page } from "@playwright/test";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { mkdirSync, writeFileSync, existsSync } from "node:fs";
+import { createPublicClient, http, type Address, type Hash } from "viem";
+import { baseSepolia, sepolia } from "viem/chains";
 import {
   unlockRabby,
   dismissRabbyWhatsNew,
@@ -34,8 +36,65 @@ const RABBY_PROFILE_DIR =
   process.env.RABBY_PROFILE_DIR ?? resolve(REPO, ".rabby-profile-blank");
 const RABBY_PASSWORD = process.env.RABBY_PASSWORD ?? "RabbyPass123!QA";
 const OUT = resolve(REPO, "packages/app/test-results/qa-live-deposit");
+const CHAIN_ID = Number(process.env.CHAIN_ID ?? 84532);
+if (CHAIN_ID !== 84532 && CHAIN_ID !== 11155111) throw new Error(`Unsupported CHAIN_ID ${CHAIN_ID}`);
+const IS_ETH = CHAIN_ID === 11155111;
+const CHAIN_NAME = IS_ETH ? "Ethereum Sepolia" : "Base Sepolia";
+const RPC_URL = IS_ETH ? "https://ethereum-sepolia.publicnode.com" : "https://sepolia.base.org";
+const EXPLORER_URL = IS_ETH ? "https://sepolia.etherscan.io" : "https://sepolia.basescan.org";
+const BLOCKSCOUT_URL = IS_ETH ? "https://eth-sepolia.blockscout.com" : "https://base-sepolia.blockscout.com";
+const DAVE = "0x7eF99105308230eab5B8E4765842bc2BF7B1D175" as Address;
 
 const AMOUNT = process.env.DEPOSIT_AMOUNT ?? "1";
+
+const publicClient = createPublicClient({
+  chain: IS_ETH ? sepolia : baseSepolia,
+  transport: http(RPC_URL),
+});
+
+async function switchDappChain(page: Page, extId: string, knownPages: Set<Page>): Promise<void> {
+  const targetHex = `0x${CHAIN_ID.toString(16)}`;
+  await page.evaluate((chainId) => localStorage.setItem("blank:active_chain_id", String(chainId)), CHAIN_ID);
+  await page.evaluate(async (chainIdHex) => {
+    const eth = (window as unknown as { ethereum?: { request(args: { method: string; params?: unknown[] }): Promise<unknown> } }).ethereum;
+    if (!eth) throw new Error("window.ethereum missing");
+    await eth.request({ method: "wallet_switchEthereumChain", params: [{ chainId: chainIdHex }] });
+  }, targetHex).catch(() => undefined);
+  await waitAndConfirmRabbyPopup(page.context(), extId, knownPages, OUT, "rabby-switch-chain", 20_000, {
+    chainName: CHAIN_NAME,
+  }).catch(() => ({ clicks: 0, closed: false }));
+  await page.reload({ waitUntil: "domcontentloaded", timeout: 60_000 });
+  await page.evaluate((chainId) => localStorage.setItem("blank:active_chain_id", String(chainId)), CHAIN_ID);
+}
+
+async function assertDappChain(page: Page): Promise<string> {
+  const chainId = await page.evaluate(async () => {
+    const eth = (window as unknown as { ethereum?: { request(args: { method: string }): Promise<string> } }).ethereum;
+    if (!eth) return "";
+    return await eth.request({ method: "eth_chainId" }).catch(() => "");
+  });
+  const expected = `0x${CHAIN_ID.toString(16)}`;
+  if (chainId.toLowerCase() !== expected.toLowerCase()) {
+    throw new Error(`Wrong dApp chain: ${chainId || "missing"}, expected ${expected}`);
+  }
+  return chainId;
+}
+
+async function txsFrom(address: Address, fromNonce: number): Promise<Hash[]> {
+  const deadline = Date.now() + 180_000;
+  while (Date.now() < deadline) {
+    const url = `${BLOCKSCOUT_URL}/api?module=account&action=txlist&address=${address}&sort=desc`;
+    const res = await fetch(url).then((r) => r.json()).catch(() => null) as
+      | { result?: Array<{ hash: Hash; nonce: string | number; from?: string; isError?: string }> }
+      | null;
+    const found = (res?.result ?? [])
+      .filter((tx) => tx.from?.toLowerCase() === address.toLowerCase() && Number(tx.nonce) >= fromNonce && tx.isError !== "1")
+      .map((tx) => ({ nonce: Number(tx.nonce), hash: tx.hash }));
+    if (found.length > 0) return found.sort((a, b) => a.nonce - b.nonce).map((x) => x.hash);
+    await new Promise((r) => setTimeout(r, 3_000));
+  }
+  return [];
+}
 
 async function main(): Promise<void> {
   if (!existsSync(RABBY_EXT_DIR)) {
@@ -48,7 +107,7 @@ async function main(): Promise<void> {
   }
 
   mkdirSync(OUT, { recursive: true });
-  console.log(`QA Deposit → Shield · ${VERCEL_URL} · amount=${AMOUNT} USDC`);
+  console.log(`QA Deposit → Shield · ${CHAIN_NAME} · ${VERCEL_URL} · amount=${AMOUNT} USDC`);
   console.log(`Output: ${OUT}`);
 
   const ctx = await chromium.launchPersistentContext(RABBY_PROFILE_DIR, {
@@ -112,13 +171,15 @@ async function main(): Promise<void> {
     const connect = existingCard.locator("button").filter({ hasText: /Rabby/i }).first();
     await connect.click({ force: true });
     await waitAndConfirmRabbyPopup(ctx, extId, knownPages, OUT, "rabby-connect", 30_000, {
-      chainName: "Base Sepolia",
+      chainName: CHAIN_NAME,
     });
     await waitAndConfirmRabbyPopup(ctx, extId, knownPages, OUT, "rabby-siwe", 20_000);
   }
+  await switchDappChain(dapp, extId, knownPages);
+  const actualChainHex = await assertDappChain(dapp);
   await dapp.waitForTimeout(3_000);
   await dapp.screenshot({ path: resolve(OUT, "02-dashboard.png"), fullPage: true });
-  console.log("✓ Rabby connected, dashboard visible");
+  console.log(`✓ Rabby connected, dashboard visible, chain=${actualChainHex}`);
 
   // Find the Deposit panel. The dashboard renders a "DEPOSIT TO PRIVATE
   // WALLET" section with an amount input + "Get Test USDC" + "Deposit"
@@ -160,6 +221,7 @@ async function main(): Promise<void> {
     await ctx.close();
     process.exit(11);
   }
+  const beforeNonce = await publicClient.getTransactionCount({ address: DAVE, blockTag: "pending" });
   await depositBtn.click();
   console.log("✓ Deposit button clicked");
   await dapp.waitForTimeout(2_000);
@@ -197,6 +259,10 @@ async function main(): Promise<void> {
     }
     await dapp.waitForTimeout(5_000);
   }
+  const txHashes = await txsFrom(DAVE, beforeNonce);
+  if (!txHash && txHashes.length > 0) txHash = txHashes[txHashes.length - 1];
+  const bodyText = ((await dapp.locator("body").textContent().catch(() => "")) ?? "").replace(/\s+/g, " ");
+  const successState = /Shielding complete|Shielded\s+1\s+USDC|Deposited to vault/i.test(bodyText);
 
   await dapp.screenshot({ path: resolve(OUT, "06-final-state.png"), fullPage: true });
 
@@ -206,14 +272,17 @@ async function main(): Promise<void> {
     `Generated: ${new Date().toISOString()}`,
     `URL base: ${VERCEL_URL}`,
     `Wallet: Dave (Rabby EOA)`,
-    `Chain: Base Sepolia`,
+    `Chain: ${CHAIN_NAME} (${CHAIN_ID})`,
     `Amount: ${AMOUNT} USDC`,
     ``,
     `## Result`,
     ``,
-    txHash
-      ? `🟢 GREEN — Tx hash: [\`${txHash}\`](https://sepolia.basescan.org/tx/${txHash})`
+    txHash || successState
+      ? `🟢 GREEN — ${txHash ? `Tx hash: [\`${txHash}\`](${EXPLORER_URL}/tx/${txHash})` : "Success state visible"}`
       : `🔴 RED — No tx hash captured within budget`,
+    txHashes.length
+      ? `\n## Chain transactions\n\n${txHashes.map((h) => `- [${h}](${EXPLORER_URL}/tx/${h})`).join("\n")}`
+      : "",
     ``,
     `## Rabby popups`,
     ``,
