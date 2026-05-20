@@ -41,7 +41,7 @@ sender and receiver decrypt with their own keys. Everyone else sees ████
 
 ## In 5 seconds
 
-Stripe-shaped product on Ethereum where the amount is private. Sender + receiver public; the number isn't.
+Private payment rails for Ethereum where the amount is encrypted. Sender + receiver public; the number isn't.
 
 ## Testnet launch status
 
@@ -176,7 +176,7 @@ Plus auxiliary:
 | `api/_lib/sig-auth.ts` | Off-chain auth, asymmetric replay window |
 | `api/_lib/supabase-admin.ts` | Privileged DB, mechanical leak prevention |
 
-### Three load-bearing engineering choices
+### Three engineering choices that matter
 
 1. **Defer to on-chain authority for hashing.** `lib/userop.ts`
    reads `userOpHash` from EntryPoint instead of reimplementing
@@ -191,7 +191,7 @@ Plus auxiliary:
 3. **`prehash: false` on every passkey signature.** `lib/passkey.ts`
    L253. The default Noble curve setting would silently produce
    sigs over `sha256(digest)`; on-chain RIP-7212 verifier rejects.
-   The CRITICAL caveat in the comment names the failure mode.
+   The in-code note names the exact failure mode.
 
 ### BusinessHub: the canonical FHE async-decrypt pattern
 
@@ -226,7 +226,7 @@ defaults survive deployment misconfig. Both are present.
 | **Signing** | P-256 passkey (WebAuthn) | Standard ECDSA |
 | **Gas** | Sponsored when paymaster is available | User pays |
 | **Transactions** | Batched into one UserOp (ERC-4337) | One popup per op |
-| **Best for** | New users and passkey-native flows | Launch-tested desktop flow |
+| **Best for** | New users and passkey-native flows | Existing crypto users and desktop flows |
 
 Both route through `useUnifiedWrite`. We don't maintain two versions of the app.
 
@@ -262,7 +262,7 @@ Never. There is no $BLANK token and there will not be one. Read the next section
 - **A speculation app.** No token. No points farm. No "encrypted DeFi yield."
 - **Cross-chain.** We pick two chains and ship them well.
 - **Mainnet** until the threshold operator set is decentralized and the contracts are audited.
-- **A creator economy super-app.** Privacy is the wedge; we'll keep cutting features that don't sharpen it.
+- **A creator economy super-app.** Privacy is the wedge; features that do not sharpen it get removed.
 
 This list is not aspirational. It's what we say no to in design reviews.
 
@@ -276,7 +276,7 @@ This list is not aspirational. It's what we say no to in design reviews.
 | Sender privacy | ✓ | ✓ | ✓ | **✗** *(public on purpose)* |
 | Composable with public DeFi | ✗ | ✗ | ✗ | **✓** |
 | Audit posture | sanctioned | encrypted accounts | shielded pools | **public sender + private amount** |
-| Speed today | n/a | seconds | seconds | **slow on Sepolia threshold** |
+| Speed today | n/a | seconds | seconds | **testnet threshold decrypt can be slow** |
 | Token-free | ✗ | ✗ | ✗ | **✓** |
 
 The honest weaknesses (sender privacy is *intentionally absent*; threshold decrypt on testnet is slow today) are why the green checkmarks are credible.
@@ -291,7 +291,7 @@ We ship in waves. If you have 30 seconds, read the box below. If you have 10 min
 >
 > - **Wave 1** *(Mar 29 to Apr 16)*. **We built the core app.** A working encrypted-payment app with 16 smart contracts, 12 features, and 23 screens. Live on testnet.
 > - **Wave 2** *(Apr 17 to Apr 30)*. **We made it usable for real people.** Passkey wallets so users don't need MetaMask. The same app runs on two chains. AI agents can sign payments. Anyone can verify a balance proof without a wallet or a server.
-> - **Wave 3** *(May 1 to May 9)*. **We made it explainable and faster.** Public pricing page, roadmap, and blog with four long-form posts. Recovered from a production white-screen incident. Fixed a multichain bug. Shipped a Fhenix-recommended performance optimization on both chains in one day. Tests grew from 17 to 154.
+> - **Wave 3** *(May 1 to May 9)*. **We made it explainable and faster.** Public pricing page, roadmap, and blog with four long-form posts. Resolved a production startup incident. Fixed a multichain bug. Shipped a Fhenix-recommended performance optimization on both chains in one day. Tests grew from 17 to 154.
 > - **Wave 4** *(May 10 to present)*. **We made it composable.** Magic claim links over email, sealed-bid storefronts, encrypted crowdfunding, encrypted escrow with arbiter-or-deadline release. 4 new contracts (ClaimLinks, Storefront, EncryptedCrowdfund, EncryptedEscrow) plus FHE pipeline UI for every encrypted op.
 
 The pattern: **build → harden → open.** Wave 1 added the surface; Wave 2 disciplined the code that runs it; Wave 3 made the rationale public and shipped a perf optimization onchain.
@@ -372,10 +372,10 @@ A user types "send Alice $50 every Friday" in plain English. The server runs Kim
 A user generates a proof that their balance is above some number (say "I make more than $5,000/month") and gets a shareable URL. Anyone, even without a wallet, can open the URL and click verify. The Threshold Network's decrypted answer gets published on-chain with a signature check, and the contract does the math. Nobody has to trust our server. The chain has the receipt.
 
 **Under the hood**  
-16 UUPS-upgradeable contracts, 28 FHE operations, all migrated from Fhenix's older testnet to the CoFHE v0.4 API. The pattern we're proudest of is `transferFromVerified`. A Hub contract verifies an encrypted input in its own context (where `msg.sender` is the user), then passes the verified handle along to the vault. Without this pattern, cross-contract FHE signature checks fail silently with no visible error. That one took a long time to figure out.
+16 UUPS-upgradeable contracts, 28 FHE operations, all migrated from Fhenix's older testnet to the CoFHE v0.4 API. The pattern we're proudest of is `transferFromVerified`. A Hub contract verifies an encrypted input in its own context (where `msg.sender` is the user), then passes the verified handle along to the vault. Without this pattern, cross-contract FHE signature checks fail silently with no visible error. The pattern is now isolated, documented, and reused across the app.
 
 **Where we are**  
-The CoFHE migration is done. Every feature that existed before still works, and everything new this wave sits on the v0.4 foundation. The product is usable on testnet today. That doesn't mean it's a real product yet. That gap will close in future waves.
+The CoFHE migration is done. Every feature that existed before still works, and everything new this wave sits on the v0.4 foundation. The product is usable on testnet today, with mainnet readiness gated on threshold decentralization, audit, and production operations.
 
 PaymentHub on Base Sepolia: [`0xF420102D...e831`](https://sepolia.basescan.org/address/0xF420102Dea1acf437bfc49ded5F4E2f5ed32e831)
 
@@ -388,10 +388,10 @@ PaymentHub on Base Sepolia: [`0xF420102D...e831`](https://sepolia.basescan.org/a
 > **In one line:** Made the app explainable (public pricing, roadmap, four blog posts) and faster (Fhenix-recommended perf optimization shipped onchain on both chains in one day).
 
 **Built the parts that aren't code**  
-[`/pricing`](https://blank-omega-jade.vercel.app/pricing), [`/roadmap`](https://blank-omega-jade.vercel.app/roadmap), and [`/blog`](https://blank-omega-jade.vercel.app/blog) all shipped this wave. Pricing says we charge nothing today and we'll figure out mainnet pricing later, with the reasoning visible. Roadmap groups everything as **Shipped / Next / Blocked**, where the Blocked rows name their actual gates: Fhenix CoFHE mainnet readiness, third-party audit, threshold operator decentralization. Blog has four long-form posts: a deep dive on [why we picked FHE over zero-knowledge for our specific problem](https://blank-omega-jade.vercel.app/blog/fhe-vs-zk), an even deeper one on [why we picked Fhenix CoFHE over the FHE Layer 1 alternatives](https://blank-omega-jade.vercel.app/blog/why-fhenix-cofhe), the Wave 3 changelog, and a writeup on why we'll never issue a token. None of them are marketing. All of them link to real commits.
+[`/pricing`](https://blank-omega-jade.vercel.app/pricing), [`/roadmap`](https://blank-omega-jade.vercel.app/roadmap), and [`/blog`](https://blank-omega-jade.vercel.app/blog) all shipped this wave. Pricing says we charge nothing today and we'll figure out mainnet pricing later, with the reasoning visible. Roadmap groups everything as **Shipped / Next / Blocked**, where the Blocked rows name their actual gates: Fhenix CoFHE mainnet readiness, third-party audit, threshold operator decentralization. Blog has four long-form posts: a deep dive on [why we picked FHE over zero-knowledge for our specific problem](https://blank-omega-jade.vercel.app/blog/fhe-vs-zk), an even deeper one on [why we picked Fhenix CoFHE over the FHE Layer 1 alternatives](https://blank-omega-jade.vercel.app/blog/why-fhenix-cofhe), the Wave 3 changelog, and a writeup on why we'll never issue a token. Each post links back to product decisions, code, or deployed work.
 
-**The white-screen incident**  
-Mid-wave, the live site went pure white on Vercel. We chased it for two passes. First diagnosis: the Content Security Policy was too strict and was blocking Web3 libraries from using `eval`. We relaxed the CSP. Still white. Second diagnosis: a Vite `manualChunks` bundling config was splitting `viem` and `wagmi` into separate JavaScript chunks, and one was loading before the other initialized, creating a runtime error. We removed the manual chunking (Vite's default is fine), pushed, and the site loaded again. We also wrote a Playwright diagnostic script during the chase. It captures console errors, page errors, and CSP violations on a real Vercel URL. It's now in the repo, so the next time something white-screens, the first move is *run the diagnostic*, not *guess*.
+**Production startup incident**
+Mid-wave, the live site rendered a blank page on Vercel. We traced it in two passes. First diagnosis: the Content Security Policy was too strict and was blocking Web3 libraries from using `eval`. We relaxed the CSP. The page still failed. Second diagnosis: a Vite `manualChunks` bundling config was splitting `viem` and `wagmi` into separate JavaScript chunks, and one was loading before the other initialized, creating a runtime error. We removed the manual chunking (Vite's default is fine), pushed, and the site loaded again. We also wrote a Playwright diagnostic script during the chase. It captures console errors, page errors, and CSP violations on a real Vercel URL, so future startup failures start from a repeatable diagnostic instead of assumptions.
 
 **Multichain bug fix**  
 The "Encrypted USDC moved" counter on the landing page was showing a confusing dash on the Base Sepolia tab whenever the user's wallet was on Eth Sepolia. The bug was subtle: `usePublicClient()` from wagmi defaults to the wallet's chain, not whichever tab the user clicked. So clicking *Base Sepolia* while connected to Eth Sepolia tried to read Base Sepolia's contract address against Eth Sepolia's RPC: silent failure, dash. The fix is one line: pass `chainId: activeChainId` explicitly. Plus friendlier UX: instead of a dash, the page now says *Switch wallet to Base Sepolia* and offers a button that does the switch.
@@ -414,19 +414,19 @@ Wave 3 is the wave where Blank stops being a thing we shipped and starts being a
 **FHE pipeline UI**
 Every encrypted operation now has a 5-step progress UI (`useFhePipeline`): cofhe SDK init, encrypt input, ZK proof, submit tx, confirm. Wired into all four Wave 4 hooks plus `useClaimLinks`. The hook surfaces step + sub-step state through a single React state machine; the component renders both compact and full modes.
 
-**Auction settlement (the audit-iter-10 fix)**
-The previous Wave 4 prototype set `runningWinner = bids[i].bidder` unconditionally inside the close loop, so the LAST bidder won regardless of bid amount. The existing test masked the bug because it used ascending bids (5, 8, 10), where the last bidder happened to also be the highest. Phase A disabled `closeAuction` with a clear revert. Phase B reimplemented via FHE-tournament: encrypted winner index tracked alongside running max via `FHE.select`, off-chain decrypted, posted on-chain via `revealWinner(listingId, plaintextIdx, signature)`. The new 5/10/7 differentiating test (charlie at $10 wins, NOT dave at $7) actually catches the bug if it ever returns.
+**Auction settlement**
+The previous Wave 4 prototype set `runningWinner = bids[i].bidder` unconditionally inside the close loop, so the last bidder won regardless of bid amount. The existing test masked the bug because it used ascending bids (5, 8, 10), where the last bidder happened to also be the highest. Phase A disabled `closeAuction` with a clear revert. Phase B reimplemented via FHE-tournament: encrypted winner index tracked alongside running max via `FHE.select`, off-chain decrypted, posted on-chain via `revealWinner(listingId, plaintextIdx, signature)`. The new 5/10/7 differentiating test proves charlie at $10 wins instead of dave at $7, and catches the regression if it ever returns.
 
-**Storage layout coverage (audit iter 47 close)**
-TRACKED_CONTRACTS swept from 12 to 19 (the 4 new Wave 4 contracts plus 3 pre-Wave-4 contracts that were never tracked: `EncryptedFlags`, `EventHub`, `TokenRegistry`). UUPS storage-layout coverage: **100%**. CI gate now runs `pnpm storage:check` on every PR; ABSOLUTE-block on layout-break.
+**Storage layout coverage**
+TRACKED_CONTRACTS swept from 12 to 19 (the 4 new Wave 4 contracts plus 3 pre-Wave-4 contracts that were never tracked: `EncryptedFlags`, `EventHub`, `TokenRegistry`). UUPS storage-layout coverage: **100%**. CI gate now runs `pnpm storage:check` on every PR and blocks layout-breaking upgrades.
 
 **CI uplift**
 4 new gating checks added: vitest unit tests (103 passing), Vercel function typecheck (`api/tsconfig.json`), hardhat task typecheck, storage layout check. Total CI surface: 4 jobs to 8.
 
 **Where we are**
-Sprint week shipped 13 commits across 11 §1 punch-list items in ~6.5 hours. UUPS upgrades safe: 100% slot-preserving (`__gap` decremented when consumed). Tests grew with new 4-of-4 Wave 4 test files. README voice clean: 0 em-dashes, 0 banned-word violations. The latest launch-readiness pass adds live Rabby proof on Base Sepolia and Ethereum Sepolia, including three-wallet state checks and real transaction hashes.
+Wave 4 shipped the public-link surface across 4 new contracts, with slot-preserving UUPS upgrades (`__gap` decremented when consumed), 4-of-4 Wave 4 contract tests, and live QA proof on Base Sepolia and Ethereum Sepolia, including three-wallet state checks and real transaction hashes.
 
-**Anchor commits:** `7c241d7` gitignore test wallet · `71d85ae` EncryptedEscrow no-arbiter fix · `429551d` + `333c508` + `a841ebb` Storefront phase A + B · `2e5f7d9` ClaimLinks expiry cap · `f866153` useInheritance unbricked · `e2eca12` extractEventId fails closed · `7992351` cancel-defaults-zero · `3058e32` TRACKED_CONTRACTS sweep · `b351e2e` CI uplift · `68f9d8e` README polish · `d7c24fc` README §4.2.8 engineering tour · `273c508` README surface refresh
+**Anchor commits:** `7c241d7` test wallet hygiene · `71d85ae` EncryptedEscrow no-arbiter fix · `429551d` + `333c508` + `a841ebb` Storefront auction settlement · `2e5f7d9` ClaimLinks expiry cap · `f866153` Inheritance flow fix · `e2eca12` extractEventId fails closed · `7992351` cancel default fix · `3058e32` storage-layout coverage · `b351e2e` CI uplift · `68f9d8e` README polish · `d7c24fc` engineering tour · `273c508` README surface refresh
 
 ---
 
@@ -466,11 +466,11 @@ Full address list including Ethereum Sepolia: [`packages/contracts/deployments/`
 | **AA** | ERC-1271 length guards on passkey accounts. Paymaster validates every target in `executeBatch`. No bypass via batched calls. |
 | **Auction** | Sealed-bid auctions resolve via FHE-tournament (`FHE.gt` + `FHE.select`) with off-chain threshold-signed `revealWinner`. No last-bidder-wins; the differentiating 5/10/7 test catches regression. |
 | **Escrow** | No-arbiter escrows reject `disputeEscrow` at the source; funds always retrievable via `claimExpiredEscrow` after the deadline. No permanent fund-lock path. |
-| **Claim links** | Per-link expiry capped at 365 days (`MAX_EXPIRY_SECONDS`). No `type(uint256).max` shenanigans. Domain-separated hashes (`keccak256(BLANK_CLAIM_v1, mode, secret, ...)`) prevent cross-mode replay. |
+| **Claim links** | Per-link expiry capped at 365 days (`MAX_EXPIRY_SECONDS`). No unbounded expiry. Domain-separated hashes (`keccak256(BLANK_CLAIM_v1, mode, secret, ...)`) prevent cross-mode replay. |
 | **Stealth** | Claim codes bound to `keccak256(code, claimer)`. Intercepting the code is useless without the claimer's address. |
 | **Stealth keystore** | AES-GCM-at-rest with PBKDF2-derived key (250k iterations) on the user's passphrase. Plaintext never on disk. |
-| **Frontend** | Wallet-signed challenges on all email + push endpoints. CSP, X-Frame-Options DENY, Permissions-Policy headers. CI typechecks Vercel functions (was un-typechecked before §1.10). |
-| **Test wallets** | Real testnet mnemonics created by `tasks/fund-mm-test-wallet` are gitignored at `packages/contracts/.gitignore`. Operator warning in the task doc. Never committed to history. |
+| **Frontend** | Wallet-signed challenges on all email + push endpoints. CSP, X-Frame-Options DENY, Permissions-Policy headers. CI typechecks Vercel functions. |
+| **Test wallets** | Real testnet mnemonics created by `tasks/fund-mm-test-wallet` are ignored by Git at `packages/contracts/.gitignore`. The task includes an operator warning, and mnemonics are not committed to history. |
 
 Find a hole? Open an issue or email. We treat security reports seriously.
 
@@ -506,7 +506,7 @@ For the latest QA scope and transaction proof, see the launch-readiness
 report linked above.
 
 Passkey mode is built for no-extension onboarding with sponsored gas.
-Rabby mode is available for users who already live in a wallet. Mobile UI
+Rabby is available for users who already live in a wallet. Mobile UI
 is live and covered by route sweeps on both supported testnets.
 
 **Try a Wave 4 feature in 60 seconds:**
