@@ -124,7 +124,7 @@ export interface InvoiceRow {
   client_address: string;
   description: string;
   due_date: string | null;
-  status: "pending" | "paid" | "cancelled" | "payment_pending" | "disputed";
+  status: "pending" | "paid" | "cancelled" | "payment_pending" | "disputed" | "refunded";
   tx_hash: string;
   /** Optional for backwards compat with rows written before the chain_id column existed. */
   chain_id?: number;
@@ -944,14 +944,12 @@ export async function fetchVendorInvoices(address: string): Promise<InvoiceRow[]
 
 export async function fetchClientInvoices(address: string): Promise<InvoiceRow[]> {
   if (!supabase) return [];
-  // Include "payment_pending" so the client can see in-flight invoices and
-  // click Finalize — without this the row disappears between payInvoice and
-  // payInvoiceFinalize and the client has no way to complete the transfer.
+  // Client history must include terminal states too. Otherwise a paid or
+  // refunded invoice vanishes for the payer after finalize.
   const { data, error } = await supabase
     .from("invoices")
     .select("*")
     .eq("client_address", address.toLowerCase())
-    .in("status", ["pending", "payment_pending"])
     .eq("chain_id", _activeChainIdForSupabase)
     .order("created_at", { ascending: false });
   if (error) { log.warn("supabase.fetchClientInvoices.failed", { error: error.message }); return []; }

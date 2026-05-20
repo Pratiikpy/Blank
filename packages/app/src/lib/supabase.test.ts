@@ -519,6 +519,14 @@ describe("insertActivity", () => {
 // ─── updateInvoiceStatus / setInvoicePdfCid — selector correctness ─
 
 describe("invoice update selector correctness", () => {
+  it("fetchClientInvoices includes terminal invoice history", async () => {
+    const mod = await import("./supabase");
+    enqueue({ data: [], error: null });
+    await mod.fetchClientInvoices("0xAbC");
+    const builder = fakeClient.from.mock.results.at(-1)?.value as { in: ReturnType<typeof vi.fn> };
+    expect(builder.in).not.toHaveBeenCalled();
+  });
+
   it("updateInvoiceStatus targets the row by invoice_id, not tx_hash", async () => {
     const mod = await import("./supabase");
     enqueue({ data: null, error: null });
