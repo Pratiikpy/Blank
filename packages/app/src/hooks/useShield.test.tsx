@@ -15,9 +15,7 @@ import { renderHook, act, waitFor } from "@testing-library/react";
 //     other; remaining-seconds toast counts down from 60s. Cooldown
 //     write happens AFTER on-chain confirm so a reverted mint
 //     doesn't burn the cooldown window.
-//   - mintTestUSDT short-circuits with 'USDT faucet only available
-//     on Base Sepolia' toast when contracts.TestUSDT is missing
-//     (Sepolia doesn't deploy TestUSDT).
+//   - mintTestUSDT short-circuits when contracts.TestUSDT is missing.
 //   - shield smart-account path: bundles approve + shield into ONE
 //     sendBatchUserOp call ([USDC, Vault], [0n, 0n], [approveData,
 //     shieldData]) so the user signs ONE passphrase prompt instead
@@ -414,11 +412,11 @@ describe("useShield — mintTestTokens / USDC faucet (§15.x)", () => {
 });
 
 // ───────────────────────────────────────────────────────────
-//  mintTestUSDT (USDT faucet, Base Sepolia only)
+//  mintTestUSDT (USDT faucet, config-gated)
 // ───────────────────────────────────────────────────────────
 
 describe("useShield — mintTestUSDT (§15.x)", () => {
-  it("no TestUSDT contract -> 'only available on Base Sepolia' toast + null", async () => {
+  it("no TestUSDT contract -> unavailable toast + null", async () => {
     useChainMock.mockReturnValue({
       activeChainId: 11155111,
       contracts: {
@@ -434,7 +432,7 @@ describe("useShield — mintTestUSDT (§15.x)", () => {
     });
     expect(r).toBeNull();
     expect(toastErrorMock).toHaveBeenCalledWith(
-      "USDT faucet only available on Base Sepolia",
+      "USDT faucet is not available on this chain",
     );
   });
 
@@ -531,7 +529,7 @@ describe("useShield — passkey-only-still-loading guard (e2e fix)", () => {
       r = await result.current.shield("10");
     });
     expect(toastErrorMock).toHaveBeenCalledWith(
-      "Wallet still loading — try again in a moment",
+      "Wallet still loading. Try again in a moment.",
     );
     expect(r).toBeNull();
     // Critical: no contract write attempted (no silent fallthrough).

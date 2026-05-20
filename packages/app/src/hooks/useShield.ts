@@ -170,7 +170,7 @@ export function useShield() {
 
   const mintTestUSDT = useCallback(async (): Promise<`0x${string}` | null> => {
     if (!address || !contracts.TestUSDT || isMintingUsdt) {
-      if (!contracts.TestUSDT) toast.error("USDT faucet only available on Base Sepolia");
+      if (!contracts.TestUSDT) toast.error("USDT faucet is not available on this chain");
       return null;
     }
 

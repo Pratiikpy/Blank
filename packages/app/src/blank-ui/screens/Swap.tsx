@@ -141,8 +141,7 @@ export default function Swap() {
 function P2PTab() {
   const { effectiveAddress: address } = useEffectiveAddress();
   const { contracts, activeChain } = useChain();
-  // P2P requires a second token + vault to trade against. Ethereum Sepolia
-  // only has USDC deployed today; USDT is Base-Sepolia-only. Rendering the
+  // P2P requires a second token + vault to trade against. Rendering the
   // swap form here would let users create offers that cannot be filled.
   const hasUsdt = Boolean(contracts.TestUSDT && contracts.FHERC20Vault_USDT);
   const {
@@ -240,8 +239,7 @@ function P2PTab() {
                 P2P Exchange is not available on {activeChain.name}
               </p>
               <p className="text-sm text-amber-800 dark:text-amber-300/80 leading-relaxed">
-                The swap protocol needs two distinct tokens. Today only Base Sepolia has both USDC and USDT vaults deployed.
-                Switch to Base Sepolia (from the chain selector in the sidebar) to create or fill swap offers.
+                The swap protocol needs two distinct vault tokens. Use a supported testnet with both USDC and USDT vaults deployed.
               </p>
             </div>
           </div>

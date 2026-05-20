@@ -6,7 +6,7 @@ import { parseUnits } from "viem";
 import { useCofheEncrypt } from "@/lib/cofhe-shim";
 import { useCofheDecryptForTx } from "@/lib/cofhe-shim";
 import { Encryptable } from "@/lib/cofhe-shim";
-import { P2PExchangeAbi, FHERC20VaultAbi } from "@/lib/abis";
+import { P2PExchangeAbi, FHERC20VaultAbi, TestUSDCAbi } from "@/lib/abis";
 import { MAX_UINT64, type EncryptedInput } from "@/lib/constants";
 import { useChain } from "@/providers/ChainProvider";
 import {
@@ -41,6 +41,10 @@ function fromDbAmount(amount: number): bigint {
     throw new Error("Offer amount is invalid");
   }
   return BigInt(Math.trunc(amount));
+}
+
+function sameAddress(a?: string | null, b?: string | null): boolean {
+  return Boolean(a && b && a.toLowerCase() === b.toLowerCase());
 }
 
 export function useExchange() {
@@ -258,6 +262,42 @@ export function useExchange() {
         const offer = offers.find((o) => o.offer_id === offerId);
         if (!offer) throw new Error("Offer not found");
         const takerVault = (offer.token_want || contracts.FHERC20Vault_USDC) as `0x${string}`;
+        const takerAmount = fromDbAmount(offer.amount_want);
+        const makerAmount = fromDbAmount(offer.amount_give);
+
+        if (sameAddress(takerVault, contracts.FHERC20Vault_USDT) && contracts.TestUSDT) {
+          toast("Preparing test USDT for this offer...", { icon: "⏳" });
+          const mintResult = await unifiedWriteAndWait({
+            address: contracts.TestUSDT,
+            abi: TestUSDCAbi,
+            functionName: "faucet",
+            gas: BigInt(5_000_000),
+          });
+          if ((mintResult.receipt?.status ?? "success") === "reverted") {
+            throw new Error("USDT faucet transaction reverted on-chain");
+          }
+          const approveTokenResult = await unifiedWriteAndWait({
+            address: contracts.TestUSDT,
+            abi: TestUSDCAbi,
+            functionName: "approve",
+            args: [takerVault, takerAmount],
+            gas: BigInt(5_000_000),
+          });
+          if ((approveTokenResult.receipt?.status ?? "success") === "reverted") {
+            throw new Error("USDT approval transaction reverted on-chain");
+          }
+          const shieldResult = await unifiedWriteAndWait({
+            address: takerVault,
+            abi: FHERC20VaultAbi,
+            functionName: "shield",
+            args: [takerAmount],
+            gas: BigInt(5_000_000),
+          });
+          if ((shieldResult.receipt?.status ?? "success") === "reverted") {
+            throw new Error("USDT shield transaction reverted on-chain");
+          }
+          toast.success("Test USDT ready");
+        }
 
         // Approve vault for P2PExchange — skip if allowance already on-chain
         // from a prior session (cross-device recovery / fresh localStorage).
@@ -286,10 +326,6 @@ export function useExchange() {
           }
           markVaultApproved(contracts.P2PExchange);
         }
-
-        // Encrypt both amounts for the fill
-        const takerAmount = fromDbAmount(offer.amount_want);
-        const makerAmount = fromDbAmount(offer.amount_give);
 
         const [encTakerPayment, encMakerPayment] = await encryptInputsAsync([
           Encryptable.uint64(takerAmount),

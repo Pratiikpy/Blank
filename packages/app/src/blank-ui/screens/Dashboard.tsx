@@ -199,9 +199,8 @@ export default function Dashboard() {
       toastMappedError(err);
     }
   };
-  // Only chains with a TestUSDT deployment expose the button. ETH Sepolia
-  // currently has USDC only; Base Sepolia has both. Gate the UI on config,
-  // not hard-coded chain IDs, so adding USDT to another chain just works.
+  // Only chains with a TestUSDT deployment expose the button. Gate the UI on
+  // config, not hard-coded chain IDs, so adding USDT to another chain works.
   const hasUsdtFaucet = Boolean(contracts.TestUSDT);
 
   const greeting = useMemo(() => getGreeting(), []);

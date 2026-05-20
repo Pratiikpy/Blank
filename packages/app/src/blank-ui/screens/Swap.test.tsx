@@ -16,7 +16,7 @@ import { render, fireEvent, act } from "@testing-library/react";
 //     contracts.FHERC20Vault_USDT is missing on the active chain,
 //     show amber "not available" banner + opacity-50 the form.
 //     This prevents users from creating offers that cannot be
-//     filled (today only Base Sepolia has both vaults deployed).
+//     filled (only chains with both vaults can enable the form).
 //   - createOffer validation: give-amount > 0 AND want-amount > 0
 //     OR toast.error.
 //   - 24h expiry: createOffer always passes
@@ -242,7 +242,7 @@ describe("Swap — P2PTab hasUsdt gate (§15.x)", () => {
     });
     const { container } = render(<Swap />);
     expect(container.textContent).toContain("P2P Exchange is not available on Ethereum Sepolia");
-    expect(container.textContent).toContain("Switch to Base Sepolia");
+    expect(container.textContent).toContain("Use a supported testnet with both USDC and USDT vaults deployed");
     expect(container.innerHTML).toContain("opacity-50");
     expect(container.innerHTML).toContain("pointer-events-none");
   });

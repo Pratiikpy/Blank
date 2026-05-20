@@ -32,9 +32,8 @@ import { act, render, fireEvent } from "@testing-library/react";
 //     -> "Connecting to FHE…"). The pending branch is the load-bearing
 //     fix: an undeployed passkey reads cofheConnected=false but isn't
 //     actually broken, just lazy-deployed.
-//   - hasUsdtFaucet gated on `contracts.TestUSDT` truthy. ETH Sepolia has
-//     no TestUSDT deployment so the button is hidden there; Base Sepolia
-//     has both so the button is shown. Hardcoding chain ids would break
+//   - hasUsdtFaucet gated on `contracts.TestUSDT` truthy. Chains without
+//     TestUSDT hide the button. Hardcoding chain ids would break
 //     the next chain we add — gating on config means new chains work
 //     without screen edits.
 //   - Shield input regex /^\d*\.?\d{0,6}$/ at the input level rejects
@@ -723,7 +722,7 @@ describe("Dashboard — Unshield 4-state matrix (§15.x)", () => {
     setShield({ unshieldStep: "success" });
     const { container } = render(<Dashboard />);
     expect(container.textContent).toContain("Unshielded");
-    expect(container.textContent).toContain("public USDC balance updated");
+    expect(container.textContent).toContain("Public USDC balance updated");
   });
 
   it("step='error' -> error message + 'Try again' fallback when err null", () => {
@@ -932,7 +931,7 @@ describe("Dashboard — BalanceCard (§15.x)", () => {
       hasBalance: true,
     });
     const { container } = render(<Dashboard />);
-    expect(container.textContent).toContain("tap to create permit");
+    expect(container.textContent).toContain("Tap to create permit");
   });
 
   it("Eye toggle: hasBalance + !hasPermit + !isDecrypted -> click drives createPermit (not silent no-op)", () => {

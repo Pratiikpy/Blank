@@ -122,7 +122,7 @@ export type ContractMap = {
   TokenRegistry: `0x${string}`;
   EventHub: `0x${string}`;
   FHERC20Vault_USDC: `0x${string}`;
-  /** Optional 2nd token + vault. Currently Base Sepolia only — present so
+  /** Optional 2nd token + vault. Present on chains where
    *  P2PExchange can trade between two distinct tokens (the contract reverts
    *  with "same token" otherwise). Other chains can leave undefined. */
   TestUSDT?: `0x${string}`;
@@ -202,6 +202,8 @@ export const CONTRACTS_BY_CHAIN: Record<SupportedChainId, ContractMap> = {
     TokenRegistry: "0xE2333a6c58E21A8Cc45982612a31dB1440D9888A",
     EventHub: "0x06F8fc382144b125E168B5f70Ef51bb6286A20eB",
     FHERC20Vault_USDC: "0x3a587f224CC3e1745565cfca8500e5934485AB51",
+    TestUSDT: "0xc68C56a8Ad23E515eD56F2B98FC93341D98cE78b",
+    FHERC20Vault_USDT: "0xd679978e0334f0e8D4799d2E51755fEE8EE77668",
     PaymentHub: "0xB628719994C21A5CcAb190019b42750f092Fb5eB",
     GroupManager: "0x944360c5fD0eDCa2052aeC77530600c65171Dd27",
     CreatorHub: "0x62FF5C540f9Fb9cDCb9B095dd50e77b502fFB4A1",
