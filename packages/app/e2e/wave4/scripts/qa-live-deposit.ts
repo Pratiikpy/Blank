@@ -35,15 +35,16 @@ const RABBY_EXT_DIR = resolve(REPO, "packages/app/e2e/fixtures/rabby/ext");
 const RABBY_PROFILE_DIR =
   process.env.RABBY_PROFILE_DIR ?? resolve(REPO, ".rabby-profile-blank");
 const RABBY_PASSWORD = process.env.RABBY_PASSWORD ?? "RabbyPass123!QA";
-const OUT = resolve(REPO, "packages/app/test-results/qa-live-deposit");
 const CHAIN_ID = Number(process.env.CHAIN_ID ?? 84532);
 if (CHAIN_ID !== 84532 && CHAIN_ID !== 11155111) throw new Error(`Unsupported CHAIN_ID ${CHAIN_ID}`);
 const IS_ETH = CHAIN_ID === 11155111;
 const CHAIN_NAME = IS_ETH ? "Ethereum Sepolia" : "Base Sepolia";
+const OUT = resolve(REPO, `packages/app/test-results/qa-live-deposit-${IS_ETH ? "eth" : "base"}`);
 const RPC_URL = IS_ETH ? "https://ethereum-sepolia.publicnode.com" : "https://sepolia.base.org";
 const EXPLORER_URL = IS_ETH ? "https://sepolia.etherscan.io" : "https://sepolia.basescan.org";
 const BLOCKSCOUT_URL = IS_ETH ? "https://eth-sepolia.blockscout.com" : "https://base-sepolia.blockscout.com";
 const DAVE = "0x7eF99105308230eab5B8E4765842bc2BF7B1D175" as Address;
+const DAVE_LABEL = "Private Key 1";
 
 const AMOUNT = process.env.DEPOSIT_AMOUNT ?? "1";
 
@@ -96,6 +97,33 @@ async function txsFrom(address: Address, fromNonce: number): Promise<Hash[]> {
   return [];
 }
 
+async function switchRabbyToDave(rabbyPage: Page, extId: string): Promise<void> {
+  await rabbyPage.goto(`chrome-extension://${extId}/index.html`).catch(() => undefined);
+  await rabbyPage.waitForTimeout(1_500);
+  await dismissRabbyWhatsNew(rabbyPage);
+  const body = ((await rabbyPage.locator("body").textContent().catch(() => "")) ?? "").toLowerCase();
+  if (body.includes(DAVE.toLowerCase().slice(0, 8)) || body.includes(DAVE.toLowerCase().slice(0, 6))) return;
+
+  const current = rabbyPage.locator("text=/Private Key \\d|Seed Phrase/i").first();
+  if (await current.isVisible({ timeout: 5_000 }).catch(() => false)) {
+    await current.click({ force: true }).catch(async () => {
+      const box = await current.boundingBox().catch(() => null);
+      if (box) await rabbyPage.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    });
+  } else {
+    await rabbyPage.mouse.click(130, 95);
+  }
+  await rabbyPage.waitForTimeout(1_500);
+  const rows = rabbyPage.locator("div, button").filter({ hasText: new RegExp(DAVE_LABEL, "i") });
+  const count = await rows.count().catch(() => 0);
+  if (count === 0) throw new Error(`Rabby account row not found for ${DAVE_LABEL}`);
+  const row = rows.nth(Math.max(0, count - 1));
+  const box = await row.boundingBox({ timeout: 5_000 }).catch(() => null);
+  if (box) await rabbyPage.mouse.click(box.x + box.width / 2, box.y + Math.min(box.height / 2, 38));
+  else await row.click({ force: true });
+  await rabbyPage.waitForTimeout(2_500);
+}
+
 async function main(): Promise<void> {
   if (!existsSync(RABBY_EXT_DIR)) {
     console.error(`FATAL: Rabby ext missing at ${RABBY_EXT_DIR}`);
@@ -140,6 +168,7 @@ async function main(): Promise<void> {
   await home.waitForTimeout(2_000);
   await unlockRabby(home, RABBY_PASSWORD);
   await dismissRabbyWhatsNew(home);
+  await switchRabbyToDave(home, extId);
 
   const dapp = await ctx.newPage();
   await dapp.goto(`${VERCEL_URL}/app`, { waitUntil: "domcontentloaded", timeout: 60_000 });
