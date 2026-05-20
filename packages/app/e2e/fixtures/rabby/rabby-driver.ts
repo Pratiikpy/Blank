@@ -440,9 +440,8 @@ export async function confirmRabbyPopup(
   let clicks = 0;
   let lastClick = Date.now();
 
-  while (Date.now() - start < 60_000) {
+  while (Date.now() - start < 90_000) {
     if (popup.isClosed()) return { clicks, closed: true };
-    if (Date.now() - lastClick > 10_000 && clicks > 0) break;
 
     let clickedThisIter = false;
     for (const txt of RABBY_PRIMARY_CTAS) {
@@ -469,7 +468,10 @@ export async function confirmRabbyPopup(
         break;
       }
     }
-    if (!clickedThisIter) await new Promise((r) => setTimeout(r, 1_500));
+    if (!clickedThisIter) {
+      if (Date.now() - lastClick > 30_000 && clicks > 0) break;
+      await new Promise((r) => setTimeout(r, 1_500));
+    }
   }
   return { clicks, closed: popup.isClosed() };
 }

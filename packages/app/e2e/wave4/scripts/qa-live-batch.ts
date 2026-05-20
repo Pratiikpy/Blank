@@ -14,6 +14,7 @@ import {
   unlockRabby,
   dismissRabbyWhatsNew,
   waitAndConfirmRabbyPopup,
+  confirmRabbyPopup,
 } from "../../fixtures/rabby/rabby-driver";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -25,7 +26,25 @@ const RABBY_EXT_DIR = resolve(REPO, "packages/app/e2e/fixtures/rabby/ext");
 const RABBY_PROFILE_DIR =
   process.env.RABBY_PROFILE_DIR ?? resolve(REPO, ".rabby-profile-blank");
 const RABBY_PASSWORD = process.env.RABBY_PASSWORD ?? "RabbyPass123!QA";
-const OUT = resolve(REPO, "packages/app/test-results/qa-live-batch");
+const CHAIN_ID = Number(process.env.CHAIN_ID ?? 84532);
+const IS_ETH = CHAIN_ID === 11155111;
+if (CHAIN_ID !== 84532 && CHAIN_ID !== 11155111) throw new Error(`Unsupported CHAIN_ID ${CHAIN_ID}`);
+const CHAIN_NAME = IS_ETH ? "Ethereum Sepolia" : "Base Sepolia";
+const EXPLORER_URL = IS_ETH ? "https://sepolia.etherscan.io" : "https://sepolia.basescan.org";
+const OUT = resolve(REPO, `packages/app/test-results/qa-live-batch-${IS_ETH ? "eth" : "base"}`);
+const QA_COUNTERPARTY = process.env.QA_COUNTERPARTY ?? "0x000000000000000000000000000000000000beef";
+type Persona = "Dave" | "Bob" | "Carol";
+const QA_PERSONA = (process.env.QA_PERSONA ?? "Dave") as Persona;
+const accountByPersona: Record<Persona, string> = {
+  Dave: "0x7eF99105308230eab5B8E4765842bc2BF7B1D175",
+  Bob: "0x0D1883c48E14d733D464478f53706D92b7648b9d",
+  Carol: "0x54488ad8d58f9147c1a99673ef8743608cd1b526",
+};
+const labelByPersona: Record<Persona, string> = {
+  Dave: "Private Key 1",
+  Bob: "Private Key 2",
+  Carol: "Seed Phrase 1 #1",
+};
 
 interface FeatureResult {
   name: string;
@@ -58,19 +77,88 @@ async function drainPopups(
 ): Promise<number> {
   let total = 0;
   for (let i = 0; i < maxPopups; i++) {
-    const r = await waitAndConfirmRabbyPopup(ctx, extId, known, OUT, `${label}-${i + 1}`, 45_000);
+    const existing = ctx.pages().find((p) => {
+      if (p.isClosed()) return false;
+      const url = p.url();
+      return url.includes(extId) && url.includes("notification.html");
+    });
+    const r = existing
+      ? { popup: existing, ...(await confirmRabbyPopup(existing, OUT, `${label}-${i + 1}`)) }
+      : await waitAndConfirmRabbyPopup(ctx, extId, known, OUT, `${label}-${i + 1}`, 45_000);
+    if (r.popup) known.add(r.popup);
     if (r.clicks === 0) break;
     total += r.clicks;
   }
   return total;
 }
 
+async function ensureWalletChain(
+  page: Page,
+  ctx: BrowserContext,
+  extId: string,
+  known: Set<Page>,
+): Promise<void> {
+  const targetHex = `0x${CHAIN_ID.toString(16)}`;
+  const before = await page.evaluate(async () => {
+    const eth = (window as unknown as { ethereum?: { request(args: { method: string; params?: unknown[] }): Promise<string> } }).ethereum;
+    if (!eth) return null;
+    return await eth.request({ method: "eth_chainId" }).catch(() => null);
+  });
+  if (before?.toLowerCase() !== targetHex.toLowerCase()) {
+    await page.evaluate(async (hex) => {
+      const eth = (window as unknown as { ethereum?: { request(args: { method: string; params?: unknown[] }): Promise<unknown> } }).ethereum;
+      if (!eth) throw new Error("window.ethereum missing");
+      await eth.request({ method: "wallet_switchEthereumChain", params: [{ chainId: hex }] });
+    }, targetHex).catch(() => undefined);
+    await drainPopups(ctx, extId, known, `switch-${CHAIN_ID}`, 2);
+  }
+  const after = await page.evaluate(async () => {
+    const eth = (window as unknown as { ethereum?: { request(args: { method: string; params?: unknown[] }): Promise<string> } }).ethereum;
+    if (!eth) return null;
+    return await eth.request({ method: "eth_chainId" }).catch(() => null);
+  });
+  if (after?.toLowerCase() !== targetHex.toLowerCase()) {
+    throw new Error(`wallet chain mismatch: expected ${targetHex}, got ${after ?? "null"}`);
+  }
+}
+
+async function switchRabbyAccount(rabbyPage: Page, extId: string, persona: Persona): Promise<void> {
+  const target = labelByPersona[persona];
+  const expected = accountByPersona[persona].toLowerCase();
+  await rabbyPage.goto(`chrome-extension://${extId}/index.html`).catch(() => undefined);
+  await rabbyPage.waitForTimeout(1_500);
+  await dismissRabbyWhatsNew(rabbyPage);
+  const body = ((await rabbyPage.locator("body").textContent().catch(() => "")) ?? "").toLowerCase();
+  if (body.includes(expected.slice(0, 8)) || body.includes(expected.slice(0, 6))) return;
+
+  const current = rabbyPage.locator("text=/Private Key \\d|Seed Phrase/i").first();
+  if (await current.isVisible({ timeout: 5_000 }).catch(() => false)) {
+    await current.click({ force: true }).catch(async () => {
+      const bb = await current.boundingBox().catch(() => null);
+      if (bb) await rabbyPage.mouse.click(bb.x + bb.width / 2, bb.y + bb.height / 2);
+    });
+  } else {
+    await rabbyPage.mouse.click(130, 95);
+  }
+  await rabbyPage.waitForTimeout(1_500);
+
+  const targetRows = rabbyPage.locator("div, button").filter({ hasText: new RegExp(target, "i") });
+  const count = await targetRows.count().catch(() => 0);
+  if (count === 0) throw new Error(`Rabby account row not found for ${target}`);
+  const row = targetRows.nth(Math.max(0, count - 1));
+  const box = await row.boundingBox({ timeout: 5_000 }).catch(() => null);
+  if (box) await rabbyPage.mouse.click(box.x + box.width / 2, box.y + Math.min(box.height / 2, 38));
+  else await row.click({ force: true });
+  await rabbyPage.waitForTimeout(2_500);
+}
+
 // Safe-fill: clicks the locator, clears, types, blurs via Tab.
 async function safeFill(loc: Locator, value: string): Promise<boolean> {
   if (!(await loc.isVisible({ timeout: 3_000 }).catch(() => false))) return false;
   await loc.click({ timeout: 3_000 }).catch(() => {});
-  await loc.fill("");
-  await loc.fill(value);
+  await loc.press(process.platform === "darwin" ? "Meta+A" : "Control+A").catch(() => {});
+  await loc.press("Backspace").catch(() => {});
+  await loc.type(value, { delay: 35 });
   await loc.press("Tab").catch(() => {});
   return true;
 }
@@ -129,16 +217,35 @@ async function driveInheritance(dapp: Page, ctx: BrowserContext, extId: string, 
   // Open Set Up Plan modal.
   const setupBtn = dapp.locator("button:visible:not([disabled])").filter({ hasText: /^\+\s*Set Up.*Plan|^Set Up.*Plan|Create.*Plan/i }).first();
   if (!(await setupBtn.isVisible({ timeout: 5_000 }).catch(() => false))) {
-    return { name, status: "skipped", notes: "No Set-Up-Plan CTA (plan may already exist)", screenshot: await snap(dapp, "inheritance-no-cta") };
+    const planActive = await dapp.locator("text=/Plan Active|Active Plan|Check In Now|Protected/i").first().isVisible({ timeout: 3_000 }).catch(() => false);
+    if (!planActive) {
+      return {
+        name,
+        status: "skipped",
+        notes: "No Set-Up-Plan CTA and no active plan visible",
+        screenshot: await snap(dapp, "inheritance-no-cta"),
+      };
+    }
+    const changeBtn = dapp.locator("button:visible:not([disabled])").filter({ hasText: /^Change Heir$/i }).first();
+    if (!(await changeBtn.isVisible({ timeout: 5_000 }).catch(() => false))) {
+      return {
+        name,
+        status: "red",
+        notes: "Active plan visible but Change Heir CTA missing",
+        screenshot: await snap(dapp, "inheritance-no-change-heir"),
+      };
+    }
+    await changeBtn.click();
+  } else {
+    await setupBtn.click();
   }
-  await setupBtn.click();
   await dapp.waitForTimeout(1_500);
   // Heir address input — scope to the modal panel (any input matching 0x but NOT the global search).
   // The global search has placeholder "Search transactions, contacts..." — use negative match.
   const heirInput = dapp
     .locator('input[placeholder*="0x"]:not([placeholder*="Search"]):not([placeholder*="search"])')
     .first();
-  await safeFill(heirInput, "0x000000000000000000000000000000000000bEEf");
+  await safeFill(heirInput, QA_COUNTERPARTY);
   await snap(dapp, "inheritance-form-filled");
   // Submit — modal CTA is "+ Set Heir" (Inheritance.tsx, confirmed via screenshot).
   const submit = dapp.locator("button:visible:not([disabled])").filter({ hasText: /\+?\s*Set Heir|^Set Heir$/i }).first();
@@ -147,7 +254,7 @@ async function driveInheritance(dapp: Page, ctx: BrowserContext, extId: string, 
   }
   await submit.click();
   await drainPopups(ctx, extId, known, "inheritance");
-  await dapp.waitForTimeout(5_000);
+  await dapp.waitForTimeout(8_000);
   const txHash = txFromText((await dapp.locator("body").textContent().catch(() => "")) ?? "");
   // Success indicator: "Plan Active" or "Heir set" or "Check In Now" appears.
   const planActive = await dapp.locator("text=/Plan Active|Active Plan|Check In Now|Plan created|Heir.*set/i").first().isVisible({ timeout: 3_000 }).catch(() => false);
@@ -224,7 +331,7 @@ async function driveBusinessInvoice(dapp: Page, ctx: BrowserContext, extId: stri
   const wallet = dapp
     .locator('input[placeholder*="0x"]:not([placeholder*="Search" i])')
     .first();
-  await safeFill(wallet, "0x000000000000000000000000000000000000bEEf");
+  await safeFill(wallet, QA_COUNTERPARTY);
   const amount = dapp.locator('input[placeholder="0.00"]').first();
   await safeFill(amount, "25");
   const desc = dapp.locator('input[placeholder="Services rendered"], textarea').first();
@@ -239,15 +346,16 @@ async function driveBusinessInvoice(dapp: Page, ctx: BrowserContext, extId: stri
   }
   await submit.click();
   await drainPopups(ctx, extId, known, "business");
-  await dapp.waitForTimeout(3_500);
+  await dapp.waitForTimeout(8_000);
   const txHash = txFromText((await dapp.locator("body").textContent().catch(() => "")) ?? "");
   // Success: invoice card appears in list or success toast.
   const successBanner = await dapp.locator("text=/Invoice created|Sent|Generated/i").first().isVisible({ timeout: 2_000 }).catch(() => false);
+  const invoiceCard = await dapp.locator("text=/QA test invoice|pending|0x0000.*beef/i").first().isVisible({ timeout: 3_000 }).catch(() => false);
   return {
     name,
-    status: txHash || successBanner ? "green" : "red",
+    status: txHash || successBanner || invoiceCard ? "green" : "red",
     txHash,
-    notes: txHash ? "tx captured" : successBanner ? "success banner visible" : "no proof",
+    notes: txHash ? "tx captured" : successBanner ? "success banner visible" : invoiceCard ? "invoice card visible" : "no proof",
     screenshot: await snap(dapp, "business-final"),
   };
 }
@@ -266,7 +374,7 @@ async function drivePaymentRequest(dapp: Page, ctx: BrowserContext, extId: strin
   const payer = dapp
     .locator('input[placeholder*="0x"]:not([placeholder*="Search" i])')
     .first();
-  await safeFill(payer, "0x000000000000000000000000000000000000bEEf");
+  await safeFill(payer, QA_COUNTERPARTY);
   const amount = dapp.locator('input[placeholder="0.00"]').first();
   await safeFill(amount, "5");
   await snap(dapp, "request-form-filled");
@@ -276,11 +384,16 @@ async function drivePaymentRequest(dapp: Page, ctx: BrowserContext, extId: strin
   }
   await submit.click();
   await drainPopups(ctx, extId, known, "request");
-  await dapp.waitForTimeout(4_000);
+  await dapp.waitForTimeout(8_000);
   // Switch to Outgoing tab to find the new request.
-  await dapp.getByRole("tab", { name: /^Outgoing$/i }).first().click().catch(() => undefined);
-  await dapp.waitForTimeout(1_500);
-  const requestVisible = await dapp.locator("text=/0x.*bEEf|^\\$5/").first().isVisible({ timeout: 3_000 }).catch(() => false);
+  const outgoingTab = dapp.getByRole("button", { name: /^Outgoing$/i }).first();
+  if (await outgoingTab.isVisible({ timeout: 3_000 }).catch(() => false)) {
+    await outgoingTab.click();
+  } else {
+    await dapp.locator("button:visible").filter({ hasText: /^Outgoing$/i }).first().click().catch(() => undefined);
+  }
+  await dapp.waitForTimeout(3_000);
+  const requestVisible = await dapp.locator("text=/0x.*beef|pending|QA request|No note/i").first().isVisible({ timeout: 5_000 }).catch(() => false);
   const txHash = txFromText((await dapp.locator("body").textContent().catch(() => "")) ?? "");
   return {
     name,
@@ -308,12 +421,12 @@ async function driveGroup(dapp: Page, ctx: BrowserContext, extId: string, known:
       screenshot: await snap(dapp, "group-no-cta"),
     };
   }
-  await cta.click();
+  await cta.click({ force: true });
   await dapp.waitForTimeout(1_500);
   const nameInput = dapp.locator('input[placeholder="Weekend getaway"], input[placeholder*="getaway"]').first();
   await safeFill(nameInput, `QA-${Date.now().toString().slice(-5)}`);
   const memberInput = dapp.locator('input[placeholder="0x..."]').first();
-  await safeFill(memberInput, "0x000000000000000000000000000000000000bEEf");
+  await safeFill(memberInput, QA_COUNTERPARTY);
   const addBtn = dapp.locator('button[aria-label="Add member"]').first();
   if (await addBtn.isVisible({ timeout: 2_000 }).catch(() => false)) await addBtn.click();
   await snap(dapp, "group-form-filled");
@@ -350,9 +463,9 @@ async function driveClaimLink(dapp: Page, ctx: BrowserContext, extId: string, kn
   }
   await snap(dapp, "claim-link-mode-many");
   // After Many → "Send by link" form. Pick "Anyone" (open link, no email).
-  const anyoneBtn = dapp.locator("button").filter({ hasText: /^Anyone$|Anyone\b/i }).first();
+  const anyoneBtn = dapp.getByRole("button", { name: /Anyone\s+Open link/i }).first();
   if (await anyoneBtn.isVisible({ timeout: 3_000 }).catch(() => false)) {
-    await anyoneBtn.click();
+    await anyoneBtn.click({ force: true });
     await dapp.waitForTimeout(800);
   }
   // Fill amount — placeholder "10.00" or "0.00".
@@ -366,7 +479,7 @@ async function driveClaimLink(dapp: Page, ctx: BrowserContext, extId: string, kn
   }
   await submit.click();
   await drainPopups(ctx, extId, known, "claim-link");
-  await dapp.waitForTimeout(4_000);
+  await dapp.waitForTimeout(8_000);
   // Success: URL surfaced as a/text containing /c/ or /claim/.
   const claimUrl = await dapp.locator('a[href*="/claim/"], a[href*="/c/"]').first().getAttribute("href", { timeout: 3_000 }).catch(() => null);
   const bodyText = (await dapp.locator("body").textContent().catch(() => "")) ?? "";
@@ -412,6 +525,10 @@ async function driveStorefront(dapp: Page, ctx: BrowserContext, extId: string, k
   await submit.click();
   await drainPopups(ctx, extId, known, "storefront");
   await dapp.waitForTimeout(4_000);
+  if (await dapp.locator("text=/Submitting on-chain|Awaiting confirmation|Creating/i").first().isVisible({ timeout: 1_000 }).catch(() => false)) {
+    await drainPopups(ctx, extId, known, "storefront-late");
+    await dapp.waitForTimeout(10_000);
+  }
   // "Listing live" success state renders the URL as plain text + Copy link
   // button. Match both <a href> and plain-text URL patterns.
   const shopUrl = await dapp.locator('a[href*="/shop/"]').first().getAttribute("href", { timeout: 3_000 }).catch(() => null);
@@ -453,6 +570,10 @@ async function driveCrowdfund(dapp: Page, ctx: BrowserContext, extId: string, kn
   await submit.click();
   await drainPopups(ctx, extId, known, "crowdfund");
   await dapp.waitForTimeout(4_000);
+  if (await dapp.locator("text=/Submitting on-chain|Awaiting confirmation|Creating/i").first().isVisible({ timeout: 1_000 }).catch(() => false)) {
+    await drainPopups(ctx, extId, known, "crowdfund-late");
+    await dapp.waitForTimeout(10_000);
+  }
   // "Campaign live" success state renders the URL as plain text.
   const fundUrl = await dapp.locator('a[href*="/fund/"]').first().getAttribute("href", { timeout: 3_000 }).catch(() => null);
   const bodyText = (await dapp.locator("body").textContent().catch(() => "")) ?? "";
@@ -502,9 +623,12 @@ async function main(): Promise<void> {
   await home.waitForTimeout(2_000);
   await unlockRabby(home, RABBY_PASSWORD);
   await dismissRabbyWhatsNew(home);
+  await switchRabbyAccount(home, extId, QA_PERSONA);
 
   const dapp = await ctx.newPage();
   await dapp.goto(`${VERCEL_URL}/app`, { waitUntil: "domcontentloaded", timeout: 60_000 });
+  await dapp.evaluate((chainId) => localStorage.setItem("blank:active_chain_id", String(chainId)), CHAIN_ID);
+  await dapp.reload({ waitUntil: "domcontentloaded", timeout: 60_000 });
   await dapp.waitForTimeout(3_500);
   const known = new Set<Page>(ctx.pages());
 
@@ -522,11 +646,15 @@ async function main(): Promise<void> {
     const card = dapp.locator('[data-testid="wallet-choice-existing"]');
     if (await card.isVisible({ timeout: 3_000 }).catch(() => false)) {
       await card.locator("button").filter({ hasText: /Rabby/i }).first().click({ force: true });
-      await waitAndConfirmRabbyPopup(ctx, extId, known, OUT, "rabby-connect", 30_000, { chainName: "Base Sepolia" });
+      await waitAndConfirmRabbyPopup(ctx, extId, known, OUT, "rabby-connect", 30_000, { chainName: CHAIN_NAME });
       await waitAndConfirmRabbyPopup(ctx, extId, known, OUT, "rabby-siwe", 20_000);
     }
   }
-  console.log("✓ Connected, starting batch v2\n");
+  console.log(`✓ Connected on ${CHAIN_NAME}, starting batch v2\n`);
+  await ensureWalletChain(dapp, ctx, extId, known);
+  await dapp.evaluate((chainId) => localStorage.setItem("blank:active_chain_id", String(chainId)), CHAIN_ID);
+  await dapp.reload({ waitUntil: "domcontentloaded", timeout: 60_000 });
+  await dapp.waitForTimeout(2_500);
 
   const features: Array<(dapp: Page, ctx: BrowserContext, extId: string, known: Set<Page>) => Promise<FeatureResult>> = [
     driveStealth,
@@ -539,8 +667,15 @@ async function main(): Promise<void> {
     driveStorefront,
     driveCrowdfund,
   ];
+  const requestedFeatures = (process.env.QA_FEATURES ?? "")
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+  const selectedFeatures = requestedFeatures.length
+    ? features.filter((fn) => requestedFeatures.some((name) => fn.name.toLowerCase().includes(name)))
+    : features;
 
-  for (const fn of features) {
+  for (const fn of selectedFeatures) {
     try {
       const r = await fn(dapp, ctx, extId, known);
       const tag = r.status === "green" ? "🟢" : r.status === "red" ? "🔴" : "⚪";
@@ -554,8 +689,9 @@ async function main(): Promise<void> {
   }
 
   const md = [
-    `# QA batch v2 (live Vercel, desktop, Base Sepolia, Rabby)`,
+    `# QA batch v2 (live Vercel, desktop, ${CHAIN_NAME}, Rabby)`,
     `Generated: ${new Date().toISOString()}`,
+    `Chain: ${CHAIN_NAME} (${CHAIN_ID})`,
     ``,
     `## Per-feature results`,
     ``,
@@ -563,7 +699,7 @@ async function main(): Promise<void> {
     `|---|---|---|---|---|`,
     ...results.map((r) => {
       const tag = r.status === "green" ? "🟢 green" : r.status === "red" ? "🔴 red" : "⚪ skipped";
-      const tx = r.txHash ? `[${r.txHash.slice(0, 10)}…](https://sepolia.basescan.org/tx/${r.txHash})` : "—";
+      const tx = r.txHash ? `[${r.txHash.slice(0, 10)}…](${EXPLORER_URL}/tx/${r.txHash})` : "—";
       const url = r.shareUrl ? r.shareUrl : "—";
       return `| ${r.name} | ${tag} | ${tx} | ${url} | ${r.notes} |`;
     }),

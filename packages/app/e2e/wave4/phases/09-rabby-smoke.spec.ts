@@ -148,6 +148,8 @@ test.describe("Phase 9 — Rabby smoke (Dave EOA)", () => {
       // — Open the dApp.
       const dapp = await rabby.context.newPage();
       await dapp.goto(`${url}/app`, { waitUntil: "domcontentloaded", timeout: 60_000 });
+      await dapp.evaluate((chainId) => localStorage.setItem("blank:active_chain_id", String(chainId)), chain.chainId);
+      await dapp.reload({ waitUntil: "domcontentloaded", timeout: 60_000 });
       // The /app route mounts Onboarding pre-connect (Onboarding.tsx
       // line 49: `if (!address) return 0;`). The 4-step carousel
       // ("Send money privately" → ... → WalletChoiceCard) ALWAYS shows
@@ -312,15 +314,20 @@ test.describe("Phase 9 — Rabby smoke (Dave EOA)", () => {
         .last()
         .click();
 
-      const send = await waitAndConfirmRabbyPopup(
-        rabby.context,
-        rabby.rabbyExtensionId,
-        knownPages,
-        SHOTS_DIR,
-        "rabby-send",
-        60_000,
-      );
-      expect(send.clicks, "Rabby send popup did not advance").toBeGreaterThan(0);
+      let sendClicks = 0;
+      for (let i = 0; i < 4; i++) {
+        const send = await waitAndConfirmRabbyPopup(
+          rabby.context,
+          rabby.rabbyExtensionId,
+          knownPages,
+          SHOTS_DIR,
+          `rabby-send-${i + 1}`,
+          i === 0 ? 60_000 : 45_000,
+        );
+        sendClicks += send.clicks;
+        if (send.clicks === 0) break;
+      }
+      expect(sendClicks, "Rabby send popup did not advance").toBeGreaterThan(0);
 
       // Bump timeout to 240s for live-Vercel runs — the SendConfirm to
       // SendSuccess transition awaits a tx receipt, and Vercel's
