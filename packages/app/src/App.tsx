@@ -18,6 +18,7 @@ const Pricing      = lazy(() => import("@/blank-ui/landing/Pricing"));
 const Roadmap      = lazy(() => import("@/blank-ui/landing/Roadmap"));
 const Blog         = lazy(() => import("@/blank-ui/landing/Blog"));
 const BlogPost     = lazy(() => import("@/blank-ui/landing/BlogPost"));
+const Whitepaper   = lazy(() => import("@/blank-ui/landing/Whitepaper"));
 // Wave 4 — magic claim links: public recipient flow.
 const ClaimLinkPage = lazy(() => import("@/blank-ui/screens/ClaimLinkPage"));
 // Wave 4 — storefront: public buyer flow.
@@ -105,6 +106,7 @@ export function App() {
           <Route path="/for/daos"            element={<ForDaos />} />
           <Route path="/pricing"             element={<Pricing />} />
           <Route path="/roadmap"             element={<Roadmap />} />
+          <Route path="/whitepaper"          element={<Whitepaper />} />
           <Route path="/blog"                element={<Blog />} />
           <Route path="/blog/:slug"          element={<BlogPost />} />
           {/* Wave 4 — encrypted claim links. Public so a recipient with no

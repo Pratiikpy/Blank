@@ -3,8 +3,8 @@ import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
 // §15.x test for LandingFooter. Shared footer across every
-// landing-level page. Minimal — just copyright + 6 links
-// (Features / Live / Manifesto / Launch app / GitHub / Fhenix
+// landing-level page. Minimal — just copyright + 7 links
+// (Features / Live / Whitepaper / Manifesto / Launch app / GitHub / Fhenix
 // attribution). The footer is intentionally static so it
 // renders identically on every page; the only dynamic part is
 // the copyright year via new Date().getFullYear().
@@ -15,8 +15,8 @@ import { MemoryRouter } from "react-router-dom";
 //     FullYear() — the year auto-updates each January 1 without
 //     code edits; test pins via mocked Date so the assertion
 //     stays stable across years.
-//   - 4 internal Link entries: /features, /live, /manifesto,
-//     /app — these are the same destinations as LandingNav's
+//   - 5 internal Link entries: /features, /live, /whitepaper,
+//     /manifesto, /app — these are the same destinations as LandingNav's
 //     CTAs so a regression that renamed any landing-page route
 //     would break BOTH this footer AND the nav at the same
 //     time (paired contracts).
@@ -96,6 +96,12 @@ describe("LandingFooter — internal links (§15.x)", () => {
     expect((link as HTMLAnchorElement).getAttribute("href")).toBe("/live");
   });
 
+  it("Whitepaper link points to /whitepaper", () => {
+    renderFooter();
+    const link = screen.getByRole("link", { name: "Whitepaper" });
+    expect((link as HTMLAnchorElement).getAttribute("href")).toBe("/whitepaper");
+  });
+
   it("Manifesto link points to /manifesto", () => {
     renderFooter();
     const link = screen.getByRole("link", { name: "Manifesto" });
@@ -154,8 +160,8 @@ describe("LandingFooter — semantic markup (§15.x)", () => {
     expect(footer!.tagName).toBe("FOOTER");
   });
 
-  it("total link count is exactly 6 (4 internal + 2 external)", () => {
+  it("total link count is exactly 7 (5 internal + 2 external)", () => {
     renderFooter();
-    expect(screen.getAllByRole("link")).toHaveLength(6);
+    expect(screen.getAllByRole("link")).toHaveLength(7);
   });
 });

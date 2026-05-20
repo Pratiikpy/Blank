@@ -8,6 +8,7 @@ export function LandingFooter() {
       <div className="ll-footer-links">
         <Link to="/features">Features</Link>
         <Link to="/live">Live</Link>
+        <Link to="/whitepaper">Whitepaper</Link>
         <Link to="/manifesto">Manifesto</Link>
         <Link to="/app">Launch app</Link>
         <a
