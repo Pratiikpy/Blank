@@ -47,17 +47,17 @@ Stripe-shaped product on Ethereum where the amount is private. Sender + receiver
 
 Blank is live on Base Sepolia and Ethereum Sepolia at
 [blank-omega-jade.vercel.app](https://blank-omega-jade.vercel.app).
-The launch-tested path is **desktop Rabby EOA** on both chains.
 
-The current QA report covers real Rabby signatures, real testnet
-transactions, three-wallet checks, cross-user state, Bridge, Swap,
-P2P exchange, invoices, escrow, payroll, public links, failure handling,
-and mobile route coverage:
+The current QA report covers desktop use on both chains with Rabby,
+real testnet transactions, three-wallet checks, cross-user state,
+Bridge, Swap, P2P exchange, invoices, escrow, payroll, public links,
+failure handling, and mobile route coverage:
 [`packages/app/docs/QA_LAUNCH_READINESS.md`](packages/app/docs/QA_LAUNCH_READINESS.md).
 
-Passkey smart accounts are built into the product. Rabby EOA is the path
-covered by the current public testnet launch report. Mobile screens render
-across the full route map; the full mobile transaction matrix comes next.
+Passkey smart accounts are built into the product for no-extension,
+gas-sponsored onboarding when the paymaster is available. Mobile UI is
+live across the full route map; expanded mobile transaction coverage comes
+next.
 
 ## In 5 minutes
 
@@ -122,7 +122,7 @@ Sixteen product surfaces. One encrypted vault. One link to share.
 /escrow/<chainId>/<escrowId>      ← encrypted escrow detail
 ```
 
-Each link is the entire payment flow. No login required to view or pay from an existing wallet. Recipients can also use Blank's passkey smart-account path, which is built into the product and remains outside the current Rabby EOA launch claim.
+Each link is the entire payment flow. No login required to view or pay from an existing wallet. Recipients can also use Blank's passkey smart-account path, which is built into the product.
 
 ---
 
@@ -485,7 +485,7 @@ Find a hole? Open an issue or email. We treat security reports seriously.
 | **FHE** | Fhenix CoFHE (`@cofhe/sdk` v0.5.1), TFHE WASM, threshold decryption |
 | **Account abstraction** | ERC-4337, P-256 passkey signing, EntryPoint v0.7 |
 | **Frontend** | React, Vite, TypeScript, Tailwind |
-| **Wallets** | wagmi + viem; Rabby launch-tested, other EOA connectors share the same integration path |
+| **Wallets** | wagmi + viem; Rabby, passkey smart accounts, and shared EOA connector plumbing |
 | **Realtime** | Supabase (cache + notifications; never the source of truth) |
 | **Deployment** | Vercel (frontend), Hardhat (contracts) |
 
@@ -493,7 +493,7 @@ Find a hole? Open an issue or email. We treat security reports seriously.
 
 ## Get started in 30 seconds
 
-**Use the live app, proven path:**
+**Use the live app:**
 
 ```
 1. Visit blank-omega-jade.vercel.app
@@ -502,9 +502,12 @@ Find a hole? Open an issue or email. We treat security reports seriously.
 4. Send a private payment, create an invoice, or open a public link
 ```
 
-This is the path covered by the current launch-readiness report. Passkey
-smart accounts and mobile screens are active product paths; the proven
-transaction matrix for this launch is desktop Rabby EOA.
+For the latest QA scope and transaction proof, see the launch-readiness
+report linked above.
+
+Passkey mode is built for no-extension onboarding with sponsored gas.
+Rabby mode is available for users who already live in a wallet. Mobile UI
+is live and covered by route sweeps on both supported testnets.
 
 **Try a Wave 4 feature in 60 seconds:**
 
