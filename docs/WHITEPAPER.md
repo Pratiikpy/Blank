@@ -7,6 +7,7 @@
 
   <p>
     Version 1.0 | Testnet launch paper | May 2026<br />
+    <a href="Blank-Whitepaper.pdf">Designed PDF</a> |
     <a href="https://blank-omega-jade.vercel.app">Live app</a> |
     <a href="../packages/app/docs/QA_LAUNCH_READINESS.md">QA launch report</a> |
     <a href="ARCHITECTURE.md">Architecture</a>

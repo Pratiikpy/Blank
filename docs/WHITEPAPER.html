@@ -1,0 +1,760 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Blank Whitepaper</title>
+  <style>
+    @page {
+      size: A4;
+      margin: 0;
+    }
+
+    :root {
+      --ink: #1D1D1F;
+      --muted: #6B7280;
+      --soft: #F5F5F7;
+      --line: #E5E7EB;
+      --accent: #10B981;
+      --accent-dark: #059669;
+      --black: #0A0A0A;
+      --white: #FFFFFF;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      padding: 0;
+      background: var(--soft);
+      color: var(--ink);
+      font-family: "Outfit", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 11.2pt;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body {
+      counter-reset: page;
+      background: var(--white);
+    }
+
+    a {
+      color: inherit;
+      text-decoration: none;
+    }
+
+    .page {
+      position: relative;
+      width: 210mm;
+      min-height: 297mm;
+      page-break-after: always;
+      background: var(--white);
+      overflow: hidden;
+    }
+
+    .page:last-child {
+      page-break-after: auto;
+    }
+
+    .content {
+      position: relative;
+      z-index: 2;
+      padding: 21mm 17mm 18mm;
+    }
+
+    .cover {
+      color: var(--white);
+      background:
+        radial-gradient(circle at 20% 18%, rgba(16, 185, 129, 0.24), transparent 28%),
+        radial-gradient(circle at 82% 78%, rgba(16, 185, 129, 0.16), transparent 32%),
+        linear-gradient(135deg, #0A0A0A 0%, #111113 48%, #151917 100%);
+    }
+
+    .cover .content {
+      min-height: 297mm;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+
+    .cover-mark {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 13px;
+      color: rgba(255, 255, 255, 0.76);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .logo {
+      width: 54px;
+      height: 54px;
+    }
+
+    .eyebrow {
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      margin: 0 0 16px;
+    }
+
+    h1,
+    h2,
+    h3 {
+      margin: 0;
+      line-height: 1.05;
+      letter-spacing: 0;
+    }
+
+    h1 {
+      max-width: 760px;
+      font-size: 58px;
+      font-weight: 750;
+    }
+
+    h2 {
+      font-size: 31px;
+      font-weight: 720;
+      margin-bottom: 18px;
+    }
+
+    h3 {
+      font-size: 16px;
+      font-weight: 720;
+      margin: 22px 0 8px;
+    }
+
+    p {
+      margin: 0 0 12px;
+    }
+
+    .dek {
+      max-width: 660px;
+      color: rgba(255, 255, 255, 0.78);
+      font-size: 17px;
+      margin-top: 24px;
+    }
+
+    .cover-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      margin-top: 34px;
+    }
+
+    .cover-card {
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      background: rgba(255, 255, 255, 0.06);
+      border-radius: 18px;
+      padding: 16px;
+      min-height: 94px;
+    }
+
+    .cover-card strong {
+      display: block;
+      font-size: 20px;
+      margin-bottom: 4px;
+    }
+
+    .cover-card span {
+      color: rgba(255, 255, 255, 0.64);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .cover-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      color: rgba(255, 255, 255, 0.66);
+      font-size: 12px;
+    }
+
+    .cipher-band {
+      position: absolute;
+      right: -25mm;
+      top: 40mm;
+      width: 92mm;
+      height: 160mm;
+      opacity: 0.12;
+      transform: rotate(8deg);
+      background:
+        repeating-linear-gradient(
+          0deg,
+          transparent 0,
+          transparent 12px,
+          rgba(255, 255, 255, 0.8) 12px,
+          rgba(255, 255, 255, 0.8) 22px
+        );
+      border-radius: 34px;
+    }
+
+    .topline {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 14px;
+      margin-bottom: 22px;
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .topline img {
+      width: 30px;
+      height: 30px;
+      vertical-align: middle;
+      margin-right: 8px;
+    }
+
+    .section-number {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      background: rgba(16, 185, 129, 0.12);
+      color: var(--accent-dark);
+      font-weight: 800;
+      margin-bottom: 16px;
+    }
+
+    .lead {
+      font-size: 16px;
+      color: #303033;
+      max-width: 720px;
+      margin-bottom: 22px;
+    }
+
+    .muted {
+      color: var(--muted);
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin: 18px 0;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin: 18px 0;
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 15px;
+      background: rgba(245, 245, 247, 0.72);
+    }
+
+    .card strong {
+      display: block;
+      font-size: 13px;
+      margin-bottom: 5px;
+    }
+
+    .card p,
+    .card li {
+      color: var(--muted);
+      font-size: 10.2pt;
+    }
+
+    .quote {
+      margin: 22px 0;
+      padding: 18px 20px;
+      border-left: 4px solid var(--accent);
+      background: rgba(16, 185, 129, 0.08);
+      border-radius: 0 16px 16px 0;
+      font-size: 16px;
+      font-weight: 650;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 18px 0;
+      font-size: 10.3pt;
+    }
+
+    th {
+      text-align: left;
+      color: var(--muted);
+      font-weight: 700;
+      font-size: 9.4pt;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      border-bottom: 1px solid var(--line);
+      padding: 10px 8px;
+    }
+
+    td {
+      border-bottom: 1px solid var(--line);
+      padding: 10px 8px;
+      vertical-align: top;
+    }
+
+    ul {
+      margin: 8px 0 18px 0;
+      padding-left: 18px;
+    }
+
+    li {
+      margin-bottom: 6px;
+    }
+
+    code,
+    .mono {
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: 9.6pt;
+    }
+
+    .flow {
+      margin: 18px 0;
+      display: grid;
+      gap: 10px;
+    }
+
+    .flow-step {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 14px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: var(--white);
+    }
+
+    .dot {
+      width: 28px;
+      height: 28px;
+      flex: 0 0 auto;
+      border-radius: 50%;
+      background: var(--black);
+      color: var(--white);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    .status-strip {
+      display: grid;
+      grid-template-columns: 1.05fr 0.95fr;
+      gap: 14px;
+      margin: 18px 0;
+    }
+
+    .status-box {
+      background: #0A0A0A;
+      color: var(--white);
+      border-radius: 22px;
+      padding: 18px;
+    }
+
+    .status-box .muted {
+      color: rgba(255, 255, 255, 0.62);
+    }
+
+    .proof-list {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .proof-list span {
+      display: block;
+      border: 1px solid rgba(16, 185, 129, 0.24);
+      background: rgba(16, 185, 129, 0.08);
+      border-radius: 12px;
+      padding: 8px 10px;
+      font-size: 10pt;
+    }
+
+    .footer-note {
+      position: absolute;
+      left: 17mm;
+      right: 17mm;
+      bottom: 12mm;
+      display: flex;
+      justify-content: space-between;
+      color: #9CA3AF;
+      font-size: 9px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .tag {
+      display: inline-block;
+      border-radius: 999px;
+      padding: 5px 9px;
+      background: rgba(16, 185, 129, 0.1);
+      color: var(--accent-dark);
+      font-size: 9.4pt;
+      font-weight: 700;
+      margin: 3px 4px 3px 0;
+    }
+
+    .small {
+      font-size: 9.7pt;
+    }
+  </style>
+</head>
+<body>
+  <section class="page cover">
+    <div class="cipher-band"></div>
+    <div class="content">
+      <div class="cover-mark">
+        <img class="logo" src="../packages/app/public/logo-circle.svg" alt="Blank logo" />
+        <span>Blank Whitepaper</span>
+      </div>
+
+      <main>
+        <p class="eyebrow">Private amount payments on Ethereum</p>
+        <h1>Same chain. Same finality. Different visibility.</h1>
+        <p class="dek">
+          Blank keeps Ethereum settlement public and encrypts the commercial
+          amount. Sender and receiver stay visible. Salaries, invoices,
+          bids, contributions, and payment values do not.
+        </p>
+        <div class="cover-grid">
+          <div class="cover-card"><strong>2</strong><span>Supported testnets</span></div>
+          <div class="cover-card"><strong>3</strong><span>Wallet personas tested</span></div>
+          <div class="cover-card"><strong>16</strong><span>Product surfaces</span></div>
+        </div>
+      </main>
+
+      <footer class="cover-footer">
+        <span>Version 1.0 | May 2026</span>
+        <span>blank-omega-jade.vercel.app</span>
+      </footer>
+    </div>
+  </section>
+
+  <section class="page">
+    <div class="content">
+      <div class="topline"><span><img src="../packages/app/public/logo-circle.svg" alt="" />Executive summary</span><span>01</span></div>
+      <span class="section-number">0</span>
+      <h2>Blank is amount privacy for normal payments.</h2>
+      <p class="lead">
+        Public blockchains make settlement transparent, composable, and easy
+        to audit. They also expose payment amounts that businesses and
+        individuals do not publish in traditional finance.
+      </p>
+      <div class="grid-2">
+        <div class="card">
+          <strong>What stays public</strong>
+          <p>Sender, receiver, chain, contract, transaction existence, and finality remain visible.</p>
+        </div>
+        <div class="card">
+          <strong>What becomes private</strong>
+          <p>Amounts, balances, bids, payroll values, contributions, and thresholds are encrypted.</p>
+        </div>
+      </div>
+      <p>
+        Blank is not a mixer. It does not hide counterparties. It encrypts
+        the amount before it touches the chain, lets contracts compute over
+        ciphertext through Fhenix CoFHE, and grants decrypt access only to
+        permitted parties.
+      </p>
+      <div class="quote">The transaction can be public. The amount does not need to be.</div>
+      <div class="status-strip">
+        <div class="status-box">
+          <h3>Current testnet status</h3>
+          <p class="muted">
+            Live on Base Sepolia and Ethereum Sepolia. Desktop Rabby use has
+            been QA-driven with real testnet transactions and three wallet
+            personas. Mobile route coverage is green on both chains.
+          </p>
+        </div>
+        <div class="card">
+          <strong>Proof source</strong>
+          <p class="small">
+            The canonical proof table is in
+            <span class="mono">packages/app/docs/QA_LAUNCH_READINESS.md</span>.
+          </p>
+        </div>
+      </div>
+    </div>
+    <div class="footer-note"><span>Blank Whitepaper</span><span>Executive Summary</span></div>
+  </section>
+
+  <section class="page">
+    <div class="content">
+      <div class="topline"><span><img src="../packages/app/public/logo-circle.svg" alt="" />Problem</span><span>02</span></div>
+      <span class="section-number">1</span>
+      <h2>Public payment rails expose commercial data.</h2>
+      <p class="lead">
+        Ethereum makes payments verifiable because every field is visible.
+        That is useful for auditability. It is a poor default for payroll,
+        invoices, vendor payments, fundraising, and commerce.
+      </p>
+      <table>
+        <thead>
+          <tr><th>Use case</th><th>What leaks on a public chain</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Payroll</td><td>Employee salaries and contractor rates.</td></tr>
+          <tr><td>Invoices</td><td>Customer spend, vendor pricing, and margin clues.</td></tr>
+          <tr><td>Vendor payments</td><td>Supply chain and operating cost maps.</td></tr>
+          <tr><td>Fundraising</td><td>Donor size, goal progress, and failed campaigns.</td></tr>
+          <tr><td>Storefronts</td><td>Purchase prices and buyer behavior.</td></tr>
+          <tr><td>Treasury operations</td><td>Balance thresholds, run rate, and capital movement.</td></tr>
+        </tbody>
+      </table>
+      <p>
+        Blank changes the default for amounts while preserving the settlement
+        properties that make Ethereum valuable.
+      </p>
+      <div class="grid-2">
+        <div class="card"><strong>Design goal</strong><p>Keep public settlement, public counterparties, and contract composability.</p></div>
+        <div class="card"><strong>Privacy boundary</strong><p>Hide the amount from bystanders without hiding who paid whom.</p></div>
+      </div>
+    </div>
+    <div class="footer-note"><span>Blank Whitepaper</span><span>Problem</span></div>
+  </section>
+
+  <section class="page">
+    <div class="content">
+      <div class="topline"><span><img src="../packages/app/public/logo-circle.svg" alt="" />Model</span><span>03</span></div>
+      <span class="section-number">2</span>
+      <h2>Public counterparties. Private amounts.</h2>
+      <p class="lead">
+        Blank uses a narrow privacy model: sender and receiver are public by
+        design, while the amount and balance state are encrypted.
+      </p>
+      <table>
+        <thead>
+          <tr><th>Field</th><th>Visibility</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Sender</td><td>Public</td></tr>
+          <tr><td>Receiver</td><td>Public</td></tr>
+          <tr><td>Chain, contract, timestamp</td><td>Public</td></tr>
+          <tr><td>Amount</td><td>Encrypted</td></tr>
+          <tr><td>Balance</td><td>Encrypted</td></tr>
+          <tr><td>Threshold result</td><td>Public only when explicitly revealed or proved.</td></tr>
+        </tbody>
+      </table>
+      <div class="grid-3">
+        <div class="card"><strong>Not a mixer</strong><p>Blank does not hide transaction relationships.</p></div>
+        <div class="card"><strong>No token</strong><p>No BLANK token, no points system, no yield loop.</p></div>
+        <div class="card"><strong>Composability</strong><p>Apps can use the payment rail without learning plaintext values.</p></div>
+      </div>
+      <p>
+        This posture is closer to bank-account privacy than sender-anonymity
+        systems: counterparties remain traceable, but commercial amounts are
+        not published to every observer.
+      </p>
+    </div>
+    <div class="footer-note"><span>Blank Whitepaper</span><span>Model</span></div>
+  </section>
+
+  <section class="page">
+    <div class="content">
+      <div class="topline"><span><img src="../packages/app/public/logo-circle.svg" alt="" />How it works</span><span>04</span></div>
+      <span class="section-number">3</span>
+      <h2>Contracts compute over ciphertext.</h2>
+      <p class="lead">
+        Blank uses Fhenix CoFHE to verify encrypted inputs, store ciphertext
+        handles, and run contract logic without revealing plaintext amounts.
+      </p>
+      <div class="flow">
+        <div class="flow-step"><span class="dot">1</span><div><strong>User enters amount</strong><br /><span class="muted">The plaintext starts in the browser.</span></div></div>
+        <div class="flow-step"><span class="dot">2</span><div><strong>Browser encrypts</strong><br /><span class="muted">TFHE WASM produces encrypted input and proof material.</span></div></div>
+        <div class="flow-step"><span class="dot">3</span><div><strong>CoFHE verifies</strong><br /><span class="muted">The threshold network signs verified ciphertext.</span></div></div>
+        <div class="flow-step"><span class="dot">4</span><div><strong>Contract computes</strong><br /><span class="muted">FHE.add, FHE.eq, FHE.gte, FHE.gt, and FHE.select operate on ciphertext.</span></div></div>
+        <div class="flow-step"><span class="dot">5</span><div><strong>Permitted parties decrypt</strong><br /><span class="muted">Access is granted through FHE permissions, not public plaintext.</span></div></div>
+      </div>
+      <div class="quote">The chain enforces the rule. The public never sees the amount.</div>
+    </div>
+    <div class="footer-note"><span>Blank Whitepaper</span><span>How It Works</span></div>
+  </section>
+
+  <section class="page">
+    <div class="content">
+      <div class="topline"><span><img src="../packages/app/public/logo-circle.svg" alt="" />Product surface</span><span>05</span></div>
+      <span class="section-number">4</span>
+      <h2>A payment surface for real workflows.</h2>
+      <p class="lead">
+        Blank applies one encrypted vault model across personal, business,
+        creator, marketplace, and fundraising flows.
+      </p>
+      <div>
+        <span class="tag">Send</span>
+        <span class="tag">Invoice</span>
+        <span class="tag">Request</span>
+        <span class="tag">Payroll</span>
+        <span class="tag">Gifts</span>
+        <span class="tag">Groups</span>
+        <span class="tag">Proofs</span>
+        <span class="tag">Claim links</span>
+        <span class="tag">Storefront</span>
+        <span class="tag">Crowdfund</span>
+        <span class="tag">Escrow</span>
+        <span class="tag">Swap</span>
+        <span class="tag">Bridge</span>
+        <span class="tag">P2P exchange</span>
+      </div>
+      <div class="grid-2">
+        <div class="card">
+          <strong>Business flows</strong>
+          <p>Invoices, payroll, escrow, payment requests, and private vendor settlement.</p>
+        </div>
+        <div class="card">
+          <strong>Public-link flows</strong>
+          <p>Claim links, storefront listings, crowdfunds, proof URLs, and escrow detail pages.</p>
+        </div>
+        <div class="card">
+          <strong>Commerce flows</strong>
+          <p>Fixed price listings, pay-what-you-want, and sealed-bid auctions.</p>
+        </div>
+        <div class="card">
+          <strong>Capital flows</strong>
+          <p>Bridge, Swap, encrypted P2P exchange, and private amount transfers.</p>
+        </div>
+      </div>
+    </div>
+    <div class="footer-note"><span>Blank Whitepaper</span><span>Product Surface</span></div>
+  </section>
+
+  <section class="page">
+    <div class="content">
+      <div class="topline"><span><img src="../packages/app/public/logo-circle.svg" alt="" />Architecture</span><span>06</span></div>
+      <span class="section-number">5</span>
+      <h2>One encrypted vault. Many payment shapes.</h2>
+      <p class="lead">
+        Blank separates the encrypted balance primitive from the product
+        surfaces that route user intent into it.
+      </p>
+      <div class="grid-2">
+        <div class="card"><strong>Frontend</strong><p>React, Vite, wagmi, viem, FHE pipeline UI.</p></div>
+        <div class="card"><strong>Wallet layer</strong><p>Rabby EOA, passkey smart accounts, ERC-4337, paymaster.</p></div>
+        <div class="card"><strong>Contract layer</strong><p>Vault, hubs, claim links, storefront, crowdfund, escrow.</p></div>
+        <div class="card"><strong>Data layer</strong><p>Chain as source of truth, Supabase for cache and notifications.</p></div>
+      </div>
+      <h3>Core contracts</h3>
+      <table>
+        <tbody>
+          <tr><td>FHERC20Vault</td><td>Encrypted balances, shield, unshield, transfer.</td></tr>
+          <tr><td>PaymentHub</td><td>P2P sends, requests, batch sends.</td></tr>
+          <tr><td>BusinessHub</td><td>Invoices, payroll, and business payment flows.</td></tr>
+          <tr><td>ClaimLinks, Storefront, Crowdfund, Escrow</td><td>Public-link and commerce surfaces.</td></tr>
+          <tr><td>BlankAccount, BlankPaymaster</td><td>Passkey smart accounts and gas sponsorship path.</td></tr>
+        </tbody>
+      </table>
+      <p>
+        Supabase stores user-facing cache and notifications. Settlement and
+        encrypted state remain chain-authoritative.
+      </p>
+    </div>
+    <div class="footer-note"><span>Blank Whitepaper</span><span>Architecture</span></div>
+  </section>
+
+  <section class="page">
+    <div class="content">
+      <div class="topline"><span><img src="../packages/app/public/logo-circle.svg" alt="" />Security and privacy</span><span>07</span></div>
+      <span class="section-number">6</span>
+      <h2>Clear privacy boundary. Conservative mainnet posture.</h2>
+      <div class="grid-2">
+        <div class="card">
+          <strong>Blank hides</strong>
+          <ul>
+            <li>Payment amounts</li>
+            <li>Encrypted balances</li>
+            <li>Contribution sizes</li>
+            <li>Bid amounts</li>
+            <li>Payroll and invoice amounts</li>
+          </ul>
+        </div>
+        <div class="card">
+          <strong>Blank does not hide</strong>
+          <ul>
+            <li>Sender address</li>
+            <li>Receiver address</li>
+            <li>Contract address</li>
+            <li>Chain and timing</li>
+            <li>Transaction existence</li>
+          </ul>
+        </div>
+      </div>
+      <h3>Safety patterns</h3>
+      <ul>
+        <li>FHE.select avoids leaking information through plaintext-style reverts.</li>
+        <li>Reentrancy guards protect money-moving surfaces.</li>
+        <li>UUPS storage layout checks guard upgradeable contracts.</li>
+        <li>Domain-separated hashes protect claim-link modes.</li>
+        <li>Threshold-signed decrypt results protect async decrypt flows.</li>
+        <li>FHE ACL grants are scoped to the actor or contract that needs access.</li>
+      </ul>
+      <h3>Mainnet gates</h3>
+      <p>
+        Blank is testnet-only today. Mainnet requires third-party audit,
+        Fhenix mainnet readiness, threshold operator decentralization,
+        production monitoring, and mainnet-grade relayer and paymaster
+        operations.
+      </p>
+    </div>
+    <div class="footer-note"><span>Blank Whitepaper</span><span>Security And Privacy</span></div>
+  </section>
+
+  <section class="page">
+    <div class="content">
+      <div class="topline"><span><img src="../packages/app/public/logo-circle.svg" alt="" />Testnet status and roadmap</span><span>08</span></div>
+      <span class="section-number">7</span>
+      <h2>Live on Base Sepolia and Ethereum Sepolia.</h2>
+      <p class="lead">
+        The current QA launch report is the canonical proof source for live
+        transaction hashes, screenshots, known scope, and current gaps.
+      </p>
+      <div class="status-strip">
+        <div class="status-box">
+          <h3>Live URL</h3>
+          <p>blank-omega-jade.vercel.app</p>
+          <p class="muted">Supported testnets: Base Sepolia and Ethereum Sepolia.</p>
+        </div>
+        <div class="card">
+          <strong>Proof table</strong>
+          <p class="mono small">packages/app/docs/QA_LAUNCH_READINESS.md</p>
+        </div>
+      </div>
+      <div class="proof-list">
+        <span>Desktop Rabby on both chains</span>
+        <span>Real testnet transaction hashes</span>
+        <span>Three-wallet checks</span>
+        <span>Cross-user refresh recovery</span>
+        <span>Bridge and Swap</span>
+        <span>P2P exchange create and fill</span>
+        <span>Invoice, escrow, payroll</span>
+        <span>Failure handling</span>
+      </div>
+      <h3>Roadmap</h3>
+      <ul>
+        <li>Keep Rabby EOA stable on both supported testnets.</li>
+        <li>Expand mobile transaction coverage beyond route sweeps.</li>
+        <li>Improve account switch and realtime recovery behavior.</li>
+        <li>Continue hardening public links, storefront, crowdfund, and escrow.</li>
+        <li>Publish mainnet risk disclosure before real funds are supported.</li>
+      </ul>
+      <div class="quote">Ethereum made payments public by default. Blank keeps public settlement and encrypts the commercial amount.</div>
+    </div>
+    <div class="footer-note"><span>Blank Whitepaper</span><span>Testnet Status</span></div>
+  </section>
+</body>
+</html>
