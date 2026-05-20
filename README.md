@@ -27,13 +27,20 @@ Blank is encrypted payments on Ethereum. Amounts are FHE-encrypted before
 they touch the chain; smart contracts add, compare, and transfer ciphertext;
 sender and receiver decrypt with their own keys. Everyone else sees ████.
 
-[**Launch the app →**](https://blank-omega-jade.vercel.app) &nbsp; · &nbsp; [**Read the whitepaper →**](https://blank-omega-jade.vercel.app/whitepaper) &nbsp; · &nbsp; [**Watch it live →**](https://blank-omega-jade.vercel.app/live) &nbsp; · &nbsp; [**Read the manifesto →**](https://blank-omega-jade.vercel.app/manifesto)
+[**Launch the app →**](https://blank-omega-jade.vercel.app) &nbsp; · &nbsp; [**Read the whitepaper →**](https://blank-omega-jade.vercel.app/whitepaper) &nbsp; · &nbsp; [**Watch it live →**](https://blank-omega-jade.vercel.app/live) &nbsp; · &nbsp; [**Brand kit →**](https://blank-omega-jade.vercel.app/brand-kit) &nbsp; · &nbsp; [**Read the manifesto →**](https://blank-omega-jade.vercel.app/manifesto)
 
 <br />
 
-<img src="docs/screenshots/hero-loop.gif" alt="X-Ray slider: public dollar bill resolves into FHE ciphertext" width="800" />
-
-<sub>See it in motion: <a href="docs/screenshots/demo.mp4">24-second product walkthrough →</a></sub>
+<table>
+  <tr>
+    <th>Product</th>
+    <th>Identity</th>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/landing.png" alt="Blank landing page showing private invoice positioning" width="520" /></td>
+    <td><img src="docs/screenshots/brand-kit.png" alt="Blank brand kit page showing the visual identity system" width="520" /></td>
+  </tr>
+</table>
 
 </div>
 
