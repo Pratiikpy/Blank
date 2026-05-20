@@ -469,15 +469,25 @@ export function useUnifiedWrite(): UseUnifiedWriteReturn {
         if (!/^0x[0-9a-fA-F]{64}$/.test(hash as string)) {
           return { hash: hash as Hex };
         }
-        const waitClient =
+        const fallbackClient =
           targetChainId === activeChainId && publicClient?.waitForTransactionReceipt
             ? (publicClient as PublicClient)
-            : clientForChain(targetChainId);
-        const receipt = await waitClient.waitForTransactionReceipt({
-          hash: hash as Hex,
-          confirmations: 1,
-          timeout: 300_000,
-        });
+            : null;
+        let receipt: Awaited<ReturnType<PublicClient["waitForTransactionReceipt"]>>;
+        try {
+          receipt = await clientForChain(targetChainId).waitForTransactionReceipt({
+            hash: hash as Hex,
+            confirmations: 1,
+            timeout: 300_000,
+          });
+        } catch (err) {
+          if (!fallbackClient) throw err;
+          receipt = await fallbackClient.waitForTransactionReceipt({
+            hash: hash as Hex,
+            confirmations: 1,
+            timeout: 300_000,
+          });
+        }
         if (receipt.status === "reverted") throw new Error("Transaction reverted on-chain");
         return {
           hash: hash as Hex,
