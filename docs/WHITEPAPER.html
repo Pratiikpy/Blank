@@ -478,16 +478,16 @@
         <div class="status-box">
           <h3>Current testnet status</h3>
           <p class="muted">
-            Live on Base Sepolia and Ethereum Sepolia. Desktop Rabby use has
-            been QA-driven with real testnet transactions and three wallet
-            personas. Mobile route coverage is green on both chains.
+            Live on Base Sepolia and Ethereum Sepolia, with standard EVM
+            wallet connections and Blank passkey smart accounts for
+            no-extension onboarding.
           </p>
         </div>
         <div class="card">
-          <strong>Proof source</strong>
+          <strong>Public scope</strong>
           <p class="small">
-            The canonical proof table is in
-            <span class="mono">packages/app/docs/QA_LAUNCH_READINESS.md</span>.
+            Public testnet app, supported chains, wallet paths, and product
+            surfaces.
           </p>
         </div>
       </div>
@@ -645,7 +645,7 @@
       </p>
       <div class="grid-2">
         <div class="card"><strong>Frontend</strong><p>React, Vite, wagmi, viem, FHE pipeline UI.</p></div>
-        <div class="card"><strong>Wallet layer</strong><p>Rabby EOA, passkey smart accounts, ERC-4337, paymaster.</p></div>
+        <div class="card"><strong>Wallet layer</strong><p>Standard EVM wallets, passkey smart accounts, ERC-4337, paymaster.</p></div>
         <div class="card"><strong>Contract layer</strong><p>Vault, hubs, claim links, storefront, crowdfund, escrow.</p></div>
         <div class="card"><strong>Data layer</strong><p>Chain as source of truth, Supabase for cache and notifications.</p></div>
       </div>
@@ -720,8 +720,8 @@
       <span class="section-number">7</span>
       <h2>Live on Base Sepolia and Ethereum Sepolia.</h2>
       <p class="lead">
-        The current QA launch report is the canonical proof source for live
-        transaction hashes, screenshots, known scope, and current gaps.
+        Blank is available on public testnets for builders, partners, and
+        early users to evaluate private amount payment flows.
       </p>
       <div class="status-strip">
         <div class="status-box">
@@ -730,23 +730,23 @@
           <p class="muted">Supported testnets: Base Sepolia and Ethereum Sepolia.</p>
         </div>
         <div class="card">
-          <strong>Proof table</strong>
-          <p class="mono small">packages/app/docs/QA_LAUNCH_READINESS.md</p>
+          <strong>Wallets</strong>
+          <p class="small">Standard EVM wallets and Blank passkey smart accounts.</p>
         </div>
       </div>
       <div class="proof-list">
-        <span>Desktop Rabby on both chains</span>
-        <span>Real testnet transaction hashes</span>
-        <span>Three-wallet checks</span>
-        <span>Cross-user refresh recovery</span>
+        <span>Base Sepolia</span>
+        <span>Ethereum Sepolia</span>
+        <span>Standard EVM wallets</span>
+        <span>Passkey smart accounts</span>
         <span>Bridge and Swap</span>
         <span>P2P exchange create and fill</span>
         <span>Invoice, escrow, payroll</span>
-        <span>Failure handling</span>
+        <span>Public-link surfaces</span>
       </div>
       <h3>Roadmap</h3>
       <ul>
-        <li>Keep Rabby EOA stable on both supported testnets.</li>
+        <li>Keep standard EVM wallet flows stable on both supported testnets.</li>
         <li>Expand mobile transaction coverage beyond route sweeps.</li>
         <li>Improve account switch and realtime recovery behavior.</li>
         <li>Continue hardening public links, storefront, crowdfund, and escrow.</li>

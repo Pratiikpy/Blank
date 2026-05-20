@@ -17,9 +17,9 @@
 
 | What everyone sees on Etherscan today | What everyone sees on Blank |
 |---|---|
-| `0xAlice → 0xBob:` &nbsp; `5,200.00 USDC` | `0xAlice → 0xBob:` &nbsp; `████.██ USDC` |
-| `0xCarol → 0xDave:` &nbsp; `12.50 USDC` | `0xCarol → 0xDave:` &nbsp; `████.██ USDC` |
-| `0xEve → 0xFrank:` &nbsp; `87,500.00 USDC` | `0xEve → 0xFrank:` &nbsp; `████.██ USDC` |
+| `0x1111 → 0x2222:` &nbsp; `5,200.00 USDC` | `0x1111 → 0x2222:` &nbsp; `████.██ USDC` |
+| `0x3333 → 0x4444:` &nbsp; `12.50 USDC` | `0x3333 → 0x4444:` &nbsp; `████.██ USDC` |
+| `0x5555 → 0x6666:` &nbsp; `87,500.00 USDC` | `0x5555 → 0x6666:` &nbsp; `████.██ USDC` |
 
 <div align="center">
 
@@ -43,16 +43,13 @@ sender and receiver decrypt with their own keys. Everyone else sees ████
 
 Private payment rails for Ethereum where the amount is encrypted. Sender + receiver public; the number isn't.
 
-## Testnet launch status
+## Public testnet
 
 Blank is live on Base Sepolia and Ethereum Sepolia at
 [blank-omega-jade.vercel.app](https://blank-omega-jade.vercel.app).
 
-The current QA report covers desktop use on both chains with Rabby,
-real testnet transactions, three-wallet checks, cross-user state,
-Bridge, Swap, P2P exchange, invoices, escrow, payroll, public links,
-failure handling, and mobile route coverage:
-[`packages/app/docs/QA_LAUNCH_READINESS.md`](packages/app/docs/QA_LAUNCH_READINESS.md).
+The public testnet app supports standard EVM wallet connections on both
+chains, plus Blank passkey smart accounts for no-extension onboarding.
 
 Passkey smart accounts are built into the product for no-extension,
 gas-sponsored onboarding when the paymaster is available. Mobile UI is
@@ -220,7 +217,7 @@ defaults survive deployment misconfig. Both are present.
 
 ## Wallets: two paths, same UI
 
-| | Passkey wallet | Rabby / EOA |
+| | Passkey wallet | EVM wallet / EOA |
 |---|---|---|
 | **Setup** | Passphrase, no extension | Connect any browser wallet |
 | **Signing** | P-256 passkey (WebAuthn) | Standard ECDSA |
@@ -357,7 +354,7 @@ The pattern: **build → harden → open.** Wave 1 added the surface; Wave 2 dis
 > **In one line:** Made the app usable for real people. Passkey wallets, dual-chain, AI-signed payments, public balance proofs, five-phase hardening pass.
 
 **Passkey wallets, the biggest change this wave**
-You sign up with a passphrase. No browser extension. The app creates an ERC-4337 smart account, signs with P-256 (the same crypto your phone uses for Face ID and Touch ID), and can route gas through a paymaster when sponsorship is available. Rabby works for users who prefer an EOA. Both paths run through one shared hook in the code, so we don't maintain two versions of the app.
+You sign up with a passphrase. No browser extension. The app creates an ERC-4337 smart account, signs with P-256 (the same crypto your phone uses for Face ID and Touch ID), and can route gas through a paymaster when sponsorship is available. Standard EVM wallets work for users who prefer an EOA. Both paths run through one shared hook in the code, so we don't maintain two versions of the app.
 
 **What you can do**  
 Send encrypted payments. Request money. Invoice clients. Run payroll where no employee can see another's pay. Split group expenses. Tip creators. Send gifts. Plan inheritance as a dead-man's-switch. Claim stealth payments with one-time codes. Generate a proof that your balance is above some number, without revealing the actual balance.
@@ -424,7 +421,7 @@ TRACKED_CONTRACTS swept from 12 to 19 (the 4 new Wave 4 contracts plus 3 pre-Wav
 4 new gating checks added: vitest unit tests (103 passing), Vercel function typecheck (`api/tsconfig.json`), hardhat task typecheck, storage layout check. Total CI surface: 4 jobs to 8.
 
 **Where we are**
-Wave 4 shipped the public-link surface across 4 new contracts, with slot-preserving UUPS upgrades (`__gap` decremented when consumed), 4-of-4 Wave 4 contract tests, and live QA proof on Base Sepolia and Ethereum Sepolia, including three-wallet state checks and real transaction hashes.
+Wave 4 shipped the public-link surface across 4 new contracts, with slot-preserving UUPS upgrades (`__gap` decremented when consumed), 4-of-4 Wave 4 contract tests, and a live deployment on Base Sepolia and Ethereum Sepolia.
 
 **Anchor commits:** `7c241d7` test wallet hygiene · `71d85ae` EncryptedEscrow no-arbiter fix · `429551d` + `333c508` + `a841ebb` Storefront auction settlement · `2e5f7d9` ClaimLinks expiry cap · `f866153` Inheritance flow fix · `e2eca12` extractEventId fails closed · `7992351` cancel default fix · `3058e32` storage-layout coverage · `b351e2e` CI uplift · `68f9d8e` README polish · `d7c24fc` engineering tour · `273c508` README surface refresh
 
@@ -485,7 +482,7 @@ Find a hole? Open an issue or email. We treat security reports seriously.
 | **FHE** | Fhenix CoFHE (`@cofhe/sdk` v0.5.1), TFHE WASM, threshold decryption |
 | **Account abstraction** | ERC-4337, P-256 passkey signing, EntryPoint v0.7 |
 | **Frontend** | React, Vite, TypeScript, Tailwind |
-| **Wallets** | wagmi + viem; Rabby, passkey smart accounts, and shared EOA connector plumbing |
+| **Wallets** | wagmi + viem; standard EVM wallets, passkey smart accounts, and shared EOA connector plumbing |
 | **Realtime** | Supabase (cache + notifications; never the source of truth) |
 | **Deployment** | Vercel (frontend), Hardhat (contracts) |
 
@@ -497,17 +494,14 @@ Find a hole? Open an issue or email. We treat security reports seriously.
 
 ```
 1. Visit blank-omega-jade.vercel.app
-2. Connect Rabby on Base Sepolia or Ethereum Sepolia
+2. Connect an EVM wallet on Base Sepolia or Ethereum Sepolia
 3. Mint test USDC from the in-app faucet
 4. Send a private payment, create an invoice, or open a public link
 ```
 
-For the latest QA scope and transaction proof, see the launch-readiness
-report linked above.
-
 Passkey mode is built for no-extension onboarding with sponsored gas.
-Rabby is available for users who already live in a wallet. Mobile UI
-is live and covered by route sweeps on both supported testnets.
+Standard EVM wallet mode is available for users who already live in a
+wallet. Mobile UI is live across the product route map.
 
 **Try a Wave 4 feature in 60 seconds:**
 

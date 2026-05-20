@@ -9,7 +9,6 @@
     Version 1.0 | Testnet launch paper | May 2026<br />
     <a href="Blank-Whitepaper.pdf">Designed PDF</a> |
     <a href="https://blank-omega-jade.vercel.app">Live app</a> |
-    <a href="../packages/app/docs/QA_LAUNCH_READINESS.md">QA launch report</a> |
     <a href="ARCHITECTURE.md">Architecture</a>
   </p>
 </div>
@@ -36,10 +35,9 @@ Blank is not a mixer. It does not hide counterparties. It is amount privacy
 for normal payments.
 
 The current public testnet deployment runs on Base Sepolia and Ethereum
-Sepolia. The launch-readiness report covers desktop Rabby use on both chains,
-real testnet transactions, three-wallet checks, cross-user state, Bridge,
-Swap, P2P exchange, invoices, escrow, payroll, public links, failure handling,
-and mobile route coverage.
+Sepolia. It supports standard EVM wallet connections and Blank passkey smart
+accounts, with product surfaces for sends, invoices, payroll, public links,
+commerce, crowdfunding, escrow, Swap, and Bridge.
 
 ## Contents
 
@@ -221,7 +219,7 @@ Frontend
   React, Vite, wagmi, viem, FHE pipeline UI
 
 Wallet layer
-  Rabby EOA, passkey smart accounts, ERC-4337, paymaster
+  Standard EVM wallets, passkey smart accounts, ERC-4337, paymaster
 
 Contract layer
   Vault, hubs, claim links, storefront, crowdfund, escrow
@@ -279,7 +277,7 @@ from chain-backed or chain-confirmed data.
 
 Blank supports two wallet paths through a shared write layer:
 
-- Rabby EOA for users who already use a wallet.
+- Standard EVM wallets for users who already use a wallet.
 - Passkey smart accounts for no-extension onboarding, with sponsored gas when
   the paymaster is available.
 
@@ -372,28 +370,15 @@ Supported public testnets:
 - Base Sepolia, chain ID 84532.
 - Ethereum Sepolia, chain ID 11155111.
 
-The current QA launch report covers:
+Public testnet support includes:
 
-- Desktop Rabby use on both supported chains.
-- Real testnet transaction hashes.
-- Dave, Bob, and Carol multi-wallet checks.
-- Cross-user updates and refresh recovery.
-- Bridge and Swap.
-- P2P exchange create and fill.
-- Invoice pay and finalize.
-- Escrow delivery and release.
-- Payroll to three wallets.
-- Creator support.
-- Public links.
-- Failure handling.
-- Mobile route coverage on both chains.
-
-The proof table lives here:
-
-[`packages/app/docs/QA_LAUNCH_READINESS.md`](../packages/app/docs/QA_LAUNCH_READINESS.md)
-
-That report is the canonical source for live transaction hashes, screenshots,
-known scope, and current gaps.
+- Standard EVM wallet connections on both supported chains.
+- Passkey smart accounts for no-extension onboarding.
+- Private amount sends, invoices, requests, payroll, gifts, groups, proofs,
+  claim links, storefront, crowdfund, escrow, Swap, Bridge, and P2P exchange.
+- Mobile UI across the product route map.
+- Public links for invoices, proofs, claim links, storefronts, crowdfunds, and
+  escrow detail pages.
 
 ---
 
@@ -403,7 +388,7 @@ Blank's roadmap is gated by proof, not dates.
 
 ### Near-term
 
-- Keep Rabby EOA flow stable on Base Sepolia and Ethereum Sepolia.
+- Keep standard EVM wallet flows stable on Base Sepolia and Ethereum Sepolia.
 - Expand mobile transaction coverage beyond route sweeps.
 - Improve account switch and realtime recovery behavior.
 - Continue hardening public links, storefront, crowdfund, and escrow.
@@ -415,7 +400,7 @@ Blank's roadmap is gated by proof, not dates.
 - Complete external audit.
 - Confirm Fhenix mainnet and threshold network readiness.
 - Harden production monitoring, alerting, and relayer operations.
-- Run a mainnet-readiness QA matrix on supported wallets and chains.
+- Run a mainnet-readiness validation matrix on supported wallets and chains.
 - Publish a mainnet risk disclosure before real funds are supported.
 
 ### Long-term
