@@ -27,7 +27,7 @@ Blank is encrypted payments on Ethereum. Amounts are FHE-encrypted before
 they touch the chain; smart contracts add, compare, and transfer ciphertext;
 sender and receiver decrypt with their own keys. Everyone else sees ████.
 
-[**Launch the app →**](https://blank-omega-jade.vercel.app) &nbsp; · &nbsp; [**Watch it live →**](https://blank-omega-jade.vercel.app/live) &nbsp; · &nbsp; [**Read the manifesto →**](https://blank-omega-jade.vercel.app/manifesto)
+[**Launch the app →**](https://blank-omega-jade.vercel.app) &nbsp; · &nbsp; [**Read the whitepaper →**](docs/WHITEPAPER.md) &nbsp; · &nbsp; [**Watch it live →**](https://blank-omega-jade.vercel.app/live) &nbsp; · &nbsp; [**Read the manifesto →**](https://blank-omega-jade.vercel.app/manifesto)
 
 <br />
 
