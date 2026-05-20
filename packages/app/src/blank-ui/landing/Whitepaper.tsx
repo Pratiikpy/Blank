@@ -1,8 +1,17 @@
+import { useEffect } from "react";
 import { ArrowDownToLine, ExternalLink } from "lucide-react";
 import { LandingFooter } from "./LandingFooter";
 import { LandingNav } from "./LandingNav";
 
 export default function Whitepaper() {
+  useEffect(() => {
+    const previousTitle = document.title;
+    document.title = "Blank Whitepaper";
+    return () => {
+      document.title = previousTitle;
+    };
+  }, []);
+
   return (
     <div className="blank-landing">
       <LandingNav />
