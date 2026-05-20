@@ -43,6 +43,22 @@ sender and receiver decrypt with their own keys. Everyone else sees ████
 
 Stripe-shaped product on Ethereum where the amount is private. Sender + receiver public; the number isn't.
 
+## Testnet launch status
+
+Blank is live on Base Sepolia and Ethereum Sepolia at
+[blank-omega-jade.vercel.app](https://blank-omega-jade.vercel.app).
+The launch-tested path is **desktop Rabby EOA** on both chains.
+
+The current QA report covers real Rabby signatures, real testnet
+transactions, three-wallet checks, cross-user state, Bridge, Swap,
+P2P exchange, invoices, escrow, payroll, public links, failure handling,
+and mobile route coverage:
+[`packages/app/docs/QA_LAUNCH_READINESS.md`](packages/app/docs/QA_LAUNCH_READINESS.md).
+
+Passkey smart accounts are built into the product. Rabby EOA is the path
+covered by the current public testnet launch report. Mobile screens render
+across the full route map; the full mobile transaction matrix comes next.
+
 ## In 5 minutes
 
 Every payment on a public blockchain is a postcard. Amount, sender, receiver: all visible to anyone with a block explorer. Employees see each other's salaries. Competitors map your supply chain from payment flows. MEV bots front-run visible swaps.
@@ -106,7 +122,7 @@ Sixteen product surfaces. One encrypted vault. One link to share.
 /escrow/<chainId>/<escrowId>      ← encrypted escrow detail
 ```
 
-Each link is the entire payment flow. No login required to pay. No app to install. Recipients can interact with Blank without ever creating a wallet (we provision a passkey-signed smart account on their first claim).
+Each link is the entire payment flow. No login required to view or pay from an existing wallet. Recipients can also use Blank's passkey smart-account path, which is built into the product and remains outside the current Rabby EOA launch claim.
 
 ---
 
@@ -204,15 +220,15 @@ defaults survive deployment misconfig. Both are present.
 
 ## Wallets: two paths, same UI
 
-| | Passkey wallet | MetaMask / EOA |
+| | Passkey wallet | Rabby / EOA |
 |---|---|---|
 | **Setup** | Passphrase, no extension | Connect any browser wallet |
 | **Signing** | P-256 passkey (WebAuthn) | Standard ECDSA |
-| **Gas** | Free, sponsored via Paymaster | User pays |
+| **Gas** | Sponsored when paymaster is available | User pays |
 | **Transactions** | Batched into one UserOp (ERC-4337) | One popup per op |
-| **Best for** | New users, mobile, passwordless | Existing crypto users |
+| **Best for** | New users and passkey-native flows | Launch-tested desktop flow |
 
-Both routes through `useUnifiedWrite`. We don't maintain two versions of the app.
+Both route through `useUnifiedWrite`. We don't maintain two versions of the app.
 
 ---
 
@@ -275,8 +291,8 @@ We ship in waves. If you have 30 seconds, read the box below. If you have 10 min
 >
 > - **Wave 1** *(Mar 29 to Apr 16)*. **We built the core app.** A working encrypted-payment app with 16 smart contracts, 12 features, and 23 screens. Live on testnet.
 > - **Wave 2** *(Apr 17 to Apr 30)*. **We made it usable for real people.** Passkey wallets so users don't need MetaMask. The same app runs on two chains. AI agents can sign payments. Anyone can verify a balance proof without a wallet or a server.
-> - **Wave 3** *(May 1 to Apr 30)*. **We made it explainable and faster.** Public pricing page, roadmap, and blog with four long-form posts. Recovered from a production white-screen incident. Fixed a multichain bug. Shipped a Fhenix-recommended performance optimization on both chains in one day. Tests grew from 17 to 154.
-> - **Wave 4** *(May 1 to present)*. **We made it composable.** Magic claim links over email, sealed-bid storefronts, encrypted crowdfunding, encrypted escrow with arbiter-or-deadline release. 4 new contracts (ClaimLinks, Storefront, EncryptedCrowdfund, EncryptedEscrow) plus FHE pipeline UI for every encrypted op.
+> - **Wave 3** *(May 1 to May 9)*. **We made it explainable and faster.** Public pricing page, roadmap, and blog with four long-form posts. Recovered from a production white-screen incident. Fixed a multichain bug. Shipped a Fhenix-recommended performance optimization on both chains in one day. Tests grew from 17 to 154.
+> - **Wave 4** *(May 10 to present)*. **We made it composable.** Magic claim links over email, sealed-bid storefronts, encrypted crowdfunding, encrypted escrow with arbiter-or-deadline release. 4 new contracts (ClaimLinks, Storefront, EncryptedCrowdfund, EncryptedEscrow) plus FHE pipeline UI for every encrypted op.
 
 The pattern: **build → harden → open.** Wave 1 added the surface; Wave 2 disciplined the code that runs it; Wave 3 made the rationale public and shipped a perf optimization onchain.
 
@@ -341,7 +357,7 @@ The pattern: **build → harden → open.** Wave 1 added the surface; Wave 2 dis
 > **In one line:** Made the app usable for real people. Passkey wallets, dual-chain, AI-signed payments, public balance proofs, five-phase hardening pass.
 
 **Passkey wallets, the biggest change this wave**
-You sign up with a passphrase. No browser extension, no MetaMask. The app creates an ERC-4337 smart account, signs with P-256 (the same crypto your phone uses for Face ID and Touch ID), and our paymaster covers the gas. The user pays nothing. MetaMask still works for users who prefer it. Both paths run through one shared hook in the code, so we don't maintain two versions of the app.
+You sign up with a passphrase. No browser extension. The app creates an ERC-4337 smart account, signs with P-256 (the same crypto your phone uses for Face ID and Touch ID), and can route gas through a paymaster when sponsorship is available. Rabby works for users who prefer an EOA. Both paths run through one shared hook in the code, so we don't maintain two versions of the app.
 
 **What you can do**  
 Send encrypted payments. Request money. Invoice clients. Run payroll where no employee can see another's pay. Split group expenses. Tip creators. Send gifts. Plan inheritance as a dead-man's-switch. Claim stealth payments with one-time codes. Generate a proof that your balance is above some number, without revealing the actual balance.
@@ -388,7 +404,7 @@ Wave 3 is the wave where Blank stops being a thing we shipped and starts being a
 
 **Anchor commits:** [`925d5e4`](https://github.com/Pratiikpy/Blank/commit/925d5e4) CSP relax · [`ab4eaf4`](https://github.com/Pratiikpy/Blank/commit/ab4eaf4) /pricing + /roadmap + /blog · [`968b00a`](https://github.com/Pratiikpy/Blank/commit/968b00a) Why-Fhenix-CoFHE post · [`bdf9415`](https://github.com/Pratiikpy/Blank/commit/bdf9415) multichain GlobalCounter fix · [`015701e`](https://github.com/Pratiikpy/Blank/commit/015701e) allowSender refactor · [`c1ffa7e`](https://github.com/Pratiikpy/Blank/commit/c1ffa7e) UUPS rollout
 
-### Wave 4. Composable public-link surface *(May 1 to present)*
+### Wave 4. Composable public-link surface *(May 10 to present)*
 
 > **In one line:** Made every payment shape a public link that any wallet (or no wallet) can interact with, while the amount stays encrypted. Magic claim links, sealed-bid storefronts, encrypted crowdfunding, encrypted escrow.
 
@@ -408,7 +424,7 @@ TRACKED_CONTRACTS swept from 12 to 19 (the 4 new Wave 4 contracts plus 3 pre-Wav
 4 new gating checks added: vitest unit tests (103 passing), Vercel function typecheck (`api/tsconfig.json`), hardhat task typecheck, storage layout check. Total CI surface: 4 jobs to 8.
 
 **Where we are**
-Sprint week shipped 13 commits across 11 §1 punch-list items in ~6.5 hours. UUPS upgrades safe: 100% slot-preserving (`__gap` decremented when consumed). Tests grew with new 4-of-4 Wave 4 test files. README voice clean: 0 em-dashes, 0 banned-word violations.
+Sprint week shipped 13 commits across 11 §1 punch-list items in ~6.5 hours. UUPS upgrades safe: 100% slot-preserving (`__gap` decremented when consumed). Tests grew with new 4-of-4 Wave 4 test files. README voice clean: 0 em-dashes, 0 banned-word violations. The latest launch-readiness pass adds live Rabby proof on Base Sepolia and Ethereum Sepolia, including three-wallet state checks and real transaction hashes.
 
 **Anchor commits:** `7c241d7` gitignore test wallet · `71d85ae` EncryptedEscrow no-arbiter fix · `429551d` + `333c508` + `a841ebb` Storefront phase A + B · `2e5f7d9` ClaimLinks expiry cap · `f866153` useInheritance unbricked · `e2eca12` extractEventId fails closed · `7992351` cancel-defaults-zero · `3058e32` TRACKED_CONTRACTS sweep · `b351e2e` CI uplift · `68f9d8e` README polish · `d7c24fc` README §4.2.8 engineering tour · `273c508` README surface refresh
 
@@ -469,7 +485,7 @@ Find a hole? Open an issue or email. We treat security reports seriously.
 | **FHE** | Fhenix CoFHE (`@cofhe/sdk` v0.5.1), TFHE WASM, threshold decryption |
 | **Account abstraction** | ERC-4337, P-256 passkey signing, EntryPoint v0.7 |
 | **Frontend** | React, Vite, TypeScript, Tailwind |
-| **Wallets** | wagmi + viem; MetaMask, Coinbase, WalletConnect |
+| **Wallets** | wagmi + viem; Rabby launch-tested, other EOA connectors share the same integration path |
 | **Realtime** | Supabase (cache + notifications; never the source of truth) |
 | **Deployment** | Vercel (frontend), Hardhat (contracts) |
 
@@ -477,16 +493,18 @@ Find a hole? Open an issue or email. We treat security reports seriously.
 
 ## Get started in 30 seconds
 
-**Use the live app:**
+**Use the live app, proven path:**
 
 ```
 1. Visit blank-omega-jade.vercel.app
-2. Create a passkey with any passphrase
+2. Connect Rabby on Base Sepolia or Ethereum Sepolia
 3. Mint test USDC from the in-app faucet
-4. Send a private payment in under a minute
+4. Send a private payment, create an invoice, or open a public link
 ```
 
-Gas is free. No extension needed. Works on mobile.
+This is the path covered by the current launch-readiness report. Passkey
+smart accounts and mobile screens are active product paths; the proven
+transaction matrix for this launch is desktop Rabby EOA.
 
 **Try a Wave 4 feature in 60 seconds:**
 
