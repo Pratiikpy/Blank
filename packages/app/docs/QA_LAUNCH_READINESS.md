@@ -1,10 +1,10 @@
 # Blank testnet QA launch report
 
-Generated: 2026-05-20 11:55 IST
+Generated: 2026-05-20 12:22 IST
 
 Live URL: https://blank-omega-jade.vercel.app
 
-Latest deployed commit: `873ae97`
+Latest deployed product commit: `4820ebb`
 
 ## Claim
 
@@ -31,6 +31,7 @@ Mobile responsive quality is green for route coverage on both chains with Rabby 
 | Ethereum direct send | green | `test-results/qa-live-send-eth/REPORT.md`, tx `0x83869b7b4544db102dc9817361b3bad667c4dc4efb4b9e628ed1e2131944347f` |
 | External asset Bridge and Swap | green | `test-results/qa-live-external-assets/REPORT.md`, Bridge mint tx `0x5c4b16f9a9b2f8108e4e63a1697ddb262c4ae8383ce285dffddb0ce27d9443f4`, Swap tx `0xb3670e57dbca188cf3dd057a5637388b952612be5902b4daefa06bf14399d58e` |
 | Base P2P exchange create and fill | green | `test-results/qa-live-outcome-p2p-base/REPORT.md`, txs `0x415184702a44cdd6f1df690164bc6d50767ce67d7871764a5841207bfa6cb471`, `0x1db8ef8dec9e9dad668cfc39f57305e7593512da0a187028e9dd569d36382bfa`, `0x1a3cbbb4b0d3fe0768c3fc5a5a14fd947e9bc4fb6cf27e3974114848f8168066` |
+| Ethereum P2P exchange create and fill | green | `test-results/qa-live-outcome-p2p-eth/REPORT.md`, txs `0x704603b98071682734723774990c368ffa91f2828dfc0dfb4e43eceb6e9bede2`, `0x377edcb6796c116dd696952514110006729ac56676d3187267cf1ec15e0aab03`, `0x843b41a88dd1c68d2aad63df37cc25239aa6052ebef5786805c73bde7d1c652c`, `0xbc2cdfee30fd9b94e4935586b8cef80df58b5b558805c6134daf6c3ea84e697f`, `0x0243657585f94e24616d90353351b97fa2b84a1268faf8a9e6662b4253801de5`, `0xcf8a77fb10273c6bd77c6c25b5332c0257ce7b443c2a92e48eff80d205fe9325`, `0x076c5971bea3c57b36ee4ced9a694a74b75ef5ad6c1b3c42e0c7920e24689a2f` |
 | Base 3-wallet public links | green for user flows | `test-results/qa-live-public-links-base/REPORT.md`, claim link Bob claim and Carol used-link block, storefront Bob buyer and Carol non-buyer, crowdfund Bob and Carol contributors |
 | Base realtime soak | green | `test-results/qa-live-soak-base/REPORT.md`, tx `0x60da850efce66f6397fd4cb27987f55531ceb4797f448f756c71bd6f64d7718c`, 10 refresh samples, Carol private-state exclusion green |
 | Ethereum realtime soak | green | `test-results/qa-live-soak-eth/REPORT.md`, tx `0x1e5e2bb8541ffa1237412625cb1296279229c0487a8d81dedd84d8c88319e727` |
@@ -41,9 +42,10 @@ Mobile responsive quality is green for route coverage on both chains with Rabby 
 | Ethereum creator profile and support | green | `test-results/qa-live-outcome-creator-eth/REPORT.md`, txs `0xa5bf6b0bb8095b91983852a6e8155082f46f7b0f4a4649775ef31c70c83a8bd8`, `0x43590bef305a94f9b1734068df6015fc57f431a42226bdef5e2f9f1bfa3924e5`, `0x6fcb57ea11ff5057aafb3fd75c0360ae4e3943c3a1406969a4bca7315e80131b` |
 | Base failure handling | green | `test-results/qa-live-failure-base/REPORT.md`, duplicate-click tx `0x611742ef681eb63cdd69e92f95c4d9358206cf922613e754dd9301a5621736c3` |
 | Ethereum failure handling | green | `test-results/qa-live-failure-eth/REPORT.md`, duplicate-click tx `0x1372a6ac4f43dff1a8d5e5a16729a1c103cddfef69542555d35ff500837090cd` |
-| Desktop current live render sweep | 30/30 ok | `test-results/qa-live-sweep/REPORT.md` |
-| Mobile Base current live sweep | 30/30 ok | `test-results/qa-live-mobile-sweep-base/REPORT.md`, refreshed after `873ae97` |
-| Mobile Ethereum current live sweep | 30/30 ok | `test-results/qa-live-mobile-sweep-eth/REPORT.md`, refreshed after `873ae97` |
+| Desktop current live render sweep | 30/30 ok | `test-results/qa-live-sweep/REPORT.md`, refreshed after `4820ebb` |
+| Mobile Base current live sweep | 30/30 ok | `test-results/qa-live-mobile-sweep-base/REPORT.md`, refreshed after `4820ebb` |
+| Mobile Ethereum current live sweep | 30/30 ok | `test-results/qa-live-mobile-sweep-eth/REPORT.md`, refreshed after `4820ebb` |
+| Auction close and crowdfund release/refund code paths | green | `pnpm hardhat test test/Storefront.test.ts test/EncryptedCrowdfund.test.ts`, 47 passing. Covers auction close, winner claim, loser refund, winner double-refund rejection, crowdfund goal-met release, goal-not-met refunds, double-refund rejection |
 
 ## Product fixes from QA
 
@@ -56,6 +58,7 @@ Mobile responsive quality is green for route coverage on both chains with Rabby 
 - `7bb1a54`: client invoice history keeps terminal statuses visible after payment and finalization.
 - `daa0228`: decimal P2P offers persist as base units in Supabase, and failed offer inserts now fail visibly instead of showing false success.
 - `873ae97`: EOA writes wait for receipts through the target chain RPC first. This fixed a real payment-request stale-state bug on Ethereum Sepolia.
+- `4820ebb`: Ethereum Sepolia now has TestUSDT plus an encrypted USDT vault, and P2P fill prepares test USDT before filling an offer.
 
 ## Current honest gaps
 
@@ -64,9 +67,8 @@ Mobile responsive quality is green for route coverage on both chains with Rabby 
 - Passkey AA sponsorship is degraded on the live env. The app surfaces an honest banner and Rabby EOA sends still work.
 - Supabase should still receive a schema migration for `activities.chain_id`. The live app now filters legacy rows client-side, but server-side chain filtering is the better long-term state.
 - Mainnet is not in scope.
-- P2P Exchange is Base Sepolia only right now. The Ethereum Sepolia UI states that the protocol needs two distinct tokens and only Base has them today.
 - The shared-profile public-link script still records one wallet-preflight red line when switching active Rabby accounts inside one already-authorized browser session. The stricter isolated 3-session soak is green and is the multi-wallet truth source for this report.
-- Time-locked auction close and crowdfund release/refund are not live-waited here because testnet UI durations are one day. Contract tests cover those paths.
+- Time-locked auction close and crowdfund release/refund are not live-waited through the public UI because the shipped UI duration buttons start at one day. Contract tests cover those paths with time travel.
 
 ## Final status
 
