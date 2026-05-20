@@ -311,7 +311,7 @@ describe("useStealthSweep — lazy passphrase unlock (§15.x)", () => {
     });
     expect(passphraseRequestMock).toHaveBeenCalledTimes(1);
     const opts = passphraseRequestMock.mock.calls[0][0] as { title: string };
-    expect(opts.title).toBe("Unlock stealth keys");
+    expect(opts.title).toBe("Decrypt stealth keys");
     expect(unlockStealthKeysMock).toHaveBeenCalledWith(ME, "the-passphrase");
   });
 

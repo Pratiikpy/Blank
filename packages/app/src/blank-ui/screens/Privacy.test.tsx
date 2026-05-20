@@ -116,7 +116,7 @@ describe("Privacy — permit status card (§15.x)", () => {
     setPrivacy({ hasPermit: true, isExpired: false, permitExpiresAt: FUTURE_HOURS_2 });
     const { container, queryByLabelText } = withRouter(<Privacy />);
     expect(container.textContent).toContain("Active");
-    expect(container.textContent).toContain("your data is accessible");
+    expect(container.textContent).toContain("Your data is accessible");
     expect(queryByLabelText("Create or renew FHE permit")).toBeNull();
   });
 

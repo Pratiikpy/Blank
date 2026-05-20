@@ -164,7 +164,7 @@ describe("SmartWallet — 3-state machine (§15.x)", () => {
     const { container } = render(<SmartWallet />);
     expect(container.textContent).toContain("Create your smart wallet");
     expect(container.textContent).toContain("8+ chars");
-    expect(container.textContent).toContain("write it down somewhere safe");
+    expect(container.textContent).toContain("Write it down somewhere safe");
     expect(container.textContent).toContain("we can't recover it");
   });
 

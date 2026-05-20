@@ -540,7 +540,7 @@ describe("ScheduledSends — handleCreate flow + stub-mode banner (§15.x)", () 
     });
     await waitFor(() => {
       expect(container.textContent).toContain("Schedules are queued");
-      expect(container.textContent).toContain("not firing yet");
+      expect(container.textContent).toContain("Not firing yet");
     });
     expect(container.textContent).toContain("cron + KMS");
   });

@@ -218,7 +218,7 @@ describe("useInvoiceEscrow — payEscrow guards (§15.x)", () => {
       r = await result.current.payEscrow(42, "100");
     });
     expect(r).toBeNull();
-    expect(toastErrorMock).toHaveBeenCalledWith("Connection lost — please refresh");
+    expect(toastErrorMock).toHaveBeenCalledWith("Connection lost. Please refresh.");
   });
 
   it("empty amount -> 'Enter an amount' toast", async () => {
@@ -417,7 +417,7 @@ describe("useInvoiceEscrow — payEscrow happy path (§15.x)", () => {
     });
     expect(invalidateBalanceQueriesMock).toHaveBeenCalledTimes(1);
     expect(toastSuccessMock).toHaveBeenCalledWith(
-      "Payment funded — finalize to release to vendor",
+      "Payment funded. Finalize to release to vendor.",
     );
   });
 

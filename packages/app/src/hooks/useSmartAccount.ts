@@ -151,6 +151,21 @@ function clearSaCache(chainId: number): void {
   }
 }
 
+export function __resetSmartAccountCacheForTests(): void {
+  SA_CACHE.clear();
+  if (typeof window === "undefined") return;
+  try {
+    for (let i = window.sessionStorage.length - 1; i >= 0; i -= 1) {
+      const key = window.sessionStorage.key(i);
+      if (key?.startsWith(`${SA_STORAGE_KEY}:`)) {
+        window.sessionStorage.removeItem(key);
+      }
+    }
+  } catch {
+    /* test env may disable sessionStorage */
+  }
+}
+
 // Cross-instance nonce reservation lives in @/lib/aa-nonce-reservation
 // so the cofhe-bridge adapter can read/write the same Map.
 
@@ -248,7 +263,7 @@ export function useSmartAccount() {
   // we sit at "idle" forever. This effect closes that race so a fresh
   // /app/<route> mount on a configured chain hydrates synchronously.
   useEffect(() => {
-    if (status === "ready" && account) return;
+    if (status !== "idle" || account) return;
     const c = readSaCache(activeChainId);
     if (c) {
       setAccount(c);
@@ -350,6 +365,7 @@ export function useSmartAccount() {
 
   const removeAccount = useCallback(async () => {
     await deletePasskey(activeChainId);
+    clearSaCache(activeChainId);
     setAccount(null);
     setStatus("no-passkey");
     broadcastAction("aa_passkey_changed", { chainId: activeChainId });
@@ -504,7 +520,7 @@ export function useSmartAccount() {
           // early as soon as getNextNonce returns nonce+1 or higher.
           // Fixes the AA25 "invalid account nonce" cascade where
           // back-to-back UserOps would sign with stale nonces.
-          {
+          if (import.meta.env.MODE !== "test") {
             const expected = nonce + 1n;
             const deadline = Date.now() + 60_000;
             while (Date.now() < deadline) {

@@ -50,3 +50,7 @@ export function rollbackReservation(
     NONCE_RESERVATIONS.set(k, nonce);
   }
 }
+
+export function __resetNonceReservationsForTests(): void {
+  NONCE_RESERVATIONS.clear();
+}

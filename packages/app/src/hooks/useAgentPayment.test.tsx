@@ -374,9 +374,9 @@ describe("useAgentPayment — derive (stage 1) (§15.x)", () => {
     });
     expect(r).toBeNull();
     expect(result.current.step).toBe("error");
-    expect(result.current.error).toBe("invalid template");
+    expect(result.current.error).toBe("AI agent couldn't derive an amount. Try rephrasing or use a different example.");
     expect(toastErrorMock).toHaveBeenCalledWith(
-      "invalid template",
+      "AI agent couldn't derive an amount. Try rephrasing or use a different example.",
       expect.any(Object),
     );
   });
@@ -393,7 +393,7 @@ describe("useAgentPayment — derive (stage 1) (§15.x)", () => {
     await act(async () => {
       await result.current.derive("payroll_line", "x");
     });
-    expect(result.current.error).toBe("HTTP 500");
+    expect(result.current.error).toBe("Couldn't reach the AI agent backend. Check your connection and retry.");
   });
 
   it("network rejection -> step=error + caught", async () => {
@@ -403,7 +403,7 @@ describe("useAgentPayment — derive (stage 1) (§15.x)", () => {
       await result.current.derive("payroll_line", "x");
     });
     expect(result.current.step).toBe("error");
-    expect(result.current.error).toBe("network unreachable");
+    expect(result.current.error).toBe("Couldn't reach the AI agent backend. Check your connection and retry.");
   });
 
   it("template='expense_share' passes through", async () => {
@@ -505,7 +505,7 @@ describe("useAgentPayment — submit guards (§15.x)", () => {
     });
     expect(r).toBeNull();
     expect(toastErrorMock).toHaveBeenCalledWith(
-      "Attestation about to expire — re-derive",
+      "Attestation about to expire. Re-derive.",
     );
     expect(unifiedWriteAndWaitMock).toHaveBeenCalledTimes(0);
   });
@@ -525,7 +525,7 @@ describe("useAgentPayment — submit guards (§15.x)", () => {
     });
     // Should NOT reject — the attestation is still 30min from chain expiry
     expect(toastErrorMock).not.toHaveBeenCalledWith(
-      "Attestation about to expire — re-derive",
+      "Attestation about to expire. Re-derive.",
     );
     expect(unifiedWriteAndWaitMock).toHaveBeenCalledTimes(1);
   });

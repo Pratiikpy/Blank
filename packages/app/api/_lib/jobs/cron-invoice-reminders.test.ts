@@ -33,10 +33,6 @@ const SECRET = "reminders-secret";
 const VENDOR = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const CLIENT = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 
-function isoNDaysFromNow(n: number): string {
-  return new Date(Date.now() + n * 86_400_000).toISOString();
-}
-
 // Mid-day variant: adds 12 hours so handler-side floor((due-now)/1d)
 // can't slide into the adjacent integer if a few ms pass between
 // test setup and handler execution.

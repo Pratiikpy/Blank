@@ -237,7 +237,11 @@ describe("markRevoked", () => {
     const { from, update, eq1, eq2, eq3 } = mockSupabaseUpdate();
     await markRevoked({ account: ALICE, sessionKey: SESSION_KEY, chainId: CHAIN_ID });
     expect(from).toHaveBeenCalledWith("session_keys");
-    const updatePayload = update.mock.calls[0]![0] as { revoked_at: unknown; updated_at: unknown };
+    const calls = update.mock.calls as unknown as Array<
+      [{ revoked_at: unknown; updated_at: unknown }]
+    >;
+    const updatePayload = calls[0]?.[0];
+    if (!updatePayload) throw new Error("update was not called");
     expect(updatePayload.revoked_at).toEqual(expect.any(String));
     expect(updatePayload.updated_at).toEqual(expect.any(String));
     // 3 chained .eq calls keyed by lowercased values.

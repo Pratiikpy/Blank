@@ -145,6 +145,7 @@ beforeEach(() => {
   useEffectiveAddressMock.mockReturnValue({ effectiveAddress: ME });
   useChainMock.mockReturnValue({
     activeChainId: 11155111,
+    activeChain: { name: "Ethereum Sepolia" },
     contracts: { TestUSDC: USDC },
   });
   usePaymasterHealthMock.mockReturnValue({ status: "ready" });

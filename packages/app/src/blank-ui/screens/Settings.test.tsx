@@ -113,7 +113,7 @@ describe("Settings — passkey-blank-page guard (§15.x)", () => {
   it("returns null when no effective address (no passkey-empty-page render)", () => {
     useEffectiveAddressMock.mockReturnValue({ effectiveAddress: undefined });
     const { container } = render(<Settings />);
-    expect(container.firstChild).toBeNull();
+    expect(container.textContent).toContain("Loading your account...");
   });
 
   it("renders the page chrome when effective address present", () => {

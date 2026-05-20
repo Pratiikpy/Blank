@@ -127,7 +127,8 @@ describe("cron-reconcile-tick — address aggregation (§15.x)", () => {
     // 2 addresses × 2 chains = 4 fetch calls, NOT 4 + 2 (zero address skipped).
     expect(fetchSpy).toHaveBeenCalledTimes(4);
     // Verify no fetch carried the zero address.
-    const bodies = fetchSpy.mock.calls.map((c) => JSON.parse((c[1] as RequestInit).body as string));
+    const calls = fetchSpy.mock.calls as unknown as Array<[RequestInfo | URL, RequestInit]>;
+    const bodies = calls.map((c) => JSON.parse(c[1].body as string));
     for (const b of bodies) {
       expect(b.address).not.toBe(ZERO);
     }
@@ -255,7 +256,9 @@ describe("cron-reconcile-tick — reconcile-user fanout (§15.x)", () => {
     const res = makeRes();
     await handler(makeReq(), res);
 
-    const url = fetchSpy.mock.calls[0][0] as string;
+    const calls = fetchSpy.mock.calls as unknown as Array<[string, RequestInit?]>;
+    const url = calls[0]?.[0];
+    if (!url) throw new Error("fetch was not called");
     expect(url).toBe("https://blank-vercel-deploy.vercel.app/api/reconcile-user");
   });
 });

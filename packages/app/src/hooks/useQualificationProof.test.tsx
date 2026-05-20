@@ -257,7 +257,7 @@ describe("useQualificationProof — createIncomeProof (§15.x)", () => {
     });
     expect(r).toBe(77n);
     expect(result.current.step).toBe("success");
-    expect(toastSuccessMock).toHaveBeenCalledWith("Proof created — id 77");
+    expect(toastSuccessMock).toHaveBeenCalledWith("Proof created. ID 77");
   });
 
   it("inserts PROOF_CREATED activity row with descriptive note", async () => {
@@ -632,7 +632,7 @@ describe("useQualificationProof — publishProof (§15.x)", () => {
       await result.current.publishProof(42n);
     });
     expect(toastSuccessMock).toHaveBeenCalledWith(
-      "Verified — proof holds",
+      "Verified. Proof holds.",
       expect.objectContaining({ id: "toast-id" }),
     );
   });
@@ -647,7 +647,7 @@ describe("useQualificationProof — publishProof (§15.x)", () => {
       await result.current.publishProof(42n);
     });
     expect(toastSuccessMock).toHaveBeenCalledWith(
-      "Verified — proof is false",
+      "Verified. Proof is false.",
       expect.objectContaining({ id: "toast-id" }),
     );
   });

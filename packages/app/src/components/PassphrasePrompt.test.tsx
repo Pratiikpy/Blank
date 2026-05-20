@@ -4,6 +4,7 @@ import {
   PassphrasePromptProvider,
   usePassphrasePrompt,
   SigningOverlay,
+  __resetPassphrasePromptForTests,
 } from "./PassphrasePrompt";
 
 // §15.x test for PassphrasePrompt — the global modal that gates
@@ -14,9 +15,11 @@ import {
 
 beforeEach(() => {
   vi.useFakeTimers();
+  __resetPassphrasePromptForTests();
 });
 
 afterEach(() => {
+  __resetPassphrasePromptForTests();
   vi.useRealTimers();
 });
 

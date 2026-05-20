@@ -521,7 +521,7 @@ export default function SendConfirm() {
                     ? "Approving encrypted transfers..."
                     : isEncrypting
                       ? "Encrypting payment amount..."
-                      : `Broadcasting to ${activeChain.name}...`}
+                      : `Broadcasting to ${activeChain?.name ?? "current network"}...`}
                 </p>
                 <p className="text-sm text-[var(--text-secondary)]">
                   {step === "approving"

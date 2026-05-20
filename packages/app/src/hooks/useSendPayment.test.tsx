@@ -606,7 +606,7 @@ describe("useSendPayment — confirmSend single legacy (§15.x)", () => {
       await result.current.confirmSend();
     });
     expect(toastErrorMock).toHaveBeenCalledWith(
-      "Smart wallet not ready yet — please wait a moment and try again.",
+      "Smart wallet not ready yet. Please wait a moment and try again.",
     );
     expect(unifiedWriteMock).toHaveBeenCalledTimes(0);
   });

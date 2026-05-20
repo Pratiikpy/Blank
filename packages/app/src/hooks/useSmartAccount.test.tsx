@@ -98,7 +98,8 @@ vi.mock("@/lib/cross-tab", () => ({
 }));
 vi.mock("@/lib/log", () => ({ log: { warn: vi.fn(), debug: vi.fn() } }));
 
-import { useSmartAccount } from "./useSmartAccount";
+import { useSmartAccount, __resetSmartAccountCacheForTests } from "./useSmartAccount";
+import { __resetNonceReservationsForTests } from "@/lib/aa-nonce-reservation";
 
 const FACTORY = "0x1111111111111111111111111111111111111111" as const;
 const PAYMASTER = "0x2222222222222222222222222222222222222222" as const;
@@ -113,6 +114,8 @@ let crossTabHandlers: Array<(action: string, data?: unknown) => void> = [];
 let fetchMock: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
+  __resetSmartAccountCacheForTests();
+  __resetNonceReservationsForTests();
   useChainMock.mockReset();
   usePublicClientMock.mockReset();
   hasPasskeyMock.mockReset();
@@ -181,6 +184,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  __resetSmartAccountCacheForTests();
+  __resetNonceReservationsForTests();
   vi.useRealTimers();
 });
 

@@ -47,6 +47,14 @@ const QUEUE_ENTRY_TIMEOUT_MS = 60_000;
 const _passphraseQueue: QueuedRequest[] = [];
 const _passphraseListeners = new Set<() => void>();
 
+export function __resetPassphrasePromptForTests(): void {
+  for (const entry of _passphraseQueue) {
+    if (entry.timeoutId) clearTimeout(entry.timeoutId);
+  }
+  _passphraseQueue.length = 0;
+  _passphraseListeners.clear();
+}
+
 function _notifyQueueChanged() {
   for (const fn of _passphraseListeners) {
     try { fn(); } catch { /* listener threw — don't break others */ }

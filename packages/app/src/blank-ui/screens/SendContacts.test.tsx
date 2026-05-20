@@ -154,7 +154,7 @@ describe("SendContacts — page chrome (§15.x)", () => {
     setSend({ mode: "many" });
     const { container } = render(<SendContacts />);
     expect(container.textContent).toContain("Pick up to 50 recipients");
-    expect(container.textContent).toContain("one batched, encrypted tx");
+    expect(container.textContent).toContain("One batched, encrypted tx");
   });
 
   it("clicking Many toggle calls setMode('many')", () => {

@@ -456,7 +456,7 @@ describe("Proofs — share link + tweet intent (§15.x)", () => {
     const link = (await findByLabelText("Share on X / Twitter")) as HTMLAnchorElement;
     const text = decodeURIComponent(link.getAttribute("href")!.split("text=")[1]);
     expect(text).toContain("FALSE");
-    expect(text).toContain("just the boolean answer");
+    expect(text).toContain("Just the boolean answer");
   });
 
   it("Tweet link has tabnabbing guard", async () => {

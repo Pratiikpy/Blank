@@ -230,13 +230,14 @@ describe("/api/health — fhenix probes (§15.x)", () => {
     const res = makeRes();
     await handler({}, res);
     expect(fetchSpy).toHaveBeenCalledTimes(3);
-    const urls = fetchSpy.mock.calls.map((c) => c[0] as string);
+    const calls = fetchSpy.mock.calls as unknown as Array<[string, RequestInit]>;
+    const urls = calls.map((c) => c[0]);
     expect(urls).toContain("https://testnet-cofhe.fhenix.zone");
     expect(urls).toContain("https://testnet-cofhe-vrf.fhenix.zone");
     expect(urls).toContain("https://testnet-cofhe-tn.fhenix.zone");
     // All probes use HEAD so we don't pull KB of body.
-    for (const c of fetchSpy.mock.calls) {
-      expect((c[1] as RequestInit).method).toBe("HEAD");
+    for (const c of calls) {
+      expect(c[1].method).toBe("HEAD");
     }
   });
 });
