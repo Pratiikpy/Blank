@@ -9,7 +9,7 @@ import { GlobalCounter } from "./GlobalCounter";
 import "./landing.css";
 
 // ══════════════════════════════════════════════════════════════════
-//  Landing — hero + pitch + short narrative
+//  Landing - hero + pitch + short narrative
 //  Depth lives on dedicated pages (/features, /live, /manifesto).
 //  This page's job is to get you interested enough to click one of them.
 //  ══════════════════════════════════════════════════════════════════
@@ -76,8 +76,9 @@ function ProofOfProduct() {
         Not a roadmap. Working software.
       </h2>
       <p className="ll-section-lead">
-        Two testnets live today. Twelve features shipped. Every flow tested
-        end-to-end through the real UI. No demo videos, no waitlist.
+        Two testnets live today. Sixteen product surfaces shipped. Core
+        desktop flows have real testnet receipts through the real UI.
+        No waitlist.
       </p>
       <div className="ll-stats-grid">
         {stats.map((s) => (
@@ -138,9 +139,9 @@ function HowItWorks() {
 function ExploreLinks() {
   const links = [
     {
-      kicker: "Twelve tools",
+      kicker: "Sixteen surfaces",
       title: "Every way to pay privately",
-      body: "Send, split, tip, invoice, payroll, escrow, stealth, gift, inherit, swap. Twelve product surfaces, one encrypted vault.",
+      body: "Send, split, tip, invoice, payroll, escrow, stealth, gift, claim, sell, fund, bridge, and swap. One encrypted vault.",
       to: "/features",
       cta: "See all features",
     },

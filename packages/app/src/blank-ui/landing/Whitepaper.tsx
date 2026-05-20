@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { ArrowDownToLine, ExternalLink } from "lucide-react";
 import { LandingFooter } from "./LandingFooter";
 import { LandingNav } from "./LandingNav";
+import "./landing.css";
 
 export default function Whitepaper() {
   useEffect(() => {
@@ -44,26 +45,45 @@ export default function Whitepaper() {
             </a>
           </div>
 
-          <div
-            style={{
-              border: "1px solid rgba(0,0,0,0.08)",
-              borderRadius: "1.5rem",
-              overflow: "hidden",
-              background: "#F5F5F7",
-              minHeight: "78vh",
-              boxShadow: "0 24px 80px rgba(0,0,0,0.08)",
-            }}
-          >
-            <iframe
-              title="Blank whitepaper PDF"
-              src="/whitepaper.pdf"
-              style={{
-                width: "100%",
-                height: "78vh",
-                border: 0,
-                display: "block",
-              }}
-            />
+          <div className="ll-stats-grid" style={{ alignItems: "stretch", marginTop: "2rem" }}>
+            {[
+              {
+                title: "Privacy model",
+                body: "Sender and receiver stay public. Amounts, balances, bids, payroll values, contributions, and thresholds are encrypted.",
+              },
+              {
+                title: "Architecture",
+                body: "Browser encryption, Fhenix CoFHE verification, ciphertext state, permit-based decryption, and chain-authoritative settlement.",
+              },
+              {
+                title: "Product surface",
+                body: "Send, invoices, requests, payroll, gifts, groups, proofs, claim links, storefront, crowdfund, escrow, swap, bridge, and P2P exchange.",
+              },
+            ].map((item) => (
+              <div key={item.title} className="ll-stat" style={{ textAlign: "left" }}>
+                <div
+                  style={{
+                    fontSize: "1.2rem",
+                    fontWeight: 700,
+                    color: "var(--ll-ink-1)",
+                    marginBottom: "0.6rem",
+                  }}
+                >
+                  {item.title}
+                </div>
+                <div className="ll-stat-label">{item.body}</div>
+              </div>
+            ))}
+          </div>
+
+          <div className="ll-step" style={{ textAlign: "left", marginTop: "1rem" }}>
+            <div className="ll-step-title">Public testnet scope</div>
+            <div className="ll-step-body">
+              Live on Base Sepolia and Ethereum Sepolia. Standard EVM wallets
+              are supported on both chains; Blank passkey smart accounts are
+              available when sponsorship is available. Mobile UI is live across
+              the route map, with expanded mobile transaction coverage next.
+            </div>
           </div>
         </div>
       </main>

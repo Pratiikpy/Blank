@@ -3,7 +3,7 @@ import { render } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import Features from "./Features";
 
-// §15.x test for the Features catalog page. 11 features, each a row
+// §15.x test for the Features catalog page. 16 features, each a row
 // with copy + a CSS-only Preview card. The Preview component is a
 // discriminated union over 8 kinds (receipt/group/badge/invoice/
 // stealth/envelope/countdown/swap); adding a future kind without a
@@ -25,9 +25,9 @@ describe("Features — page chrome (§15.x)", () => {
 });
 
 describe("Features — hero (§15.x)", () => {
-  it("kicker reads 'Twelve private tools' (the landing-page tagline)", () => {
+  it("kicker reads 'Sixteen private surfaces' (the landing-page tagline)", () => {
     const { container } = withRouter(<Features />);
-    expect(container.textContent).toContain("Twelve private tools");
+    expect(container.textContent).toContain("Sixteen private surfaces");
   });
 
   it("CRITICAL headline: 'Everything you'd do with Venmo. With the amounts sealed shut.'", () => {
@@ -45,8 +45,8 @@ describe("Features — hero (§15.x)", () => {
   });
 });
 
-describe("Features — 11-feature catalog (§15.x)", () => {
-  it("renders all 11 feature names", () => {
+describe("Features — 16-feature catalog (§15.x)", () => {
+  it("renders all 16 feature names", () => {
     const { container } = withRouter(<Features />);
     const text = container.textContent ?? "";
     const features = [
@@ -61,24 +61,29 @@ describe("Features — 11-feature catalog (§15.x)", () => {
       "Gift Envelopes",
       "Inheritance",
       "P2P Exchange",
+      "Encrypted Proofs",
+      "Claim Links",
+      "Storefront",
+      "Crowdfund",
+      "Bridge",
     ];
     for (const f of features) {
       expect(text).toContain(f);
     }
   });
 
-  it("renders all 11 numbered tags (01. → 11.)", () => {
+  it("renders all 16 numbered tags (01. -> 16.)", () => {
     const { container } = withRouter(<Features />);
     const text = container.textContent ?? "";
-    for (let i = 1; i <= 11; i++) {
+    for (let i = 1; i <= 16; i++) {
       const tag = `${i.toString().padStart(2, "0")}.`;
       expect(text).toContain(tag);
     }
   });
 
-  it("renders exactly 11 feature rows (one per catalog entry)", () => {
+  it("renders exactly 16 feature rows (one per catalog entry)", () => {
     const { container } = withRouter(<Features />);
-    expect(container.querySelectorAll(".ll-feature-row").length).toBe(11);
+    expect(container.querySelectorAll(".ll-feature-row").length).toBe(16);
   });
 
   it("alternates 'reversed' class on every other row (zebra layout)", () => {
@@ -97,7 +102,7 @@ describe("Features — 11-feature catalog (§15.x)", () => {
   it("each feature has a 'Try <name>' CTA linking to its app route", () => {
     const { container } = withRouter(<Features />);
     const ctas = Array.from(container.querySelectorAll(".ll-feature-cta")) as HTMLAnchorElement[];
-    expect(ctas.length).toBe(11);
+    expect(ctas.length).toBe(16);
     const routes = ctas.map((a) => a.getAttribute("href"));
     expect(routes).toContain("/app/send");
     expect(routes).toContain("/app/requests");
@@ -108,6 +113,11 @@ describe("Features — 11-feature catalog (§15.x)", () => {
     expect(routes).toContain("/app/gifts");
     expect(routes).toContain("/app/inheritance");
     expect(routes).toContain("/app/swap");
+    expect(routes).toContain("/app/proofs");
+    expect(routes).toContain("/app/claim-link");
+    expect(routes).toContain("/app/sell");
+    expect(routes).toContain("/app/fundraise");
+    expect(routes).toContain("/app/bridge");
   });
 });
 
@@ -175,7 +185,7 @@ describe("Features — scenarios + pitches (§15.x)", () => {
   it("each feature has a real-world scenario block (rendered with .ll-feature-scenario)", () => {
     const { container } = withRouter(<Features />);
     const scenarios = container.querySelectorAll(".ll-feature-scenario");
-    expect(scenarios.length).toBe(11);
+    expect(scenarios.length).toBe(16);
   });
 
   it("Send scenario names 'Sarah pays her freelance designer $800'", () => {
@@ -196,9 +206,9 @@ describe("Features — scenarios + pitches (§15.x)", () => {
 });
 
 describe("Features — bottom CTA (§15.x)", () => {
-  it("CTA section heading: 'One vault. Twelve ways in.'", () => {
+  it("CTA section heading: 'One vault. Sixteen ways in.'", () => {
     const { container } = withRouter(<Features />);
-    expect(container.textContent).toContain("One vault. Twelve ways in");
+    expect(container.textContent).toContain("One vault. Sixteen ways in");
   });
 
   it("'Launch Blank' CTA links to /app", () => {

@@ -65,8 +65,8 @@ const post: BlogPost = {
 
       <h2>Workspace modes: the hide-the-menu fix</h2>
       <p>
-        Twelve product surfaces in one app is a feature pile that
-        scares new users. The fix: pick a focus mode (Freelancer,
+        A broad product surface in one app can scare new users.
+        The fix: pick a focus mode (Freelancer,
         Business, Privacy, Full), and the nav, search, and feature
         surface adapt to your role. Single source of truth in{" "}
         <code>nav-registry.ts</code> drives the desktop sidebar,
@@ -163,7 +163,7 @@ const post: BlogPost = {
         screens we've shipped, a trust layer (audit + status
         page + bug bounty), and the boring-but-important work of
         cleaning up the technical debt that accumulates when
-        you ship 12 features in one wave.
+        you ship a wide product surface quickly.
       </p>
       <p>
         The roadmap will live at <a href="/roadmap">/roadmap</a> with

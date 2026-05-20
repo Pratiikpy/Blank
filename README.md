@@ -49,12 +49,10 @@ Blank is live on Base Sepolia and Ethereum Sepolia at
 [blank-omega-jade.vercel.app](https://blank-omega-jade.vercel.app).
 
 The public testnet app supports standard EVM wallet connections on both
-chains, plus Blank passkey smart accounts for no-extension onboarding.
-
-Passkey smart accounts are built into the product for no-extension,
-gas-sponsored onboarding when the paymaster is available. Mobile UI is
-live across the full route map; expanded mobile transaction coverage comes
-next.
+chains. Blank passkey smart accounts are built into the product for
+no-extension onboarding, with sponsorship when the paymaster is available.
+Mobile UI is live across the route map; expanded mobile transaction
+coverage comes next.
 
 ## In 5 minutes
 
@@ -98,7 +96,7 @@ No mixer. No trusted custodian. No hardware enclaves. Pure math + a threshold ne
 | **Swap** | P2P encrypted exchange | Atomic settlement, encrypted amounts |
 | **Agent** | AI-derived payments | Plain English → signed → on-chain |
 | **Claim links** | Bearer / email / address-bound payment links | Send to anyone via URL, claim with secret + (optional) email or wallet |
-| **Storefront** | Per-listing FixedPrice / Auction / PWYW | Encrypted prices, FHE-tournament sealed-bid auctions |
+| **Storefront** | Per-listing FixedPrice / Auction / PWYW | Encrypted prices, sealed-bid auctions, seller-handled delivery |
 | **Crowdfund** | Encrypted goal + encrypted contributions | Private fundraising, on-chain `FHE.gte(raised, goal)` verdict |
 | **Encrypted escrow** | Arbiter-or-deadline release | Encrypted-amount escrow with dispute path or auto-refund at expiry |
 
@@ -114,7 +112,7 @@ Sixteen product surfaces. One encrypted vault. One link to share.
 /g/<claim-code>                   ← gift envelope
 /v/<proof-id>                     ← balance proof
 /claim/<chainId>/<linkId>#<secret>  ← magic claim link (bearer / email / address-bound)
-/shop/<chainId>/<listingId>       ← storefront listing (FixedPrice / Auction / PWYW)
+/shop/<chainId>/<listingId>       ← storefront listing (private payment, seller-handled delivery)
 /fund/<chainId>/<campaignId>      ← encrypted crowdfund campaign
 /escrow/<chainId>/<escrowId>      ← encrypted escrow detail
 ```
@@ -257,7 +255,7 @@ Never. There is no $BLANK token and there will not be one. Read the next section
 
 - **A mixer.** Sender + receiver are public on purpose.
 - **A speculation app.** No token. No points farm. No "encrypted DeFi yield."
-- **Cross-chain.** We pick two chains and ship them well.
+- **Every-chain sprawl.** We support Base Sepolia and Ethereum Sepolia today, with USDC bridge support between them. We will not add chains just to look bigger.
 - **Mainnet** until the threshold operator set is decentralized and the contracts are audited.
 - **A creator economy super-app.** Privacy is the wedge; features that do not sharpen it get removed.
 
@@ -287,7 +285,7 @@ We ship in waves. If you have 30 seconds, read the box below. If you have 10 min
 > **The story so far. Read this if you have 30 seconds:**
 >
 > - **Wave 1** *(Mar 29 to Apr 16)*. **We built the core app.** A working encrypted-payment app with 16 smart contracts, 12 features, and 23 screens. Live on testnet.
-> - **Wave 2** *(Apr 17 to Apr 30)*. **We made it usable for real people.** Passkey wallets so users don't need MetaMask. The same app runs on two chains. AI agents can sign payments. Anyone can verify a balance proof without a wallet or a server.
+> - **Wave 2** *(Apr 17 to Apr 30)*. **We made it usable for real people.** Passkey wallets so users do not need a browser extension. The same app runs on two chains. AI agents can sign payments. Anyone can verify a balance proof without a wallet or a server.
 > - **Wave 3** *(May 1 to May 9)*. **We made it explainable and faster.** Public pricing page, roadmap, and blog with four long-form posts. Resolved a production startup incident. Fixed a multichain bug. Shipped a Fhenix-recommended performance optimization on both chains in one day. Tests grew from 17 to 154.
 > - **Wave 4** *(May 10 to present)*. **We made it composable.** Magic claim links over email, sealed-bid storefronts, encrypted crowdfunding, encrypted escrow with arbiter-or-deadline release. 4 new contracts (ClaimLinks, Storefront, EncryptedCrowdfund, EncryptedEscrow) plus FHE pipeline UI for every encrypted op.
 
@@ -311,7 +309,7 @@ The pattern: **build → harden → open.** Wave 1 added the surface; Wave 2 dis
 - Split a group expense. Equal share or custom per person, with encrypted voting if you want a quadratic split
 - Tip a creator. Public tier badges (Bronze / Silver / Gold) but encrypted tip totals
 - Send gift envelopes. Equal or random splits, with expiry dates
-- Pay anonymously with one-time stealth codes that resist front-running
+- Pay through one-time stealth codes that resist front-running
 
 *Business tools:*
 - Invoice a client with the amount encrypted
@@ -363,7 +361,7 @@ Send encrypted payments. Request money. Invoice clients. Run payroll where no em
 The app runs on both Base Sepolia and Ethereum Sepolia. Explorer links automatically point at the right chain. Activity feeds show each transaction on the chain it actually happened on, not on whichever chain you're currently looking at. Most of the bugs we caught came from us using the app as a real user with two wallets in two browser windows.
 
 **AI agent payments**  
-A user types "send Alice $50 every Friday" in plain English. The server runs Kimi K2 (Anthropic Claude as backup) to figure out the amount, then signs that amount with an agent-specific private key. On-chain, our PaymentHub contract uses `ecrecover` to verify the signature and ties every payment back to the agent that authored it. The agent's private key never leaves the server. Signatures expire in ten minutes; a stolen signature can't be replayed.
+A user types "send Alice $50 every Friday" in plain English. A server-side model parses the payment intent, then signs that amount with an agent-specific private key. On-chain, our PaymentHub contract uses `ecrecover` to verify the signature and ties every payment back to the agent that authored it. The agent's private key never leaves the server. Signatures expire in ten minutes; a stolen signature cannot be replayed.
 
 **Verifiable proofs, no trusted server**  
 A user generates a proof that their balance is above some number (say "I make more than $5,000/month") and gets a shareable URL. Anyone, even without a wallet, can open the URL and click verify. The Threshold Network's decrypted answer gets published on-chain with a signature check, and the contract does the math. Nobody has to trust our server. The chain has the receipt.
@@ -403,7 +401,7 @@ Wave 3 is the wave where Blank stops being a thing we shipped and starts being a
 
 ### Wave 4. Composable public-link surface *(May 10 to present)*
 
-> **In one line:** Made every payment shape a public link that any wallet (or no wallet) can interact with, while the amount stays encrypted. Magic claim links, sealed-bid storefronts, encrypted crowdfunding, encrypted escrow.
+> **In one line:** Made every payment shape a public link that visitors can open and connected wallets can act on, while the amount stays encrypted. Magic claim links, sealed-bid storefronts, encrypted crowdfunding, encrypted escrow.
 
 **4 new contracts (all UUPS, all storage-layout tracked)**
 `ClaimLinks` ships bearer / email-bound / address-bound payment links with on-chain `keccak256(DOMAIN, mode, secret, ...)` matching, hard-capped at 365 days expiry. `Storefront` ships three sale modes per listing: `FixedPrice` (FHE.eq matching), sealed-bid `Auction` (FHE-tournament selection via `FHE.gt` + `FHE.select`, async-decrypted via `revealWinner`), and `PayWhatYouWant`. `EncryptedCrowdfund` keeps the goal AND every contribution encrypted; `closeCampaign` runs `FHE.gte(raised, goal)` and the verdict is published via `FHE.publishDecryptResult`. `EncryptedEscrow` ships arbiter-or-deadline release with the disputed-without-arbiter fund-lock fixed at create time.

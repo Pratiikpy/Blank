@@ -3,29 +3,31 @@ import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
 // §15.x test for LandingFooter. Shared footer across every
-// landing-level page. Minimal — just copyright + 7 links
-// (Features / Live / Whitepaper / Manifesto / Launch app / GitHub / Fhenix
+// landing-level page. Minimal footer with primary public links
+// (Features / How it works / Pricing / Roadmap / Live / Whitepaper /
+// Brand Kit / Blog / Manifesto / Launch app / GitHub / Fhenix
 // attribution). The footer is intentionally static so it
 // renders identically on every page; the only dynamic part is
 // the copyright year via new Date().getFullYear().
 //
 // CRITICAL pins:
-//   - Copyright line: '© {YYYY} Blank — Private by design.'
+//   - Copyright line: '© {YYYY} Blank. Private by design.'
 //     where {YYYY} is the current year via new Date().get
-//     FullYear() — the year auto-updates each January 1 without
+//     FullYear() - the year auto-updates each January 1 without
 //     code edits; test pins via mocked Date so the assertion
 //     stays stable across years.
-//   - 5 internal Link entries: /features, /live, /whitepaper,
-//     /manifesto, /app — these are the same destinations as LandingNav's
+//   - 10 internal Link entries: /features, /how-it-works, /pricing,
+//     /roadmap, /live, /whitepaper, /brand-kit, /blog, /manifesto,
+//     /app - these are the same public destinations as LandingNav's
 //     CTAs so a regression that renamed any landing-page route
 //     would break BOTH this footer AND the nav at the same
 //     time (paired contracts).
 //   - 2 external <a> entries: github.com/Pratiikpy/Blank +
-//     fhenix.io — both with target='_blank' + rel='noopener
+//     fhenix.io - both with target='_blank' + rel='noopener
 //     noreferrer' for tabnabbing protection.
 //   - <footer> semantic tag (NOT <div>) so screen-readers
 //     navigate to it as a landmark.
-//   - Copy 'Private by design.' (period included) — pinned
+//   - Copy 'Private by design.' (period included) - pinned
 //     literally because it's the brand tagline.
 //   - 'Built on Fhenix ↗' includes the ↗ arrow Unicode char
 //     (U+2197) which signals 'external link' to sighted users;
@@ -80,7 +82,7 @@ describe("LandingFooter — copyright + tagline (§15.x)", () => {
 });
 
 // ───────────────────────────────────────────────────────────
-//  4 internal Link entries
+//  Internal Link entries
 // ───────────────────────────────────────────────────────────
 
 describe("LandingFooter — internal links (§15.x)", () => {
@@ -88,6 +90,24 @@ describe("LandingFooter — internal links (§15.x)", () => {
     renderFooter();
     const link = screen.getByRole("link", { name: "Features" });
     expect((link as HTMLAnchorElement).getAttribute("href")).toBe("/features");
+  });
+
+  it("How it works link points to /how-it-works", () => {
+    renderFooter();
+    const link = screen.getByRole("link", { name: "How it works" });
+    expect((link as HTMLAnchorElement).getAttribute("href")).toBe("/how-it-works");
+  });
+
+  it("Pricing link points to /pricing", () => {
+    renderFooter();
+    const link = screen.getByRole("link", { name: "Pricing" });
+    expect((link as HTMLAnchorElement).getAttribute("href")).toBe("/pricing");
+  });
+
+  it("Roadmap link points to /roadmap", () => {
+    renderFooter();
+    const link = screen.getByRole("link", { name: "Roadmap" });
+    expect((link as HTMLAnchorElement).getAttribute("href")).toBe("/roadmap");
   });
 
   it("Live link points to /live", () => {
@@ -100,6 +120,18 @@ describe("LandingFooter — internal links (§15.x)", () => {
     renderFooter();
     const link = screen.getByRole("link", { name: "Whitepaper" });
     expect((link as HTMLAnchorElement).getAttribute("href")).toBe("/whitepaper");
+  });
+
+  it("Brand Kit link points to /brand-kit", () => {
+    renderFooter();
+    const link = screen.getByRole("link", { name: "Brand Kit" });
+    expect((link as HTMLAnchorElement).getAttribute("href")).toBe("/brand-kit");
+  });
+
+  it("Blog link points to /blog", () => {
+    renderFooter();
+    const link = screen.getByRole("link", { name: "Blog" });
+    expect((link as HTMLAnchorElement).getAttribute("href")).toBe("/blog");
   });
 
   it("Manifesto link points to /manifesto", () => {
@@ -160,8 +192,8 @@ describe("LandingFooter — semantic markup (§15.x)", () => {
     expect(footer!.tagName).toBe("FOOTER");
   });
 
-  it("total link count is exactly 7 (5 internal + 2 external)", () => {
+  it("total link count is exactly 12 (10 internal + 2 external)", () => {
     renderFooter();
-    expect(screen.getAllByRole("link")).toHaveLength(7);
+    expect(screen.getAllByRole("link")).toHaveLength(12);
   });
 });

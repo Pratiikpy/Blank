@@ -5,7 +5,7 @@ import { LandingFooter } from "./LandingFooter";
 import "./landing.css";
 
 // ══════════════════════════════════════════════════════════════════
-//  Features — full catalogue page
+//  Features - full catalogue page
 //  Each feature is a real section: name, pitch, scenario, Try CTA,
 //  and a CSS-only UI preview card (no external images).
 //  ══════════════════════════════════════════════════════════════════
@@ -83,7 +83,7 @@ const FEATURES: Feature[] = [
   {
     tag: "04. Social",
     name: "Creator Tips",
-    pitch: "Support creators anonymously. Earn on-chain tier badges for cumulative support without a public donation log.",
+    pitch: "Support creators privately. Earn on-chain tier badges for cumulative support without a public donation log.",
     scenario: "Tip your favorite writer $50/month without every follower seeing your generosity.",
     route: "/app/creators",
     preview: {
@@ -156,7 +156,7 @@ const FEATURES: Feature[] = [
   {
     tag: "09. Social",
     name: "Gift Envelopes",
-    pitch: "Equal or random encrypted splits with expiry dates and auto-claim. Create an envelope, share the link, watch it get claimed.",
+    pitch: "Equal or random encrypted splits with expiry dates and claim links. Create an envelope, share the link, watch it get claimed.",
     scenario: "Wedding gifts for the couple. Guests contribute privately, couple opens when ready, unclaimed amounts refund automatically.",
     route: "/app/gifts",
     preview: {
@@ -186,6 +186,78 @@ const FEATURES: Feature[] = [
       kind: "swap",
       give: "████ eUSDC",
       want: "████ ETH",
+    },
+  },
+  {
+    tag: "12. Privacy",
+    name: "Encrypted Proofs",
+    pitch: "Generate a shareable proof that a balance or income threshold is true without revealing the underlying number.",
+    scenario: "Prove you qualify for an apartment, grant, or vendor tier without publishing your full wallet balance.",
+    route: "/app/proofs",
+    preview: {
+      kind: "invoice",
+      lines: [
+        { label: "Proof", value: "Balance >= threshold" },
+        { label: "Threshold", value: "████.██" },
+        { label: "Verifier", value: "Public link" },
+      ],
+      status: "Verified on-chain",
+    },
+  },
+  {
+    tag: "13. Links",
+    name: "Claim Links",
+    pitch: "Create bearer, email-bound, or address-bound payment URLs. The link carries the claim path; the amount stays encrypted.",
+    scenario: "Send money to someone before you know which wallet they want to use, then let the right recipient claim it.",
+    route: "/app/claim-link",
+    preview: {
+      kind: "stealth",
+      code: "claim-84532-0017",
+    },
+  },
+  {
+    tag: "14. Commerce",
+    name: "Storefront",
+    pitch: "Sell fixed-price, pay-what-you-want, or sealed-bid listings with private payment amounts and seller-handled delivery.",
+    scenario: "Sell a digital service or private report without publishing buyer spend or bid size to the market.",
+    route: "/app/sell",
+    preview: {
+      kind: "invoice",
+      lines: [
+        { label: "Listing", value: "Private report" },
+        { label: "Mode", value: "Fixed price" },
+        { label: "Price", value: "████.██" },
+        { label: "Delivery", value: "Seller channel" },
+      ],
+      status: "Listing live",
+    },
+  },
+  {
+    tag: "15. Funding",
+    name: "Crowdfund",
+    pitch: "Raise toward an encrypted goal. Contributors get public participation, while contribution sizes stay private.",
+    scenario: "Fund a community project without turning every supporter amount into a public ranking.",
+    route: "/app/fundraise",
+    preview: {
+      kind: "receipt",
+      rows: [
+        { label: "Goal", value: "████.██", enc: true },
+        { label: "Raised", value: "████.██", enc: true },
+        { label: "Contributors", value: "27" },
+        { label: "Status", value: "Active" },
+      ],
+    },
+  },
+  {
+    tag: "16. Assets",
+    name: "Bridge",
+    pitch: "Move USDC across supported testnets from inside Blank, then refresh balances without leaving the product.",
+    scenario: "Bring USDC from Ethereum Sepolia to Base Sepolia before a private payment, invoice, or storefront purchase.",
+    route: "/app/bridge",
+    preview: {
+      kind: "swap",
+      give: "USDC on Eth Sepolia",
+      want: "USDC on Base Sepolia",
     },
   },
   // #86: PrivacyRouter contract is deployed but the screen-level UI isn't
@@ -371,14 +443,14 @@ export default function Features() {
       <LandingNav />
       <main>
         <section className="ll-page-hero">
-          <div className="ll-section-kicker">Twelve private tools</div>
+          <div className="ll-section-kicker">Sixteen private surfaces</div>
           <h1 className="ll-section-title">
             Everything you'd do with Venmo. With the amounts sealed shut.
           </h1>
           <p className="ll-section-lead">
-            One encrypted vault. Sixteen product surfaces. Every feature ships
-            in the app today: real contracts, real FHE, live on Ethereum
-            Sepolia and Base Sepolia.
+            One encrypted vault. Sixteen product surfaces. The shipped
+            surfaces run on real contracts, real FHE, and live deployments
+            on Ethereum Sepolia and Base Sepolia.
           </p>
         </section>
 
@@ -405,7 +477,7 @@ export default function Features() {
         </div>
 
         <section className="ll-cta">
-          <h2 className="ll-cta-title">One vault. Twelve ways in.</h2>
+          <h2 className="ll-cta-title">One vault. Sixteen ways in.</h2>
           <p className="ll-cta-sub">
             Shield some USDC. Pick any feature. Ship your first private
             payment in under a minute.

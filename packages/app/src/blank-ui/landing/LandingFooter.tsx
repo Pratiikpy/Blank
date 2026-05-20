@@ -7,9 +7,13 @@ export function LandingFooter() {
       <div>© {new Date().getFullYear()} Blank. Private by design.</div>
       <div className="ll-footer-links">
         <Link to="/features">Features</Link>
+        <Link to="/how-it-works">How it works</Link>
+        <Link to="/pricing">Pricing</Link>
+        <Link to="/roadmap">Roadmap</Link>
         <Link to="/live">Live</Link>
         <Link to="/whitepaper">Whitepaper</Link>
         <Link to="/brand-kit">Brand Kit</Link>
+        <Link to="/blog">Blog</Link>
         <Link to="/manifesto">Manifesto</Link>
         <Link to="/app">Launch app</Link>
         <a

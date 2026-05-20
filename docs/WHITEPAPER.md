@@ -37,7 +37,7 @@ for normal payments.
 The current public testnet deployment runs on Base Sepolia and Ethereum
 Sepolia. It supports standard EVM wallet connections and Blank passkey smart
 accounts, with product surfaces for sends, invoices, payroll, public links,
-commerce, crowdfunding, escrow, Swap, and Bridge.
+seller-handled commerce, crowdfunding, escrow, Swap, and Bridge.
 
 ## Contents
 
@@ -197,7 +197,7 @@ commercial workflows.
 | Groups | Private group expenses and split flows |
 | Proofs | Shareable balance threshold proofs |
 | Claim links | Bearer, email-bound, or address-bound payment URLs |
-| Storefront | Fixed price, pay-what-you-want, and sealed-bid auction listings |
+| Storefront | Fixed price, pay-what-you-want, and sealed-bid auction listings with seller-handled delivery |
 | Crowdfund | Encrypted goal and encrypted contributions |
 | Escrow | Encrypted amount escrow with arbiter or deadline release |
 | Swap | Token swaps through the Blank swap surface |
@@ -373,10 +373,10 @@ Supported public testnets:
 Public testnet support includes:
 
 - Standard EVM wallet connections on both supported chains.
-- Passkey smart accounts for no-extension onboarding.
+- Passkey smart accounts for no-extension onboarding when sponsorship is available.
 - Private amount sends, invoices, requests, payroll, gifts, groups, proofs,
   claim links, storefront, crowdfund, escrow, Swap, Bridge, and P2P exchange.
-- Mobile UI across the product route map.
+- Mobile UI across the product route map, with expanded mobile transaction coverage next.
 - Public links for invoices, proofs, claim links, storefronts, crowdfunds, and
   escrow detail pages.
 

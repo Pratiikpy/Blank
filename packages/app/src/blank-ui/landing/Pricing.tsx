@@ -5,10 +5,10 @@ import { LandingFooter } from "./LandingFooter";
 import "./landing.css";
 
 // ══════════════════════════════════════════════════════════════════
-//  Pricing — the SHAPE, not the numbers.
+//  Pricing - the SHAPE, not the numbers.
 //
 //  Why this page exists: every visitor evaluating Blank as a real
-//  product (vs a hackathon project) lands on /pricing eventually.
+//  product lands on /pricing eventually.
 //  Silence reads as "they haven't thought about it." A page that
 //  says "free during testnet, here's how mainnet pricing will be
 //  shaped, here's our reasoning" reads as "they have."
@@ -19,7 +19,8 @@ import "./landing.css";
 //     now would be either dishonest or a lie we'd have to revise.
 //   - Show the SHAPE: per-tx fee on the vendor side, capped, free
 //     for under-$N invoices. Mirrors Stripe/Square.
-//   - Be explicit about what's free forever (the protocol surface,
+//   - Be explicit about what's free during testnet and what should
+//     remain free on mainnet (the personal payment surface,
 //     receiving payments, viewing your own data).
 //   - Be explicit about what we'll charge for (settlement on the
 //     happy path, paid only by the party who gets paid).
@@ -39,14 +40,14 @@ const TIERS: PricingTier[] = [
     name: "Personal",
     audience: "Anyone with a wallet",
     status: "live",
-    pitch: "Free, forever. No fee, no upsell, no asterisk.",
+    pitch: "Free during testnet. Core personal payments should stay free on mainnet.",
     bullets: [
       "Send and receive encrypted payments",
       "Create unlimited invoices and payment requests",
       "Stealth + gift envelope flows",
       "Group expenses, splits, settlement",
       "Export your activity to CSV",
-      "All future privacy-preserving primitives",
+      "Core privacy-preserving payment primitives",
     ],
   },
   {
@@ -59,7 +60,7 @@ const TIERS: PricingTier[] = [
       "Everything in Personal",
       "Invoice escrow with auto-refund-on-mismatch",
       "Confidential payroll for up to 30 employees",
-      "Embeddable checkout widgets (Wave 4)",
+      "Embeddable checkout widgets",
       "Webhook events for paid / disputed / refunded",
       "Custom branding on the public invoice page",
     ],
@@ -141,7 +142,7 @@ function StatusBadge({ status }: { status: PricingTier["status"] }) {
         fontWeight: 700,
       }}
     >
-      Wave 4 →
+      Later
     </span>
   );
 }
@@ -160,8 +161,8 @@ export default function Pricing() {
             Honest about mainnet.
           </h1>
           <p className="ll-subline">
-            Blank is testnet-only today and free for everyone, forever.
-            Below is how mainnet pricing will be shaped, and the
+            Blank is testnet-only today and free during testnet. Below is
+            how mainnet pricing will be shaped, and the
             reasoning behind the shape. We don't show numbers because
             we don't know them yet, and we'd rather say that than guess.
           </p>
@@ -277,10 +278,10 @@ export default function Pricing() {
             }}
           >
             <div>
-              <strong>The protocol surface stays free, forever.</strong>{" "}
+              <strong>The personal payment surface should stay free.</strong>{" "}
               Sending and receiving encrypted payments is the core
-              capability. Charging for it would defeat the wedge.
-              Think Signal, not Slack.
+              capability. The business model should come from vendors
+              and platforms, not from taxing normal personal transfers.
             </div>
             <div>
               <strong>Vendors pay because vendors get paid.</strong>{" "}
@@ -293,7 +294,7 @@ export default function Pricing() {
             </div>
             <div>
               <strong>Platforms pay because platforms multiply.</strong>{" "}
-              When apps embed Blank's checkout via the SDK (Wave 4+),
+              When apps embed Blank's checkout via the SDK,
               they get programmatic API access, webhooks, branded
               portals, and priority support. That's a different
               product than the consumer surface and it'll have its
@@ -312,10 +313,10 @@ export default function Pricing() {
           </div>
         </section>
 
-        {/* What's free forever */}
+        {/* What's free */}
         <section className="ll-section">
-          <div className="ll-section-kicker">Always free</div>
-          <h2 className="ll-section-title">What we will never charge for.</h2>
+          <div className="ll-section-kicker">Free during testnet</div>
+          <h2 className="ll-section-title">What is free to use today.</h2>
           <div
             style={{
               maxWidth: "780px",
@@ -365,7 +366,7 @@ export default function Pricing() {
           <h2 className="ll-cta-title">Use it free during testnet.</h2>
           <p className="ll-cta-sub">
             Mainnet pricing will be announced when we have honest numbers.
-            Until then, every flow is free for everyone, with no asterisk.
+            Until then, testnet flows are free to use, with no asterisk.
           </p>
           <Link to="/app" className="ll-btn ll-btn--hero ll-btn--ink">
             Launch Blank <ArrowRight size={17} strokeWidth={2.2} />

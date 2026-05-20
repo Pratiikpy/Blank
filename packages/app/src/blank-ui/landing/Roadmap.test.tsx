@@ -55,9 +55,9 @@ describe("Roadmap — Shipped block (§15.x)", () => {
     expect(container.textContent).toContain("Shipped. Live on testnet today");
   });
 
-  it("section lead claims 'Twelve product surfaces, one encrypted vault, two chains'", () => {
+  it("section lead claims 'Sixteen product surfaces, one encrypted vault, two chains'", () => {
     const { container } = withRouter(<Roadmap />);
-    expect(container.textContent).toContain("Twelve product surfaces");
+    expect(container.textContent).toContain("Sixteen product surfaces");
     expect(container.textContent).toContain("two chains");
   });
 
@@ -88,9 +88,9 @@ describe("Roadmap — Next block (§15.x)", () => {
     expect(container.textContent).toContain("Next up");
   });
 
-  it("section heading: 'Next up. Wave 4 candidates.'", () => {
+  it("section heading: 'Next up. Product hardening.'", () => {
     const { container } = withRouter(<Roadmap />);
-    expect(container.textContent).toContain("Next up. Wave 4 candidates");
+    expect(container.textContent).toContain("Next up. Product hardening");
   });
 
   it("renders all 6 next-up item titles", () => {
@@ -132,7 +132,7 @@ describe("Roadmap — Blocked block (§15.x)", () => {
     const { container } = withRouter(<Roadmap />);
     const text = container.textContent ?? "";
     expect(text).toContain("Mainnet");
-    expect(text).toContain("Cross-chain");
+    expect(text).toContain("More chains beyond Base + Eth Sepolia");
     expect(text).toContain("Mobile app (native)");
   });
 

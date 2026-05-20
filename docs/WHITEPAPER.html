@@ -479,8 +479,8 @@
           <h3>Current testnet status</h3>
           <p class="muted">
             Live on Base Sepolia and Ethereum Sepolia, with standard EVM
-            wallet connections and Blank passkey smart accounts for
-            no-extension onboarding.
+            wallet connections and Blank passkey smart accounts when
+            sponsorship is available.
           </p>
         </div>
         <div class="card">
@@ -514,7 +514,7 @@
           <tr><td>Invoices</td><td>Customer spend, vendor pricing, and margin clues.</td></tr>
           <tr><td>Vendor payments</td><td>Supply chain and operating cost maps.</td></tr>
           <tr><td>Fundraising</td><td>Donor size, goal progress, and failed campaigns.</td></tr>
-          <tr><td>Storefronts</td><td>Purchase prices and buyer behavior.</td></tr>
+          <tr><td>Storefronts</td><td>Purchase prices, buyer behavior, and seller delivery channels.</td></tr>
           <tr><td>Treasury operations</td><td>Balance thresholds, run rate, and capital movement.</td></tr>
         </tbody>
       </table>
@@ -623,7 +623,7 @@
         </div>
         <div class="card">
           <strong>Commerce flows</strong>
-          <p>Fixed price listings, pay-what-you-want, and sealed-bid auctions.</p>
+          <p>Fixed price listings, pay-what-you-want, sealed-bid auctions, and seller-handled delivery.</p>
         </div>
         <div class="card">
           <strong>Capital flows</strong>
@@ -645,7 +645,7 @@
       </p>
       <div class="grid-2">
         <div class="card"><strong>Frontend</strong><p>React, Vite, wagmi, viem, FHE pipeline UI.</p></div>
-        <div class="card"><strong>Wallet layer</strong><p>Standard EVM wallets, passkey smart accounts, ERC-4337, paymaster.</p></div>
+        <div class="card"><strong>Wallet layer</strong><p>Standard EVM wallets, passkey smart accounts, ERC-4337, paymaster path.</p></div>
         <div class="card"><strong>Contract layer</strong><p>Vault, hubs, claim links, storefront, crowdfund, escrow.</p></div>
         <div class="card"><strong>Data layer</strong><p>Chain as source of truth, Supabase for cache and notifications.</p></div>
       </div>
@@ -731,7 +731,7 @@
         </div>
         <div class="card">
           <strong>Wallets</strong>
-          <p class="small">Standard EVM wallets and Blank passkey smart accounts.</p>
+          <p class="small">Standard EVM wallets and Blank passkey smart accounts when sponsorship is available.</p>
         </div>
       </div>
       <div class="proof-list">
@@ -743,6 +743,7 @@
         <span>P2P exchange create and fill</span>
         <span>Invoice, escrow, payroll</span>
         <span>Public-link surfaces</span>
+        <span>Mobile route-map UI</span>
       </div>
       <h3>Roadmap</h3>
       <ul>

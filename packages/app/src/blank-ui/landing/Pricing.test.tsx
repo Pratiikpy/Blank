@@ -73,15 +73,15 @@ describe("Pricing — 3-tier card grid (§15.x)", () => {
     expect(container.textContent).toContain("Mainnet shape");
   });
 
-  it("Platform tier carries 'Wave 4 →' status badge (later/roadmap)", () => {
+  it("Platform tier carries 'Later' status badge", () => {
     const { container } = withRouter(<Pricing />);
-    expect(container.textContent).toContain("Wave 4");
+    expect(container.textContent).toContain("Later");
   });
 
-  it("Personal tier promises 'Free, forever. No fee, no upsell, no asterisk'", () => {
+  it("Personal tier says it is free during testnet", () => {
     const { container } = withRouter(<Pricing />);
-    expect(container.textContent).toContain("Free, forever");
-    expect(container.textContent).toContain("no asterisk");
+    expect(container.textContent).toContain("Free during testnet");
+    expect(container.textContent).toContain("Core personal payments should stay free");
   });
 
   it("Vendor tier explains per-settled-invoice fee shape", () => {
@@ -106,7 +106,7 @@ describe("Pricing — reasoning block (§15.x)", () => {
 
   it("renders the 4 reasoning sub-points (each starts with bold leading clause)", () => {
     const { container } = withRouter(<Pricing />);
-    expect(container.textContent).toContain("The protocol surface stays free, forever");
+    expect(container.textContent).toContain("The personal payment surface should stay free");
     expect(container.textContent).toContain("Vendors pay because vendors get paid");
     expect(container.textContent).toContain("Platforms pay because platforms multiply");
     expect(container.textContent).toContain("Why we can't tell you the numbers yet");
@@ -120,13 +120,13 @@ describe("Pricing — reasoning block (§15.x)", () => {
   });
 });
 
-describe("Pricing — always-free block (§15.x)", () => {
-  it("section kicker is 'Always free'", () => {
+describe("Pricing — free-during-testnet block (§15.x)", () => {
+  it("section kicker is 'Free during testnet'", () => {
     const { container } = withRouter(<Pricing />);
-    expect(container.textContent).toContain("Always free");
+    expect(container.textContent).toContain("Free during testnet");
   });
 
-  it("renders all 8 always-free items", () => {
+  it("renders all 8 free-during-testnet items", () => {
     const { container } = withRouter(<Pricing />);
     const text = container.textContent ?? "";
     const items = [

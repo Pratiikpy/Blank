@@ -5,7 +5,7 @@ import { LandingFooter } from "./LandingFooter";
 import "./landing.css";
 
 // ══════════════════════════════════════════════════════════════════
-//  Roadmap — what's shipped, what's next, what blocks each step.
+//  Roadmap - what's shipped, what's next, what blocks each step.
 //
 //  Why this page exists: "testnet only" is a brand liability that
 //  grows by the week if you don't show what gates mainnet. Hiding
@@ -17,7 +17,7 @@ import "./landing.css";
 //   - Next (what we're working on, no dates)
 //   - Blocked (things we can't ship until something external happens)
 //
-//  No quarter labels. No "Q4 2026 — mainnet." We'll ship when the
+//  No quarter labels. No "Q4 2026 - mainnet." We'll ship when the
 //  blockers clear, not when we promised a date a year ago.
 //  ══════════════════════════════════════════════════════════════════
 
@@ -69,7 +69,7 @@ const SHIPPED: RoadmapItem[] = [
   {
     title: "Passkey smart wallets + paymaster",
     detail:
-      "ERC-4337 accounts signed by P-256 passkeys. Gas sponsored via BlankPaymaster. MetaMask path also works.",
+      "ERC-4337 accounts signed by P-256 passkeys. Gas sponsored via BlankPaymaster when sponsorship is available. Standard EVM wallet path also works.",
   },
   {
     title: "Dead-man's-switch inheritance",
@@ -128,7 +128,7 @@ const BLOCKED: BlockedItem[] = [
     ],
   },
   {
-    title: "Cross-chain (beyond Base + Eth Sepolia)",
+    title: "More chains beyond Base + Eth Sepolia",
     detail:
       "We pick two chains and ship them well rather than seven and ship them badly. Adding a third happens when one of the existing two hits product-market fit, not before.",
     blockedBy: [
@@ -139,7 +139,7 @@ const BLOCKED: BlockedItem[] = [
   {
     title: "Mobile app (native)",
     detail:
-      "The PWA works well on mobile today. A native app is appealing but it's a separate codebase and a different distribution problem (App Store review, push notification entitlements, biometric authentication).",
+      "The PWA renders across the mobile route map today. A native app is appealing but it's a separate codebase and a different distribution problem (App Store review, push notification entitlements, biometric authentication).",
     blockedBy: [
       "Real demand from current users (we'll ask, not assume)",
       "Fhenix SDK that compiles to React Native or native iOS/Android",
@@ -306,9 +306,10 @@ export default function Roadmap() {
           <StatusBadge kind="shipped" />
           <h2 className="ll-section-title">Shipped. Live on testnet today.</h2>
           <p className="ll-section-lead">
-            Twelve product surfaces, one encrypted vault, two chains.
-            Every flow below works end-to-end on Base Sepolia and
-            Ethereum Sepolia right now.
+            Sixteen product surfaces, one encrypted vault, two chains.
+            Core desktop flows have live testnet receipts on Base Sepolia
+            and Ethereum Sepolia. Long-duration close, release, and refund
+            paths are covered by contract tests.
           </p>
           <div style={{ marginTop: "2rem" }}>
             <ItemList items={SHIPPED} />
@@ -317,7 +318,7 @@ export default function Roadmap() {
 
         <section className="ll-section">
           <StatusBadge kind="next" />
-          <h2 className="ll-section-title">Next up. Wave 4 candidates.</h2>
+          <h2 className="ll-section-title">Next up. Product hardening.</h2>
           <p className="ll-section-lead">
             Things in active scoping. We don't commit to all of them,
             and the order will shift as we learn what actually matters.
