@@ -53,6 +53,9 @@ vi.mock("@/blank-ui/landing/BlogPost", () => ({
 vi.mock("@/blank-ui/landing/Whitepaper", () => ({
   default: () => <div data-testid="route-whitepaper">WHITEPAPER</div>,
 }));
+vi.mock("@/blank-ui/landing/BrandKit", () => ({
+  default: () => <div data-testid="route-brand-kit">BRAND-KIT</div>,
+}));
 vi.mock("@/blank-ui/screens/ClaimLinkPage", () => ({
   default: () => <div data-testid="route-claim">CLAIM</div>,
 }));
@@ -92,6 +95,7 @@ describe("App — public landing routes (§15.x)", () => {
     ["/pricing", "route-pricing"],
     ["/roadmap", "route-roadmap"],
     ["/whitepaper", "route-whitepaper"],
+    ["/brand-kit", "route-brand-kit"],
     ["/blog", "route-blog"],
     ["/blog/why-fhenix-cofhe", "route-blog-post"],
   ];

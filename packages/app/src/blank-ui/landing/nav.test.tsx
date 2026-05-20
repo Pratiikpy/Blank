@@ -22,13 +22,15 @@ describe("LandingFooter (§15.x)", () => {
     expect(container.textContent).toContain("Private by design");
   });
 
-  it("renders the 4 internal landing-page links + 'Launch app' link", () => {
+  it("renders the footer landing-page links + 'Launch app' link", () => {
     const { container } = withRouter(<LandingFooter />);
     const internalHrefs = Array.from(container.querySelectorAll("a"))
       .filter((a) => !a.target)
       .map((a) => a.getAttribute("href"));
     expect(internalHrefs).toContain("/features");
     expect(internalHrefs).toContain("/live");
+    expect(internalHrefs).toContain("/whitepaper");
+    expect(internalHrefs).toContain("/brand-kit");
     expect(internalHrefs).toContain("/manifesto");
     expect(internalHrefs).toContain("/app");
   });

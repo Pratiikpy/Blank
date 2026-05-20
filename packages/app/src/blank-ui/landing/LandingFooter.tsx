@@ -9,6 +9,7 @@ export function LandingFooter() {
         <Link to="/features">Features</Link>
         <Link to="/live">Live</Link>
         <Link to="/whitepaper">Whitepaper</Link>
+        <Link to="/brand-kit">Brand Kit</Link>
         <Link to="/manifesto">Manifesto</Link>
         <Link to="/app">Launch app</Link>
         <a
