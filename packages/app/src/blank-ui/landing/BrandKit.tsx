@@ -456,21 +456,21 @@ export default function BrandKit() {
             <div className="bk-social-card">
               <BlankLogo variant="lockup" size={38} wordmarkSize="2rem" />
               <h3>Your money is <span>nobody else's</span> business.</h3>
-              <small>blank.fyi · private by design · encrypted by default</small>
+              <small>Private by design · encrypted by default</small>
             </div>
             <div className="bk-stationery-grid">
               <div className="bk-card bk-business-card">
                 <BlankLogo variant="mark" size={42} />
                 <div>
                   <strong>Blank</strong>
-                  <span>hello@blank.fyi</span>
-                  <span>blank.fyi</span>
+                  <span>Private amount payments</span>
+                  <span>Encrypted by default</span>
                 </div>
               </div>
               <div className="bk-card bk-business-card reverse">
                 <BlankLogo variant="wordmark" wordmarkSize="2rem" />
                 <span>Private by design</span>
-                <span>blank.fyi</span>
+                <span>Encrypted by default</span>
               </div>
             </div>
           </div>
