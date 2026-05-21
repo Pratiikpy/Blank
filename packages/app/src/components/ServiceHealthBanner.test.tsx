@@ -12,6 +12,7 @@ const useServiceHealthMock = useServiceHealth as unknown as ReturnType<typeof vi
 
 beforeEach(() => {
   useServiceHealthMock.mockReset();
+  window.history.pushState({}, "", "/app");
 });
 
 const ALL_REACHABLE = {
@@ -31,6 +32,16 @@ describe("ServiceHealthBanner (§15.x)", () => {
 
   it("renders nothing when everything is reachable (silent on healthy)", () => {
     useServiceHealthMock.mockReturnValue(ALL_REACHABLE);
+    const { container } = render(<ServiceHealthBanner />);
+    expect(container.firstChild).toBeNull();
+  });
+
+  it("renders nothing on marketing routes even when a service is degraded", () => {
+    window.history.pushState({}, "", "/features");
+    useServiceHealthMock.mockReturnValue({
+      ...ALL_REACHABLE,
+      relayReachable: false,
+    });
     const { container } = render(<ServiceHealthBanner />);
     expect(container.firstChild).toBeNull();
   });

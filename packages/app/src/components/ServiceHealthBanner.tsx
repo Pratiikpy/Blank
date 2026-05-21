@@ -18,6 +18,18 @@ import { useServiceHealth } from "@/hooks/useServiceHealth";
  */
 export function ServiceHealthBanner() {
   const h = useServiceHealth();
+  const pathname = typeof window !== "undefined" ? window.location.pathname : "";
+  const productRoute =
+    pathname === "/app" ||
+    pathname.startsWith("/app/") ||
+    pathname.startsWith("/claim/") ||
+    pathname.startsWith("/shop/") ||
+    pathname.startsWith("/fund/") ||
+    pathname.startsWith("/escrow/") ||
+    pathname.startsWith("/pay/") ||
+    pathname.startsWith("/verify/");
+
+  if (!productRoute) return null;
   if (h.loading) return null;
 
   if (!h.supabaseReachable) {
