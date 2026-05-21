@@ -21,7 +21,7 @@
  *        - "Seed Phrase or Private Key"
  *        - Paste Rabbi private key + Confirm
  *        - Set password + Next
- *   5. Open the live preview at https://blank-omega-jade.vercel.app/app.
+ *   5. Open the live preview at https://www.myblank.app/app.
  *   6. Click "Sign in" → drive Rabby Connect popup (select Sepolia) →
  *      drive SIWE Sign popup.
  *   7. Drive a SEND flow: open /app/send, enter recipient (Alice's
@@ -86,7 +86,7 @@ const __dirname = dirname(__filename);
 const REPO = resolve(__dirname, "..", "..", "..", "..", "..");
 const PASSWORD = process.env.RABBY_PASSWORD ?? "RabbyPass123!QA";
 const EXT_PATH = resolve(REPO, "packages/app/e2e/fixtures/rabby/ext");
-const VERCEL_URL = process.env.PLAYWRIGHT_BASE_URL ?? "https://blank-omega-jade.vercel.app";
+const VERCEL_URL = process.env.PLAYWRIGHT_BASE_URL ?? "https://www.myblank.app";
 
 const CHAIN_ID = Number(process.env.CHAIN_ID ?? 11155111);
 

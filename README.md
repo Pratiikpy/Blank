@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="https://img.shields.io/badge/Live-blank--omega--jade.vercel.app-000000?style=for-the-badge" alt="Live" />
+<img src="https://img.shields.io/badge/Live-www.myblank.app-000000?style=for-the-badge" alt="Live" />
 <img src="https://img.shields.io/badge/Base_Sepolia-84532-0052FF?style=for-the-badge&logo=coinbase&logoColor=white" alt="Base Sepolia" />
 <img src="https://img.shields.io/badge/Ethereum_Sepolia-11155111-627EEA?style=for-the-badge&logo=ethereum&logoColor=white" alt="Eth Sepolia" />
 <img src="https://img.shields.io/badge/FHE-Fhenix_CoFHE-8B5CF6?style=for-the-badge" alt="FHE" />
@@ -27,7 +27,7 @@ Blank is encrypted payments on Ethereum. Amounts are FHE-encrypted before
 they touch the chain; smart contracts add, compare, and transfer ciphertext;
 sender and receiver decrypt with their own keys. Everyone else sees ████.
 
-[**Launch the app →**](https://blank-omega-jade.vercel.app) &nbsp; · &nbsp; [**Read the whitepaper →**](https://blank-omega-jade.vercel.app/whitepaper) &nbsp; · &nbsp; [**Watch it live →**](https://blank-omega-jade.vercel.app/live) &nbsp; · &nbsp; [**Brand kit →**](https://blank-omega-jade.vercel.app/brand-kit) &nbsp; · &nbsp; [**Read the manifesto →**](https://blank-omega-jade.vercel.app/manifesto)
+[**Launch the app →**](https://www.myblank.app) &nbsp; · &nbsp; [**Read the whitepaper →**](https://www.myblank.app/whitepaper) &nbsp; · &nbsp; [**Watch it live →**](https://www.myblank.app/live) &nbsp; · &nbsp; [**Brand kit →**](https://www.myblank.app/brand-kit) &nbsp; · &nbsp; [**Read the manifesto →**](https://www.myblank.app/manifesto)
 
 <br />
 
@@ -53,7 +53,7 @@ Private payment rails for Ethereum where the amount is encrypted. Sender + recei
 ## Public testnet
 
 Blank is live on Base Sepolia and Ethereum Sepolia at
-[blank-omega-jade.vercel.app](https://blank-omega-jade.vercel.app).
+[www.myblank.app](https://www.myblank.app).
 
 The public testnet app supports standard EVM wallet connections on both
 chains. Blank passkey smart accounts are built into the product for
@@ -304,7 +304,7 @@ The pattern: **build → harden → open.** Wave 1 added the surface; Wave 2 dis
 
 > **In one line:** A working app where you send USDC and the amount stays hidden. 16 smart contracts. 12 features. 23 screens. Live on testnet.
 
-**What the app does** *(live at [blank-omega-jade.vercel.app](https://blank-omega-jade.vercel.app))*
+**What the app does** *(live at [www.myblank.app](https://www.myblank.app))*
 
 *Core payments:*
 - Encrypted wallet: turn public USDC into encrypted eUSDC ("shield"), and back ("unshield")
@@ -390,7 +390,7 @@ PaymentHub on Base Sepolia: [`0xF420102D...e831`](https://sepolia.basescan.org/a
 > **In one line:** Made the app explainable (public pricing, roadmap, four blog posts) and faster (Fhenix-recommended perf optimization shipped onchain on both chains in one day).
 
 **Built the parts that aren't code**  
-[`/pricing`](https://blank-omega-jade.vercel.app/pricing), [`/roadmap`](https://blank-omega-jade.vercel.app/roadmap), and [`/blog`](https://blank-omega-jade.vercel.app/blog) all shipped this wave. Pricing says we charge nothing today and we'll figure out mainnet pricing later, with the reasoning visible. Roadmap groups everything as **Shipped / Next / Blocked**, where the Blocked rows name their actual gates: Fhenix CoFHE mainnet readiness, third-party audit, threshold operator decentralization. Blog has four long-form posts: a deep dive on [why we picked FHE over zero-knowledge for our specific problem](https://blank-omega-jade.vercel.app/blog/fhe-vs-zk), an even deeper one on [why we picked Fhenix CoFHE over the FHE Layer 1 alternatives](https://blank-omega-jade.vercel.app/blog/why-fhenix-cofhe), the Wave 3 changelog, and a writeup on why we'll never issue a token. Each post links back to product decisions, code, or deployed work.
+[`/pricing`](https://www.myblank.app/pricing), [`/roadmap`](https://www.myblank.app/roadmap), and [`/blog`](https://www.myblank.app/blog) all shipped this wave. Pricing says we charge nothing today and we'll figure out mainnet pricing later, with the reasoning visible. Roadmap groups everything as **Shipped / Next / Blocked**, where the Blocked rows name their actual gates: Fhenix CoFHE mainnet readiness, third-party audit, threshold operator decentralization. Blog has four long-form posts: a deep dive on [why we picked FHE over zero-knowledge for our specific problem](https://www.myblank.app/blog/fhe-vs-zk), an even deeper one on [why we picked Fhenix CoFHE over the FHE Layer 1 alternatives](https://www.myblank.app/blog/why-fhenix-cofhe), the Wave 3 changelog, and a writeup on why we'll never issue a token. Each post links back to product decisions, code, or deployed work.
 
 **Production startup incident**
 Mid-wave, the live site rendered a blank page on Vercel. We traced it in two passes. First diagnosis: the Content Security Policy was too strict and was blocking Web3 libraries from using `eval`. We relaxed the CSP. The page still failed. Second diagnosis: a Vite `manualChunks` bundling config was splitting `viem` and `wagmi` into separate JavaScript chunks, and one was loading before the other initialized, creating a runtime error. We removed the manual chunking (Vite's default is fine), pushed, and the site loaded again. We also wrote a Playwright diagnostic script during the chase. It captures console errors, page errors, and CSP violations on a real Vercel URL, so future startup failures start from a repeatable diagnostic instead of assumptions.
@@ -432,7 +432,7 @@ Wave 4 shipped the public-link surface across 4 new contracts, with slot-preserv
 
 ---
 
-**What's next** lives at [`/roadmap`](https://blank-omega-jade.vercel.app/roadmap). Explicit gates, no dates we can't keep.
+**What's next** lives at [`/roadmap`](https://www.myblank.app/roadmap). Explicit gates, no dates we can't keep.
 
 ---
 
@@ -498,7 +498,7 @@ Find a hole? Open an issue or email. We treat security reports seriously.
 **Use the live app:**
 
 ```
-1. Visit blank-omega-jade.vercel.app
+1. Visit www.myblank.app
 2. Connect an EVM wallet on Base Sepolia or Ethereum Sepolia
 3. Mint test USDC from the in-app faucet
 4. Send a private payment, create an invoice, or open a public link

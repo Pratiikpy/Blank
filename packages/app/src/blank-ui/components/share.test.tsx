@@ -34,7 +34,7 @@ beforeEach(() => {
   isStandalonePwaMock.mockReset();
   toastSuccessMock.mockReset();
   toastErrorMock.mockReset();
-  buildInvoiceLinkMock.mockReturnValue("https://blank.app/app/invoice/11155111/42");
+  buildInvoiceLinkMock.mockReturnValue("https://www.myblank.app/app/invoice/11155111/42");
   localStorage.clear();
   // Stub navigator.clipboard.writeText for the copy path.
   Object.defineProperty(navigator, "clipboard", {
@@ -71,7 +71,7 @@ describe("CopyInvoiceLink (§15.x)", () => {
     });
 
     expect(buildInvoiceLinkMock).toHaveBeenCalledWith(11155111, 42);
-    expect(writeText).toHaveBeenCalledWith("https://blank.app/app/invoice/11155111/42");
+    expect(writeText).toHaveBeenCalledWith("https://www.myblank.app/app/invoice/11155111/42");
     expect(toastSuccessMock).toHaveBeenCalledWith("Invoice link copied");
   });
 

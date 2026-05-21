@@ -47,8 +47,8 @@ describe("claim-links", () => {
   describe("URL build/parse", () => {
     it("roundtrips a bearer URL", () => {
       const secret = generateSecret();
-      const url = buildClaimUrl(11155111, 42, MODE.Bearer, secret, "https://blank.app");
-      expect(url).toMatch(/^https:\/\/blank\.app\/claim\/11155111\/42#b\./);
+      const url = buildClaimUrl(11155111, 42, MODE.Bearer, secret, "https://www.myblank.app");
+      expect(url).toMatch(/^https:\/\/www\.myblank\.app\/claim\/11155111\/42#b\./);
       const parsed = parseClaimUrl(url);
       expect(parsed).not.toBeNull();
       expect(parsed!.chainId).toBe(11155111);
@@ -281,7 +281,7 @@ describe("claim-links", () => {
 
     it("returns null for URL without a hash fragment (no secret to decode)", () => {
       expect(parseClaimUrl("/claim/11155111/1")).toBeNull();
-      expect(parseClaimUrl("https://blank.app/claim/11155111/1")).toBeNull();
+      expect(parseClaimUrl("https://www.myblank.app/claim/11155111/1")).toBeNull();
     });
 
     it("returns null when the chainId in the path isn't in SUPPORTED (mainnet rejected)", () => {
@@ -293,8 +293,8 @@ describe("claim-links", () => {
 
     it("parses both a fully-qualified URL AND a relative path (caller passes whichever)", () => {
       const secret = generateSecret();
-      const fullUrl = buildClaimUrl(11155111, 7, MODE.Bearer, secret, "https://blank.app");
-      const relative = fullUrl.replace("https://blank.app", "");
+      const fullUrl = buildClaimUrl(11155111, 7, MODE.Bearer, secret, "https://www.myblank.app");
+      const relative = fullUrl.replace("https://www.myblank.app", "");
       const parsedFull = parseClaimUrl(fullUrl);
       const parsedRel = parseClaimUrl(relative);
       expect(parsedFull).toEqual(parsedRel);

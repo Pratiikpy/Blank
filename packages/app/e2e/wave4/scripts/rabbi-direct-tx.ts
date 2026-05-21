@@ -198,7 +198,7 @@ mkdirSync(OUT, { recursive: true });
       `- Full onboarding can be scripted (Welcome → "I already have an`,
       `  address" → "Seed Phrase or Private Key" → Private Key tab →`,
       `  fill input → password → done)`,
-      `- Live Vercel preview at https://blank-omega-jade.vercel.app`,
+      `- Live Vercel preview at https://www.myblank.app`,
       `  loads and serves the 4-step Onboarding carousel`,
       `- WalletChoiceCard renders the "Connect Rabby Wallet" button`,
       `  ("Connect Injected" + "Connect Rabby Wallet" connectors`,

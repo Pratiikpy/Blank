@@ -7,7 +7,7 @@ const { chromium } = require("playwright");
 const path = require("path");
 const fs = require("fs");
 
-const BASE = "https://blank-omega-jade.vercel.app";
+const BASE = "https://www.myblank.app";
 const OUT = path.resolve(__dirname, "..", "test-results", "vercel-live-shots");
 
 const ROUTES = [

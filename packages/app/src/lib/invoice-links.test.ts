@@ -10,14 +10,14 @@ describe("invoice-links", () => {
   describe("buildInvoiceLink", () => {
     it("builds a full URL on Base Sepolia", () => {
       expect(
-        buildInvoiceLink(BASE_SEPOLIA_ID, 42, "https://blank.app"),
-      ).toBe("https://blank.app/app/invoice/84532/42");
+        buildInvoiceLink(BASE_SEPOLIA_ID, 42, "https://www.myblank.app"),
+      ).toBe("https://www.myblank.app/app/invoice/84532/42");
     });
 
     it("builds a full URL on ETH Sepolia", () => {
       expect(
-        buildInvoiceLink(ETH_SEPOLIA_ID, 7, "https://blank.app"),
-      ).toBe("https://blank.app/app/invoice/11155111/7");
+        buildInvoiceLink(ETH_SEPOLIA_ID, 7, "https://www.myblank.app"),
+      ).toBe("https://www.myblank.app/app/invoice/11155111/7");
     });
 
     it("accepts numeric or string invoiceId", () => {
@@ -52,7 +52,7 @@ describe("invoice-links", () => {
   describe("parseInvoiceLink", () => {
     it("parses an absolute URL", () => {
       expect(
-        parseInvoiceLink("https://blank.app/app/invoice/84532/12"),
+        parseInvoiceLink("https://www.myblank.app/app/invoice/84532/12"),
       ).toEqual({ chainId: BASE_SEPOLIA_ID, invoiceId: 12 });
     });
 

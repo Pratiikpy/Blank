@@ -8,7 +8,7 @@
   <p>
     Version 1.0 | Testnet launch paper | May 2026<br />
     <a href="Blank-Whitepaper.pdf">Designed PDF</a> |
-    <a href="https://blank-omega-jade.vercel.app">Live app</a> |
+    <a href="https://www.myblank.app">Live app</a> |
     <a href="ARCHITECTURE.md">Architecture</a>
   </p>
 </div>
@@ -363,7 +363,7 @@ Mainnet is gated on:
 
 Blank is live at:
 
-https://blank-omega-jade.vercel.app
+https://www.myblank.app
 
 Supported public testnets:
 

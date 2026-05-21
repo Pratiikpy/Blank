@@ -16,7 +16,7 @@ import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OUT = path.resolve(__dirname, "..", "test-results", "verify-fixes");
-const BASE = process.env.AUDIT_BASE_URL ?? "https://blank-omega-jade.vercel.app";
+const BASE = process.env.AUDIT_BASE_URL ?? "https://www.myblank.app";
 const PASSPHRASE = "verify-session8";
 
 fs.mkdirSync(OUT, { recursive: true });

@@ -1,7 +1,7 @@
 import { chromium } from "@playwright/test";
 
 async function run() {
-  const url = process.argv[2] ?? "https://blank-omega-jade.vercel.app/blog";
+  const url = process.argv[2] ?? "https://www.myblank.app/blog";
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage();
   await page.goto(url, { waitUntil: "networkidle" });

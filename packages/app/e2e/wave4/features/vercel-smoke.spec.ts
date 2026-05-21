@@ -20,7 +20,7 @@ import * as path from "node:path";
 //  Mirrors what a judge would do on day-0 of testnet launch.
 // ──────────────────────────────────────────────────────────────────
 
-const BASE = process.env.PLAYWRIGHT_BASE_URL ?? "https://blank-omega-jade.vercel.app";
+const BASE = process.env.PLAYWRIGHT_BASE_URL ?? "https://www.myblank.app";
 const SHOT_DIR = "wave4-shots/vercel-smoke";
 
 interface PageError {

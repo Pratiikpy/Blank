@@ -115,7 +115,7 @@ export default function Settings() {
   const lookup = useLookupName(address as `0x${string}` | null);
   const payIdentifier = lookup.data ?? address ?? "";
 
-  const origin = typeof window !== "undefined" ? window.location.origin : "https://blank.app";
+  const origin = typeof window !== "undefined" ? window.location.origin : "https://www.myblank.app";
   const payUrl = useMemo(
     () => (payIdentifier ? `${origin}/pay/${payIdentifier}` : ""),
     [origin, payIdentifier],

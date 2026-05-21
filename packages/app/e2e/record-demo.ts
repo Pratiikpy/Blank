@@ -10,7 +10,7 @@
  * A single-take demo of Blank's brand surface — landing X-Ray slider,
  * scroll into the live ticker, and the public invoice page rendered
  * with a paid status. Everything visible on the recording is the real
- * app, but rendered against the live blank-omega-jade.vercel.app
+ * app, but rendered against the live www.myblank.app
  * deployment so the timing is reliable.
  *
  * The full vendor → client → finalize → proof loop on real chain takes
@@ -37,7 +37,7 @@ import ffmpegPath from "ffmpeg-static";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const BASE_URL = process.env.DEMO_BASE_URL ?? "https://blank-omega-jade.vercel.app";
+const BASE_URL = process.env.DEMO_BASE_URL ?? "https://www.myblank.app";
 // A real public invoice id on Base Sepolia that's already paid — gives us
 // the proof-of-payment moment without having to drive a fresh tx during
 // the recording. Falls back to a prompt-for-not-found state otherwise.

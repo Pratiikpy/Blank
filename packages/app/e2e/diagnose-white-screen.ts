@@ -5,11 +5,11 @@
  * Usage:
  *   pnpm tsx e2e/diagnose-white-screen.ts [url]
  *
- * Defaults to https://blank-omega-jade.vercel.app/ — the production deploy.
+ * Defaults to https://www.myblank.app/ — the production deploy.
  */
 import { chromium } from "@playwright/test";
 
-const URL = process.argv[2] ?? "https://blank-omega-jade.vercel.app/";
+const URL = process.argv[2] ?? "https://www.myblank.app/";
 
 interface Finding {
   kind: "console" | "pageerror" | "request-failed" | "csp" | "response-bad";

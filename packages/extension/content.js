@@ -20,7 +20,7 @@
   "use strict";
 
   // ── Configuration ─────────────────────────────────────────────────
-  const APP_ORIGIN_FALLBACK = "https://blank-omega-jade.vercel.app";
+  const APP_ORIGIN_FALLBACK = "https://www.myblank.app";
   const STORAGE_KEY = "blank.appOrigin";
 
   // 40 hex chars after 0x, with word boundaries so "0xabc...123FOO" stops at FOO.

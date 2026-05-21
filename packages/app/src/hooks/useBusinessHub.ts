@@ -200,7 +200,7 @@ export function useBusinessHub() {
             const origin =
               typeof window !== "undefined" && window.location
                 ? window.location.origin
-                : (import.meta.env.VITE_PUBLIC_APP_URL ?? "https://blank.app");
+                : (import.meta.env.VITE_PUBLIC_APP_URL ?? "https://www.myblank.app");
             // PR-C step 4: link emails directly to the new escrow page so
             // clients land on the real flow (not a placeholder /pay route
             // that was never mounted). Amount stays out of the URL — it

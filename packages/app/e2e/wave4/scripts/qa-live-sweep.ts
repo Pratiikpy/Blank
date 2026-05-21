@@ -7,7 +7,7 @@
  *   1. Launch Chromium with Rabby + persistent profile (.rabby-profile-blank)
  *      that has Dave's seed + Base Sepolia chain + testnet visibility
  *      already configured.
- *   2. Open https://blank-omega-jade.vercel.app/app, walk the carousel,
+ *   2. Open https://www.myblank.app/app, walk the carousel,
  *      click Connect Rabby Wallet, drive Rabby Connect popup + SIWE
  *      (using the same primitives Phase 9 uses).
  *   3. Visit EVERY desktop app route and snapshot it. Catches "this
@@ -50,7 +50,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const REPO = resolve(__dirname, "..", "..", "..", "..", "..");
 
-const VERCEL_URL = process.env.PLAYWRIGHT_BASE_URL ?? "https://blank-omega-jade.vercel.app";
+const VERCEL_URL = process.env.PLAYWRIGHT_BASE_URL ?? "https://www.myblank.app";
 const RABBY_EXT_DIR = resolve(REPO, "packages/app/e2e/fixtures/rabby/ext");
 const RABBY_PROFILE_DIR =
   process.env.RABBY_PROFILE_DIR ?? resolve(REPO, ".rabby-profile-blank");

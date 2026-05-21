@@ -75,7 +75,7 @@ import CreateClaimLink from "./CreateClaimLink";
 
 const VAULT_USDC = "0xfffffffffffffffffffffffffffffffffffffff1";
 const VALID_ADDR = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-const SHARE_URL = "https://blank.app/claim/11155111/42#e:0xdeadbeef";
+const SHARE_URL = "https://www.myblank.app/claim/11155111/42#e:0xdeadbeef";
 
 let createLinkMock: ReturnType<typeof vi.fn>;
 let resetMock: ReturnType<typeof vi.fn>;

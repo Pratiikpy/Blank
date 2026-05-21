@@ -97,7 +97,7 @@ const NEXT: RoadmapItem[] = [
   {
     title: "SDK + embeddable checkout",
     detail:
-      "@blankpay/sdk on npm. <BlankCheckout> React component. developers.blank.app with three guides. Privacy-as-infrastructure for any payment flow.",
+      "@blankpay/sdk on npm. <BlankCheckout> React component. developers.myblank.app with three guides. Privacy-as-infrastructure for any payment flow.",
   },
   {
     title: "X-Ray reveal in-app",

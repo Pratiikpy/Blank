@@ -226,7 +226,7 @@ describe("QRScannerModal — extractAddress 5 formats (§15.x)", () => {
     const { onScan } = renderModal();
     const input = screen.getByLabelText("Address input") as HTMLInputElement;
     fireEvent.change(input, {
-      target: { value: `https://blank.app/#/pay?to=${ALICE}` },
+      target: { value: `https://www.myblank.app/#/pay?to=${ALICE}` },
     });
     fireEvent.click(screen.getByText("Use This Address"));
     expect(onScan).toHaveBeenCalledWith(ALICE);

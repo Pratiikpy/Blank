@@ -18,7 +18,7 @@ pre-filled.
 ## Configure target URL
 
 Click the extension icon to open the popup and change the **App URL**.
-Defaults to `https://blank-omega-jade.vercel.app`. Useful when running a
+Defaults to `https://www.myblank.app`. Useful when running a
 local Blank dev server (`http://localhost:3000`) or your own deployment.
 
 ## What it touches

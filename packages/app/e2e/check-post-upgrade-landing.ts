@@ -16,8 +16,8 @@ import { chromium } from "playwright";
     if (m.type() === "error") errors.push(`console.error: ${m.text()}`);
   });
 
-  console.log("Loading https://blank-omega-jade.vercel.app/...");
-  await page.goto("https://blank-omega-jade.vercel.app/", { waitUntil: "networkidle", timeout: 30000 });
+  console.log("Loading https://www.myblank.app/...");
+  await page.goto("https://www.myblank.app/", { waitUntil: "networkidle", timeout: 30000 });
   await page.waitForTimeout(3000);
 
   const text = (await page.textContent("body")) || "";

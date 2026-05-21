@@ -17,7 +17,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const REPO = resolve(__dirname, "..", "..", "..", "..", "..");
 
-const VERCEL_URL = process.env.PLAYWRIGHT_BASE_URL ?? "https://blank-omega-jade.vercel.app";
+const VERCEL_URL = process.env.PLAYWRIGHT_BASE_URL ?? "https://www.myblank.app";
 const RABBY_EXT_DIR = resolve(REPO, "packages/app/e2e/fixtures/rabby/ext");
 const RABBY_SOURCE_PROFILE = process.env.RABBY_PROFILE_DIR ?? resolve(REPO, ".rabby-profile-blank");
 const RABBY_PASSWORD = process.env.RABBY_PASSWORD ?? "RabbyPass123!QA";
@@ -38,8 +38,8 @@ const SENDER = (process.env.SENDER ?? "Bob") as "Dave" | "Bob";
 const RECIPIENT = (SENDER === "Bob" ? DAVE : BOB) as Address;
 const USED_CLAIM_URL = process.env.USED_CLAIM_URL ??
   (IS_ETH
-    ? "https://blank-omega-jade.vercel.app/claim/11155111/10#b.LYonSy2rbCW0r9J9jZe_yfW7nxmPXYSpZOuv8cAftLY"
-    : "https://blank-omega-jade.vercel.app/claim/84532/34#b.oMy69j2Gdhks0edI8edDYkVTmZm8Zlkl0rL2CVU8rdM");
+    ? "https://www.myblank.app/claim/11155111/10#b.LYonSy2rbCW0r9J9jZe_yfW7nxmPXYSpZOuv8cAftLY"
+    : "https://www.myblank.app/claim/84532/34#b.oMy69j2Gdhks0edI8edDYkVTmZm8Zlkl0rL2CVU8rdM");
 
 const publicClient = createPublicClient({
   chain: IS_ETH ? sepolia : baseSepolia,

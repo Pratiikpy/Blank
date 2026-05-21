@@ -151,7 +151,7 @@ vi.mock("@/lib/email-client", () => ({
   buildInvoiceEmailSignableMessage: () => "signable-message",
 }));
 vi.mock("@/lib/invoice-links", () => ({
-  buildInvoiceLink: () => "https://blank.app/invoice/42",
+  buildInvoiceLink: () => "https://www.myblank.app/invoice/42",
 }));
 vi.mock("@/lib/ipfs", () => ({ pinFile: pinFileMock }));
 vi.mock("@/lib/address", () => ({

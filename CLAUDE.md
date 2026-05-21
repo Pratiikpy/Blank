@@ -350,7 +350,7 @@ You have full authority to do whatever is needed to reach it:
   URL — that's what users hit. The CLI lives at
   `C:/Users/prate/AppData/Roaming/npm/vercel`; the project is `blank`
   under `pratiikpys-projects` with canonical URL
-  https://blank-omega-jade.vercel.app. GitHub CI status via `gh run
+  https://www.myblank.app. GitHub CI status via `gh run
   list --branch <branch>`. Treat the Vercel preview as the bar for
   "what users see," not just localhost.
 - Contracts: deploy fixes, run hardhat tasks, verify on Etherscan /

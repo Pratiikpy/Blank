@@ -7,7 +7,7 @@
   "use strict";
 
   const STORAGE_KEY = "blank.appOrigin";
-  const DEFAULT_ORIGIN = "https://blank-omega-jade.vercel.app";
+  const DEFAULT_ORIGIN = "https://www.myblank.app";
 
   const $origin = document.getElementById("origin");
   const $save = document.getElementById("save");

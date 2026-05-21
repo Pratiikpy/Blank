@@ -176,7 +176,7 @@ task("test-claim-link-flow", "Create a real bearer claim-link from the deployer 
 
     const chainId = isBase ? 84532 : 11155111;
     const localUrl = `http://localhost:3000/claim/${chainId}/${linkId.toString()}#b.${b64url}`;
-    const prodUrl = `https://blank-omega-jade.vercel.app/claim/${chainId}/${linkId.toString()}#b.${b64url}`;
+    const prodUrl = `https://www.myblank.app/claim/${chainId}/${linkId.toString()}#b.${b64url}`;
 
     console.log("\n═══════════════════════════════════════════");
     console.log("  ✓ Link created");

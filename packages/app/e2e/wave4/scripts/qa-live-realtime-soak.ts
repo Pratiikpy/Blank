@@ -16,7 +16,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const REPO = resolve(__dirname, "..", "..", "..", "..", "..");
 
-const VERCEL_URL = process.env.PLAYWRIGHT_BASE_URL ?? "https://blank-omega-jade.vercel.app";
+const VERCEL_URL = process.env.PLAYWRIGHT_BASE_URL ?? "https://www.myblank.app";
 const SOURCE_PROFILE = process.env.RABBY_PROFILE_DIR ?? resolve(REPO, ".rabby-profile-blank");
 const RABBY_EXT_DIR = resolve(REPO, "packages/app/e2e/fixtures/rabby/ext");
 const RABBY_PASSWORD = process.env.RABBY_PASSWORD ?? "RabbyPass123!QA";
@@ -357,15 +357,15 @@ async function main(): Promise<void> {
 
     const baseChecks = IS_ETH
       ? [
-          { label: "eth-claim-used", url: "https://blank-omega-jade.vercel.app/claim/11155111/10#b.LYonSy2rbCW0r9J9jZe_yfW7nxmPXYSpZOuv8cAftLY", pattern: /claimed|already|success|Claim/i },
-          { label: "eth-storefront-after-buy", url: "https://blank-omega-jade.vercel.app/shop/11155111/3", pattern: /sold|purchased|listing|Buy|Storefront/i },
-          { label: "eth-crowdfund-after-contribution", url: "https://blank-omega-jade.vercel.app/fund/11155111/3", pattern: /contributed|raised|campaign|fund/i },
+          { label: "eth-claim-used", url: "https://www.myblank.app/claim/11155111/10#b.LYonSy2rbCW0r9J9jZe_yfW7nxmPXYSpZOuv8cAftLY", pattern: /claimed|already|success|Claim/i },
+          { label: "eth-storefront-after-buy", url: "https://www.myblank.app/shop/11155111/3", pattern: /sold|purchased|listing|Buy|Storefront/i },
+          { label: "eth-crowdfund-after-contribution", url: "https://www.myblank.app/fund/11155111/3", pattern: /contributed|raised|campaign|fund/i },
         ]
       : [
-          { label: "base-claim-used", url: "https://blank-omega-jade.vercel.app/claim/84532/34#b.oMy69j2Gdhks0edI8edDYkVTmZm8Zlkl0rL2CVU8rdM", pattern: /claimed|already|success|Claim/i },
-          { label: "base-storefront-after-buy", url: "https://blank-omega-jade.vercel.app/shop/84532/14", pattern: /sold|purchased|listing|Buy|Storefront/i },
-          { label: "base-crowdfund-after-contribution", url: "https://blank-omega-jade.vercel.app/fund/84532/14", pattern: /contributed|raised|campaign|fund/i },
-          { label: "base-invoice-paid", url: "https://blank-omega-jade.vercel.app/app/invoice/84532/37", pattern: /paid|complete|invoice/i },
+          { label: "base-claim-used", url: "https://www.myblank.app/claim/84532/34#b.oMy69j2Gdhks0edI8edDYkVTmZm8Zlkl0rL2CVU8rdM", pattern: /claimed|already|success|Claim/i },
+          { label: "base-storefront-after-buy", url: "https://www.myblank.app/shop/84532/14", pattern: /sold|purchased|listing|Buy|Storefront/i },
+          { label: "base-crowdfund-after-contribution", url: "https://www.myblank.app/fund/84532/14", pattern: /contributed|raised|campaign|fund/i },
+          { label: "base-invoice-paid", url: "https://www.myblank.app/app/invoice/84532/37", pattern: /paid|complete|invoice/i },
         ];
     for (const c of baseChecks) {
       results.push(await waitForText(dave.page, c.url, c.pattern, c.label, 75_000, true));

@@ -5,7 +5,7 @@ import { chromium } from "playwright";
   const ctx = await browser.newContext();
   const page = await ctx.newPage();
 
-  const url = "https://blank-omega-jade.vercel.app/blog";
+  const url = "https://www.myblank.app/blog";
   console.log("Loading", url);
   await page.goto(url, { waitUntil: "networkidle", timeout: 30000 });
   await page.waitForTimeout(2000);
@@ -22,7 +22,7 @@ import { chromium } from "playwright";
   console.log({ hasFhenixPost, hasZkPost, hasWave3, hasNoToken });
 
   // Try opening the post
-  const postUrl = "https://blank-omega-jade.vercel.app/blog/why-fhenix-cofhe";
+  const postUrl = "https://www.myblank.app/blog/why-fhenix-cofhe";
   console.log("\nLoading", postUrl);
   await page.goto(postUrl, { waitUntil: "networkidle", timeout: 30000 });
   await page.waitForTimeout(1500);

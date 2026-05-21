@@ -8,7 +8,7 @@ import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OUT = path.resolve(__dirname, "..", "test-results", "prod-faucet");
-const BASE = "https://blank-omega-jade.vercel.app";
+const BASE = "https://www.myblank.app";
 const PASSPHRASE = `s9-${Date.now()}`;
 
 fs.mkdirSync(OUT, { recursive: true });

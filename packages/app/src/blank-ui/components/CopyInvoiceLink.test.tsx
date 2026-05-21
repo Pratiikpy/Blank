@@ -64,7 +64,7 @@ beforeEach(() => {
   writeTextMock.mockReset();
 
   buildInvoiceLinkMock.mockReturnValue(
-    "https://blank.app/app/invoice/11155111/42",
+    "https://www.myblank.app/app/invoice/11155111/42",
   );
   writeTextMock.mockResolvedValue(undefined);
 
@@ -125,7 +125,7 @@ describe("CopyInvoiceLink — copy happy path (§15.x)", () => {
     await waitFor(() => {
       expect(buildInvoiceLinkMock).toHaveBeenCalledWith(11155111, 42);
       expect(writeTextMock).toHaveBeenCalledWith(
-        "https://blank.app/app/invoice/11155111/42",
+        "https://www.myblank.app/app/invoice/11155111/42",
       );
       expect(toastSuccessMock).toHaveBeenCalledWith("Invoice link copied");
       expect(screen.getByText("Copied")).toBeInTheDocument();

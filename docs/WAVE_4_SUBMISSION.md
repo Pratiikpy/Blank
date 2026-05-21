@@ -2,7 +2,7 @@
 
 Private payments for the real world. Transaction amounts encrypted with FHE on Base Sepolia and Ethereum Sepolia.
 
-**Live:** [blank-omega-jade.vercel.app](https://blank-omega-jade.vercel.app) · **Code:** [github.com/Pratiikpy/Blank](https://github.com/Pratiikpy/Blank)
+**Live:** [www.myblank.app](https://www.myblank.app) · **Code:** [github.com/Pratiikpy/Blank](https://github.com/Pratiikpy/Blank)
 
 ---
 
@@ -82,10 +82,10 @@ Twelve sixteen surfaces total: Send, Request, Invoice, Payroll, Escrow, Group Sp
 
 ### Live links
 
-- App: [blank-omega-jade.vercel.app/app](https://blank-omega-jade.vercel.app/app)
-- Public verify: [blank-omega-jade.vercel.app/verify/1](https://blank-omega-jade.vercel.app/verify/1) (replace `1` with any minted proof id)
-- Public crowdfund: [blank-omega-jade.vercel.app/fund/11155111/0](https://blank-omega-jade.vercel.app/fund/11155111/0) (chainId/campaignId)
-- Public shop: [blank-omega-jade.vercel.app/shop/11155111/0](https://blank-omega-jade.vercel.app/shop/11155111/0)
+- App: [www.myblank.app/app](https://www.myblank.app/app)
+- Public verify: [www.myblank.app/verify/1](https://www.myblank.app/verify/1) (replace `1` with any minted proof id)
+- Public crowdfund: [www.myblank.app/fund/11155111/0](https://www.myblank.app/fund/11155111/0) (chainId/campaignId)
+- Public shop: [www.myblank.app/shop/11155111/0](https://www.myblank.app/shop/11155111/0)
 - Public claim: minted per-claim, format `/claim/:chainId/:linkId#mode:secret`
 
 ### Reproducibility
