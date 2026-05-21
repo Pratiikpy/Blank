@@ -215,7 +215,7 @@ export default async function handler(req: any, res: any) {
   }
 
   // Build the email.
-  const origin = req.headers?.origin || process.env.PUBLIC_APP_URL || "https://blank.app";
+  const origin = req.headers?.origin || process.env.PUBLIC_APP_URL || "https://www.myblank.app";
   const payUrl =
     body.payUrl ??
     `${origin}/pay/INV-${invoice.invoice_id}?amount=${encodeURIComponent(body.amount)}`;

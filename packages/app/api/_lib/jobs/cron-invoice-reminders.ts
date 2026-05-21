@@ -24,7 +24,7 @@ import { renderReminderEmail, type ReminderKind } from "../reminder-email.js";
 
 const REMINDER_DEDUPE_HOURS = 22;
 const ONE_DAY_MS = 86_400_000;
-const PUBLIC_APP_URL = process.env.PUBLIC_APP_URL || "https://blank.app";
+const PUBLIC_APP_URL = process.env.PUBLIC_APP_URL || "https://www.myblank.app";
 
 interface InvoiceForReminder {
   invoice_id: number;

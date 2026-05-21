@@ -296,11 +296,11 @@ describe("site origin resolution", () => {
 
   it("falls back to PUBLIC_APP_URL when VERCEL_URL is unset", async () => {
     delete process.env.VERCEL_URL;
-    process.env.PUBLIC_APP_URL = "https://blank.app";
+    process.env.PUBLIC_APP_URL = "https://www.myblank.app";
     getProofMock.mockResolvedValue(VERIFIED_TUPLE);
     const res = makeRes();
     await handler(makeReq("?id=1&chain=11155111"), res);
-    expect(res.body).toContain("https://blank.app/api/og/proof");
+    expect(res.body).toContain("https://www.myblank.app/api/og/proof");
   });
 
   it("falls back to x-forwarded-host header when no env URL is set", async () => {

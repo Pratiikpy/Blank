@@ -9,8 +9,8 @@
  * The badge links to /pay/<identifier> on the same origin, so users put it
  * inside an `<a href>` wrapper:
  *
- *   <a href="https://blank.app/pay/pratik.eth">
- *     <img src="https://blank.app/api/badge?for=pratik.eth" width="240" />
+ *   <a href="https://www.myblank.app/pay/pratik.eth">
+ *     <img src="https://www.myblank.app/api/badge?for=pratik.eth" width="240" />
  *   </a>
  *
  * We use a query-string identifier (rather than a path segment) because the

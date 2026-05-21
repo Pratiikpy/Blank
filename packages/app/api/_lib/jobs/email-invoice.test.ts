@@ -381,11 +381,11 @@ describe("email-invoice — happy path (§15.x)", () => {
   it("body.payUrl overrides the default", async () => {
     const res = makeRes();
     await handler(
-      makeReq({ body: { ...VALID_BODY, payUrl: "https://blank.app/custom-pay" } }),
+      makeReq({ body: { ...VALID_BODY, payUrl: "https://www.myblank.app/custom-pay" } }),
       res,
     );
     const tplArg = renderInvoiceEmailMock.mock.calls[0][0];
-    expect(tplArg.payUrl).toBe("https://blank.app/custom-pay");
+    expect(tplArg.payUrl).toBe("https://www.myblank.app/custom-pay");
   });
 
   it("EmailNotConfiguredError from sendEmail -> 503 with the underlying message", async () => {

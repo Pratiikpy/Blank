@@ -367,24 +367,24 @@ describe("email-request — happy path (§15.x)", () => {
   it("default reviewUrl is `${origin}/app/requests`", async () => {
     const res = makeRes();
     await handler(
-      makeReq({ body: VALID_BODY, headers: { origin: "https://blank.app" } }),
+      makeReq({ body: VALID_BODY, headers: { origin: "https://www.myblank.app" } }),
       res,
     );
     const tplArg = renderPaymentRequestEmailMock.mock.calls[0][0];
-    expect(tplArg.reviewUrl).toBe("https://blank.app/app/requests");
+    expect(tplArg.reviewUrl).toBe("https://www.myblank.app/app/requests");
   });
 
   it("body.reviewUrl overrides default", async () => {
     const res = makeRes();
     await handler(
       makeReq({
-        body: { ...VALID_BODY, reviewUrl: "https://blank.app/custom" },
-        headers: { origin: "https://blank.app" },
+        body: { ...VALID_BODY, reviewUrl: "https://www.myblank.app/custom" },
+        headers: { origin: "https://www.myblank.app" },
       }),
       res,
     );
     const tplArg = renderPaymentRequestEmailMock.mock.calls[0][0];
-    expect(tplArg.reviewUrl).toBe("https://blank.app/custom");
+    expect(tplArg.reviewUrl).toBe("https://www.myblank.app/custom");
   });
 
   it("EmailNotConfiguredError from sendEmail -> 503", async () => {

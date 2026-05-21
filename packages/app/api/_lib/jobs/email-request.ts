@@ -173,7 +173,7 @@ export default async function handler(req: any, res: any) {
     );
   }
 
-  const origin = req.headers?.origin || process.env.PUBLIC_APP_URL || "https://blank.app";
+  const origin = req.headers?.origin || process.env.PUBLIC_APP_URL || "https://www.myblank.app";
   const reviewUrl = body.reviewUrl ?? `${origin}/app/requests`;
   const requesterName = body.requesterName ?? shortAddress(request.to_address);
 
