@@ -67,10 +67,10 @@ launch scope.
 ### CI and deployment
 
 - Branch: `main`
-- Latest checked commit: `ac76aa3`
-- GitHub CI run: `26201637530`
+- Latest product checked commit: `eb58fb1`
+- GitHub CI run: `26212834385`
 - App and contracts checks: green
-- Latest Vercel deployment: `app-ji5i29051-pratiikpys-projects.vercel.app`
+- Latest Vercel deployment: `app-hzqnlljmk-pratiikpys-projects.vercel.app`
 - Public alias: `https://www.myblank.app`
 
 ### Public docs and copy
