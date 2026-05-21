@@ -430,7 +430,8 @@ describe("AgentPayments — submit flow (§15.x)", () => {
   });
 
   it("CRITICAL valid submit: submit(recipient, attestation, trimmed-note) + form cleared + reset", async () => {
-    setHook({ lastAttestation: buildAttestation() });
+    const attestation = buildAttestation();
+    setHook({ lastAttestation: attestation });
     isAddressMock.mockReturnValue(true);
     const { container, findByText } = render(<AgentPayments />);
     await findByText("Agent attestation");
@@ -448,7 +449,7 @@ describe("AgentPayments — submit flow (§15.x)", () => {
     expect(submitMock).toHaveBeenCalled();
     const args = submitMock.mock.calls[0];
     expect(args[0]).toBe(RECIPIENT);
-    expect(args[1]).toEqual(buildAttestation()); // unchanged attestation passed through
+    expect(args[1]).toBe(attestation); // unchanged attestation passed through
     expect(args[2]).toBe("payroll Oct"); // trimmed
     expect(resetMock).toHaveBeenCalled();
     expect(recipientInput.value).toBe("");
