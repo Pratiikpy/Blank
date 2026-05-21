@@ -712,7 +712,7 @@ export default function Stealth() {
             Stealth Payments
           </h1>
           <p className="text-sm sm:text-base text-[var(--text-primary)]/50 leading-relaxed">
-            Send anonymous payments via claim codes
+            Send claim-code payments with reduced wallet linkability
           </p>
         </div>
 
@@ -1179,7 +1179,7 @@ export default function Stealth() {
                               <p className="text-sm font-medium text-[var(--text-primary)]">
                                 From:{" "}
                                 <span className="font-mono text-xs">
-                                  {entry.fromHint || "anonymous"}
+                                  {entry.fromHint || "unknown sender"}
                                 </span>
                               </p>
                               <div

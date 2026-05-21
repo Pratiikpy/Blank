@@ -15,7 +15,7 @@ const steps = [
     Icon: Sparkles,
     gradient: "from-purple-500 to-pink-500",
     heading: "Send money privately",
-    subtitle: "Your payments are encrypted. Who you pay is visible. How much stays completely hidden.",
+    subtitle: "Your payments are encrypted. Who you pay is visible. The amount stays private.",
   },
   {
     Icon: Shield,
@@ -27,13 +27,13 @@ const steps = [
     Icon: Lock,
     gradient: "from-blue-500 to-cyan-500",
     heading: "Works everywhere you go",
-    subtitle: "Built on Base network. Fast transactions, low fees, and military-grade encryption on every payment.",
+    subtitle: "Built for supported EVM testnets. Fast wallet flows, low testnet fees, and FHE encryption on every payment.",
   },
   {
     Icon: Key,
     gradient: "from-amber-500 to-orange-500",
     heading: "Your keys. Your money.",
-    subtitle: "Non-custodial and self-sovereign. No company holds your funds. Complete financial privacy, always.",
+    subtitle: "Non-custodial and self-sovereign. No company holds your funds. You control what amount data you reveal.",
   },
 ];
 

@@ -95,7 +95,7 @@ const typeScale = [
   {
     label: "Body",
     spec: "18 / 28 · 400",
-    sample: "Encrypted invoices. Trustless escrow with on-chain proof. Built on FHE. What stays private is the amount, not the math.",
+    sample: "Encrypted invoices. On-chain escrow with proof. Built on FHE. What stays private is the amount, not the math.",
   },
   { label: "Kicker", spec: "13 / 20 · 600", sample: "PROOF OF PRODUCT" },
   { label: "Mono", spec: "13 / 18 · 400", sample: "TX · 0x7e9a · CONFIRMED · BLOCK 8442901" },
@@ -372,12 +372,12 @@ export default function BrandKit() {
               <p>Private amount payments with public receipts.</p>
             </div>
             <div className="bk-card bk-stat-sample">
-              <strong>100%</strong>
+              <strong>Chain</strong>
               <p>On-chain settlement. No custodian.</p>
             </div>
             <div className="bk-card bk-stat-sample">
-              <strong>0 bytes</strong>
-              <p>Of amount data leaves the browser unencrypted.</p>
+              <strong>Local</strong>
+              <p>Plaintext amounts are encrypted before submission.</p>
             </div>
           </div>
         </Section>
@@ -420,7 +420,7 @@ export default function BrandKit() {
             <div>
               <span className="bk-pill live">Private by design</span>
               <h3>Your money is <em>nobody else's</em> business.</h3>
-              <p>Encrypted invoices. Trustless escrow. On-chain proof, off-record amounts.</p>
+              <p>Encrypted invoices. On-chain escrow. Public proof, private amounts.</p>
               <Link to="/app" className="ll-btn ll-btn--ink">Launch Blank</Link>
             </div>
             <div className="bk-sample-brand">

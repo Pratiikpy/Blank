@@ -96,7 +96,7 @@ No mixer. No trusted custodian. No hardware enclaves. Pure math + a threshold ne
 | **Payroll** | Confidential batch sends | Up to 30 employees, nobody sees each other's pay |
 | **Split** | Group expenses | Splitwise but nobody can see the dinner total |
 | **Gift** | Encrypted gift envelopes | Equal or random splits, expiry, claim codes |
-| **Stealth** | Anonymous claim-code transfers | One-time codes, 30-day refund window |
+| **Stealth** | Claim-code transfers with reduced wallet linkability | One-time codes, 30-day refund window |
 | **Inherit** | Dead-man's-switch wallet | Heir claims after N days inactive |
 | **Prove** | Verifiable balance proofs | Share "balance ≥ $X" without the balance |
 | **Tip** | Creator support with tiers | Encrypted tip totals, on-chain Bronze/Silver/Gold |
@@ -124,7 +124,7 @@ Sixteen product surfaces. One encrypted vault. One link to share.
 /escrow/<chainId>/<escrowId>      ← encrypted escrow detail
 ```
 
-Each link is the entire payment flow. No login required to view or pay from an existing wallet. Recipients can also use Blank's passkey smart-account path, which is built into the product.
+Each link carries the payment workflow. Public pages can be opened directly, paid from an existing wallet, or claimed through Blank's passkey smart-account path where supported.
 
 ---
 
@@ -182,7 +182,7 @@ Plus auxiliary:
 
 1. **Defer to on-chain authority for hashing.** `lib/userop.ts`
    reads `userOpHash` from EntryPoint instead of reimplementing
-   EIP-712 in JS. One extra RPC per signing for guaranteed
+   EIP-712 in JS. One extra RPC per signing for direct
    agreement.
 
 2. **HSM-only signing in production.** `_lib/signer.ts` supports

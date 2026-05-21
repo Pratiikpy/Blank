@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { act, render, fireEvent } from "@testing-library/react";
 
-// §15.x test for Stealth screen — anonymous payments via claim codes.
+// §15.x test for Stealth screen — claim-code payments with reduced linkability.
 // Four-tab interface (Create / Inbox / Claim / Sent) with three distinct
 // recipient-discovery paths: copy/paste codes manually, deep-link hash
 // fragment auto-import, and pending-claim recovery from localStorage.
@@ -238,7 +238,7 @@ describe("Stealth — page chrome (§15.x)", () => {
   it("renders 'Stealth Payments' heading + privacy subtitle", () => {
     const { container } = render(<Stealth />);
     expect(container.textContent).toContain("Stealth Payments");
-    expect(container.textContent).toContain("Send anonymous payments via claim codes");
+    expect(container.textContent).toContain("Send claim-code payments with reduced wallet linkability");
   });
 
   it("renders 4 tabs (Create / Inbox / Claim / Sent) with default Create selected", () => {
@@ -867,7 +867,7 @@ describe("Stealth — Inbox tab + claim state machine (§15.x)", () => {
     expect(claimedBtn.disabled).toBe(true);
   });
 
-  it("inbox entry shows 'From: <fromHint>' or 'From: anonymous' fallback", () => {
+  it("inbox entry shows 'From: <fromHint>' or 'From: unknown sender' fallback", () => {
     const hash = ("0x" + "1".repeat(64)) as `0x${string}`;
     getStealthInboxMock.mockReturnValue([
       { claimCode: CLAIM_CODE, claimCodeHash: hash, status: "new", receivedAt: Date.now(), fromHint: "0xbbbb...bbbb" },
@@ -879,7 +879,7 @@ describe("Stealth — Inbox tab + claim state machine (§15.x)", () => {
     expect(container.textContent).toContain("0xbbbb...bbbb");
   });
 
-  it("no fromHint -> 'anonymous' fallback rendered", () => {
+  it("no fromHint -> 'unknown sender' fallback rendered", () => {
     const hash = ("0x" + "1".repeat(64)) as `0x${string}`;
     getStealthInboxMock.mockReturnValue([
       { claimCode: CLAIM_CODE, claimCodeHash: hash, status: "new", receivedAt: Date.now() },
@@ -888,7 +888,7 @@ describe("Stealth — Inbox tab + claim state machine (§15.x)", () => {
     const inboxTab = Array.from(container.querySelectorAll('[role="tab"]'))
       .find((t) => t.getAttribute("aria-label") === "Stealth inbox") as HTMLButtonElement;
     fireEvent.click(inboxTab);
-    expect(container.textContent).toContain("anonymous");
+    expect(container.textContent).toContain("unknown sender");
   });
 });
 

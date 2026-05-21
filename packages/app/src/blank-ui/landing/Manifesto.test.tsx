@@ -106,11 +106,10 @@ describe("Manifesto — section headings (§15.x)", () => {
     expect(container.textContent).toContain("Fully Homomorphic Encryption");
   });
 
-  it("'twelve features' surface-area claim is present", () => {
+  it("'sixteen surfaces' surface-area claim is present", () => {
     const { container } = withRouter(<Manifesto />);
-    expect(container.textContent).toContain("twelve features");
-    // Plus the all-twelve-must-exist argument.
-    expect(container.textContent).toContain("All twelve");
+    expect(container.textContent).toContain("sixteen surfaces");
+    expect(container.textContent).toContain("share one encrypted vault");
   });
 });
 

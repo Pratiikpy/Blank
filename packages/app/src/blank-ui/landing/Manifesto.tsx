@@ -94,10 +94,10 @@ export default function Manifesto() {
           <h2>Private payments aren't a feature</h2>
 
           <p>
-            Blank ships twelve features: P2P send, requests, group bills,
+            Blank ships sixteen surfaces: P2P send, requests, group bills,
             creator tips, invoicing, batch payroll, escrow with arbiter,
-            stealth transfers, gift envelopes, inheritance, atomic swaps,
-            and a privacy router for existing DEXs.
+            claim-code transfers, gift envelopes, inheritance, P2P exchange,
+            encrypted proofs, claim links, storefront, crowdfund, and bridge.
           </p>
 
           <p>
@@ -108,10 +108,9 @@ export default function Manifesto() {
           </p>
 
           <p>
-            So all twelve had to exist. All twelve had to share one encrypted
-            vault. All twelve had to use the same access-control primitive so
-            permits compose. That was the hard part. Not the cryptography.
-            The system design.
+            So the surfaces had to share one encrypted vault. They had to use
+            the same access-control primitive so permits compose. That was the
+            hard part. Not the cryptography. The system design.
           </p>
 
           <hr />
@@ -134,7 +133,7 @@ export default function Manifesto() {
           <p>
             The next generation of financial apps won't be
             transparent-by-default with a privacy mode bolted on. They'll be
-            private-by-default with transparency opt-in, selective, and
+            amount-private by default with transparency opt-in, selective, and
             provable. Blank is our attempt at proving that's not only
             possible. It's shippable today.
           </p>

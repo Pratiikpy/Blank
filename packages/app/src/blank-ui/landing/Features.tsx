@@ -145,8 +145,8 @@ const FEATURES: Feature[] = [
   {
     tag: "08. Privacy",
     name: "Stealth Payments",
-    pitch: "Anonymous transfers bound to a one-time claim code. The sender's wallet and the receiver's wallet never appear together on-chain. Anti-frontrunning by cryptographic design.",
-    scenario: "Send $500 to someone without either wallet ever being linkable by an outside observer.",
+    pitch: "One-time claim-code transfers where the sender's wallet and receiver's wallet do not appear together on-chain. Built to reduce linkability without hiding settlement.",
+    scenario: "Send $500 to someone through a claim code without putting both wallets in the same transfer record.",
     route: "/app/stealth",
     preview: {
       kind: "stealth",
@@ -168,7 +168,7 @@ const FEATURES: Feature[] = [
     tag: "10. Advanced",
     name: "Inheritance",
     pitch: "A dead man's switch with encrypted vault transfer. If you stop checking in, your designated heir can claim access after a challenge period.",
-    scenario: "Set a 90-day inactivity trigger. If something happens, your sister inherits your encrypted funds. No lawyer, no key ceremony.",
+    scenario: "Set a 90-day inactivity trigger. If something happens, your sister can claim the configured encrypted vault without holding your keys in advance.",
     route: "/app/inheritance",
     preview: {
       kind: "countdown",
@@ -445,7 +445,7 @@ export default function Features() {
         <section className="ll-page-hero">
           <div className="ll-section-kicker">Sixteen private surfaces</div>
           <h1 className="ll-section-title">
-            Everything you'd do with Venmo. With the amounts sealed shut.
+            The payment workflows people expect. With the amounts sealed shut.
           </h1>
           <p className="ll-section-lead">
             One encrypted vault. Sixteen product surfaces. The shipped

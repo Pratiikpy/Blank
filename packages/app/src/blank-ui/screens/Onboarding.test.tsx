@@ -101,7 +101,7 @@ describe("Onboarding — step 1 default (§15.x)", () => {
     const { container } = render(<Onboarding />);
     expect(container.textContent).toContain("Send money privately");
     expect(container.textContent).toContain("Your payments are encrypted");
-    expect(container.textContent).toContain("How much stays completely hidden");
+    expect(container.textContent).toContain("The amount stays private");
   });
 
   it("step 0: Back button HIDDEN (cannot go below 0)", () => {
@@ -130,12 +130,12 @@ describe("Onboarding — step navigation (§15.x)", () => {
     expect(container.textContent).toContain("encrypted on-chain");
   });
 
-  it("step 2 reveals 'Works everywhere you go' copy (Base network)", () => {
+  it("step 2 reveals 'Works everywhere you go' copy (supported EVM testnets)", () => {
     const { getByText, container } = render(<Onboarding />);
     fireEvent.click(getByText("Next"));
     fireEvent.click(getByText("Next"));
     expect(container.textContent).toContain("Works everywhere you go");
-    expect(container.textContent).toContain("Base network");
+    expect(container.textContent).toContain("supported EVM testnets");
   });
 
   it("step 3 (last) reveals 'Your keys. Your money.' copy", () => {
@@ -354,10 +354,10 @@ describe("Onboarding — step copy invariants (§15.x)", () => {
   // Pin in place so a future "polish pass" can't quietly water them
   // down or remove the privacy framing that drove the entire product.
   const expectedCopy: Array<{ heading: string; copyExcerpts: string[] }> = [
-    { heading: "Send money privately", copyExcerpts: ["payments are encrypted", "Who you pay is visible", "How much stays completely hidden"] },
+    { heading: "Send money privately", copyExcerpts: ["payments are encrypted", "Who you pay is visible", "The amount stays private"] },
     { heading: "Only you see the amounts", copyExcerpts: ["balances and transfers are encrypted on-chain", "Not even the blockchain"] },
-    { heading: "Works everywhere you go", copyExcerpts: ["Base network", "low fees", "military-grade encryption"] },
-    { heading: "Your keys. Your money", copyExcerpts: ["Non-custodial", "self-sovereign", "No company holds your funds"] },
+    { heading: "Works everywhere you go", copyExcerpts: ["supported EVM testnets", "low testnet fees", "FHE encryption"] },
+    { heading: "Your keys. Your money", copyExcerpts: ["Non-custodial", "self-sovereign", "what amount data you reveal"] },
   ];
 
   for (let i = 0; i < 4; i++) {

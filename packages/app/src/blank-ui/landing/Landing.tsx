@@ -28,9 +28,9 @@ function Hero() {
       </h1>
       <DecodeWord />
       <p className="ll-subline">
-        Encrypted invoices. Trustless escrow with automatic refund-on-mismatch.
+        Encrypted invoices. On-chain escrow with automatic refund-on-mismatch.
         Shareable proof-of-payment links. Powered by Fhenix CoFHE. Amounts
-        stay private end-to-end.
+        stay encrypted on-chain.
       </p>
       <div className="ll-hero-ctas">
         <Link to="/app" className="ll-btn ll-btn--hero ll-btn--ink">
@@ -56,7 +56,7 @@ function ProofOfProduct() {
     {
       num: "Live",
       label:
-        "Deployed on Base Sepolia and Ethereum Sepolia. Open source, end-to-end testable.",
+        "Deployed on Base Sepolia and Ethereum Sepolia. Open source and testable today.",
     },
     {
       num: "16",
@@ -107,7 +107,7 @@ function HowItWorks() {
     {
       n: "03",
       title: "Receive",
-      body: "Payments arrive in seconds. Unshield back to public USDC anytime, or keep spending privately across every feature in the app.",
+      body: "Payments settle through wallet-confirmed transactions. Unshield back to public USDC, or keep spending privately across supported flows.",
     },
   ];
   return (
@@ -148,14 +148,14 @@ function ExploreLinks() {
     {
       kicker: "Live",
       title: "The real transaction feed",
-      body: "Public transactions with their amounts sealed. Updates in realtime. Verifiable on Etherscan. Impossible to fake.",
+      body: "Public transactions with their amounts sealed. Realtime updates, explorer links, and activity backed by chain data.",
       to: "/live",
       cta: "Open the ticker",
     },
     {
       kicker: "Manifesto",
       title: "Why this has to exist",
-      body: "$900M in MEV, 272K leaked addresses, enterprises that won't come on-chain. The case for private-by-default, in plain English.",
+      body: "$900M in MEV, 272K leaked addresses, enterprises that won't come on-chain. The case for amount-private payments, in plain English.",
       to: "/manifesto",
       cta: "Read the manifesto",
     },

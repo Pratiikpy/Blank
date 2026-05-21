@@ -30,9 +30,9 @@ describe("Features — hero (§15.x)", () => {
     expect(container.textContent).toContain("Sixteen private surfaces");
   });
 
-  it("CRITICAL headline: 'Everything you'd do with Venmo. With the amounts sealed shut.'", () => {
+  it("CRITICAL headline: 'The payment workflows people expect. With the amounts sealed shut.'", () => {
     const { container } = withRouter(<Features />);
-    expect(container.textContent).toContain("Everything you'd do with Venmo");
+    expect(container.textContent).toContain("The payment workflows people expect");
     expect(container.textContent).toContain("amounts sealed shut");
   });
 
