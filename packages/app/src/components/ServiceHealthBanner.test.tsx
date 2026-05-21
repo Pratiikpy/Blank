@@ -56,31 +56,31 @@ describe("ServiceHealthBanner (§15.x)", () => {
     expect(getByText("You're offline")).toBeDefined();
   });
 
-  it("Fhenix unreachable shows the FHE-network-degraded banner", () => {
+  it("Fhenix unreachable shows the encrypted-payments banner", () => {
     useServiceHealthMock.mockReturnValue({
       ...ALL_REACHABLE,
       fhenixReachable: false,
     });
     const { getByText } = render(<ServiceHealthBanner />);
-    expect(getByText("FHE network degraded")).toBeDefined();
+    expect(getByText("Encrypted payments are slow")).toBeDefined();
   });
 
-  it("relay unreachable shows the smart-wallet-relay banner", () => {
+  it("relay unreachable shows the wallet-service banner", () => {
     useServiceHealthMock.mockReturnValue({
       ...ALL_REACHABLE,
       relayReachable: false,
     });
     const { getByText } = render(<ServiceHealthBanner />);
-    expect(getByText("Smart-wallet relay unavailable")).toBeDefined();
+    expect(getByText("Wallet service is slow")).toBeDefined();
   });
 
-  it("agents unreachable shows the AI-agents banner", () => {
+  it("agents unreachable shows the agent-payments banner", () => {
     useServiceHealthMock.mockReturnValue({
       ...ALL_REACHABLE,
       agentsReachable: false,
     });
     const { getByText } = render(<ServiceHealthBanner />);
-    expect(getByText("AI agents unavailable")).toBeDefined();
+    expect(getByText("Agent payments are paused")).toBeDefined();
   });
 
   it("priority order: offline > fhenix > relay > agents (only one banner at a time)", () => {
@@ -94,9 +94,9 @@ describe("ServiceHealthBanner (§15.x)", () => {
     });
     const { getByText, queryByText } = render(<ServiceHealthBanner />);
     expect(getByText("You're offline")).toBeDefined();
-    expect(queryByText("FHE network degraded")).toBeNull();
-    expect(queryByText("Smart-wallet relay unavailable")).toBeNull();
-    expect(queryByText("AI agents unavailable")).toBeNull();
+    expect(queryByText("Encrypted payments are slow")).toBeNull();
+    expect(queryByText("Wallet service is slow")).toBeNull();
+    expect(queryByText("Agent payments are paused")).toBeNull();
   });
 
   it("offline banner uses the offline tone (gray, not amber)", () => {

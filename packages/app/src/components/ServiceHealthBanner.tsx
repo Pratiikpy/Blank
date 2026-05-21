@@ -47,8 +47,8 @@ export function ServiceHealthBanner() {
       <Banner
         tone="warn"
         icon={<AlertTriangle size={14} />}
-        title="FHE network degraded"
-        body="Shield / unshield / stealth claim may hang. Try again in a minute."
+        title="Encrypted payments are slow"
+        body="Private balance actions may take longer than usual. Try again in a minute."
       />
     );
   }
@@ -57,8 +57,8 @@ export function ServiceHealthBanner() {
       <Banner
         tone="warn"
         icon={<AlertTriangle size={14} />}
-        title="Smart-wallet relay unavailable"
-        body="Connected wallets can still send. Passkey gas sponsorship may fail."
+        title="Wallet service is slow"
+        body="Connected wallets can still send. Passkey wallet actions may need a retry."
       />
     );
   }
@@ -67,8 +67,8 @@ export function ServiceHealthBanner() {
       <Banner
         tone="warn"
         icon={<AlertTriangle size={14} />}
-        title="AI agents unavailable"
-        body="Agent-derived payments disabled. Other features unaffected."
+        title="Agent payments are paused"
+        body="Agent-created payments are temporarily unavailable. Other features still work."
       />
     );
   }
