@@ -17,6 +17,7 @@ import {
   Loader2,
   AlertCircle,
   Inbox,
+  RefreshCw,
 } from "lucide-react";
 import { EmptyState } from "@/components/common/EmptyState";
 import { useCofheConnection, useCofheEncrypt } from "@/lib/cofhe-shim";
@@ -86,7 +87,13 @@ export default function Dashboard() {
   // EOA users pay their own gas regardless and don't benefit from this
   // signal.
   const paymasterHealth = usePaymasterHealth();
-  const { activities, isLoading: feedLoading } = useActivityFeed();
+  const {
+    activities,
+    isLoading: feedLoading,
+    isOffline: feedOffline,
+    lastSyncedAt: feedLastSyncedAt,
+    refetch: refetchActivities,
+  } = useActivityFeed();
   const balance = useEncryptedBalance();
   const {
     mintTestTokens,
@@ -536,6 +543,9 @@ export default function Dashboard() {
           <ActivityList
             activities={recentActivities}
             isLoading={feedLoading}
+            isOffline={feedOffline}
+            lastSyncedAt={feedLastSyncedAt}
+            onRefresh={refetchActivities}
             address={address}
             privacyMode={privacyMode}
             onViewAll={() => navigate("/app/history")}
@@ -908,6 +918,9 @@ export default function Dashboard() {
             <ActivityList
               activities={recentActivities}
               isLoading={feedLoading}
+              isOffline={feedOffline}
+              lastSyncedAt={feedLastSyncedAt}
+              onRefresh={refetchActivities}
               address={address}
               privacyMode={privacyMode}
               onViewAll={() => navigate("/app/history")}
@@ -1181,29 +1194,53 @@ function BalanceCard({ balance, privacyMode, onTogglePrivacy, hasPermit, onCreat
 interface ActivityListProps {
   activities: ReturnType<typeof useActivityFeed>["activities"];
   isLoading: boolean;
+  isOffline: boolean;
+  lastSyncedAt: number | null;
+  onRefresh: () => void;
   address: string | undefined;
   privacyMode: boolean;
   onViewAll: () => void;
 }
 
-function ActivityList({ activities, isLoading, address, privacyMode, onViewAll }: ActivityListProps) {
+function ActivityList({ activities, isLoading, isOffline, lastSyncedAt, onRefresh, address, privacyMode, onViewAll }: ActivityListProps) {
   const navigate = useNavigate();
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <h3
-          className="text-xl font-medium text-[var(--text-primary)]"
-          style={{ fontFamily: "'Outfit', 'Inter', sans-serif" }}
-        >
-          Recent Activity
-        </h3>
-        <button
-          onClick={onViewAll}
-          className="text-sm font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
-          aria-label="View all activity"
-        >
-          View All
-        </button>
+        <div>
+          <h3
+            className="text-xl font-medium text-[var(--text-primary)]"
+            style={{ fontFamily: "'Outfit', 'Inter', sans-serif" }}
+          >
+            Recent Activity
+          </h3>
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-[var(--text-secondary)]">
+            <span className={cn(
+              "px-2 py-0.5 rounded-full",
+              isOffline ? "bg-amber-50 text-amber-700" : "bg-emerald-50 text-emerald-700",
+            )}>
+              {isOffline ? "Refresh recommended" : "Synced"}
+            </span>
+            {lastSyncedAt && <span>Checked {new Date(lastSyncedAt).toLocaleTimeString()}</span>}
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={onRefresh}
+            className="text-sm font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors inline-flex items-center gap-1"
+            aria-label="Refresh activity"
+          >
+            <RefreshCw size={13} /> Refresh
+          </button>
+          <button
+            onClick={onViewAll}
+            className="text-sm font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+            aria-label="View all activity"
+          >
+            View All
+          </button>
+        </div>
       </div>
 
       {isLoading ? (

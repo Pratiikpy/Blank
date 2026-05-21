@@ -188,6 +188,7 @@ export default function CreateClaimLink() {
   const [sentLinks, setSentLinks] = useState<SentLinkRecord[]>([]);
   const [loadingSent, setLoadingSent] = useState(false);
   const [refundingId, setRefundingId] = useState<bigint | null>(null);
+  const [sentLinksRefreshedAt, setSentLinksRefreshedAt] = useState<number | null>(null);
 
   const refreshSentLinks = useCallback(async () => {
     if (!effectiveAddress) return;
@@ -199,6 +200,7 @@ export default function CreateClaimLink() {
       // Newest first.
       filtered.sort((a, b) => Number(b.createdAt - a.createdAt));
       setSentLinks(filtered);
+      setSentLinksRefreshedAt(Date.now());
     } finally {
       setLoadingSent(false);
     }
@@ -446,8 +448,13 @@ export default function CreateClaimLink() {
             <div>
               <h2 className="text-lg font-heading font-semibold">Your sent links</h2>
               <p className="text-xs text-[var(--text-secondary)] mt-0.5">
-                Refund any link you've sent. Once claimed, the amount is locked with the recipient.
+                On-chain link state. Refund expired links, track claims, and copy a link reference.
               </p>
+              {sentLinksRefreshedAt && (
+                <p className="text-[11px] text-[var(--text-tertiary)] mt-1">
+                  Checked {new Date(sentLinksRefreshedAt).toLocaleTimeString()}.
+                </p>
+              )}
             </div>
             <button
               type="button"
@@ -511,6 +518,12 @@ export default function CreateClaimLink() {
                         {status === "claimed" && link.claimer !== "0x0000000000000000000000000000000000000000" && (
                           <> · claimed by <span className="font-mono">{link.claimer.slice(0, 6)}…{link.claimer.slice(-4)}</span></>
                         )}
+                      </p>
+                      <p className="text-xs text-[var(--text-secondary)] mt-1">
+                        {status === "claimable" && "Waiting for the recipient to claim."}
+                        {status === "claimed" && "Claim complete. Funds are with the recipient."}
+                        {status === "refunded" && "Refund complete. The link can no longer be claimed."}
+                        {status === "expired" && "Expired and ready to refund."}
                       </p>
                     </div>
                     <div className="flex flex-col gap-1.5 shrink-0">

@@ -9,6 +9,7 @@ import {
   ExternalLink,
   Search,
   Loader2,
+  RefreshCw,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { getExplorerTxUrl } from "@/lib/constants";
@@ -96,6 +97,9 @@ export default function History() {
     isLoading,
     isLoadingMore,
     hasMore,
+    isOffline,
+    lastSyncedAt,
+    refetch,
     loadMore,
   } = useActivityFeed();
   const { addContact } = useContacts();
@@ -184,6 +188,22 @@ export default function History() {
             <p className="text-sm sm:text-base text-[var(--text-primary)]/50 leading-relaxed">
               Your encrypted transaction history
             </p>
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-[var(--text-secondary)]">
+              <span className={cn(
+                "px-2 py-1 rounded-full",
+                isOffline ? "bg-amber-50 text-amber-700" : "bg-emerald-50 text-emerald-700",
+              )}>
+                {isOffline ? "Realtime delayed" : "Synced"}
+              </span>
+              {lastSyncedAt && <span>Checked {new Date(lastSyncedAt).toLocaleTimeString()}</span>}
+              <button
+                type="button"
+                onClick={refetch}
+                className="inline-flex items-center gap-1 underline underline-offset-2"
+              >
+                <RefreshCw size={11} /> Refresh
+              </button>
+            </div>
           </div>
           {filtered.length > 0 && (
             <button

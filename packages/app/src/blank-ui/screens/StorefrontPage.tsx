@@ -16,6 +16,9 @@ import {
   CheckCircle2,
   Clock,
   ShoppingBag,
+  Copy,
+  ExternalLink,
+  RefreshCw,
   type LucideIcon,
 } from "lucide-react";
 import { useStorefront, SALE_MODE, type SaleMode } from "@/hooks/useStorefront";
@@ -51,7 +54,17 @@ export default function StorefrontPage() {
   const chainId = params.chainId ? Number(params.chainId) : NaN;
   const listingId = params.listingId ? Number(params.listingId) : NaN;
   const publicClient = usePublicClient({ chainId });
-  const { state, pipeline, buyFixed, placeBid, payPWYW, closeAuction, claimAuctionWin, refundLoserBid } = useStorefront();
+  const {
+    state,
+    txExplorerUrl,
+    pipeline,
+    buyFixed,
+    placeBid,
+    payPWYW,
+    closeAuction,
+    claimAuctionWin,
+    refundLoserBid,
+  } = useStorefront();
   // Passkey-aware: the connected smart-account address. Used to gate
   // the Claim button so non-winners don't pay gas just to revert. Falls
   // back to undefined for unconnected viewers; we then show a generic
@@ -70,6 +83,7 @@ export default function StorefrontPage() {
   const [loadError, setLoadError] = useState<ClassifiedLoadError | null>(null);
   // Retry CTA bumps reloadKey, re-running the effect.
   const [reloadKey, setReloadKey] = useState(0);
+  const [lastLoadedAt, setLastLoadedAt] = useState<number | null>(null);
 
   const [amount, setAmount] = useState("");
 
@@ -126,6 +140,7 @@ export default function StorefrontPage() {
           seller, vault, mode: mode as SaleMode, closesAt, winner, active, closed,
           title, descriptionCidHash, deliveryChannel, createdAt,
         });
+        setLastLoadedAt(Date.now());
 
         if ((mode as SaleMode) === SALE_MODE.Auction) {
           const count = await publicClient.readContract({
@@ -259,19 +274,73 @@ export default function StorefrontPage() {
   // ─── Success state ─────────────────────────────────────────────
 
   if (state.step === "success") {
+    const purchaseRef = [
+      `Blank storefront purchase`,
+      `Listing: #${listingId}`,
+      `Chain: ${chainId}`,
+      `Seller: ${onChain.seller}`,
+      state.txHash ? `Transaction: ${state.txHash}` : null,
+      `Delivery channel: ${onChain.deliveryChannel || "Seller handoff"}`,
+    ].filter(Boolean).join("\n");
+    const copyPurchaseRef = async () => {
+      await navigator.clipboard.writeText(purchaseRef);
+    };
     return (
       <CenterCard>
         <IconBubble color="bg-emerald-50" icon={<CheckCircle2 size={32} className="text-emerald-600" />} />
-        <h1 className="text-2xl font-heading font-semibold mb-3">Payment locked in</h1>
+        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-50 text-amber-700 text-xs font-medium mb-4">
+          Delivery pending
+        </div>
+        <h1 className="text-2xl font-heading font-semibold mb-3">Payment confirmed</h1>
         <p className="text-[var(--text-secondary)] mb-2">
-          Your encrypted payment is on-chain.
+          Your encrypted payment is on-chain. The seller now fulfills through their published delivery channel.
         </p>
         {onChain.deliveryChannel && (
-          <p className="text-sm text-[var(--text-secondary)] mb-6">
-            Delivery: <span className="font-medium text-[var(--text-primary)]">{onChain.deliveryChannel}</span>
-          </p>
+          <div className="mt-4 mb-4 text-left rounded-2xl border border-[var(--border)] bg-[var(--surface-2)] p-4">
+            <div className="text-xs uppercase tracking-wide text-[var(--text-secondary)] mb-1">Seller handoff</div>
+            <div className="font-medium text-[var(--text-primary)] break-words">{onChain.deliveryChannel}</div>
+          </div>
         )}
-        <a href="/app" className="inline-block px-6 h-12 leading-[3rem] rounded-2xl bg-[#1D1D1F] text-white font-medium">
+        <div className="mb-5 text-left rounded-2xl border border-[var(--border)] p-4 text-sm space-y-2">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-[var(--text-secondary)]">Listing</span>
+            <span className="font-mono">#{listingId}</span>
+          </div>
+          {state.txHash && (
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-[var(--text-secondary)]">Transaction</span>
+              {txExplorerUrl ? (
+                <a
+                  href={txExplorerUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-mono text-xs underline inline-flex items-center gap-1"
+                >
+                  {state.txHash.slice(0, 8)}...{state.txHash.slice(-6)} <ExternalLink size={11} />
+                </a>
+              ) : (
+                <span className="font-mono text-xs">{state.txHash.slice(0, 8)}...{state.txHash.slice(-6)}</span>
+              )}
+            </div>
+          )}
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={copyPurchaseRef}
+            className="h-12 rounded-2xl border border-[var(--border)] font-medium inline-flex items-center justify-center gap-2"
+          >
+            <Copy size={16} /> Copy reference
+          </button>
+          <button
+            type="button"
+            onClick={() => setReloadKey((k) => k + 1)}
+            className="h-12 rounded-2xl bg-[#1D1D1F] text-white font-medium inline-flex items-center justify-center gap-2"
+          >
+            <RefreshCw size={16} /> Refresh listing
+          </button>
+        </div>
+        <a href="/app" className="inline-block mt-3 text-sm underline text-[var(--text-secondary)] hover:text-[var(--text-primary)]">
           Open Blank
         </a>
       </CenterCard>
@@ -296,6 +365,11 @@ export default function StorefrontPage() {
       <p className="text-sm text-[var(--text-secondary)] mb-6">
         Delivery: <span className="font-medium text-[var(--text-primary)]">{onChain.deliveryChannel}</span>
       </p>
+      <DeliveryHandoff
+        deliveryChannel={onChain.deliveryChannel}
+        lastLoadedAt={lastLoadedAt}
+        onRefresh={() => setReloadKey((k) => k + 1)}
+      />
 
       {/* ── FixedPrice ── */}
       {onChain.mode === SALE_MODE.FixedPrice && (
@@ -550,6 +624,41 @@ function AuctionView(props: {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function DeliveryHandoff(props: {
+  deliveryChannel: string;
+  lastLoadedAt: number | null;
+  onRefresh: () => void;
+}) {
+  return (
+    <div className="mb-6 text-left rounded-2xl border border-[var(--border)] bg-[var(--surface-2)] p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-xs uppercase tracking-wide text-[var(--text-secondary)] mb-1">Seller-handled delivery</div>
+          <p className="text-sm text-[var(--text-secondary)]">
+            Pay on-chain here. The seller fulfills through the channel below.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={props.onRefresh}
+          className="h-8 px-2 rounded-lg border border-[var(--border)] text-[var(--text-secondary)] hover:bg-white/60"
+          aria-label="Refresh listing state"
+        >
+          <RefreshCw size={13} />
+        </button>
+      </div>
+      <div className="mt-3 rounded-xl bg-white/60 dark:bg-white/[0.04] px-3 py-2 text-sm font-medium break-words">
+        {props.deliveryChannel || "Seller will contact you after payment."}
+      </div>
+      {props.lastLoadedAt && (
+        <p className="mt-2 text-[11px] text-[var(--text-tertiary)]">
+          On-chain listing state checked {new Date(props.lastLoadedAt).toLocaleTimeString()}.
+        </p>
+      )}
     </div>
   );
 }

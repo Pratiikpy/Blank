@@ -25,6 +25,7 @@ interface SellerListing {
   active: boolean;
   closed: boolean;
   title: string;
+  deliveryChannel: string;
   createdAt: bigint;
 }
 
@@ -100,6 +101,7 @@ export default function CreateListing() {
   const [sellerListings, setSellerListings] = useState<SellerListing[]>([]);
   const [loadingListings, setLoadingListings] = useState(false);
   const [deactivatingId, setDeactivatingId] = useState<bigint | null>(null);
+  const [listingsRefreshedAt, setListingsRefreshedAt] = useState<number | null>(null);
 
   const refreshSellerListings = useCallback(async () => {
     if (!effectiveAddress) return;
@@ -117,10 +119,12 @@ export default function CreateListing() {
           active: r.active,
           closed: r.closed,
           title: r.title,
+          deliveryChannel: r.deliveryChannel,
           createdAt: r.createdAt,
         }));
       filtered.sort((a, b) => Number(b.createdAt - a.createdAt));
       setSellerListings(filtered);
+      setListingsRefreshedAt(Date.now());
     } finally {
       setLoadingListings(false);
     }
@@ -275,9 +279,9 @@ export default function CreateListing() {
           onChange={setDeliveryChannel}
           placeholder="DM @yourhandle on telegram / email me / ships in 3 days"
         />
-        <p className="text-xs text-[var(--text-secondary)] -mt-3 mb-4">
-          Public to buyers. Free text. Write whatever helps them know the next step.
-        </p>
+        <div className="-mt-3 mb-4 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-xs text-[var(--text-secondary)]">
+          Seller-handled delivery. This text is public on the listing and tells buyers exactly what happens after payment.
+        </div>
 
         {pipeline.phase !== "idle" && (
           <div className="mb-4">
@@ -311,8 +315,13 @@ export default function CreateListing() {
             <div>
               <h2 className="text-lg font-heading font-semibold">Your listings</h2>
               <p className="text-xs text-[var(--text-secondary)] mt-0.5">
-                Copy the public URL or deactivate listings you've created.
+                On-chain listing state. Copy the public URL, review delivery instructions, or deactivate a listing.
               </p>
+              {listingsRefreshedAt && (
+                <p className="text-[11px] text-[var(--text-tertiary)] mt-1">
+                  Checked {new Date(listingsRefreshedAt).toLocaleTimeString()}.
+                </p>
+              )}
             </div>
             <button
               type="button"
@@ -370,6 +379,12 @@ export default function CreateListing() {
                         </span>
                       </div>
                       <p className="text-sm text-[var(--text-primary)] truncate">{listing.title}</p>
+                      <p className="text-xs text-[var(--text-secondary)] mt-1 line-clamp-2">
+                        Delivery: {listing.deliveryChannel || "Seller handoff"}
+                      </p>
+                      <p className="text-[11px] text-[var(--text-tertiary)] mt-1">
+                        Purchases create on-chain payment events. Fulfillment happens through the delivery channel.
+                      </p>
                     </div>
                     <div className="flex flex-col gap-1.5 shrink-0">
                       <button

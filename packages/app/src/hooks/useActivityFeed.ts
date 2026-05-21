@@ -80,6 +80,7 @@ export function useActivityFeed() {
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [isOffline, setIsOffline] = useState(false);
   const [hasMore, setHasMore] = useState(true);
+  const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
   // #249: shared feed dedup — a tx_hash seen through one feed subscription is
   // suppressed in sibling feed instances for the same address and chain.
   const { accept: acceptTx } = useActivityDedup(address, activeChainId);
@@ -159,6 +160,7 @@ export function useActivityFeed() {
         }
         setIsOffline(false);
       }
+      setLastSyncedAt(Date.now());
       // hasMore is true only if the page filled completely — partial page
       // means we've hit the end of the user's history.
       setHasMore(data.length === PAGE_SIZE);
@@ -202,6 +204,7 @@ export function useActivityFeed() {
       }
 
       fresh.forEach((a) => addToCappedSet(notifiedTxs.current, a.tx_hash));
+      setLastSyncedAt(Date.now());
       // #223: re-sort the merged list so loaded-more rows interleave
       // deterministically with the current head if any timestamps overlap.
       setActivities((prev) => sortActivitiesStable([...prev, ...fresh]));
@@ -237,6 +240,7 @@ export function useActivityFeed() {
       const buffered = insertBufferRef.current;
       if (buffered.length === 0) return;
       insertBufferRef.current = [];
+      setLastSyncedAt(Date.now());
       setActivities((prev) => {
         // Prepend all buffered rows in one batch, then re-sort so they land
         // in the deterministic position even if `created_at` ties.
@@ -329,6 +333,7 @@ export function useActivityFeed() {
       id: `local_${Date.now()}`,
       created_at: new Date().toISOString(),
     };
+    setLastSyncedAt(Date.now());
     setActivities((prev) => {
       const updated = sortActivitiesStable([localActivity, ...prev]);
       if (cacheKey) {
@@ -344,6 +349,7 @@ export function useActivityFeed() {
     isLoadingMore,
     isOffline,
     hasMore,
+    lastSyncedAt,
     refetch: loadActivities,
     loadMore,
     addLocalActivity,

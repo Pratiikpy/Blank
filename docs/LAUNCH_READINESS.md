@@ -110,7 +110,7 @@ states or transaction hashes for:
 | Gift envelope | On-chain tx hash and success state |
 | Stealth inbox setup | On-chain tx and accessible inbox |
 | Group create | New group card and admin role |
-| Storefront listing | Public `/shop/:chainId/:listingId` URL |
+| Storefront listing | Public `/shop/:chainId/:listingId` URL, seller delivery handoff |
 | Crowdfund campaign | Public `/fund/:chainId/:campaignId` URL |
 | Encrypted proof | Proof visible in the user's proof list |
 | Inheritance | Contract path proven in multi-wallet sweep |
@@ -184,13 +184,13 @@ hidden.
 | --- | --- |
 | Mainnet | Not supported until external audit and Fhenix mainnet readiness. |
 | Mobile | Route and layout baseline is green. Full mobile transaction matrix is next. |
-| Storefront delivery | Payment and purchase are proven. Digital file delivery is seller-handled today, not an automatic Gumroad-style file system. |
+| Storefront delivery | Payment and purchase are proven. Digital file delivery is seller-handled today, with buyer and seller handoff copy in the UI. It is not an automatic Gumroad-style file system. |
 | Crowdfund close, release, refund | Covered by contract tests and sweep logic where timing allows. Full live UI close waits on real testnet duration. |
 | Inheritance claim | Set-heir path is proven. Final claim requires inactivity and challenge windows. |
 | Stealth keys | Current setup stores local stealth keys in browser storage and warns the user. Production-grade custody should move to stronger key storage before mainnet. |
-| Realtime | UI should update after writes, but some surfaces depend on Supabase or indexer delay. Refresh-after-delay is still part of the QA standard. |
-| Storefront management | Public listing and purchase are live. Seller management tabs are still a product follow-up. |
-| Claim link management | Create and claim work. Sender-side management tabs are still a product follow-up. |
+| Realtime | UI should update after writes, but some surfaces depend on Supabase or indexer delay. Key feeds now show checked times and manual refresh. Refresh-after-delay is still part of the QA standard. |
+| Storefront management | Public listing and purchase are live. Seller listings show on-chain state, delivery channel, copy URL, and deactivate controls. Automatic file fulfillment is still a product follow-up. |
+| Claim link management | Create and claim work. Sender links show on-chain state, claim/refund status, copy URL, and refund controls. Advanced sender analytics are still a product follow-up. |
 | Encrypted escrow UI | Contract path is live. Full BusinessTools UI consolidation is still a focused follow-up. |
 | API health | Public route health is good. `/api/health` can report service-level 503 if optional relayer or provider env is not configured. |
 

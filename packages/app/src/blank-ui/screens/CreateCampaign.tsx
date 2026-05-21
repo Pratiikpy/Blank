@@ -79,6 +79,7 @@ export default function CreateCampaign() {
   const [creatorCampaigns, setCreatorCampaigns] = useState<CreatorCampaign[]>([]);
   const [loadingCampaigns, setLoadingCampaigns] = useState(false);
   const [closingId, setClosingId] = useState<bigint | null>(null);
+  const [campaignsRefreshedAt, setCampaignsRefreshedAt] = useState<number | null>(null);
 
   const refreshCreatorCampaigns = useCallback(async () => {
     if (!effectiveAddress) return;
@@ -96,9 +97,10 @@ export default function CreateCampaign() {
           resultPublished: r.resultPublished,
           title: r.title,
           createdAt: r.createdAt,
-        }));
+      }));
       filtered.sort((a, b) => Number(b.createdAt - a.createdAt));
       setCreatorCampaigns(filtered);
+      setCampaignsRefreshedAt(Date.now());
     } finally {
       setLoadingCampaigns(false);
     }
@@ -245,8 +247,13 @@ export default function CreateCampaign() {
             <div>
               <h2 className="text-lg font-heading font-semibold">Your campaigns</h2>
               <p className="text-xs text-[var(--text-secondary)] mt-0.5">
-                Copy the public URL or close a campaign past its deadline.
+                On-chain campaign state. Copy the public URL, close after deadline, then release or refund from the public page.
               </p>
+              {campaignsRefreshedAt && (
+                <p className="text-[11px] text-[var(--text-tertiary)] mt-1">
+                  Checked {new Date(campaignsRefreshedAt).toLocaleTimeString()}.
+                </p>
+              )}
             </div>
             <button
               type="button"
@@ -315,6 +322,13 @@ export default function CreateCampaign() {
                       <p className="text-sm text-[var(--text-primary)] truncate">{c.title}</p>
                       <p className="text-[11px] text-[var(--text-tertiary)] mt-0.5">
                         Deadline {new Date(Number(c.deadline) * 1000).toLocaleDateString()}
+                      </p>
+                      <p className="text-xs text-[var(--text-secondary)] mt-1">
+                        {phase === "open" && "Accepting encrypted contributions."}
+                        {phase === "needs close" && "Deadline passed. Close to request the encrypted goal verdict."}
+                        {phase === "awaiting" && "Close submitted. Waiting for the goal verdict to be published."}
+                        {phase === "released" && "Goal met. Creator release path is complete."}
+                        {phase === "refunding" && "Goal missed. Contributors can claim refunds."}
                       </p>
                     </div>
                     <div className="flex flex-col gap-1.5 shrink-0">
