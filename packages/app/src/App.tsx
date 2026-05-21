@@ -1,6 +1,7 @@
 import { Suspense, lazy } from "react";
-import { Routes, Route, Link } from "react-router-dom";
+import { Routes, Route, Link, Navigate, useLocation } from "react-router-dom";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { getSubdomainRouteTarget } from "@/lib/subdomainRouting";
 
 // Landing-level pages — each is its own bundle chunk (lazy-loaded)
 const Landing       = lazy(() => import("@/blank-ui/landing/Landing"));
@@ -41,6 +42,18 @@ function LoadingScreen() {
       <div className="w-10 h-10 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
     </div>
   );
+}
+
+function SubdomainRouteRedirect() {
+  const location = useLocation();
+  const target =
+    typeof window === "undefined"
+      ? null
+      : getSubdomainRouteTarget(window.location.hostname, location.pathname);
+
+  if (!target) return null;
+
+  return <Navigate to={`${target}${location.search}${location.hash}`} replace />;
 }
 
 // Audit Top-28 #20: catch-all 404 for any route outside /app/* and the
@@ -92,6 +105,7 @@ export function App() {
     // etc.).
     <ErrorBoundary>
       <Suspense fallback={<LoadingScreen />}>
+        <SubdomainRouteRedirect />
         <Routes>
           {/* Public landing-level pages */}
           <Route path="/"                    element={<Landing />} />
