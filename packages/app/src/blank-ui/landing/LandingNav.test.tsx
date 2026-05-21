@@ -79,12 +79,18 @@ describe("LandingNav — top-level links (§15.x)", () => {
     expect(screen.getByRole("link", { name: /Launch app/ })).toBeInTheDocument();
   });
 
-  it("'Launch app' CTA links to /app with ll-btn--ink primary class", () => {
+  it("'Launch app' CTA links to app.myblank.app with ll-btn--ink primary class", () => {
     renderAt("/");
     const cta = screen.getByRole("link", { name: /Launch app/ });
-    expect((cta as HTMLAnchorElement).getAttribute("href")).toBe("/app");
+    expect((cta as HTMLAnchorElement).getAttribute("href")).toBe("https://app.myblank.app");
     expect(cta.className).toContain("ll-btn");
     expect(cta.className).toContain("ll-btn--ink");
+  });
+
+  it("Blog link points to blog.myblank.app", () => {
+    renderAt("/");
+    const blog = screen.getByRole("link", { name: /^Blog$/ });
+    expect((blog as HTMLAnchorElement).getAttribute("href")).toBe("https://blog.myblank.app");
   });
 
   it("nav has aria-label='Primary' (landmark navigation)", () => {

@@ -6,6 +6,7 @@ import { LandingNav } from "./LandingNav";
 import { LandingFooter } from "./LandingFooter";
 import { LiveDemo } from "./LiveDemo";
 import { GlobalCounter } from "./GlobalCounter";
+import { PUBLIC_LINKS } from "./publicLinks";
 import "./landing.css";
 
 // ══════════════════════════════════════════════════════════════════
@@ -33,9 +34,9 @@ function Hero() {
         stay encrypted on-chain.
       </p>
       <div className="ll-hero-ctas">
-        <Link to="/app" className="ll-btn ll-btn--hero ll-btn--ink">
+        <a href={PUBLIC_LINKS.app} className="ll-btn ll-btn--hero ll-btn--ink">
           Launch Blank <ArrowRight size={17} strokeWidth={2.2} />
-        </Link>
+        </a>
         <Link to="/live" className="ll-btn ll-btn--hero ll-btn--ghost">
           See it live
         </Link>
@@ -222,9 +223,9 @@ function CTA() {
         Launch Blank. Mint some test USDC. Shield it. Send a private payment
         in under a minute.
       </p>
-      <Link to="/app" className="ll-btn ll-btn--hero ll-btn--ink">
+      <a href={PUBLIC_LINKS.app} className="ll-btn ll-btn--hero ll-btn--ink">
         Launch Blank <ArrowRight size={17} strokeWidth={2.2} />
-      </Link>
+      </a>
     </section>
   );
 }

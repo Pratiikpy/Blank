@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
 import { ArrowRight, Github, ChevronDown } from "lucide-react";
 import { BlankLogo } from "./BlankLogo";
+import { PUBLIC_LINKS } from "./publicLinks";
 
 // Shared nav used on every landing-level page (/, /features, /live, /manifesto).
 // NavLink marks the current route — `end` on root-ish items prevents prefix bleed.
@@ -78,12 +79,12 @@ export function LandingNav() {
         <NavLink to="/roadmap" className={({ isActive }) => isActive ? "active" : ""}>
           Roadmap
         </NavLink>
-        <NavLink
-          to="/blog"
-          className={({ isActive }) => (isActive || location.pathname.startsWith("/blog/") ? "active" : "")}
+        <a
+          href={PUBLIC_LINKS.blog}
+          className={location.pathname === "/blog" || location.pathname.startsWith("/blog/") ? "active" : ""}
         >
           Blog
-        </NavLink>
+        </a>
         <NavLink to="/live" className={({ isActive }) => isActive ? "active" : ""}>
           Live
         </NavLink>
@@ -106,9 +107,9 @@ export function LandingNav() {
             <Github size={18} strokeWidth={2} />
           </a>
         </div>
-        <Link to="/app" className="ll-btn ll-btn--ink">
+        <a href={PUBLIC_LINKS.app} className="ll-btn ll-btn--ink">
           Launch app <ArrowRight size={15} strokeWidth={2.3} />
-        </Link>
+        </a>
       </div>
     </nav>
   );

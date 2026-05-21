@@ -4,7 +4,7 @@ import { MemoryRouter } from "react-router-dom";
 
 // §15.x test for LandingFooter. Shared footer across every
 // landing-level page. Minimal footer with primary public links
-// (Features / How it works / Pricing / Roadmap / Live / Whitepaper /
+// (Features / How it works / Pricing / Roadmap / Live / Docs /
 // Brand Kit / Blog / Manifesto / Launch app / GitHub / Fhenix
 // attribution). The footer is intentionally static so it
 // renders identically on every page; the only dynamic part is
@@ -116,22 +116,22 @@ describe("LandingFooter — internal links (§15.x)", () => {
     expect((link as HTMLAnchorElement).getAttribute("href")).toBe("/live");
   });
 
-  it("Whitepaper link points to /whitepaper", () => {
+  it("Docs link points to docs.myblank.app", () => {
     renderFooter();
-    const link = screen.getByRole("link", { name: "Whitepaper" });
-    expect((link as HTMLAnchorElement).getAttribute("href")).toBe("/whitepaper");
+    const link = screen.getByRole("link", { name: "Docs" });
+    expect((link as HTMLAnchorElement).getAttribute("href")).toBe("https://docs.myblank.app");
   });
 
-  it("Brand Kit link points to /brand-kit", () => {
+  it("Brand Kit link points to brand.myblank.app", () => {
     renderFooter();
     const link = screen.getByRole("link", { name: "Brand Kit" });
-    expect((link as HTMLAnchorElement).getAttribute("href")).toBe("/brand-kit");
+    expect((link as HTMLAnchorElement).getAttribute("href")).toBe("https://brand.myblank.app");
   });
 
-  it("Blog link points to /blog", () => {
+  it("Blog link points to blog.myblank.app", () => {
     renderFooter();
     const link = screen.getByRole("link", { name: "Blog" });
-    expect((link as HTMLAnchorElement).getAttribute("href")).toBe("/blog");
+    expect((link as HTMLAnchorElement).getAttribute("href")).toBe("https://blog.myblank.app");
   });
 
   it("Manifesto link points to /manifesto", () => {
@@ -140,10 +140,10 @@ describe("LandingFooter — internal links (§15.x)", () => {
     expect((link as HTMLAnchorElement).getAttribute("href")).toBe("/manifesto");
   });
 
-  it("Launch app link points to /app", () => {
+  it("Launch app link points to app.myblank.app", () => {
     renderFooter();
     const link = screen.getByRole("link", { name: "Launch app" });
-    expect((link as HTMLAnchorElement).getAttribute("href")).toBe("/app");
+    expect((link as HTMLAnchorElement).getAttribute("href")).toBe("https://app.myblank.app");
   });
 });
 

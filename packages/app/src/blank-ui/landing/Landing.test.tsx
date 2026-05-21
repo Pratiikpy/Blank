@@ -63,12 +63,12 @@ describe("Landing — Hero (§15.x)", () => {
     expect(container.textContent).toContain("Fhenix CoFHE");
   });
 
-  it("hero CTAs: 'Launch Blank' → /app + 'See it live' → /live", () => {
+  it("hero CTAs: 'Launch Blank' → app.myblank.app + 'See it live' → /live", () => {
     const { container } = withRouter(<Landing />);
     const ctas = Array.from(container.querySelectorAll("a"));
     const launch = ctas.find((a) => a.textContent?.includes("Launch Blank"));
     const live = ctas.find((a) => a.textContent?.includes("See it live"));
-    expect(launch?.getAttribute("href")).toBe("/app");
+    expect(launch?.getAttribute("href")).toBe("https://app.myblank.app");
     expect(live?.getAttribute("href")).toBe("/live");
   });
 });
@@ -175,7 +175,7 @@ describe("Landing — closing CTA (§15.x)", () => {
     expect(container.textContent).toContain("Your money is nobody else's business");
   });
 
-  it("closing 'Launch Blank' CTA links to /app", () => {
+  it("closing 'Launch Blank' CTA links to app.myblank.app", () => {
     const { container } = withRouter(<Landing />);
     const launchCtas = Array.from(container.querySelectorAll("a")).filter((a) =>
       a.textContent?.includes("Launch Blank"),
@@ -183,7 +183,7 @@ describe("Landing — closing CTA (§15.x)", () => {
     // Hero AND closing CTA both render "Launch Blank" — at least 2 total.
     expect(launchCtas.length).toBeGreaterThanOrEqual(2);
     for (const cta of launchCtas) {
-      expect(cta.getAttribute("href")).toBe("/app");
+      expect(cta.getAttribute("href")).toBe("https://app.myblank.app");
     }
   });
 });

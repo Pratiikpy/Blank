@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { PUBLIC_LINKS } from "./publicLinks";
 
 // Shared footer across all landing-level pages.
 export function LandingFooter() {
@@ -11,11 +12,11 @@ export function LandingFooter() {
         <Link to="/pricing">Pricing</Link>
         <Link to="/roadmap">Roadmap</Link>
         <Link to="/live">Live</Link>
-        <Link to="/whitepaper">Whitepaper</Link>
-        <Link to="/brand-kit">Brand Kit</Link>
-        <Link to="/blog">Blog</Link>
+        <a href={PUBLIC_LINKS.docs}>Docs</a>
+        <a href={PUBLIC_LINKS.brand}>Brand Kit</a>
+        <a href={PUBLIC_LINKS.blog}>Blog</a>
         <Link to="/manifesto">Manifesto</Link>
-        <Link to="/app">Launch app</Link>
+        <a href={PUBLIC_LINKS.app}>Launch app</a>
         <a
           href="https://github.com/Pratiikpy/Blank"
           target="_blank"

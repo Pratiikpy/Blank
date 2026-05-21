@@ -29,10 +29,12 @@ describe("LandingFooter (§15.x)", () => {
       .map((a) => a.getAttribute("href"));
     expect(internalHrefs).toContain("/features");
     expect(internalHrefs).toContain("/live");
-    expect(internalHrefs).toContain("/whitepaper");
-    expect(internalHrefs).toContain("/brand-kit");
     expect(internalHrefs).toContain("/manifesto");
-    expect(internalHrefs).toContain("/app");
+    const hrefs = Array.from(container.querySelectorAll("a")).map((a) => a.getAttribute("href"));
+    expect(hrefs).toContain("https://docs.myblank.app");
+    expect(hrefs).toContain("https://brand.myblank.app");
+    expect(hrefs).toContain("https://blog.myblank.app");
+    expect(hrefs).toContain("https://app.myblank.app");
   });
 
   it("CRITICAL: external links use target='_blank' + rel='noopener noreferrer' (tabnabbing guard)", () => {
@@ -80,18 +82,18 @@ describe("LandingNav — rendering (§15.x)", () => {
     expect(linkHrefs).toContain("/how-it-works");
     expect(linkHrefs).toContain("/pricing");
     expect(linkHrefs).toContain("/roadmap");
-    expect(linkHrefs).toContain("/blog");
+    expect(linkHrefs).toContain("https://blog.myblank.app");
     expect(linkHrefs).toContain("/live");
     expect(linkHrefs).toContain("/manifesto");
   });
 
-  it("'Launch app' CTA links to /app on the right side", () => {
+  it("'Launch app' CTA links to app.myblank.app on the right side", () => {
     const { container } = withRouter(<LandingNav />);
     const cta = Array.from(container.querySelectorAll("a")).find((a) =>
       a.textContent?.includes("Launch app"),
     );
     expect(cta).toBeDefined();
-    expect(cta!.getAttribute("href")).toBe("/app");
+    expect(cta!.getAttribute("href")).toBe("https://app.myblank.app");
   });
 
   it("CRITICAL: external GitHub link has rel='noopener noreferrer' + target='_blank'", () => {
