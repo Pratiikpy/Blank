@@ -31,6 +31,10 @@ const PublicProfile = lazy(() => import("@/blank-ui/screens/PublicProfile"));
 // recovering user on a fresh device can drive the flow without a
 // working passkey (a guardian signs the on-chain calls).
 const Recovery = lazy(() => import("@/blank-ui/screens/Recovery"));
+// Wave 5 Block 7 — PWA install prompt. Lives globally so it can fire
+// on landing pages too (helpful for visitors who want to install
+// before they sign in).
+import { PwaInstallPrompt } from "@/blank-ui/components/PwaInstallPrompt";
 // Wave 4 — magic claim links: public recipient flow.
 const ClaimLinkPage = lazy(() => import("@/blank-ui/screens/ClaimLinkPage"));
 // Wave 4 — storefront: public buyer flow.
@@ -164,6 +168,10 @@ export function App() {
           <Route path="*"          element={<NotFoundLanding />} />
         </Routes>
       </Suspense>
+      {/* Wave 5 Block 7 — install prompt lives outside Suspense so it
+          renders even while a route chunk is still loading. Auto-hides
+          if the user is already in standalone PWA mode. */}
+      <PwaInstallPrompt />
     </ErrorBoundary>
   );
 }
