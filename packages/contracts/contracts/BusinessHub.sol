@@ -500,17 +500,22 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     }
 
     /// @param invoiceId The invoice in `Disputed` state.
-    /// @param encAmount The encrypted refund amount (typically the original
-    ///                   payment, but the vendor controls this — UI should
-    ///                   prefill from the on-chain invoice amount).
-    function refundDisputedInvoice(uint256 invoiceId, InEuint64 memory encAmount) external nonReentrant {
+    ///
+    /// @dev Refund amount is fixed to the original encrypted invoice amount.
+    ///      Earlier versions accepted a vendor-supplied encAmount which let
+    ///      a malicious vendor pass encrypt(0) to flip the invoice to
+    ///      Cancelled without actually refunding the client. The vendor
+    ///      keeps initiation control (they call this) but the amount is
+    ///      protocol-enforced.
+    function refundDisputedInvoice(uint256 invoiceId) external nonReentrant {
         Invoice storage inv = _invoices[invoiceId];
         require(inv.status == InvoiceStatus.Disputed, "BusinessHub: not disputed");
         require(msg.sender == inv.vendor, "BusinessHub: not the vendor");
 
-        // Verify the encrypted input under the vendor's context, then hand
-        // the verified handle to the vault.
-        euint64 refund = FHE.asEuint64(encAmount);
+        // Re-use the verified invoice-amount handle stored at create-time.
+        // FHE.allowTransient grants the vault one-shot read access for the
+        // upcoming transferFromVerified call.
+        euint64 refund = inv.amount;
         FHE.allowTransient(refund, inv.vault);
 
         IFHERC20Vault(inv.vault).transferFromVerified(msg.sender, inv.client, refund);

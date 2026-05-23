@@ -149,8 +149,10 @@ export const BusinessHubAbi = [
   // releaseInvoiceEscrow finalizes the encrypted-amount match check.
   { type: "function", name: "payInvoiceEscrow", inputs: [{ name: "invoiceId", type: "uint256" }, InEuint64Tuple], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "releaseInvoiceEscrow", inputs: [{ name: "invoiceId", type: "uint256" }, { name: "matchPlaintext", type: "bool" }, { name: "signature", type: "bytes" }], outputs: [], stateMutability: "nonpayable" },
-  // PR-A — vendor-cooperative refund for legacy payInvoice mismatches.
-  { type: "function", name: "refundDisputedInvoice", inputs: [{ name: "invoiceId", type: "uint256" }, InEuint64Tuple], outputs: [], stateMutability: "nonpayable" },
+  // PR-A vendor-cooperative refund for legacy payInvoice mismatches.
+  // §354 fix: amount param dropped; refund is protocol-enforced to the
+  // original invoice amount so the vendor cannot shortchange the client.
+  { type: "function", name: "refundDisputedInvoice", inputs: [{ name: "invoiceId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "cancelInvoice", inputs: [{ name: "invoiceId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "runPayroll", inputs: [{ name: "employees", type: "address[]" }, { name: "vault", type: "address" }, { name: "salaries", type: "tuple[]", internalType: "struct InEuint64[]", components: InEuint64Components }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "createEscrow", inputs: [{ name: "beneficiary", type: "address" }, { name: "vault", type: "address" }, { name: "plaintextAmount", type: "uint256" }, { name: "description", type: "string" }, { name: "arbiter", type: "address" }, { name: "deadline", type: "uint256" }], outputs: [{ name: "", type: "uint256" }], stateMutability: "nonpayable" },

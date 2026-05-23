@@ -680,9 +680,10 @@ describe("BusinessHub", () => {
   // Refund-on-mismatch path. payInvoice transfers funds before the
   // encrypted-amount match is verified; if finalize reveals a mismatch
   // the invoice goes to Disputed but the funds are already with the
-  // vendor. refundDisputedInvoice lets the vendor return the encrypted
-  // amount on-chain, transitioning Disputed → Cancelled atomically.
-  it("refundDisputedInvoice — vendor returns wrong-amount payment, status Cancelled", async () => {
+  // vendor. refundDisputedInvoice transitions Disputed -> Cancelled by
+  // returning the original encrypted invoice amount (protocol-enforced;
+  // vendor cannot shortchange the client by passing a smaller value).
+  it("refundDisputedInvoice: vendor refunds original invoice amount, status Cancelled", async () => {
     const ctx = await loadFixture(deployBlankFixture);
     await shield(ctx, ctx.bob, usdc(500));
     await approveHub(ctx, ctx.bob, await ctx.businessHub.getAddress());
@@ -708,23 +709,34 @@ describe("BusinessHub", () => {
     expect((await ctx.businessHub.getInvoice(0)).status).to.equal(4); // Disputed
 
     // Non-vendor cannot refund.
-    const encRefund = await encUint64(ctx, ctx.bob, usdc(80));
     await expect(
-      ctx.businessHub.connect(ctx.bob).refundDisputedInvoice(0, encRefund),
+      ctx.businessHub.connect(ctx.bob).refundDisputedInvoice(0),
     ).to.be.revertedWith("BusinessHub: not the vendor");
 
-    // Vendor (Alice) approves BusinessHub then refunds.
+    // Vendor (Alice) approves BusinessHub then refunds the original amount.
     await approveHub(ctx, ctx.alice, await ctx.businessHub.getAddress());
-    const encVendorRefund = await encUint64(ctx, ctx.alice, usdc(80));
-    await ctx.businessHub.connect(ctx.alice).refundDisputedInvoice(0, encVendorRefund);
+    await ctx.businessHub.connect(ctx.alice).refundDisputedInvoice(0);
 
     expect((await ctx.businessHub.getInvoice(0)).status).to.equal(2); // Cancelled
 
     // Cannot double-refund a cancelled invoice.
-    const encDouble = await encUint64(ctx, ctx.alice, usdc(80));
     await expect(
-      ctx.businessHub.connect(ctx.alice).refundDisputedInvoice(0, encDouble),
+      ctx.businessHub.connect(ctx.alice).refundDisputedInvoice(0),
     ).to.be.revertedWith("BusinessHub: not disputed");
+  });
+
+  // §354 fix regression test: ensure the function cannot be called with
+  // a smaller refund amount any more. The old API accepted an encAmount
+  // parameter so a malicious vendor could pass encrypt(0) to flip status
+  // to Cancelled without actually refunding. The new API takes no amount
+  // argument, so this attack surface is gone entirely.
+  it("refundDisputedInvoice: no caller-supplied amount param (vendor-cheat blocked)", async () => {
+    const iface = (ctx => ctx.businessHub.interface)(await loadFixture(deployBlankFixture));
+    const fn = iface.getFunction("refundDisputedInvoice");
+    expect(fn).to.not.be.null;
+    expect(fn!.inputs).to.have.length(1);
+    expect(fn!.inputs[0].name).to.equal("invoiceId");
+    expect(fn!.inputs[0].type).to.equal("uint256");
   });
 
   it("cancelInvoice marks status cancelled (vendor only)", async () => {
