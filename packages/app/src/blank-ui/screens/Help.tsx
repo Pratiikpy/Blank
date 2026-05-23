@@ -11,8 +11,10 @@ import {
   Github,
   ExternalLink,
   HelpCircle,
+  BookOpen,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { SupportDrawer } from "@/blank-ui/components/SupportDrawer";
 
 interface FAQItem {
   id: string;
@@ -140,6 +142,7 @@ const FAQ_ITEMS: FAQItem[] = [
 export default function Help() {
   const navigate = useNavigate();
   const [expandedId, setExpandedId] = useState<string | null>("what-is-blank");
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   const toggleItem = (id: string) => {
     setExpandedId((prev) => (prev === id ? null : id));
@@ -227,6 +230,25 @@ export default function Help() {
           })}
         </div>
 
+        {/* Wave 5 Block 8 — browse all help articles */}
+        <div className="mt-8">
+          <button
+            data-testid="help-open-drawer"
+            onClick={() => setDrawerOpen(true)}
+            className="w-full glass-card-static rounded-[2rem] p-6 hover:bg-white/60 transition-colors text-left flex items-center gap-4"
+          >
+            <div className="w-12 h-12 rounded-2xl bg-blue-50 flex items-center justify-center">
+              <BookOpen size={22} className="text-blue-600" />
+            </div>
+            <div className="flex-1">
+              <div className="font-semibold mb-1">Browse all help articles</div>
+              <div className="text-sm text-[var(--text-secondary)]">
+                10 articles on send, shield, recovery, offramp, handles, escrow.
+              </div>
+            </div>
+          </button>
+        </div>
+
         {/* Bottom Info */}
         <div className="mt-8 p-6 glass-card-static rounded-[2rem] text-center">
           <p className="text-sm text-[var(--text-secondary)] leading-relaxed">
@@ -239,10 +261,11 @@ export default function Help() {
               Ethereum Sepolia
             </span>
             . All transaction amounts are encrypted using Fully Homomorphic
-            Encryption. This is a testnet application -- do not use real funds.
+            Encryption. This is a testnet application; do not use real funds.
           </p>
         </div>
       </div>
+      <SupportDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} />
     </div>
   );
 }
