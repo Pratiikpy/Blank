@@ -399,7 +399,11 @@ export default function Gifts() {
               </div>
             )}
             {sentGift.txHash && (
-              <p className="text-xs font-mono text-[var(--text-primary)]/30 mb-6 break-all">
+              <p
+                data-testid="gift-create-tx-hash"
+                data-tx-hash={sentGift.txHash}
+                className="text-xs font-mono text-[var(--text-primary)]/30 mb-6 break-all"
+              >
                 Tx: {sentGift.txHash}
               </p>
             )}
