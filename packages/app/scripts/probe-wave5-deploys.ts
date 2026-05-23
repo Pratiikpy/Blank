@@ -20,9 +20,11 @@ const BASE = {
   ProofOfBalance:      "0x25e7383Bd5602a07928629e9Ec6eaec9535536Ff",
 } as const;
 
-async function probe(label: string, cfg: Record<string, string>) {
+type Cfg = typeof ETH;
+
+async function probeBytecode(label: string, cfg: Cfg) {
   const c = createPublicClient({ transport: http(cfg.rpc) });
-  console.log(`\n== ${label} ==`);
+  console.log(`\n== ${label} (bytecode) ==`);
   let allOk = true;
   for (const [name, addr] of Object.entries(cfg).filter(([k]) => k !== "rpc")) {
     try {
@@ -40,34 +42,73 @@ async function probe(label: string, cfg: Record<string, string>) {
   return allOk;
 }
 
-const a = await probe("Eth Sepolia (11155111)", ETH);
-const b = await probe("Base Sepolia (84532)", BASE);
+const addressOutAbi = (name: string) => [{
+  type: "function",
+  name,
+  stateMutability: "view",
+  inputs: [],
+  outputs: [{ type: "address" }],
+}] as const;
 
-console.log(`\n== Proxy → impl read-through (P2POfframp.arbiter) ==`);
-const readArbiter = async (label: string, rpc: string, addr: string) => {
+const uintOutAbi = (name: string) => [{
+  type: "function",
+  name,
+  stateMutability: "view",
+  inputs: [],
+  outputs: [{ type: "uint256" }],
+}] as const;
+
+const uint32OutAbi = (name: string) => [{
+  type: "function",
+  name,
+  stateMutability: "view",
+  inputs: [],
+  outputs: [{ type: "uint32" }],
+}] as const;
+
+async function readContractCall<T>(
+  rpc: string,
+  addr: string,
+  label: string,
+  fn: string,
+  abiBuilder: (name: string) => readonly unknown[],
+): Promise<{ ok: boolean; value: T | null }> {
   const c = createPublicClient({ transport: http(rpc) });
-  const abi = [{
-    type: "function",
-    name: "arbiter",
-    stateMutability: "view",
-    inputs: [],
-    outputs: [{ type: "address" }],
-  }] as const;
   try {
-    const result = await c.readContract({
+    const value = (await c.readContract({
       address: addr as `0x${string}`,
-      abi,
-      functionName: "arbiter",
-    });
-    console.log(`  ${label.padEnd(22)} arbiter=${result}`);
-    return true;
+      abi: abiBuilder(fn) as never,
+      functionName: fn,
+    })) as T;
+    console.log(`  ${label.padEnd(45)} → ${String(value)}`);
+    return { ok: true, value };
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
-    console.log(`  ${label.padEnd(22)} READ FAIL: ${msg.slice(0, 80)}`);
-    return false;
+    console.log(`  ${label.padEnd(45)} READ FAIL: ${msg.slice(0, 80)}`);
+    return { ok: false, value: null };
   }
-};
-const ra = await readArbiter("Eth Sepolia", ETH.rpc, ETH.P2POfframp);
-const rb = await readArbiter("Base Sepolia", BASE.rpc, BASE.P2POfframp);
-console.log(`\nresult=${a && b && ra && rb ? "ALL_LIVE_AND_READABLE" : "MISSING"}`);
-process.exit(a && b && ra && rb ? 0 : 1);
+}
+
+async function probeReads(label: string, cfg: Cfg): Promise<boolean> {
+  console.log(`\n== ${label} (proxy → impl reads) ==`);
+  const r1 = await readContractCall<string>(cfg.rpc, cfg.P2POfframp, "P2POfframp.arbiter()", "arbiter", addressOutAbi);
+  const r2 = await readContractCall<string>(cfg.rpc, cfg.P2POfframp, "P2POfframp.reclaimAdapter()", "reclaimAdapter", addressOutAbi);
+  const r3 = await readContractCall<bigint>(cfg.rpc, cfg.GuardianModule, "GuardianModule.RECOVERY_WINDOW_SECONDS()", "RECOVERY_WINDOW_SECONDS", uintOutAbi);
+  const r4 = await readContractCall<number>(cfg.rpc, cfg.BlankHandles, "BlankHandles.MIN_HANDLE_LEN()", "MIN_HANDLE_LEN", uint32OutAbi);
+  const r5 = await readContractCall<number>(cfg.rpc, cfg.BlankHandles, "BlankHandles.MAX_HANDLE_LEN()", "MAX_HANDLE_LEN", uint32OutAbi);
+  const r6 = await readContractCall<string>(cfg.rpc, cfg.MockReclaimVerifier, "MockReclaimVerifier.operator()", "operator", addressOutAbi);
+
+  const consistencyOk = r2.value?.toLowerCase() === cfg.ReclaimAdapter.toLowerCase();
+  console.log(`  reclaimAdapter() matches pinned ReclaimAdapter address:    ${consistencyOk ? "YES" : "NO!"}`);
+
+  return r1.ok && r2.ok && r3.ok && r4.ok && r5.ok && r6.ok && consistencyOk;
+}
+
+const ethBytecode = await probeBytecode("Eth Sepolia (11155111)", ETH);
+const baseBytecode = await probeBytecode("Base Sepolia (84532)", BASE);
+const ethReads = await probeReads("Eth Sepolia", ETH);
+const baseReads = await probeReads("Base Sepolia", BASE);
+
+const allOk = ethBytecode && baseBytecode && ethReads && baseReads;
+console.log(`\nresult=${allOk ? "ALL_LIVE_AND_READABLE" : "MISSING"}`);
+process.exit(allOk ? 0 : 1);
