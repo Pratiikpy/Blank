@@ -61,6 +61,9 @@ const CreateCampaign = lazy(() => import("./screens/CreateCampaign"));
 const Offramp = lazy(() => import("./screens/Offramp"));
 const OfframpOfferDetail = lazy(() => import("./screens/OfframpOfferDetail"));
 const OfframpFillFlow = lazy(() => import("./screens/OfframpFillFlow"));
+// Wave 5 Block 10 — encrypted balance threshold proof. Prove "balance ≥ X"
+// without revealing the underlying value.
+const BalanceProof = lazy(() => import("./screens/BalanceProof"));
 
 // Desktop sidebar
 import { DesktopSidebar } from "./components/DesktopSidebar";
@@ -491,6 +494,8 @@ export function BlankApp() {
               <Route path="offramp" element={<Offramp />} />
               <Route path="offramp/:offerId" element={<OfframpOfferDetail />} />
               <Route path="offramp/fill/:fillId" element={<OfframpFillFlow />} />
+              {/* Wave 5 Block 10 — balance threshold proof. */}
+              <Route path="proof-of-balance" element={<BalanceProof />} />
               <Route path="wallet" element={<SmartWallet />} />
               <Route path="settings" element={<Settings />} />
               <Route path="help" element={<Help />} />
