@@ -208,6 +208,11 @@ export type ContractMap = {
    *  sandbox UPI templates are unavailable. address(0) until deploy, OR
    *  initialized with operator=address(0) to ship with mock disabled. */
   MockReclaimVerifier: `0x${string}`;
+  /** Wave 5 Block 2 — per-chain @handle registry. address(0) until
+   *  `pnpm hardhat deploy-blank-handles --network <chain>` runs and
+   *  writes the address back. Frontend treats address(0) as
+   *  "handles not yet live on this chain" with an honest banner. */
+  BlankHandles: `0x${string}`;
 };
 
 export const CONTRACTS_BY_CHAIN: Record<SupportedChainId, ContractMap> = {
@@ -268,6 +273,7 @@ export const CONTRACTS_BY_CHAIN: Record<SupportedChainId, ContractMap> = {
     P2POfframp: "0x0000000000000000000000000000000000000000",
     ReclaimAdapter: "0x0000000000000000000000000000000000000000",
     MockReclaimVerifier: "0x0000000000000000000000000000000000000000",
+    BlankHandles: "0x0000000000000000000000000000000000000000",
   },
   [BASE_SEPOLIA_ID]: {
     // Base Sepolia: full v0.1.3 stack. FHERC20Vault + BusinessHub +
@@ -319,6 +325,7 @@ export const CONTRACTS_BY_CHAIN: Record<SupportedChainId, ContractMap> = {
     P2POfframp: "0x0000000000000000000000000000000000000000",
     ReclaimAdapter: "0x0000000000000000000000000000000000000000",
     MockReclaimVerifier: "0x0000000000000000000000000000000000000000",
+    BlankHandles: "0x0000000000000000000000000000000000000000",
   },
 };
 

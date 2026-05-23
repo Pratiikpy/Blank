@@ -74,6 +74,8 @@ const TRACKED_CONTRACTS: string[] = [
   "P2POfframp",
   "ReclaimAdapter",
   "MockReclaimVerifier",
+  // Wave 5 Block 2 — per-chain @handle registry. UUPS proxy.
+  "BlankHandles",
 ];
 
 const SNAPSHOT_DIR = path.join(__dirname, "..", "storage-layouts");

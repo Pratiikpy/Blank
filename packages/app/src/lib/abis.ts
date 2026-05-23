@@ -855,3 +855,40 @@ export const ReclaimAdapterAbi = [
   { type: "function", name: "allowedProviders", inputs: [{ name: "providerId", type: "uint32" }], outputs: [{ name: "", type: "bool" }], stateMutability: "view" },
   { type: "function", name: "usedProofs", inputs: [{ name: "proofHash", type: "bytes32" }], outputs: [{ name: "", type: "bool" }], stateMutability: "view" },
 ] as const;
+
+// ─── Wave 5 Block 2 — @handle registry ─────────────────────────────────
+
+export const BlankHandlesAbi = [
+  { type: "function", name: "reserve", inputs: [
+    { name: "handle", type: "string" },
+    { name: "emailDigest", type: "bytes32" },
+  ], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "setEmailDigest", inputs: [
+    { name: "handle", type: "string" },
+    { name: "emailDigest", type: "bytes32" },
+  ], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "setEnsFallback", inputs: [
+    { name: "handle", type: "string" },
+    { name: "ensRecord", type: "bytes32" },
+  ], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "pingActivity", inputs: [{ name: "handle", type: "string" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "lookup", inputs: [{ name: "handle", type: "string" }], outputs: [
+    { name: "", type: "tuple", components: [
+      { name: "handleHash", type: "bytes32" },
+      { name: "owner", type: "address" },
+      { name: "emailDigest", type: "bytes32" },
+      { name: "ensRecord", type: "bytes32" },
+      { name: "createdAt", type: "uint64" },
+      { name: "lastActivityAt", type: "uint64" },
+    ]},
+  ], stateMutability: "view" },
+  { type: "function", name: "reverseLookup", inputs: [{ name: "owner", type: "address" }], outputs: [{ name: "", type: "bytes32" }], stateMutability: "view" },
+  { type: "function", name: "isAvailable", inputs: [{ name: "handle", type: "string" }], outputs: [
+    { name: "ok", type: "bool" }, { name: "reason", type: "string" },
+  ], stateMutability: "view" },
+  { type: "event", name: "HandleReserved", inputs: [
+    { name: "handle", type: "string", indexed: false },
+    { name: "owner", type: "address", indexed: true },
+    { name: "handleHash", type: "bytes32", indexed: true },
+  ] },
+] as const;

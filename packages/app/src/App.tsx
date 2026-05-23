@@ -24,6 +24,9 @@ const BrandKit     = lazy(() => import("@/blank-ui/landing/BrandKit"));
 // Wave 5 Block 0.3 — public status page reading /api/health?kind=status.
 // Mirrored at status.blank.app via a separate Vercel project.
 const Status = lazy(() => import("@/blank-ui/screens/Status"));
+// Wave 5 Block 2 — public @handle profile page. /u/:handle resolves
+// the per-chain handle registry and shows owner + send CTA.
+const PublicProfile = lazy(() => import("@/blank-ui/screens/PublicProfile"));
 // Wave 4 — magic claim links: public recipient flow.
 const ClaimLinkPage = lazy(() => import("@/blank-ui/screens/ClaimLinkPage"));
 // Wave 4 — storefront: public buyer flow.
@@ -132,6 +135,9 @@ export function App() {
               chains + paymaster + relayer + FHE network + last-deployed sha.
               Polls /api/health?kind=status every 30s. */}
           <Route path="/status"              element={<Status />} />
+          {/* Wave 5 Block 2 — public @handle profile. /u/:handle resolves
+              the per-chain handle to a smart-account address. */}
+          <Route path="/u/:handle"           element={<PublicProfile />} />
           {/* Wave 4 — encrypted claim links. Public so a recipient with no
               prior Blank wallet can open the URL, create a passkey, and claim. */}
           <Route path="/claim/:chainId/:linkId" element={<ClaimLinkPage />} />

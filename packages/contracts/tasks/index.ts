@@ -52,3 +52,4 @@ import "./deploy-upgrade-vault-unshield-uint64";
 import "./multi-wallet-feature-sweep";
 import "./verify-sweep-state";
 import "./deploy-p2p-offramp";
+import "./deploy-blank-handles";
