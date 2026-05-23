@@ -35,6 +35,9 @@ const Gifts = lazy(() => import("./screens/Gifts"));
 const Swap = lazy(() => import("./screens/Swap"));
 const Bridge = lazy(() => import("./screens/Bridge"));
 const Analytics = lazy(() => import("./screens/Analytics"));
+// Wave 5 Block 4 — encrypted analytics. Event counts + counterparty
+// aggregates + CSV export. Amounts stay encrypted on-chain.
+const Insights = lazy(() => import("./screens/Insights"));
 const BusinessTools = lazy(() => import("./screens/BusinessTools"));
 const InvoicePage = lazy(() => import("./screens/InvoicePage"));
 const CreatorSupport = lazy(() => import("./screens/CreatorSupport"));
@@ -467,6 +470,8 @@ export function BlankApp() {
               <Route path="swap" element={<Swap />} />
               <Route path="bridge" element={<Bridge />} />
               <Route path="analytics" element={<Analytics />} />
+              {/* Wave 5 Block 4 — encrypted analytics screen. */}
+              <Route path="insights" element={<Insights />} />
               <Route path="business" element={<BusinessTools />} />
               {/* PR-C step 3: deep-link invoice escrow page. Not in nav
                   registry (it's a per-invoice URL, not a primary surface).
