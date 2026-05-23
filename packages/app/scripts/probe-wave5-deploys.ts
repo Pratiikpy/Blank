@@ -1,37 +1,83 @@
 import { createPublicClient, http, getAddress } from "viem";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
 
 // EIP-1967 implementation address slot:
 //   bytes32(uint256(keccak256("eip1967.proxy.implementation")) - 1)
 const EIP1967_IMPL_SLOT =
   "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc" as const;
 
+const WAVE5_CONTRACT_NAMES = [
+  "P2POfframp",
+  "ReclaimAdapter",
+  "MockReclaimVerifier",
+  "BlankHandles",
+  "GuardianModule",
+  "ProofOfBalance",
+] as const;
+
+type Wave5Name = (typeof WAVE5_CONTRACT_NAMES)[number];
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = resolve(__dirname, "..", "..", "..");
+
+function loadDeploymentJson(file: string): Record<string, string> {
+  const path = resolve(REPO_ROOT, "packages", "contracts", "deployments", file);
+  return JSON.parse(readFileSync(path, "utf8"));
+}
+
+function extractWave5(deployment: Record<string, string>): Record<Wave5Name, string> {
+  const out = {} as Record<Wave5Name, string>;
+  for (const name of WAVE5_CONTRACT_NAMES) {
+    if (!deployment[name]) throw new Error(`Missing ${name} in deployment JSON`);
+    out[name] = deployment[name];
+  }
+  return out;
+}
+
+const ETH_DEPLOYMENT = extractWave5(loadDeploymentJson("eth-sepolia.json"));
+const BASE_DEPLOYMENT = extractWave5(loadDeploymentJson("base-sepolia.json"));
+
 const ETH = {
   rpc: "https://ethereum-sepolia-rpc.publicnode.com",
-  P2POfframp:          "0x5981C437032Da38844AE9a3aa382F993b1B8444a",
-  ReclaimAdapter:      "0xf866EA7630eE91cCcd0Df638679865BCD909cce6",
-  MockReclaimVerifier: "0xdfc2606B1Ba148CC35b93849ac888BD7DfFD28a8",
-  BlankHandles:        "0xb6F5d0a407B459D7Ab64Ae13dee0f6b371e8eA06",
-  GuardianModule:      "0xdBE8252D1e089759b56E742843303f0b18700c3E",
-  ProofOfBalance:      "0xff0Fa776116a17b6fbD62E48CA14F48b31E31856",
-} as const;
-
+  ...ETH_DEPLOYMENT,
+};
 const BASE = {
   rpc: "https://base-sepolia-rpc.publicnode.com",
-  P2POfframp:          "0xd717E7AFE5eB627c9913bc682003d6E83b9032f9",
-  ReclaimAdapter:      "0x2F7B59A920B76d5fD0e3c010b6a7D5E14eF83486",
-  MockReclaimVerifier: "0xB36441E8c4155709E350f7c66B16c2B8174c0e75",
-  BlankHandles:        "0x346077e5DA2a552f0353f3430F8baE6D7049DEF9",
-  GuardianModule:      "0x4fa2152A940651404F2722c0192624d0662e5B46",
-  ProofOfBalance:      "0x25e7383Bd5602a07928629e9Ec6eaec9535536Ff",
-} as const;
-
+  ...BASE_DEPLOYMENT,
+};
 type Cfg = typeof ETH;
+
+// Drift check: parse constants.ts as text and confirm the Wave 5 addresses
+// in CONTRACTS_BY_CHAIN match the deployment JSON. Catches the case where
+// a deploy updates the JSON but constants.ts wasn't repinned (or vice versa).
+function checkConstantsTsDrift(): boolean {
+  const constantsPath = resolve(REPO_ROOT, "packages", "app", "src", "lib", "constants.ts");
+  const src = readFileSync(constantsPath, "utf8");
+  console.log("\n== Drift check: constants.ts vs deployment JSON ==");
+  let allOk = true;
+  for (const [chainLabel, deployment] of [
+    ["Eth Sepolia", ETH_DEPLOYMENT],
+    ["Base Sepolia", BASE_DEPLOYMENT],
+  ] as const) {
+    for (const name of WAVE5_CONTRACT_NAMES) {
+      const target = deployment[name].toLowerCase();
+      const found = src.toLowerCase().includes(target);
+      const verdict = found ? "OK" : "MISSING!";
+      if (!found) allOk = false;
+      console.log(`  ${chainLabel.padEnd(14)} ${name.padEnd(22)} ${verdict}`);
+    }
+  }
+  return allOk;
+}
 
 async function probeBytecode(label: string, cfg: Cfg) {
   const c = createPublicClient({ transport: http(cfg.rpc) });
   console.log(`\n== ${label} (proxy + impl bytecode) ==`);
   let allOk = true;
-  for (const [name, addr] of Object.entries(cfg).filter(([k]) => k !== "rpc")) {
+  for (const name of WAVE5_CONTRACT_NAMES) {
+    const addr = cfg[name];
     try {
       const proxyCode = await c.getBytecode({ address: addr as `0x${string}` });
       const proxySize = proxyCode ? (proxyCode.length - 2) / 2 : 0;
@@ -75,20 +121,20 @@ const addressOutAbi = (name: string) => [{
   outputs: [{ type: "address" }],
 }] as const;
 
-const uintOutAbi = (name: string) => [{
-  type: "function",
-  name,
-  stateMutability: "view",
-  inputs: [],
-  outputs: [{ type: "uint256" }],
-}] as const;
-
 const uint32OutAbi = (name: string) => [{
   type: "function",
   name,
   stateMutability: "view",
   inputs: [],
   outputs: [{ type: "uint32" }],
+}] as const;
+
+const uintOutAbi = (name: string) => [{
+  type: "function",
+  name,
+  stateMutability: "view",
+  inputs: [],
+  outputs: [{ type: "uint256" }],
 }] as const;
 
 async function readContractCall<T>(
@@ -129,11 +175,12 @@ async function probeReads(label: string, cfg: Cfg): Promise<boolean> {
   return r1.ok && r2.ok && r3.ok && r4.ok && r5.ok && r6.ok && consistencyOk;
 }
 
+const driftOk = checkConstantsTsDrift();
 const ethBytecode = await probeBytecode("Eth Sepolia (11155111)", ETH);
 const baseBytecode = await probeBytecode("Base Sepolia (84532)", BASE);
 const ethReads = await probeReads("Eth Sepolia", ETH);
 const baseReads = await probeReads("Base Sepolia", BASE);
 
-const allOk = ethBytecode && baseBytecode && ethReads && baseReads;
+const allOk = driftOk && ethBytecode && baseBytecode && ethReads && baseReads;
 console.log(`\nresult=${allOk ? "ALL_LIVE_AND_READABLE" : "MISSING"}`);
 process.exit(allOk ? 0 : 1);

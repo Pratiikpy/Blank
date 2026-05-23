@@ -4,6 +4,10 @@
  * URL is content-hashed (`/assets/index-XXXXXX.js`), so we extract it from
  * the live HTML before fetching the bundle itself.
  *
+ * Addresses are loaded from `packages/contracts/deployments/*.json` (the
+ * hardhat deploy artifacts), so this script picks up new addresses
+ * automatically when a redeploy writes them to the JSON. No drift.
+ *
  * The only way to make this script pass is if `packages/app/src/lib/constants.ts`
  * was built into the served bundle with all 12 addresses intact. A regression
  * in constants.ts, a misconfigured Vercel deploy, or a botched build will all
@@ -12,26 +16,43 @@
  * Re-runnable any time. Pure-read, no transactions, no state.
  */
 
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
+
 const LIVE_ORIGIN = "https://www.myblank.app";
 const LIVE_PROBE_PATH = "/app/offramp";
 
-const WAVE5_ADDRESSES_ETH = {
-  P2POfframp:          "0x5981C437032Da38844AE9a3aa382F993b1B8444a",
-  ReclaimAdapter:      "0xf866EA7630eE91cCcd0Df638679865BCD909cce6",
-  MockReclaimVerifier: "0xdfc2606B1Ba148CC35b93849ac888BD7DfFD28a8",
-  BlankHandles:        "0xb6F5d0a407B459D7Ab64Ae13dee0f6b371e8eA06",
-  GuardianModule:      "0xdBE8252D1e089759b56E742843303f0b18700c3E",
-  ProofOfBalance:      "0xff0Fa776116a17b6fbD62E48CA14F48b31E31856",
-} as const;
+const WAVE5_CONTRACT_NAMES = [
+  "P2POfframp",
+  "ReclaimAdapter",
+  "MockReclaimVerifier",
+  "BlankHandles",
+  "GuardianModule",
+  "ProofOfBalance",
+] as const;
 
-const WAVE5_ADDRESSES_BASE = {
-  P2POfframp:          "0xd717E7AFE5eB627c9913bc682003d6E83b9032f9",
-  ReclaimAdapter:      "0x2F7B59A920B76d5fD0e3c010b6a7D5E14eF83486",
-  MockReclaimVerifier: "0xB36441E8c4155709E350f7c66B16c2B8174c0e75",
-  BlankHandles:        "0x346077e5DA2a552f0353f3430F8baE6D7049DEF9",
-  GuardianModule:      "0x4fa2152A940651404F2722c0192624d0662e5B46",
-  ProofOfBalance:      "0x25e7383Bd5602a07928629e9Ec6eaec9535536Ff",
-} as const;
+type Wave5Name = (typeof WAVE5_CONTRACT_NAMES)[number];
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = resolve(__dirname, "..", "..", "..");
+
+function loadDeploymentJson(file: string): Record<string, string> {
+  const path = resolve(REPO_ROOT, "packages", "contracts", "deployments", file);
+  return JSON.parse(readFileSync(path, "utf8"));
+}
+
+function extractWave5(deployment: Record<string, string>): Record<Wave5Name, string> {
+  const out = {} as Record<Wave5Name, string>;
+  for (const name of WAVE5_CONTRACT_NAMES) {
+    if (!deployment[name]) throw new Error(`Missing ${name} in deployment JSON`);
+    out[name] = deployment[name];
+  }
+  return out;
+}
+
+const WAVE5_ADDRESSES_ETH = extractWave5(loadDeploymentJson("eth-sepolia.json"));
+const WAVE5_ADDRESSES_BASE = extractWave5(loadDeploymentJson("base-sepolia.json"));
 
 async function fetchText(url: string): Promise<string> {
   const res = await fetch(url, { headers: { "User-Agent": "blank-wave5-bundle-probe/1" } });
