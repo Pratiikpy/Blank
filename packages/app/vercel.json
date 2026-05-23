@@ -38,11 +38,11 @@
     },
     {
       "path": "/api/cron/paymaster-refill",
-      "schedule": "0 */6 * * *"
+      "schedule": "0 12 * * *"
     },
     {
       "path": "/api/cron/relayer-refill",
-      "schedule": "15 */6 * * *"
+      "schedule": "15 12 * * *"
     },
     {
       "path": "/api/cron/scheduled-sends-tick",
