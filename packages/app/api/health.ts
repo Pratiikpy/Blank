@@ -42,13 +42,17 @@ async function probe(url: string, timeoutMs = 3000): Promise<{ ok: boolean; stat
 }
 
 export default async function handler(req: any, res: any) {
-  // Dispatcher: /api/health?kind=relayer routes to relayer-balance probe.
+  // Dispatcher: /api/health?kind=relayer routes to relayer-balance probe;
+  // /api/health?kind=status routes to the consolidated /status page view.
   // Kept inline to stay under Vercel Hobby's 12-function cap (consolidated
   // from former /api/relayer-health endpoint; vercel.json rewrites the
   // old URL to this kind switch).
   const kind = typeof req.query?.kind === "string" ? req.query.kind : "";
   if (kind === "relayer") {
     return handleRelayer(req, res);
+  }
+  if (kind === "status") {
+    return handleStatus(req, res);
   }
 
   const features: FeatureStatus[] = [
@@ -280,4 +284,167 @@ async function relayerImpl(_req: any, res: any) {
     chains,
     timestamp: new Date().toISOString(),
   });
+}
+
+// ─── /api/health?kind=status ───────────────────────────────────────
+// Consolidated status view for the /status page. Reports per-chain RPC
+// liveness, paymaster deposit, relayer ETH, FHE network probes, and
+// last-deployed sha. Public; no auth (status pages are read-only).
+//
+// Returns 200 always so the /status screen can render a "degraded"
+// banner even when chain RPCs are down.
+
+async function handleStatus(_req: any, res: any) {
+  try {
+    const ethers = await import("ethers");
+    const { getContracts, RPC_URLS, ETH_SEPOLIA_ID, BASE_SEPOLIA_ID } = await import(
+      "./_lib/addresses.js"
+    );
+
+    const ENTRYPOINT_ABI = ["function balanceOf(address) view returns (uint256)"];
+    const PAYMASTER_WARN_WEI = ethers.parseEther("0.5");
+    const PAYMASTER_PAGE_WEI = ethers.parseEther("0.1");
+    const RELAYER_WARN_WEI = ethers.parseEther("0.05");
+    const RELAYER_PAGE_WEI = ethers.parseEther("0.01");
+
+    let relayerAddress: string | null = null;
+    try {
+      const { getSigner } = await import("./_lib/signer.js");
+      relayerAddress = await getSigner("relayer").getAddress();
+    } catch {
+      // relayer not configured; chain-side balance probes report null
+    }
+
+    const chains = [ETH_SEPOLIA_ID, BASE_SEPOLIA_ID] as const;
+    const chainSnapshots = await Promise.all(
+      chains.map(async (chainId) => {
+        const contracts = getContracts(chainId);
+        const rpcUrl = RPC_URLS[chainId];
+        const label = chainId === ETH_SEPOLIA_ID ? "Ethereum Sepolia" : "Base Sepolia";
+
+        if (!contracts || !rpcUrl) {
+          return {
+            chainId,
+            label,
+            rpc: { ok: false, error: "not configured" },
+            paymaster: null,
+            relayer: null,
+          };
+        }
+
+        const provider = new ethers.JsonRpcProvider(rpcUrl);
+
+        // RPC liveness: cheap getBlockNumber probe with a 3s budget.
+        let rpcStatus: { ok: boolean; blockNumber?: number; error?: string };
+        try {
+          const blockNumber = await Promise.race([
+            provider.getBlockNumber(),
+            new Promise<number>((_, reject) => setTimeout(() => reject(new Error("rpc-timeout")), 3000)),
+          ]);
+          rpcStatus = { ok: true, blockNumber };
+        } catch (err) {
+          rpcStatus = { ok: false, error: err instanceof Error ? err.message.slice(0, 120) : String(err) };
+        }
+
+        // Paymaster + relayer balances. Skip if RPC is down.
+        let paymasterStatus: { ok: boolean; balanceEth?: string; level?: "ok" | "warn" | "page"; address?: string; error?: string } | null = null;
+        let relayerStatus: { ok: boolean; balanceEth?: string; level?: "ok" | "warn" | "page"; address?: string; error?: string } | null = null;
+
+        if (rpcStatus.ok) {
+          try {
+            const entrypoint = new ethers.Contract(contracts.EntryPoint, ENTRYPOINT_ABI, provider);
+            const deposit: bigint = await entrypoint.balanceOf(contracts.BlankPaymaster);
+            paymasterStatus = {
+              ok: true,
+              address: contracts.BlankPaymaster,
+              balanceEth: ethers.formatEther(deposit),
+              level: deposit < PAYMASTER_PAGE_WEI ? "page" : deposit < PAYMASTER_WARN_WEI ? "warn" : "ok",
+            };
+          } catch (err) {
+            paymasterStatus = {
+              ok: false,
+              address: contracts.BlankPaymaster,
+              error: err instanceof Error ? err.message.slice(0, 120) : String(err),
+            };
+          }
+
+          if (relayerAddress) {
+            try {
+              const balance = await provider.getBalance(relayerAddress);
+              relayerStatus = {
+                ok: true,
+                address: relayerAddress,
+                balanceEth: ethers.formatEther(balance),
+                level: balance < RELAYER_PAGE_WEI ? "page" : balance < RELAYER_WARN_WEI ? "warn" : "ok",
+              };
+            } catch (err) {
+              relayerStatus = {
+                ok: false,
+                address: relayerAddress,
+                error: err instanceof Error ? err.message.slice(0, 120) : String(err),
+              };
+            }
+          }
+        }
+
+        return {
+          chainId,
+          label,
+          rpc: rpcStatus,
+          paymaster: paymasterStatus,
+          relayer: relayerStatus,
+        };
+      }),
+    );
+
+    // FHE network probes. Reuse the same endpoints the main health
+    // handler probes. Don't fail the status if these are slow; surface
+    // them so judges can see what's up.
+    const [cofheProbe, verifierProbe, tnProbe] = await Promise.all([
+      probe("https://testnet-cofhe.fhenix.zone"),
+      probe("https://testnet-cofhe-vrf.fhenix.zone"),
+      probe("https://testnet-cofhe-tn.fhenix.zone"),
+    ]);
+    const fhenixReachable = cofheProbe.ok && verifierProbe.ok && tnProbe.ok;
+
+    // Derive overall status: page if any chain has page-level balance or
+    // RPC is hard-down on a chain; warn if anything is warn-level or
+    // FHE network is degraded; ok otherwise.
+    const anyPage = chainSnapshots.some(
+      (c) => c.paymaster?.level === "page" || c.relayer?.level === "page" || !c.rpc.ok,
+    );
+    const anyWarn = chainSnapshots.some(
+      (c) => c.paymaster?.level === "warn" || c.relayer?.level === "warn",
+    );
+    const overall: "ok" | "warn" | "page" =
+      anyPage ? "page" : anyWarn || !fhenixReachable ? "warn" : "ok";
+
+    res.status(200).json({
+      status: overall,
+      chains: chainSnapshots,
+      fhenix: {
+        reachable: fhenixReachable,
+        cofhe: cofheProbe,
+        verifier: verifierProbe,
+        thresholdNetwork: tnProbe,
+      },
+      deploy: {
+        sha: process.env.VERCEL_GIT_COMMIT_SHA ?? null,
+        branch: process.env.VERCEL_GIT_COMMIT_REF ?? null,
+        env: process.env.VERCEL_ENV ?? "unknown",
+        region: process.env.VERCEL_REGION ?? null,
+      },
+      thresholds: {
+        paymasterWarnEth: "0.5",
+        paymasterPageEth: "0.1",
+        relayerWarnEth: "0.05",
+        relayerPageEth: "0.01",
+      },
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[/api/health?kind=status] crashed:", err);
+    res.status(500).json({ error: `status crashed: ${msg.slice(0, 200)}` });
+  }
 }
