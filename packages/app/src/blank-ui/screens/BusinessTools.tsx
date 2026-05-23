@@ -865,6 +865,28 @@ export default function BusinessTools() {
         {/* Escrow Tab */}
         {activeTab === "escrow" && (
           <div className="space-y-6">
+            {/* #342 honesty banner: BusinessHub escrow rows store amounts
+                in plaintext on chain. The fully-encrypted alternative
+                lives at EncryptedEscrow.sol and is wired through the new
+                /app/escrow surface. Wave 5 migration in progress; this
+                tab will route to the encrypted path before Wave 5 ships. */}
+            <div
+              role="note"
+              className="rounded-2xl border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm"
+            >
+              <div className="font-medium text-amber-700">
+                Heads up: legacy escrows store amounts in plaintext.
+              </div>
+              <div className="mt-1 text-[var(--text-primary)]/70">
+                The encrypted alternative is shipping in Wave 5. Use
+                {" "}
+                <a href="/app/escrow" className="underline decoration-amber-500/40 underline-offset-2 hover:decoration-amber-500">
+                  /app/escrow
+                </a>
+                {" "}
+                for end-to-end encrypted escrows in the meantime.
+              </div>
+            </div>
             <div className="flex flex-wrap gap-3 items-center justify-between">
               {/* Role filter: "All" / "Mine" / "Arbitrating" */}
               <div className="flex gap-2" role="tablist" aria-label="Escrow role filter">
