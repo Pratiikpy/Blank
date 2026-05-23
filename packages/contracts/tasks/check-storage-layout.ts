@@ -69,6 +69,11 @@ const TRACKED_CONTRACTS: string[] = [
   "EncryptedFlags",
   "EventHub",
   "TokenRegistry",
+  // Wave 5 Block 1 — encrypted P2P offramp + Reclaim adapter +
+  // mock fallback verifier. All three are UUPS proxies.
+  "P2POfframp",
+  "ReclaimAdapter",
+  "MockReclaimVerifier",
 ];
 
 const SNAPSHOT_DIR = path.join(__dirname, "..", "storage-layouts");

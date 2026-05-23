@@ -1,7 +1,7 @@
 {
   "storage": [
     {
-      "astId": 68033,
+      "astId": 70228,
       "contract": "contracts/StealthPayments.sol:StealthPayments",
       "label": "_status",
       "offset": 0,
@@ -9,15 +9,15 @@
       "type": "t_uint256"
     },
     {
-      "astId": 62787,
+      "astId": 64936,
       "contract": "contracts/StealthPayments.sol:StealthPayments",
       "label": "eventHub",
       "offset": 0,
       "slot": "1",
-      "type": "t_contract(IEventHub)62726"
+      "type": "t_contract(IEventHub)64875"
     },
     {
-      "astId": 62789,
+      "astId": 64938,
       "contract": "contracts/StealthPayments.sol:StealthPayments",
       "label": "nextTransferId",
       "offset": 0,
@@ -25,23 +25,23 @@
       "type": "t_uint256"
     },
     {
-      "astId": 62794,
+      "astId": 64943,
       "contract": "contracts/StealthPayments.sol:StealthPayments",
       "label": "_transfers",
       "offset": 0,
       "slot": "3",
-      "type": "t_mapping(t_uint256,t_struct(StealthTransfer)62775_storage)"
+      "type": "t_mapping(t_uint256,t_struct(StealthTransfer)64924_storage)"
     },
     {
-      "astId": 62799,
+      "astId": 64948,
       "contract": "contracts/StealthPayments.sol:StealthPayments",
       "label": "_pendingClaims",
       "offset": 0,
       "slot": "4",
-      "type": "t_mapping(t_uint256,t_struct(PendingClaim)62784_storage)"
+      "type": "t_mapping(t_uint256,t_struct(PendingClaim)64933_storage)"
     },
     {
-      "astId": 62805,
+      "astId": 64954,
       "contract": "contracts/StealthPayments.sol:StealthPayments",
       "label": "_senderTransfers",
       "offset": 0,
@@ -49,7 +49,7 @@
       "type": "t_mapping(t_address,t_array(t_uint256)dyn_storage)"
     },
     {
-      "astId": 62810,
+      "astId": 64959,
       "contract": "contracts/StealthPayments.sol:StealthPayments",
       "label": "_claimCodeToTransferId",
       "offset": 0,
@@ -57,7 +57,7 @@
       "type": "t_mapping(t_bytes32,t_uint256)"
     },
     {
-      "astId": 62814,
+      "astId": 64963,
       "contract": "contracts/StealthPayments.sol:StealthPayments",
       "label": "ZERO",
       "offset": 0,
@@ -65,7 +65,7 @@
       "type": "t_userDefinedValueType(euint64)11797"
     },
     {
-      "astId": 62816,
+      "astId": 64965,
       "contract": "contracts/StealthPayments.sol:StealthPayments",
       "label": "paymentReceipts",
       "offset": 0,
@@ -73,7 +73,7 @@
       "type": "t_address"
     },
     {
-      "astId": 63829,
+      "astId": 65989,
       "contract": "contracts/StealthPayments.sol:StealthPayments",
       "label": "__gap",
       "offset": 0,
@@ -109,7 +109,7 @@
       "label": "bytes32",
       "numberOfBytes": "32"
     },
-    "t_contract(IEventHub)62726": {
+    "t_contract(IEventHub)64875": {
       "encoding": "inplace",
       "label": "contract IEventHub",
       "numberOfBytes": "20"
@@ -128,31 +128,31 @@
       "numberOfBytes": "32",
       "value": "t_uint256"
     },
-    "t_mapping(t_uint256,t_struct(PendingClaim)62784_storage)": {
+    "t_mapping(t_uint256,t_struct(PendingClaim)64933_storage)": {
       "encoding": "mapping",
       "key": "t_uint256",
       "label": "mapping(uint256 => struct StealthPayments.PendingClaim)",
       "numberOfBytes": "32",
-      "value": "t_struct(PendingClaim)62784_storage"
+      "value": "t_struct(PendingClaim)64933_storage"
     },
-    "t_mapping(t_uint256,t_struct(StealthTransfer)62775_storage)": {
+    "t_mapping(t_uint256,t_struct(StealthTransfer)64924_storage)": {
       "encoding": "mapping",
       "key": "t_uint256",
       "label": "mapping(uint256 => struct StealthPayments.StealthTransfer)",
       "numberOfBytes": "32",
-      "value": "t_struct(StealthTransfer)62775_storage"
+      "value": "t_struct(StealthTransfer)64924_storage"
     },
     "t_string_storage": {
       "encoding": "bytes",
       "label": "string",
       "numberOfBytes": "32"
     },
-    "t_struct(PendingClaim)62784_storage": {
+    "t_struct(PendingClaim)64933_storage": {
       "encoding": "inplace",
       "label": "struct StealthPayments.PendingClaim",
       "members": [
         {
-          "astId": 62778,
+          "astId": 64927,
           "contract": "contracts/StealthPayments.sol:StealthPayments",
           "label": "claimer",
           "offset": 0,
@@ -160,7 +160,7 @@
           "type": "t_address"
         },
         {
-          "astId": 62781,
+          "astId": 64930,
           "contract": "contracts/StealthPayments.sol:StealthPayments",
           "label": "conditionalAmount",
           "offset": 0,
@@ -168,7 +168,7 @@
           "type": "t_userDefinedValueType(euint64)11797"
         },
         {
-          "astId": 62783,
+          "astId": 64932,
           "contract": "contracts/StealthPayments.sol:StealthPayments",
           "label": "pending",
           "offset": 0,
@@ -178,12 +178,12 @@
       ],
       "numberOfBytes": "96"
     },
-    "t_struct(StealthTransfer)62775_storage": {
+    "t_struct(StealthTransfer)64924_storage": {
       "encoding": "inplace",
       "label": "struct StealthPayments.StealthTransfer",
       "members": [
         {
-          "astId": 62752,
+          "astId": 64901,
           "contract": "contracts/StealthPayments.sol:StealthPayments",
           "label": "sender",
           "offset": 0,
@@ -191,7 +191,7 @@
           "type": "t_address"
         },
         {
-          "astId": 62755,
+          "astId": 64904,
           "contract": "contracts/StealthPayments.sol:StealthPayments",
           "label": "encryptedRecipient",
           "offset": 0,
@@ -199,7 +199,7 @@
           "type": "t_userDefinedValueType(eaddress)11801"
         },
         {
-          "astId": 62758,
+          "astId": 64907,
           "contract": "contracts/StealthPayments.sol:StealthPayments",
           "label": "encryptedAmount",
           "offset": 0,
@@ -207,7 +207,7 @@
           "type": "t_userDefinedValueType(euint64)11797"
         },
         {
-          "astId": 62760,
+          "astId": 64909,
           "contract": "contracts/StealthPayments.sol:StealthPayments",
           "label": "vault",
           "offset": 0,
@@ -215,7 +215,7 @@
           "type": "t_address"
         },
         {
-          "astId": 62762,
+          "astId": 64911,
           "contract": "contracts/StealthPayments.sol:StealthPayments",
           "label": "underlyingToken",
           "offset": 0,
@@ -223,7 +223,7 @@
           "type": "t_address"
         },
         {
-          "astId": 62764,
+          "astId": 64913,
           "contract": "contracts/StealthPayments.sol:StealthPayments",
           "label": "plaintextAmount",
           "offset": 0,
@@ -231,7 +231,7 @@
           "type": "t_uint256"
         },
         {
-          "astId": 62766,
+          "astId": 64915,
           "contract": "contracts/StealthPayments.sol:StealthPayments",
           "label": "claimCodeHash",
           "offset": 0,
@@ -239,7 +239,7 @@
           "type": "t_bytes32"
         },
         {
-          "astId": 62768,
+          "astId": 64917,
           "contract": "contracts/StealthPayments.sol:StealthPayments",
           "label": "note",
           "offset": 0,
@@ -247,7 +247,7 @@
           "type": "t_string_storage"
         },
         {
-          "astId": 62770,
+          "astId": 64919,
           "contract": "contracts/StealthPayments.sol:StealthPayments",
           "label": "timestamp",
           "offset": 0,
@@ -255,7 +255,7 @@
           "type": "t_uint256"
         },
         {
-          "astId": 62772,
+          "astId": 64921,
           "contract": "contracts/StealthPayments.sol:StealthPayments",
           "label": "claimed",
           "offset": 0,
@@ -263,7 +263,7 @@
           "type": "t_bool"
         },
         {
-          "astId": 62774,
+          "astId": 64923,
           "contract": "contracts/StealthPayments.sol:StealthPayments",
           "label": "finalized",
           "offset": 1,

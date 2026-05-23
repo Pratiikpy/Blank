@@ -1,7 +1,7 @@
 {
   "storage": [
     {
-      "astId": 68033,
+      "astId": 70228,
       "contract": "contracts/EncryptedCrowdfund.sol:EncryptedCrowdfund",
       "label": "_status",
       "offset": 0,
@@ -9,15 +9,15 @@
       "type": "t_uint256"
     },
     {
-      "astId": 47826,
+      "astId": 47832,
       "contract": "contracts/EncryptedCrowdfund.sol:EncryptedCrowdfund",
       "label": "eventHub",
       "offset": 0,
       "slot": "1",
-      "type": "t_contract(IEventHub)47759"
+      "type": "t_contract(IEventHub)47765"
     },
     {
-      "astId": 47828,
+      "astId": 47834,
       "contract": "contracts/EncryptedCrowdfund.sol:EncryptedCrowdfund",
       "label": "paymentReceipts",
       "offset": 0,
@@ -25,7 +25,7 @@
       "type": "t_address"
     },
     {
-      "astId": 47830,
+      "astId": 47836,
       "contract": "contracts/EncryptedCrowdfund.sol:EncryptedCrowdfund",
       "label": "nextCampaignId",
       "offset": 0,
@@ -33,23 +33,23 @@
       "type": "t_uint256"
     },
     {
-      "astId": 47835,
+      "astId": 47841,
       "contract": "contracts/EncryptedCrowdfund.sol:EncryptedCrowdfund",
       "label": "_campaigns",
       "offset": 0,
       "slot": "4",
-      "type": "t_mapping(t_uint256,t_struct(Campaign)47815_storage)"
+      "type": "t_mapping(t_uint256,t_struct(Campaign)47821_storage)"
     },
     {
-      "astId": 47841,
+      "astId": 47847,
       "contract": "contracts/EncryptedCrowdfund.sol:EncryptedCrowdfund",
       "label": "_contributions",
       "offset": 0,
       "slot": "5",
-      "type": "t_mapping(t_uint256,t_array(t_struct(Contribution)47823_storage)dyn_storage)"
+      "type": "t_mapping(t_uint256,t_array(t_struct(Contribution)47829_storage)dyn_storage)"
     },
     {
-      "astId": 47846,
+      "astId": 47852,
       "contract": "contracts/EncryptedCrowdfund.sol:EncryptedCrowdfund",
       "label": "_creatorCampaigns",
       "offset": 0,
@@ -57,7 +57,7 @@
       "type": "t_mapping(t_address,t_array(t_uint256)dyn_storage)"
     },
     {
-      "astId": 48970,
+      "astId": 48976,
       "contract": "contracts/EncryptedCrowdfund.sol:EncryptedCrowdfund",
       "label": "__gap",
       "offset": 0,
@@ -71,8 +71,8 @@
       "label": "address",
       "numberOfBytes": "20"
     },
-    "t_array(t_struct(Contribution)47823_storage)dyn_storage": {
-      "base": "t_struct(Contribution)47823_storage",
+    "t_array(t_struct(Contribution)47829_storage)dyn_storage": {
+      "base": "t_struct(Contribution)47829_storage",
       "encoding": "dynamic_array",
       "label": "struct EncryptedCrowdfund.Contribution[]",
       "numberOfBytes": "32"
@@ -99,12 +99,12 @@
       "label": "bytes32",
       "numberOfBytes": "32"
     },
-    "t_contract(IEventHub)47759": {
+    "t_contract(IEventHub)47765": {
       "encoding": "inplace",
       "label": "contract IEventHub",
       "numberOfBytes": "20"
     },
-    "t_enum(CampaignStatus)47786": {
+    "t_enum(CampaignStatus)47792": {
       "encoding": "inplace",
       "label": "enum EncryptedCrowdfund.CampaignStatus",
       "numberOfBytes": "1"
@@ -116,31 +116,31 @@
       "numberOfBytes": "32",
       "value": "t_array(t_uint256)dyn_storage"
     },
-    "t_mapping(t_uint256,t_array(t_struct(Contribution)47823_storage)dyn_storage)": {
+    "t_mapping(t_uint256,t_array(t_struct(Contribution)47829_storage)dyn_storage)": {
       "encoding": "mapping",
       "key": "t_uint256",
       "label": "mapping(uint256 => struct EncryptedCrowdfund.Contribution[])",
       "numberOfBytes": "32",
-      "value": "t_array(t_struct(Contribution)47823_storage)dyn_storage"
+      "value": "t_array(t_struct(Contribution)47829_storage)dyn_storage"
     },
-    "t_mapping(t_uint256,t_struct(Campaign)47815_storage)": {
+    "t_mapping(t_uint256,t_struct(Campaign)47821_storage)": {
       "encoding": "mapping",
       "key": "t_uint256",
       "label": "mapping(uint256 => struct EncryptedCrowdfund.Campaign)",
       "numberOfBytes": "32",
-      "value": "t_struct(Campaign)47815_storage"
+      "value": "t_struct(Campaign)47821_storage"
     },
     "t_string_storage": {
       "encoding": "bytes",
       "label": "string",
       "numberOfBytes": "32"
     },
-    "t_struct(Campaign)47815_storage": {
+    "t_struct(Campaign)47821_storage": {
       "encoding": "inplace",
       "label": "struct EncryptedCrowdfund.Campaign",
       "members": [
         {
-          "astId": 47788,
+          "astId": 47794,
           "contract": "contracts/EncryptedCrowdfund.sol:EncryptedCrowdfund",
           "label": "creator",
           "offset": 0,
@@ -148,7 +148,7 @@
           "type": "t_address"
         },
         {
-          "astId": 47790,
+          "astId": 47796,
           "contract": "contracts/EncryptedCrowdfund.sol:EncryptedCrowdfund",
           "label": "vault",
           "offset": 0,
@@ -156,7 +156,7 @@
           "type": "t_address"
         },
         {
-          "astId": 47793,
+          "astId": 47799,
           "contract": "contracts/EncryptedCrowdfund.sol:EncryptedCrowdfund",
           "label": "encGoal",
           "offset": 0,
@@ -164,7 +164,7 @@
           "type": "t_userDefinedValueType(euint64)11797"
         },
         {
-          "astId": 47796,
+          "astId": 47802,
           "contract": "contracts/EncryptedCrowdfund.sol:EncryptedCrowdfund",
           "label": "encRaised",
           "offset": 0,
@@ -172,7 +172,7 @@
           "type": "t_userDefinedValueType(euint64)11797"
         },
         {
-          "astId": 47798,
+          "astId": 47804,
           "contract": "contracts/EncryptedCrowdfund.sol:EncryptedCrowdfund",
           "label": "deadline",
           "offset": 0,
@@ -180,15 +180,15 @@
           "type": "t_uint256"
         },
         {
-          "astId": 47801,
+          "astId": 47807,
           "contract": "contracts/EncryptedCrowdfund.sol:EncryptedCrowdfund",
           "label": "status",
           "offset": 0,
           "slot": "5",
-          "type": "t_enum(CampaignStatus)47786"
+          "type": "t_enum(CampaignStatus)47792"
         },
         {
-          "astId": 47803,
+          "astId": 47809,
           "contract": "contracts/EncryptedCrowdfund.sol:EncryptedCrowdfund",
           "label": "goalMet",
           "offset": 1,
@@ -196,7 +196,7 @@
           "type": "t_bool"
         },
         {
-          "astId": 47806,
+          "astId": 47812,
           "contract": "contracts/EncryptedCrowdfund.sol:EncryptedCrowdfund",
           "label": "goalCheck",
           "offset": 0,
@@ -204,7 +204,7 @@
           "type": "t_userDefinedValueType(ebool)11789"
         },
         {
-          "astId": 47808,
+          "astId": 47814,
           "contract": "contracts/EncryptedCrowdfund.sol:EncryptedCrowdfund",
           "label": "resultPublished",
           "offset": 0,
@@ -212,7 +212,7 @@
           "type": "t_bool"
         },
         {
-          "astId": 47810,
+          "astId": 47816,
           "contract": "contracts/EncryptedCrowdfund.sol:EncryptedCrowdfund",
           "label": "title",
           "offset": 0,
@@ -220,7 +220,7 @@
           "type": "t_string_storage"
         },
         {
-          "astId": 47812,
+          "astId": 47818,
           "contract": "contracts/EncryptedCrowdfund.sol:EncryptedCrowdfund",
           "label": "descriptionCidHash",
           "offset": 0,
@@ -228,7 +228,7 @@
           "type": "t_bytes32"
         },
         {
-          "astId": 47814,
+          "astId": 47820,
           "contract": "contracts/EncryptedCrowdfund.sol:EncryptedCrowdfund",
           "label": "createdAt",
           "offset": 0,
@@ -238,12 +238,12 @@
       ],
       "numberOfBytes": "352"
     },
-    "t_struct(Contribution)47823_storage": {
+    "t_struct(Contribution)47829_storage": {
       "encoding": "inplace",
       "label": "struct EncryptedCrowdfund.Contribution",
       "members": [
         {
-          "astId": 47817,
+          "astId": 47823,
           "contract": "contracts/EncryptedCrowdfund.sol:EncryptedCrowdfund",
           "label": "contributor",
           "offset": 0,
@@ -251,7 +251,7 @@
           "type": "t_address"
         },
         {
-          "astId": 47820,
+          "astId": 47826,
           "contract": "contracts/EncryptedCrowdfund.sol:EncryptedCrowdfund",
           "label": "amount",
           "offset": 0,
@@ -259,7 +259,7 @@
           "type": "t_userDefinedValueType(euint64)11797"
         },
         {
-          "astId": 47822,
+          "astId": 47828,
           "contract": "contracts/EncryptedCrowdfund.sol:EncryptedCrowdfund",
           "label": "refunded",
           "offset": 0,
