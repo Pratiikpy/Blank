@@ -1,4 +1,9 @@
-import { createPublicClient, http } from "viem";
+import { createPublicClient, http, getAddress } from "viem";
+
+// EIP-1967 implementation address slot:
+//   bytes32(uint256(keccak256("eip1967.proxy.implementation")) - 1)
+const EIP1967_IMPL_SLOT =
+  "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc" as const;
 
 const ETH = {
   rpc: "https://ethereum-sepolia-rpc.publicnode.com",
@@ -24,15 +29,35 @@ type Cfg = typeof ETH;
 
 async function probeBytecode(label: string, cfg: Cfg) {
   const c = createPublicClient({ transport: http(cfg.rpc) });
-  console.log(`\n== ${label} (bytecode) ==`);
+  console.log(`\n== ${label} (proxy + impl bytecode) ==`);
   let allOk = true;
   for (const [name, addr] of Object.entries(cfg).filter(([k]) => k !== "rpc")) {
     try {
-      const code = await c.getBytecode({ address: addr as `0x${string}` });
-      const size = code ? (code.length - 2) / 2 : 0;
-      const verdict = size > 0 ? "OK" : "EMPTY!";
-      if (size === 0) allOk = false;
-      console.log(`  ${name.padEnd(22)} ${addr}  ${String(size).padStart(5)}B  ${verdict}`);
+      const proxyCode = await c.getBytecode({ address: addr as `0x${string}` });
+      const proxySize = proxyCode ? (proxyCode.length - 2) / 2 : 0;
+      const proxyVerdict = proxySize > 0 ? "OK" : "EMPTY!";
+
+      const implSlotRaw = await c.getStorageAt({
+        address: addr as `0x${string}`,
+        slot: EIP1967_IMPL_SLOT,
+      });
+      const implAddr = implSlotRaw
+        ? getAddress("0x" + implSlotRaw.slice(-40))
+        : null;
+
+      let implSize = 0;
+      let implVerdict = "MISSING_SLOT";
+      if (implAddr && implAddr !== "0x0000000000000000000000000000000000000000") {
+        const implCode = await c.getBytecode({ address: implAddr });
+        implSize = implCode ? (implCode.length - 2) / 2 : 0;
+        implVerdict = implSize > 0 ? "OK" : "EMPTY_IMPL!";
+      }
+
+      if (proxySize === 0 || implSize === 0) allOk = false;
+      console.log(
+        `  ${name.padEnd(22)} proxy=${String(proxySize).padStart(5)}B ${proxyVerdict.padEnd(8)} ` +
+          `impl=${implAddr ?? "?"} ${String(implSize).padStart(6)}B ${implVerdict}`,
+      );
     } catch (e: unknown) {
       allOk = false;
       const msg = e instanceof Error ? e.message : String(e);

@@ -22,7 +22,8 @@
     "check:voice": "tsx scripts/check-voice.ts",
     "check:voice:strict": "tsx scripts/check-voice.ts --strict",
     "verify:wave5": "tsx scripts/probe-wave5-deploys.ts",
-    "verify:wave5:bundle": "tsx scripts/probe-wave5-live-bundle.ts"
+    "verify:wave5:bundle": "tsx scripts/probe-wave5-live-bundle.ts",
+    "verify:wave5:all": "pnpm verify:wave5 && pnpm verify:wave5:bundle"
   },
   "dependencies": {
     "@aws-sdk/client-kms": "^3.700.0",
