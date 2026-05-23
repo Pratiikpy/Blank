@@ -1,0 +1,109 @@
+{
+  "storage": [
+    {
+      "astId": 65643,
+      "contract": "contracts/ProofOfBalance.sol:ProofOfBalance",
+      "label": "proofs",
+      "offset": 0,
+      "slot": "0",
+      "type": "t_mapping(t_uint256,t_struct(BalanceProof)65638_storage)"
+    },
+    {
+      "astId": 65645,
+      "contract": "contracts/ProofOfBalance.sol:ProofOfBalance",
+      "label": "nextProofId",
+      "offset": 0,
+      "slot": "1",
+      "type": "t_uint256"
+    }
+  ],
+  "types": {
+    "t_address": {
+      "encoding": "inplace",
+      "label": "address",
+      "numberOfBytes": "20"
+    },
+    "t_bool": {
+      "encoding": "inplace",
+      "label": "bool",
+      "numberOfBytes": "1"
+    },
+    "t_mapping(t_uint256,t_struct(BalanceProof)65638_storage)": {
+      "encoding": "mapping",
+      "key": "t_uint256",
+      "label": "mapping(uint256 => struct ProofOfBalance.BalanceProof)",
+      "numberOfBytes": "32",
+      "value": "t_struct(BalanceProof)65638_storage"
+    },
+    "t_struct(BalanceProof)65638_storage": {
+      "encoding": "inplace",
+      "label": "struct ProofOfBalance.BalanceProof",
+      "members": [
+        {
+          "astId": 65626,
+          "contract": "contracts/ProofOfBalance.sol:ProofOfBalance",
+          "label": "prover",
+          "offset": 0,
+          "slot": "0",
+          "type": "t_address"
+        },
+        {
+          "astId": 65628,
+          "contract": "contracts/ProofOfBalance.sol:ProofOfBalance",
+          "label": "thresholdMicroUSD",
+          "offset": 20,
+          "slot": "0",
+          "type": "t_uint64"
+        },
+        {
+          "astId": 65631,
+          "contract": "contracts/ProofOfBalance.sol:ProofOfBalance",
+          "label": "met",
+          "offset": 0,
+          "slot": "1",
+          "type": "t_userDefinedValueType(ebool)11789"
+        },
+        {
+          "astId": 65633,
+          "contract": "contracts/ProofOfBalance.sol:ProofOfBalance",
+          "label": "createdAt",
+          "offset": 0,
+          "slot": "2",
+          "type": "t_uint64"
+        },
+        {
+          "astId": 65635,
+          "contract": "contracts/ProofOfBalance.sol:ProofOfBalance",
+          "label": "revealed",
+          "offset": 8,
+          "slot": "2",
+          "type": "t_bool"
+        },
+        {
+          "astId": 65637,
+          "contract": "contracts/ProofOfBalance.sol:ProofOfBalance",
+          "label": "revealedValue",
+          "offset": 9,
+          "slot": "2",
+          "type": "t_bool"
+        }
+      ],
+      "numberOfBytes": "96"
+    },
+    "t_uint256": {
+      "encoding": "inplace",
+      "label": "uint256",
+      "numberOfBytes": "32"
+    },
+    "t_uint64": {
+      "encoding": "inplace",
+      "label": "uint64",
+      "numberOfBytes": "8"
+    },
+    "t_userDefinedValueType(ebool)11789": {
+      "encoding": "inplace",
+      "label": "ebool",
+      "numberOfBytes": "32"
+    }
+  }
+}

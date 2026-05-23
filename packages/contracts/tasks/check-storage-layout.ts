@@ -78,6 +78,9 @@ const TRACKED_CONTRACTS: string[] = [
   "BlankHandles",
   // Wave 5 Block 3 — guardian-based social recovery state machine.
   "GuardianModule",
+  // Wave 5 Block 10 — bonus FHE: prove encrypted balance >= threshold
+  // without revealing the underlying value. UUPS proxy.
+  "ProofOfBalance",
 ];
 
 const SNAPSHOT_DIR = path.join(__dirname, "..", "storage-layouts");
