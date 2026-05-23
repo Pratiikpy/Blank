@@ -6,10 +6,12 @@ import {
   Heart,
   Briefcase,
   ArrowLeftRight,
+  ArrowDownToLine,
   EyeOff,
   Gift,
   Timer,
   ShieldCheck,
+  BadgeCheck,
   Sparkles,
   Fingerprint,
   Settings as SettingsIcon,
@@ -20,6 +22,7 @@ import {
   Flame,
   CalendarClock,
   BarChart3,
+  LineChart,
   Inbox,
   BookUser,
   Lock,
@@ -183,6 +186,16 @@ export const NAV_REGISTRY: NavItem[] = [
     modes: ["privacy", "full"],
     desktopPrimary: true,
   },
+  // Wave 5 Block 10 — balance threshold proof. Sibling to /app/proofs
+  // (income proofs); same "privacy/proof" surface family.
+  {
+    path: "/app/proof-of-balance",
+    label: "Balance Proof",
+    icon: BadgeCheck,
+    category: "privacy",
+    modes: ["privacy", "full"],
+    desktopPrimary: false,
+  },
   {
     path: "/app/privacy",
     label: "Privacy Settings",
@@ -224,6 +237,27 @@ export const NAV_REGISTRY: NavItem[] = [
     category: "tools",
     modes: ["business", "full"],
     desktopPrimary: false,
+  },
+  // Wave 5 Block 4 — encrypted analytics + CSV export. Sibling to
+  // Analytics but focuses on the privacy-preserving aggregate view.
+  {
+    path: "/app/insights",
+    label: "Insights",
+    icon: LineChart,
+    category: "tools",
+    modes: ["business", "full"],
+    desktopPrimary: false,
+  },
+  // Wave 5 Block 1 — encrypted P2P offramp. Crypto → fiat headline
+  // feature. Visible to everyone since the off-ramp use case crosses
+  // freelancer/business/privacy modes.
+  {
+    path: "/app/offramp",
+    label: "Off-ramp",
+    icon: ArrowDownToLine,
+    category: "tools",
+    modes: ALL_MODES,
+    desktopPrimary: true,
   },
 
   // ── Account (everyone) ──────────────────────────────────────────
