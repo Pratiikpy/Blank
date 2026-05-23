@@ -41,6 +41,10 @@
       "schedule": "0 */6 * * *"
     },
     {
+      "path": "/api/cron/relayer-refill",
+      "schedule": "15 */6 * * *"
+    },
+    {
       "path": "/api/cron/scheduled-sends-tick",
       "schedule": "0 0 * * *"
     }

@@ -94,7 +94,8 @@ async function readRefilledTodayWei(
     .from("paymaster_refills")
     .select("amount_wei")
     .eq("chain_id", chainId)
-    .eq("utc_day", utcDay);
+    .eq("utc_day", utcDay)
+    .eq("kind", "paymaster");
   if (error || !data) return 0n;
   let total = 0n;
   for (const row of data) {
@@ -120,6 +121,7 @@ async function recordRefill(
     utc_day: utcDay,
     amount_wei: amountWei.toString(),
     tx_hash: txHash,
+    kind: "paymaster",
   });
 }
 

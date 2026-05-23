@@ -15,11 +15,15 @@ create table if not exists paymaster_refills (
     utc_day    text     not null,
     amount_wei text     not null,
     tx_hash    text     not null,
+    kind       text     not null default 'paymaster',
     created_at timestamptz not null default now()
 );
 
 create index if not exists paymaster_refills_chain_day
     on paymaster_refills (chain_id, utc_day);
+
+create index if not exists paymaster_refills_kind_chain_day
+    on paymaster_refills (kind, chain_id, utc_day);
 
 create unique index if not exists paymaster_refills_tx_hash
     on paymaster_refills (tx_hash);
