@@ -72,18 +72,18 @@ describe("Features — 16-feature catalog (§15.x)", () => {
     }
   });
 
-  it("renders all 16 numbered tags (01. -> 16.)", () => {
+  it("renders all 21 numbered tags (01. -> 21.)", () => {
     const { container } = withRouter(<Features />);
     const text = container.textContent ?? "";
-    for (let i = 1; i <= 16; i++) {
+    for (let i = 1; i <= 21; i++) {
       const tag = `${i.toString().padStart(2, "0")}.`;
       expect(text).toContain(tag);
     }
   });
 
-  it("renders exactly 16 feature rows (one per catalog entry)", () => {
+  it("renders exactly 21 feature rows (one per catalog entry)", () => {
     const { container } = withRouter(<Features />);
-    expect(container.querySelectorAll(".ll-feature-row").length).toBe(16);
+    expect(container.querySelectorAll(".ll-feature-row").length).toBe(21);
   });
 
   it("alternates 'reversed' class on every other row (zebra layout)", () => {
@@ -102,7 +102,7 @@ describe("Features — 16-feature catalog (§15.x)", () => {
   it("each feature has a 'Try <name>' CTA linking to its app route", () => {
     const { container } = withRouter(<Features />);
     const ctas = Array.from(container.querySelectorAll(".ll-feature-cta")) as HTMLAnchorElement[];
-    expect(ctas.length).toBe(16);
+    expect(ctas.length).toBe(21);
     const routes = ctas.map((a) => a.getAttribute("href"));
     expect(routes).toContain("/app/send");
     expect(routes).toContain("/app/requests");
@@ -118,6 +118,12 @@ describe("Features — 16-feature catalog (§15.x)", () => {
     expect(routes).toContain("/app/sell");
     expect(routes).toContain("/app/fundraise");
     expect(routes).toContain("/app/bridge");
+    // Wave 5 entries (17-21).
+    expect(routes).toContain("/app/offramp");
+    expect(routes).toContain("/u/alice");
+    expect(routes).toContain("/recover/alice");
+    expect(routes).toContain("/app/insights");
+    expect(routes).toContain("/app/proof-of-balance");
   });
 });
 
@@ -185,7 +191,7 @@ describe("Features — scenarios + pitches (§15.x)", () => {
   it("each feature has a real-world scenario block (rendered with .ll-feature-scenario)", () => {
     const { container } = withRouter(<Features />);
     const scenarios = container.querySelectorAll(".ll-feature-scenario");
-    expect(scenarios.length).toBe(16);
+    expect(scenarios.length).toBe(21);
   });
 
   it("Send scenario names 'Sarah pays her freelance designer $800'", () => {

@@ -260,6 +260,82 @@ const FEATURES: Feature[] = [
       want: "USDC on Base Sepolia",
     },
   },
+  {
+    tag: "17. Cash out",
+    name: "Off-ramp",
+    pitch: "List your encrypted USDC balance for fiat at a rate you pick. A taker locks the offer, sends the fiat through UPI/Wise/Venmo/PayPal, and submits a Reclaim proof. The chain only sees ciphertext; the rail handles plaintext money.",
+    scenario: "Maya, a freelancer in Bangalore, off-ramps her client's USDC payment to her UPI account without publishing the amount on a public DEX.",
+    route: "/app/offramp",
+    preview: {
+      kind: "receipt",
+      rows: [
+        { label: "Selling",   value: "████ USDC",  enc: true },
+        { label: "Rail",      value: "UPI" },
+        { label: "Rate",      value: "$1.00 / USDC" },
+        { label: "State",     value: "Open" },
+      ],
+    },
+  },
+  {
+    tag: "18. Identity",
+    name: "@handles",
+    pitch: "Claim a per-chain @handle that maps to your smart account. Anyone can pay you at /pay/@yourname without learning your address. Inactive handles can be reclaimed after 30 days.",
+    scenario: "Pay a friend at @alice without copying a 42-char address; the handle resolves to their account, the amount stays encrypted.",
+    route: "/u/alice",
+    preview: {
+      kind: "receipt",
+      rows: [
+        { label: "Handle",  value: "@alice" },
+        { label: "Chain",   value: "Eth Sepolia" },
+        { label: "Resolves", value: "0xb860…c53F" },
+        { label: "Active",  value: "✓" },
+      ],
+    },
+  },
+  {
+    tag: "19. Security",
+    name: "Guardian recovery",
+    pitch: "Pick 3+ guardians and a threshold (2-of-3 default). If you lose your passkey, a majority of guardians can rotate your account to a new owner. A 10-minute challenge window lets any guardian veto a hijack attempt.",
+    scenario: "Sam's phone is stolen with the passkey on it. Three of his five guardians approve a recovery to a new device; the attacker can't act faster than the veto window.",
+    route: "/recover/alice",
+    preview: {
+      kind: "receipt",
+      rows: [
+        { label: "Guardians",  value: "5" },
+        { label: "Threshold",  value: "3 of 5" },
+        { label: "Window",     value: "10 min" },
+        { label: "State",      value: "Ready" },
+      ],
+    },
+  },
+  {
+    tag: "20. Insights",
+    name: "Encrypted analytics",
+    pitch: "See your encrypted activity across vaults, invoices, escrows, and offramp fills in one place. Aggregate counts are public; per-row amounts stay encrypted unless you reveal them.",
+    scenario: "A small business owner reviews their month at a glance without leaking individual invoice values to a public block explorer.",
+    route: "/app/insights",
+    preview: {
+      kind: "receipt",
+      rows: [
+        { label: "Invoices",  value: "42" },
+        { label: "Payroll",   value: "8 batches" },
+        { label: "Volume",    value: "████ USDC",  enc: true },
+        { label: "Export",    value: "CSV" },
+      ],
+    },
+  },
+  {
+    tag: "21. Privacy",
+    name: "Balance proof",
+    pitch: "Prove your balance meets a threshold without revealing the amount. The chain stores an encrypted bool, and only the yes/no verdict gets published when you choose to reveal.",
+    scenario: "Rena proves she has at least $10K to a rental application without telling the landlord she actually has $73K.",
+    route: "/app/proof-of-balance",
+    preview: {
+      kind: "badge",
+      tier: "PASS",
+      label: "Balance ≥ $10,000",
+    },
+  },
   // #86: PrivacyRouter contract is deployed but the screen-level UI isn't
   // wired yet. Card removed from the marketing list until the screen ships
   // so visitors don't hit a dead CTA. Re-add once /app/swap supports the
