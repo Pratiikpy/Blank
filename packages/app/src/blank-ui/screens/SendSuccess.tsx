@@ -80,6 +80,8 @@ export default function SendSuccess() {
             </div>
             {payment.txHash && (
               <a
+                data-testid="send-success-tx-link"
+                data-tx-hash={payment.txHash}
                 href={getExplorerTxUrl(payment.txHash, activeChain.id)}
                 target="_blank"
                 rel="noopener noreferrer"
@@ -112,6 +114,8 @@ export default function SendSuccess() {
             </div>
             {payment.txHash && (
               <a
+                data-testid="send-success-tx-link"
+                data-tx-hash={payment.txHash}
                 href={getExplorerTxUrl(payment.txHash, activeChain.id)}
                 target="_blank"
                 rel="noopener noreferrer"
