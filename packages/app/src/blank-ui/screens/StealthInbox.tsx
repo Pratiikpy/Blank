@@ -120,7 +120,7 @@ export default function StealthInbox() {
             </div>
             <div>
               <h2 className="text-lg font-medium text-[var(--text-primary)] mb-1">
-                Unlock your stealth inbox
+                Open your stealth inbox
               </h2>
               <p className="text-sm text-[var(--text-secondary)] max-w-md">
                 Your spending and viewing keys are encrypted on this device.
@@ -132,7 +132,7 @@ export default function StealthInbox() {
               onClick={() => void unlock()}
               className="h-11 px-6 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-medium transition-colors"
             >
-              Unlock with passphrase
+              Open with passphrase
             </button>
           </div>
         )}

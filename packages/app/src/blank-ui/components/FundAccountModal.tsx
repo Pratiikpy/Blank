@@ -289,7 +289,7 @@ export function FundAccountModal({
             {isFunded ? (
               <>
                 <CheckCircle2 size={18} />
-                Funded — continue
+                Funded. Continue
               </>
             ) : (
               <>

@@ -379,7 +379,7 @@ describe("ReceiptVerifyModal — result states (§15.x)", () => {
     expect(screen.getByText("0xdddddd...dddddd")).toBeInTheDocument();
   });
 
-  it("receipt FOUND -> encrypted amount placeholder '••••.•• (Encrypted — decrypt with permit)'", () => {
+  it("receipt FOUND -> encrypted amount placeholder '••••.•• (Encrypted. Decrypt with permit.)'", () => {
     setupReadContract({
       verifyResult: [true, PAYER, PAYEE, TOKEN, 1700000000n],
     });
@@ -388,7 +388,7 @@ describe("ReceiptVerifyModal — result states (§15.x)", () => {
     fireEvent.change(input, { target: { value: VALID_HASH } });
     fireEvent.click(screen.getByRole("button", { name: "Verify Receipt" }));
     expect(
-      screen.getByText(/••••\.•• \(Encrypted — decrypt with permit\)/),
+      screen.getByText(/••••\.•• \(Encrypted\. Decrypt with permit\.\)/),
     ).toBeInTheDocument();
   });
 

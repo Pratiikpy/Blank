@@ -433,7 +433,7 @@ export default function StealthMetaSetup() {
                         wallet on-chain.
                       </strong>{" "}
                       Anyone querying the ERC-6538 Registry can see that
-                      this account published a stealth meta-address —
+                      this account published a stealth meta-address,
                       and tie every stealth payment back to it. Senders
                       stay unlinked from observers, but the recipient
                       (you) is permanently linked to the registry entry.

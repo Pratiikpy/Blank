@@ -371,7 +371,7 @@ export function TwapChart({ tokenIn, tokenOut, fee }: TwapChartProps) {
       </div>
 
       <p className="text-[10px] text-[var(--text-tertiary)] leading-snug">
-        TWAP from Uniswap v3 pool observations. Display only — never trust this
+        TWAP from Uniswap v3 pool observations. Display only. Never trust this
         price for settlement. The Swap button uses QuoterV2 with the current
         pool state and slippage protection.
       </p>

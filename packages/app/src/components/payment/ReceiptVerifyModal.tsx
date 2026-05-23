@@ -627,7 +627,7 @@ export function ReceiptVerifyModal({ isOpen, onClose }: ReceiptVerifyModalProps)
                       <div className="flex items-center gap-2">
                         <Lock className="w-3.5 h-3.5 text-violet-400 shrink-0" />
                         <span className="font-mono text-sm text-violet-400 tracking-wide">
-                          {ENCRYPTED_PLACEHOLDER} (Encrypted — decrypt with permit)
+                          {ENCRYPTED_PLACEHOLDER} (Encrypted. Decrypt with permit.)
                         </span>
                       </div>
                     </div>

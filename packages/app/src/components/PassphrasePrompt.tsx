@@ -218,7 +218,7 @@ export function PassphrasePromptProvider({ children }: { children: React.ReactNo
                 Decrypt
               </button>
               <p className="text-[11px] text-[var(--text-tertiary)] text-center pt-1">
-                Decryption happens locally — your passphrase never leaves this browser.
+                Decryption happens locally. Your passphrase never leaves this browser.
               </p>
             </form>
           </div>

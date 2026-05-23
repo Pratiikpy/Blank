@@ -119,7 +119,7 @@ export function PasskeyCreationModal({ open, onClose, onSuccess }: PasskeyCreati
               className="text-xs text-[var(--text-tertiary)] text-center"
               data-testid="smart-account-status"
             >
-              Counterfactual — deploys automatically on your first transaction.
+              Counterfactual. Deploys automatically on your first transaction.
             </p>
             <button
               onClick={onClose}
@@ -204,7 +204,7 @@ export function PasskeyCreationModal({ open, onClose, onSuccess }: PasskeyCreati
 
             <p className="text-[11px] text-[var(--text-tertiary)] text-center pt-1 leading-relaxed">
               Your passphrase never leaves this browser. Lose it and you lose
-              access — pick something you'll remember and save a backup
+              access. Pick something you'll remember and save a backup
               somewhere safe (a password manager or written copy).
             </p>
           </form>

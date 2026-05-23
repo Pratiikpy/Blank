@@ -29,12 +29,12 @@ interface OfferView {
 }
 
 const STATE_LABEL: Record<number, string> = {
-  0: "Locked — pay the maker off-chain",
-  1: "Proof submitted — challenge window open",
-  2: "Released to taker",
-  3: "Disputed — awaiting arbiter",
-  4: "Resolved by arbiter",
-  5: "Refunded to maker",
+  0: "Locked. Pay the maker off-chain.",
+  1: "Proof submitted. Challenge window open.",
+  2: "Released to taker.",
+  3: "Disputed. Awaiting arbiter.",
+  4: "Resolved by arbiter.",
+  5: "Refunded to maker.",
 };
 
 /**
@@ -239,7 +239,7 @@ export default function OfframpFillFlow() {
             Challenge window:{" "}
             {secondsUntilRelease > 0
               ? `${Math.ceil(secondsUntilRelease / 60)} min remaining`
-              : "closed — anyone can release now"}
+              : "closed. Anyone can release now."}
             .
             {isMaker && " If the taker's proof is bad, dispute now before the window closes."}
           </div>

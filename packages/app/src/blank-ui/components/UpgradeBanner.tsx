@@ -178,7 +178,7 @@ export function UpgradeBanner() {
         </p>
         <p className="text-sm text-violet-700 dark:text-violet-300/80 leading-snug">
           Upgrade your smart wallet to enable scheduled payments (rent, payroll,
-          subscriptions). Your address and balances stay the same — your
+          subscriptions). Your address and balances stay the same. Your
           existing passkey keeps working unchanged.
         </p>
       </div>

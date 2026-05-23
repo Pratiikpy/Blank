@@ -329,7 +329,7 @@ describe("FundAccountModal — isFunded + progress (§15.x)", () => {
     expect(cta.disabled).toBe(true);
   });
 
-  it("balance >= requiredWei -> 'Funded — continue' + enabled CTA", () => {
+  it("balance >= requiredWei -> 'Funded. Continue' + enabled CTA", () => {
     useBalanceMock.mockReturnValue({
       data: { value: 1_000_000_000_000_000n }, // 0.001 ETH
       isFetching: false,
@@ -342,9 +342,9 @@ describe("FundAccountModal — isFunded + progress (§15.x)", () => {
         chainId={11155111}
       />,
     );
-    expect(screen.getByText(/Funded — continue/)).toBeInTheDocument();
+    expect(screen.getByText(/Funded. Continue/)).toBeInTheDocument();
     const cta = screen
-      .getByText(/Funded — continue/)
+      .getByText(/Funded. Continue/)
       .closest("button") as HTMLButtonElement;
     expect(cta.disabled).toBe(false);
   });
@@ -594,7 +594,7 @@ describe("FundAccountModal — close paths (§15.x)", () => {
       />,
     );
     // onFunded fires once from the effect; click adds a second
-    fireEvent.click(screen.getByText(/Funded — continue/));
+    fireEvent.click(screen.getByText(/Funded. Continue/));
     expect(onFunded).toHaveBeenCalledTimes(2);
     expect(onClose).toHaveBeenCalledTimes(1);
   });

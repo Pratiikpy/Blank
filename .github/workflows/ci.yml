@@ -92,6 +92,15 @@ jobs:
         working-directory: packages/app
         run: pnpm exec vitest run
 
+      # Wave 5 Block 9: voice CI gate. Enforces CLAUDE.md voice rules
+      # on user-facing prose (em-dashes + banned words + AI-slop openers).
+      # Currently scoped to packages/app/src/blank-ui/{landing,screens,components},
+      # packages/app/src/components, and README.md. Internal architecture
+      # docs in docs/* are intentionally excluded.
+      - name: Voice check (strict)
+        working-directory: packages/app
+        run: pnpm check:voice:strict
+
       - name: Build
         working-directory: packages/app
         run: pnpm exec vite build

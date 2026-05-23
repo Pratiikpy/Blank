@@ -18,7 +18,9 @@
     "e2e:audit": "tsx e2e/wave4/scripts/proof-gap-audit.ts",
     "e2e:summary": "tsx e2e/wave4/scripts/summary.ts",
     "e2e:all": "pnpm e2e:preflight && pnpm e2e:wave4 && pnpm e2e:audit && pnpm e2e:summary",
-    "check:imports": "node scripts/check-imports.mjs"
+    "check:imports": "node scripts/check-imports.mjs",
+    "check:voice": "tsx scripts/check-voice.ts",
+    "check:voice:strict": "tsx scripts/check-voice.ts --strict"
   },
   "dependencies": {
     "@aws-sdk/client-kms": "^3.700.0",
