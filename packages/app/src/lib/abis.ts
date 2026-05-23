@@ -927,3 +927,65 @@ export const GuardianModuleAbi = [
     { name: "newOwner", type: "address", indexed: true },
   ] },
 ] as const;
+
+// ─── Wave 5 Block 10 — ProofOfBalance ──────────────────────────────────
+//
+// Prove your encrypted balance is at or above a public threshold without
+// revealing the underlying value. Contract is live on Eth + Base Sepolia,
+// hardhat-tested, on-chain bytecode verified. Frontend hook + screen are
+// deferred to Wave 5.5 (operator-pending); this ABI export unblocks anyone
+// who wants to build that surface against the live deploys.
+
+export const ProofOfBalanceAbi = [
+  { type: "function", name: "createProof", inputs: [
+    { name: "encBalance", type: "tuple", internalType: "struct InEuint64", components: InEuint64Components },
+    { name: "thresholdMicroUSD", type: "uint64" },
+  ], outputs: [{ name: "proofId", type: "uint256" }], stateMutability: "nonpayable" },
+
+  { type: "function", name: "revealProof", inputs: [
+    { name: "proofId", type: "uint256" },
+    { name: "plaintext", type: "bool" },
+    { name: "signature", type: "bytes" },
+  ], outputs: [], stateMutability: "nonpayable" },
+
+  { type: "function", name: "getProof", inputs: [{ name: "proofId", type: "uint256" }], outputs: [
+    { name: "prover", type: "address" },
+    { name: "thresholdMicroUSD", type: "uint64" },
+    { name: "createdAt", type: "uint64" },
+    { name: "revealed", type: "bool" },
+    { name: "revealedValue", type: "bool" },
+  ], stateMutability: "view" },
+
+  { type: "function", name: "nextProofId", inputs: [], outputs: [{ name: "", type: "uint256" }], stateMutability: "view" },
+
+  { type: "event", name: "ProofCreated", inputs: [
+    { name: "proofId", type: "uint256", indexed: true },
+    { name: "prover", type: "address", indexed: true },
+    { name: "thresholdMicroUSD", type: "uint64", indexed: false },
+  ] },
+  { type: "event", name: "ProofRevealed", inputs: [
+    { name: "proofId", type: "uint256", indexed: true },
+    { name: "met", type: "bool", indexed: false },
+  ] },
+] as const;
+
+// ─── Wave 5 Block 0.5 — MockReclaimVerifier ────────────────────────────
+//
+// Operator-signed fallback verifier used by ReclaimAdapter in mock mode.
+// `setOperator(0x0)` disables the verifier (real-mode fallback). This ABI
+// is exported for ops scripts that rotate the operator key.
+
+export const MockReclaimVerifierAbi = [
+  { type: "function", name: "setOperator", inputs: [{ name: "_operator", type: "address" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "operator", inputs: [], outputs: [{ name: "", type: "address" }], stateMutability: "view" },
+  { type: "function", name: "verifyAndConsume", inputs: [
+    { name: "providerId", type: "uint32" },
+    { name: "receiverHandle", type: "bytes32" },
+    { name: "amount", type: "uint64" },
+    { name: "signature", type: "bytes" },
+  ], outputs: [{ name: "", type: "bool" }], stateMutability: "nonpayable" },
+  { type: "event", name: "OperatorChanged", inputs: [
+    { name: "previous", type: "address", indexed: true },
+    { name: "next", type: "address", indexed: true },
+  ] },
+] as const;
