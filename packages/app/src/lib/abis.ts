@@ -754,3 +754,104 @@ export const EncryptedEscrowAbi = [
     { name: "depositor", type: "address", indexed: true },
   ] },
 ] as const;
+
+// ─── Wave 5 Block 1 — Encrypted P2P offramp ────────────────────────────
+// Headline build. See packages/contracts/contracts/P2POfframp.sol for
+// the full lifecycle: createOffer → takeOffer → submitProof →
+// (challenge-window) → releaseFill, with dispute + arbiter + expire
+// fallbacks. v1 is full-fill only; partial fills are Wave 6.
+
+export const P2POfframpAbi = [
+  { type: "function", name: "createOffer", inputs: [
+    { name: "vault", type: "address" },
+    { name: "encAmount", type: "tuple", internalType: "struct InEuint64", components: InEuint64Components },
+    { name: "encMinFill", type: "tuple", internalType: "struct InEuint64", components: InEuint64Components },
+    { name: "fiatRail", type: "uint32" },
+    { name: "makerHandleHash", type: "bytes32" },
+    { name: "fiatAmountMicroUSD", type: "uint64" },
+    { name: "fiatRateMicroUSD", type: "uint64" },
+    { name: "expirySeconds", type: "uint32" },
+  ], outputs: [{ name: "offerId", type: "uint64" }], stateMutability: "nonpayable" },
+
+  { type: "function", name: "takeOffer", inputs: [{ name: "offerId", type: "uint64" }], outputs: [{ name: "fillId", type: "uint64" }], stateMutability: "nonpayable" },
+
+  { type: "function", name: "submitProof", inputs: [
+    { name: "fillId", type: "uint64" },
+    { name: "reclaimProof", type: "bytes" },
+    { name: "providerId", type: "uint32" },
+  ], outputs: [], stateMutability: "nonpayable" },
+
+  { type: "function", name: "releaseFill", inputs: [{ name: "fillId", type: "uint64" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "disputeFill", inputs: [{ name: "fillId", type: "uint64" }, { name: "reason", type: "string" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "arbiterResolve", inputs: [{ name: "fillId", type: "uint64" }, { name: "releaseToTaker", type: "bool" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "cancelOffer", inputs: [{ name: "offerId", type: "uint64" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "expireFill", inputs: [{ name: "fillId", type: "uint64" }], outputs: [], stateMutability: "nonpayable" },
+
+  { type: "function", name: "getOffer", inputs: [{ name: "offerId", type: "uint64" }], outputs: [
+    { name: "maker", type: "address" },
+    { name: "vault", type: "address" },
+    { name: "fiatAmountMicroUSD", type: "uint64" },
+    { name: "fiatRateMicroUSD", type: "uint64" },
+    { name: "fiatRail", type: "uint32" },
+    { name: "makerHandleHash", type: "bytes32" },
+    { name: "expiry", type: "uint32" },
+    { name: "state", type: "uint8" },
+  ], stateMutability: "view" },
+
+  { type: "function", name: "getFill", inputs: [{ name: "fillId", type: "uint64" }], outputs: [
+    { name: "offerId", type: "uint64" },
+    { name: "taker", type: "address" },
+    { name: "fiatAmountAtLockMicroUSD", type: "uint64" },
+    { name: "lockedAt", type: "uint32" },
+    { name: "proofSubmittedAt", type: "uint32" },
+    { name: "reclaimProofHash", type: "bytes32" },
+    { name: "state", type: "uint8" },
+  ], stateMutability: "view" },
+
+  { type: "function", name: "getMakerReputation", inputs: [{ name: "maker", type: "address" }], outputs: [
+    { name: "fillCount", type: "uint32" },
+    { name: "disputeCount", type: "uint32" },
+  ], stateMutability: "view" },
+
+  { type: "function", name: "nextOfferId", inputs: [], outputs: [{ name: "", type: "uint64" }], stateMutability: "view" },
+  { type: "function", name: "nextFillId", inputs: [], outputs: [{ name: "", type: "uint64" }], stateMutability: "view" },
+  { type: "function", name: "CHALLENGE_WINDOW_SECONDS", inputs: [], outputs: [{ name: "", type: "uint32" }], stateMutability: "view" },
+  { type: "function", name: "arbiter", inputs: [], outputs: [{ name: "", type: "address" }], stateMutability: "view" },
+
+  { type: "event", name: "OfferCreated", inputs: [
+    { name: "offerId", type: "uint64", indexed: true },
+    { name: "maker", type: "address", indexed: true },
+    { name: "fiatAmountMicroUSD", type: "uint64", indexed: false },
+    { name: "fiatRateMicroUSD", type: "uint64", indexed: false },
+    { name: "fiatRail", type: "uint32", indexed: false },
+    { name: "makerHandleHash", type: "bytes32", indexed: false },
+    { name: "expiry", type: "uint32", indexed: false },
+  ] },
+  { type: "event", name: "FillLocked", inputs: [
+    { name: "fillId", type: "uint64", indexed: true },
+    { name: "offerId", type: "uint64", indexed: true },
+    { name: "taker", type: "address", indexed: true },
+    { name: "fiatAmountAtLockMicroUSD", type: "uint64", indexed: false },
+  ] },
+  { type: "event", name: "ProofSubmitted", inputs: [
+    { name: "fillId", type: "uint64", indexed: true },
+    { name: "proofHash", type: "bytes32", indexed: false },
+  ] },
+  { type: "event", name: "FillReleased", inputs: [{ name: "fillId", type: "uint64", indexed: true }] },
+  { type: "event", name: "FillDisputed", inputs: [
+    { name: "fillId", type: "uint64", indexed: true },
+    { name: "reason", type: "string", indexed: false },
+  ] },
+  { type: "event", name: "FillResolved", inputs: [
+    { name: "fillId", type: "uint64", indexed: true },
+    { name: "releasedToTaker", type: "bool", indexed: false },
+  ] },
+  { type: "event", name: "FillRefunded", inputs: [{ name: "fillId", type: "uint64", indexed: true }] },
+  { type: "event", name: "OfferCancelled", inputs: [{ name: "offerId", type: "uint64", indexed: true }] },
+] as const;
+
+export const ReclaimAdapterAbi = [
+  { type: "function", name: "verifier", inputs: [], outputs: [{ name: "", type: "address" }], stateMutability: "view" },
+  { type: "function", name: "allowedProviders", inputs: [{ name: "providerId", type: "uint32" }], outputs: [{ name: "", type: "bool" }], stateMutability: "view" },
+  { type: "function", name: "usedProofs", inputs: [{ name: "proofHash", type: "bytes32" }], outputs: [{ name: "", type: "bool" }], stateMutability: "view" },
+] as const;

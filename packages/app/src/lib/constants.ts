@@ -194,6 +194,20 @@ export type ContractMap = {
    *  escrow which stored amounts in plaintext. New contract holds funds in
    *  the encrypted vault balance — amount never observable on-chain. */
   EncryptedEscrow: `0x${string}`;
+  /** Wave 5 Block 1 — encrypted P2P offramp. Maker posts encrypted USDC
+   *  against plaintext fiat price + rail. Taker locks, pays off-chain via
+   *  UPI/Wise/Venmo/PayPal, submits Reclaim proof, USDC releases after
+   *  challenge window. address(0) until `pnpm hardhat deploy-p2p-offramp`
+   *  runs and writes the addresses back. Frontend treats address(0) as
+   *  "feature not yet deployed on this chain" and shows a banner. */
+  P2POfframp: `0x${string}`;
+  /** Wave 5 Block 1 — Reclaim Protocol adapter wrapping the verifier with
+   *  provider allowlist + replay map. address(0) until deploy. */
+  ReclaimAdapter: `0x${string}`;
+  /** Wave 5 Block 1 — operator-signed fallback verifier for when Reclaim's
+   *  sandbox UPI templates are unavailable. address(0) until deploy, OR
+   *  initialized with operator=address(0) to ship with mock disabled. */
+  MockReclaimVerifier: `0x${string}`;
 };
 
 export const CONTRACTS_BY_CHAIN: Record<SupportedChainId, ContractMap> = {
@@ -247,6 +261,13 @@ export const CONTRACTS_BY_CHAIN: Record<SupportedChainId, ContractMap> = {
     EncryptedCrowdfund: "0x383B58973f7e8DC3E47D1C2f55393E2ac48b24e1",
     // Wave 4 — encrypted escrow (Eth Sepolia).
     EncryptedEscrow: "0x4253163CfCd0cf9885333E0a7B7476d61F010feC",
+    // Wave 5 Block 1 — P2P offramp. Address(0) until operator runs
+    //   pnpm hardhat deploy-p2p-offramp --network eth-sepolia
+    //     --arbiter <multisig> --operator <signer> --window 300
+    // Frontend shows "Coming soon on this chain" banner while zero.
+    P2POfframp: "0x0000000000000000000000000000000000000000",
+    ReclaimAdapter: "0x0000000000000000000000000000000000000000",
+    MockReclaimVerifier: "0x0000000000000000000000000000000000000000",
   },
   [BASE_SEPOLIA_ID]: {
     // Base Sepolia: full v0.1.3 stack. FHERC20Vault + BusinessHub +
@@ -293,6 +314,11 @@ export const CONTRACTS_BY_CHAIN: Record<SupportedChainId, ContractMap> = {
     EncryptedCrowdfund: "0x0F21705575e2CC83dC410AE2af6973B150a4183C",
     // Wave 4 — encrypted escrow (Base Sepolia).
     EncryptedEscrow: "0x6414742D2da28eCEf06D79b82F406B6b8ab3e421",
+    // Wave 5 Block 1 — P2P offramp. Same operator-pending state as
+    // Eth Sepolia. Run deploy-p2p-offramp with --network base-sepolia.
+    P2POfframp: "0x0000000000000000000000000000000000000000",
+    ReclaimAdapter: "0x0000000000000000000000000000000000000000",
+    MockReclaimVerifier: "0x0000000000000000000000000000000000000000",
   },
 };
 

@@ -54,6 +54,10 @@ const CreateClaimLink = lazy(() => import("./screens/CreateClaimLink"));
 const CreateListing = lazy(() => import("./screens/CreateListing"));
 // Wave 4 — crowdfund creator flow.
 const CreateCampaign = lazy(() => import("./screens/CreateCampaign"));
+// Wave 5 Block 1 — encrypted P2P offramp: order book + offer detail + fill flow.
+const Offramp = lazy(() => import("./screens/Offramp"));
+const OfframpOfferDetail = lazy(() => import("./screens/OfframpOfferDetail"));
+const OfframpFillFlow = lazy(() => import("./screens/OfframpFillFlow"));
 
 // Desktop sidebar
 import { DesktopSidebar } from "./components/DesktopSidebar";
@@ -475,6 +479,13 @@ export function BlankApp() {
               <Route path="privacy" element={<Privacy />} />
               <Route path="proofs" element={<Proofs />} />
               <Route path="agents" element={<AgentPayments />} />
+              {/* Wave 5 Block 1 — encrypted P2P offramp. Routes:
+                    /app/offramp                 order book
+                    /app/offramp/:offerId        offer detail + take
+                    /app/offramp/fill/:fillId    5-phase fill lifecycle */}
+              <Route path="offramp" element={<Offramp />} />
+              <Route path="offramp/:offerId" element={<OfframpOfferDetail />} />
+              <Route path="offramp/fill/:fillId" element={<OfframpFillFlow />} />
               <Route path="wallet" element={<SmartWallet />} />
               <Route path="settings" element={<Settings />} />
               <Route path="help" element={<Help />} />
