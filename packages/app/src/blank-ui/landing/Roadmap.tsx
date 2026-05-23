@@ -81,18 +81,53 @@ const SHIPPED: RoadmapItem[] = [
     detail:
       "Same contracts deployed on both. Per-chain activity feeds + explorer links. Chain switch is a UI affordance, not a separate build.",
   },
+  {
+    title: "Encrypted P2P off-ramp",
+    detail:
+      "Wave 5 headline. Maker lists encrypted USDC for fiat at a rate they pick; taker locks the offer, sends fiat via UPI/Wise/Venmo/PayPal, submits a Reclaim proof to claim. Full-fill in v1; partial fills are Wave 6.",
+  },
+  {
+    title: "@handles + public profile pages",
+    detail:
+      "Per-chain handle registry. /u/:handle resolves to the smart account; /pay/:handle lets anyone pay without learning the address. 3-24 chars, 30-day inactivity reclaim, reserved-word list.",
+  },
+  {
+    title: "Guardian social recovery",
+    detail:
+      "M-of-N recovery state machine. Pick 3+ guardians, set the threshold, lose your passkey, recover to a new device. 10-minute veto window per recovery so a hijacked guardian majority can't act unilaterally.",
+  },
+  {
+    title: "Encrypted analytics + Insights screen",
+    detail:
+      "Aggregate counts across vaults, invoices, escrows, and offramp fills in one place. Per-row amounts stay encrypted unless revealed. CSV export of aggregates only.",
+  },
+  {
+    title: "Notification center + push",
+    detail:
+      "12 event types, Supabase Realtime + Web Push + transactional email. Bell icon with unread counts. Cross-tab broadcast so all open tabs update on a single event.",
+  },
+  {
+    title: "Empty / error / loading primitives",
+    detail:
+      "One source of truth for state surfaces across the app. Refactor target for new screens; consistent feel without rebuilding the layout each time.",
+  },
+  {
+    title: "Mobile PWA install + status page",
+    detail:
+      "Android + iOS Safari install prompts. Public /status page polling chain RPC, paymaster balance, relayer balance, and last-deploy SHA. status.blank.app subdomain ready.",
+  },
 ];
 
 const NEXT: RoadmapItem[] = [
   {
     title: "Design system extraction",
     detail:
-      "One source of truth for buttons, empty states, loading states, error states. Refactor the polished screens to use it; new screens stay consistent automatically.",
+      "Empty / error / loading state primitives shipped in Wave 5; the rest is tokens, buttons, modals, and form components in one extracted library so new screens stay consistent automatically.",
   },
   {
-    title: "Trust layer",
+    title: "Trust layer (security + audit)",
     detail:
-      "/security page, status page, public bug bounty, third-party audit booking. The boring work that turns 'project that ships' into 'product you can rely on'.",
+      "Status page is live; remaining: /security page, public bug bounty, third-party audit booking. The boring work that turns 'project that ships' into 'product you can rely on'.",
   },
   {
     title: "SDK + embeddable checkout",
@@ -306,7 +341,7 @@ export default function Roadmap() {
           <StatusBadge kind="shipped" />
           <h2 className="ll-section-title">Shipped. Live on testnet today.</h2>
           <p className="ll-section-lead">
-            Sixteen product surfaces, one encrypted vault, two chains.
+            Twenty-one product surfaces, one encrypted vault, two chains.
             Core desktop flows have live testnet receipts on Base Sepolia
             and Ethereum Sepolia. Long-duration close, release, and refund
             paths are covered by contract tests.

@@ -55,9 +55,9 @@ describe("Roadmap — Shipped block (§15.x)", () => {
     expect(container.textContent).toContain("Shipped. Live on testnet today");
   });
 
-  it("section lead claims 'Sixteen product surfaces, one encrypted vault, two chains'", () => {
+  it("section lead claims 'Twenty-one product surfaces, one encrypted vault, two chains'", () => {
     const { container } = withRouter(<Roadmap />);
-    expect(container.textContent).toContain("Sixteen product surfaces");
+    expect(container.textContent).toContain("Twenty-one product surfaces");
     expect(container.textContent).toContain("two chains");
   });
 
