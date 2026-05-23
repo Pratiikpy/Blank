@@ -218,6 +218,10 @@ export type ContractMap = {
    *  address(0) until `pnpm hardhat deploy-guardian-module --network
    *  <chain>` runs. */
   GuardianModule: `0x${string}`;
+  /** Wave 5 Block 10 — encrypted balance threshold proof. Prove your
+   *  balance is at or above a public threshold without revealing the
+   *  underlying value. */
+  ProofOfBalance: `0x${string}`;
 };
 
 export const CONTRACTS_BY_CHAIN: Record<SupportedChainId, ContractMap> = {
@@ -271,15 +275,20 @@ export const CONTRACTS_BY_CHAIN: Record<SupportedChainId, ContractMap> = {
     EncryptedCrowdfund: "0x383B58973f7e8DC3E47D1C2f55393E2ac48b24e1",
     // Wave 4 — encrypted escrow (Eth Sepolia).
     EncryptedEscrow: "0x4253163CfCd0cf9885333E0a7B7476d61F010feC",
-    // Wave 5 Block 1 — P2P offramp. Address(0) until operator runs
-    //   pnpm hardhat deploy-p2p-offramp --network eth-sepolia
-    //     --arbiter <multisig> --operator <signer> --window 300
-    // Frontend shows "Coming soon on this chain" banner while zero.
-    P2POfframp: "0x0000000000000000000000000000000000000000",
-    ReclaimAdapter: "0x0000000000000000000000000000000000000000",
-    MockReclaimVerifier: "0x0000000000000000000000000000000000000000",
-    BlankHandles: "0x0000000000000000000000000000000000000000",
-    GuardianModule: "0x0000000000000000000000000000000000000000",
+    // Wave 5 Block 1 — encrypted P2P offramp (Eth Sepolia, mock-mode
+    // ships testnet; live Reclaim provider IDs are Wave 5.5 work).
+    // Arbiter currently set to deployer for v1 demo; rotate to a
+    // multisig once the dispute path is exercised.
+    P2POfframp: "0x5981C437032Da38844AE9a3aa382F993b1B8444a",
+    ReclaimAdapter: "0xf866EA7630eE91cCcd0Df638679865BCD909cce6",
+    MockReclaimVerifier: "0xdfc2606B1Ba148CC35b93849ac888BD7DfFD28a8",
+    // Wave 5 Block 2 — per-chain @handle registry.
+    BlankHandles: "0xb6F5d0a407B459D7Ab64Ae13dee0f6b371e8eA06",
+    // Wave 5 Block 3 — guardian recovery state machine. 10-minute
+    // challenge window on testnet (mainnet would use 24h).
+    GuardianModule: "0xdBE8252D1e089759b56E742843303f0b18700c3E",
+    // Wave 5 Block 10 — encrypted balance threshold proof.
+    ProofOfBalance: "0xff0Fa776116a17b6fbD62E48CA14F48b31E31856",
   },
   [BASE_SEPOLIA_ID]: {
     // Base Sepolia: full v0.1.3 stack. FHERC20Vault + BusinessHub +
@@ -328,11 +337,16 @@ export const CONTRACTS_BY_CHAIN: Record<SupportedChainId, ContractMap> = {
     EncryptedEscrow: "0x6414742D2da28eCEf06D79b82F406B6b8ab3e421",
     // Wave 5 Block 1 — P2P offramp. Same operator-pending state as
     // Eth Sepolia. Run deploy-p2p-offramp with --network base-sepolia.
-    P2POfframp: "0x0000000000000000000000000000000000000000",
-    ReclaimAdapter: "0x0000000000000000000000000000000000000000",
-    MockReclaimVerifier: "0x0000000000000000000000000000000000000000",
-    BlankHandles: "0x0000000000000000000000000000000000000000",
-    GuardianModule: "0x0000000000000000000000000000000000000000",
+    // Wave 5 Block 1 — encrypted P2P offramp (Base Sepolia).
+    P2POfframp: "0xd717E7AFE5eB627c9913bc682003d6E83b9032f9",
+    ReclaimAdapter: "0x2F7B59A920B76d5fD0e3c010b6a7D5E14eF83486",
+    MockReclaimVerifier: "0xB36441E8c4155709E350f7c66B16c2B8174c0e75",
+    // Wave 5 Block 2 — per-chain @handle registry.
+    BlankHandles: "0x346077e5DA2a552f0353f3430F8baE6D7049DEF9",
+    // Wave 5 Block 3 — guardian recovery state machine.
+    GuardianModule: "0x4fa2152A940651404F2722c0192624d0662e5B46",
+    // Wave 5 Block 10 — encrypted balance threshold proof.
+    ProofOfBalance: "0x25e7383Bd5602a07928629e9Ec6eaec9535536Ff",
   },
 };
 
