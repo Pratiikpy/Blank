@@ -20,7 +20,8 @@
     "e2e:all": "pnpm e2e:preflight && pnpm e2e:wave4 && pnpm e2e:audit && pnpm e2e:summary",
     "check:imports": "node scripts/check-imports.mjs",
     "check:voice": "tsx scripts/check-voice.ts",
-    "check:voice:strict": "tsx scripts/check-voice.ts --strict"
+    "check:voice:strict": "tsx scripts/check-voice.ts --strict",
+    "verify:wave5": "tsx scripts/probe-wave5-deploys.ts"
   },
   "dependencies": {
     "@aws-sdk/client-kms": "^3.700.0",
