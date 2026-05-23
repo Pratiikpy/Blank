@@ -253,7 +253,10 @@ export default function CreateClaimLink() {
           <p className="text-[var(--text-secondary)] mb-6">
             Share this URL with the recipient. The amount stays encrypted until they claim it.
           </p>
-          <div className="bg-[var(--surface-2)] rounded-2xl p-4 mb-4 break-all text-sm font-mono text-left">
+          <div
+            data-testid="claim-link-share-url"
+            className="bg-[var(--surface-2)] rounded-2xl p-4 mb-4 break-all text-sm font-mono text-left"
+          >
             {state.shareableUrl}
           </div>
           <button

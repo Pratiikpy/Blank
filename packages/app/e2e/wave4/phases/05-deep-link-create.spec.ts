@@ -72,19 +72,44 @@ async function bringUpAlice(
   return { page, context, address };
 }
 
-/** Extract the share URL from the SendSuccess screen — typically
- *  rendered in a font-mono div with the `/claim/`, `/shop/`, or
- *  `/fund/` path prefix. */
+/** Extract the share URL from the success screen. Prefers a stable
+ *  data-testid when one exists ("claim-link-share-url" on
+ *  /app/claim-link, mirrored on shop + fund surfaces). Falls back to
+ *  DOM regex scanning for older success screens that don't expose the
+ *  testid yet.
+ *
+ *  Mapping pathPrefix → testid:
+ *    /claim/ → claim-link-share-url
+ *    /shop/  → listing-share-url
+ *    /fund/  → crowdfund-share-url
+ */
 async function readShareUrl(page: Page, pathPrefix: string, baseURL: string): Promise<string> {
-  // 120s deadline (was 60s). The createLink path needs to settle
-  // through: cofhe encrypt → relay submit → waitForTransactionReceipt
-  // → extractEventId → setState({step:"success",shareableUrl}). On a
-  // slow Sepolia tick the receipt alone can take 30-40s, leaving 20s
-  // for the DOM transition. Doubling the budget removes the cascade
-  // where all 3 modes (Bearer/EmailBound/AddressBound) timeout in
-  // sequence on a single suite run.
+  const testIdByPrefix: Record<string, string> = {
+    "/claim/": "claim-link-share-url",
+    "/shop/": "listing-share-url",
+    "/fund/": "crowdfund-share-url",
+  };
+  const testId = testIdByPrefix[pathPrefix];
+
+  // 120s deadline. createLink settles through: cofhe encrypt → relay
+  // submit → waitForTransactionReceipt → extractEventId →
+  // setState({step:"success",shareableUrl}). On a slow Sepolia tick
+  // the receipt alone can take 30-40s, leaving 20s for the DOM
+  // transition. Doubling the budget removes the cascade where all 3
+  // modes (Bearer/EmailBound/AddressBound) timeout in sequence on a
+  // single suite run.
   const deadline = Date.now() + 120_000;
   while (Date.now() < deadline) {
+    // Preferred path: stable data-testid.
+    if (testId) {
+      const loc = page.locator(`[data-testid="${testId}"]`);
+      const t = (await loc.first().textContent().catch(() => null))?.trim() ?? "";
+      if (t.includes(pathPrefix)) {
+        return t.startsWith("http") ? t : new URL(t, baseURL).toString();
+      }
+    }
+
+    // Fallback path: legacy DOM scan for surfaces without the testid yet.
     const text = (await page
       .locator(`text=/${pathPrefix.replace(/\//g, "\\/")}\\S+/`)
       .first()
@@ -92,9 +117,7 @@ async function readShareUrl(page: Page, pathPrefix: string, baseURL: string): Pr
       .catch(() => null)) ?? "";
     const m = text.match(new RegExp(`https?://[^\\s]+${pathPrefix}[^\\s'"]+`));
     if (m) return m[0];
-    // Fall back: the success screen's "Copy link" button has the URL
-    // somewhere in the surrounding span — try reading from the
-    // clipboard via page.evaluate (jsdom supports navigator.clipboard).
+
     const found = await page.evaluate((prefix) => {
       const all = document.querySelectorAll("code, pre, span, div");
       for (const el of Array.from(all)) {

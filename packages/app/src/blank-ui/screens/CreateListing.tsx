@@ -172,7 +172,10 @@ export default function CreateListing() {
           <p className="text-[var(--text-secondary)] mb-6">
             Share this link. Buyers don't need a wallet to view. They create one when they pay.
           </p>
-          <div className="bg-[var(--surface-2)] rounded-2xl p-4 mb-4 break-all text-sm font-mono text-left">
+          <div
+            data-testid="listing-share-url"
+            className="bg-[var(--surface-2)] rounded-2xl p-4 mb-4 break-all text-sm font-mono text-left"
+          >
             {shareUrl}
           </div>
           <button

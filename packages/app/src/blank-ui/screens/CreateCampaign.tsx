@@ -147,7 +147,10 @@ export default function CreateCampaign() {
           <p className="text-[var(--text-secondary)] mb-6">
             Share this link. Contributions stay encrypted. If the goal isn't met, contributors get refunded.
           </p>
-          <div className="bg-[var(--surface-2)] rounded-2xl p-4 mb-4 break-all text-sm font-mono text-left">
+          <div
+            data-testid="crowdfund-share-url"
+            className="bg-[var(--surface-2)] rounded-2xl p-4 mb-4 break-all text-sm font-mono text-left"
+          >
             {shareUrl}
           </div>
           <button
