@@ -27,6 +27,10 @@ const Status = lazy(() => import("@/blank-ui/screens/Status"));
 // Wave 5 Block 2 — public @handle profile page. /u/:handle resolves
 // the per-chain handle registry and shows owner + send CTA.
 const PublicProfile = lazy(() => import("@/blank-ui/screens/PublicProfile"));
+// Wave 5 Block 3 — guardian-based social recovery. Public route so a
+// recovering user on a fresh device can drive the flow without a
+// working passkey (a guardian signs the on-chain calls).
+const Recovery = lazy(() => import("@/blank-ui/screens/Recovery"));
 // Wave 4 — magic claim links: public recipient flow.
 const ClaimLinkPage = lazy(() => import("@/blank-ui/screens/ClaimLinkPage"));
 // Wave 4 — storefront: public buyer flow.
@@ -138,6 +142,10 @@ export function App() {
           {/* Wave 5 Block 2 — public @handle profile. /u/:handle resolves
               the per-chain handle to a smart-account address. */}
           <Route path="/u/:handle"           element={<PublicProfile />} />
+          {/* Wave 5 Block 3 — public guardian recovery. /recover/:handle
+              lets a recovering user (no working passkey) drive the
+              state machine through their guardians. */}
+          <Route path="/recover/:handle"     element={<Recovery />} />
           {/* Wave 4 — encrypted claim links. Public so a recipient with no
               prior Blank wallet can open the URL, create a passkey, and claim. */}
           <Route path="/claim/:chainId/:linkId" element={<ClaimLinkPage />} />

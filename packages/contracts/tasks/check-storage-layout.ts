@@ -76,6 +76,8 @@ const TRACKED_CONTRACTS: string[] = [
   "MockReclaimVerifier",
   // Wave 5 Block 2 — per-chain @handle registry. UUPS proxy.
   "BlankHandles",
+  // Wave 5 Block 3 — guardian-based social recovery state machine.
+  "GuardianModule",
 ];
 
 const SNAPSHOT_DIR = path.join(__dirname, "..", "storage-layouts");

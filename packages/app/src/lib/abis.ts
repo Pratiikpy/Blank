@@ -892,3 +892,38 @@ export const BlankHandlesAbi = [
     { name: "handleHash", type: "bytes32", indexed: true },
   ] },
 ] as const;
+
+// ─── Wave 5 Block 3 — Guardian recovery module ─────────────────────────
+
+export const GuardianModuleAbi = [
+  { type: "function", name: "addGuardian", inputs: [{ name: "guardian", type: "address" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "removeGuardian", inputs: [{ name: "guardian", type: "address" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "setThreshold", inputs: [{ name: "threshold", type: "uint8" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "requestRecovery", inputs: [
+    { name: "account", type: "address" }, { name: "newOwner", type: "address" },
+  ], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "approveRecovery", inputs: [{ name: "account", type: "address" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "vetoRecovery", inputs: [{ name: "account", type: "address" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "cancelRecovery", inputs: [], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "finalizeRecovery", inputs: [{ name: "account", type: "address" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "guardiansOf", inputs: [{ name: "account", type: "address" }], outputs: [{ name: "", type: "address[]" }], stateMutability: "view" },
+  { type: "function", name: "thresholdOf", inputs: [{ name: "account", type: "address" }], outputs: [{ name: "", type: "uint8" }], stateMutability: "view" },
+  { type: "function", name: "isGuardian", inputs: [{ name: "account", type: "address" }, { name: "who", type: "address" }], outputs: [{ name: "", type: "bool" }], stateMutability: "view" },
+  { type: "function", name: "recoveryState", inputs: [{ name: "account", type: "address" }], outputs: [
+    { name: "newOwner", type: "address" },
+    { name: "requestedAt", type: "uint32" },
+    { name: "approvals", type: "uint8" },
+    { name: "vetoed", type: "bool" },
+    { name: "finalized", type: "bool" },
+  ], stateMutability: "view" },
+  { type: "function", name: "RECOVERY_WINDOW_SECONDS", inputs: [], outputs: [{ name: "", type: "uint32" }], stateMutability: "view" },
+  { type: "event", name: "RecoveryRequested", inputs: [
+    { name: "account", type: "address", indexed: true },
+    { name: "newOwner", type: "address", indexed: true },
+    { name: "by", type: "address", indexed: true },
+  ] },
+  { type: "event", name: "RecoveryFinalized", inputs: [
+    { name: "account", type: "address", indexed: true },
+    { name: "newOwner", type: "address", indexed: true },
+  ] },
+] as const;

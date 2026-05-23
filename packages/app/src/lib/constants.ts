@@ -213,6 +213,11 @@ export type ContractMap = {
    *  writes the address back. Frontend treats address(0) as
    *  "handles not yet live on this chain" with an honest banner. */
   BlankHandles: `0x${string}`;
+  /** Wave 5 Block 3 — guardian-based social recovery state machine.
+   *  Holds per-account guardian sets + active recovery requests.
+   *  address(0) until `pnpm hardhat deploy-guardian-module --network
+   *  <chain>` runs. */
+  GuardianModule: `0x${string}`;
 };
 
 export const CONTRACTS_BY_CHAIN: Record<SupportedChainId, ContractMap> = {
@@ -274,6 +279,7 @@ export const CONTRACTS_BY_CHAIN: Record<SupportedChainId, ContractMap> = {
     ReclaimAdapter: "0x0000000000000000000000000000000000000000",
     MockReclaimVerifier: "0x0000000000000000000000000000000000000000",
     BlankHandles: "0x0000000000000000000000000000000000000000",
+    GuardianModule: "0x0000000000000000000000000000000000000000",
   },
   [BASE_SEPOLIA_ID]: {
     // Base Sepolia: full v0.1.3 stack. FHERC20Vault + BusinessHub +
@@ -326,6 +332,7 @@ export const CONTRACTS_BY_CHAIN: Record<SupportedChainId, ContractMap> = {
     ReclaimAdapter: "0x0000000000000000000000000000000000000000",
     MockReclaimVerifier: "0x0000000000000000000000000000000000000000",
     BlankHandles: "0x0000000000000000000000000000000000000000",
+    GuardianModule: "0x0000000000000000000000000000000000000000",
   },
 };
 
