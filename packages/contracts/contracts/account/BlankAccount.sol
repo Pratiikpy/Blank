@@ -70,6 +70,7 @@ contract BlankAccount is BaseAccount, Initializable, UUPSUpgradeable {
     event Executed(address indexed target, uint256 value, bytes data);
     event ValidatorEnabled(address indexed validator);
     event ValidatorDisabled(address indexed validator);
+    event RecoveryModuleChanged(address indexed newModule);
 
     modifier onlySelfOrEntryPoint() {
         require(
@@ -269,6 +270,21 @@ contract BlankAccount is BaseAccount, Initializable, UUPSUpgradeable {
         ownerX = newX;
         ownerY = newY;
         emit OwnerChanged(newX, newY);
+    }
+
+    /// @notice Wave 5.5 — point this account at a (new) recovery module. The
+    ///         user calls this via a passkey-signed UserOp (or self-call from
+    ///         another internal op) to install the GuardianModule after its
+    ///         post-Wave-4 deploy. Without this, accounts created before the
+    ///         GuardianModule existed have `recoveryModule = address(0)` and
+    ///         can never use guardian recovery.
+    /// @dev    onlySelfOrEntryPoint means only the current owner (signing
+    ///         through the EntryPoint with their passkey) can rotate the
+    ///         module. A compromised guardian can't unilaterally install a
+    ///         module that authorizes itself.
+    function setRecoveryModule(address newModule) external onlySelfOrEntryPoint {
+        recoveryModule = newModule;
+        emit RecoveryModuleChanged(newModule);
     }
 
     /// @dev Authorize UUPS upgrades from EntryPoint OR self. Self-call path is

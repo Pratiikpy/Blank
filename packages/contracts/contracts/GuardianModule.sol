@@ -4,6 +4,14 @@ pragma solidity ^0.8.25;
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
+/// Wave 5.5 — minimal interface to BlankAccount.setOwner. We declare it
+/// inline rather than importing the full BlankAccount.sol so the
+/// GuardianModule doesn't depend on the AA bundle's PackedUserOperation
+/// type. Only setOwner is needed for the rotate path.
+interface IBlankAccount {
+    function setOwner(uint256 newX, uint256 newY) external;
+}
+
 /*
  * GuardianModule
  *
@@ -67,6 +75,7 @@ contract GuardianModule is UUPSUpgradeable, OwnableUpgradeable {
     event RecoveryVetoed(address indexed account, address indexed by);
     event RecoveryCancelled(address indexed account);
     event RecoveryFinalized(address indexed account, address indexed newOwner);
+    event RecoveryRotated(address indexed account, uint256 newOwnerX, uint256 newOwnerY);
     event RecoveryWindowChanged(uint32 previous, uint32 next);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -190,6 +199,54 @@ contract GuardianModule is UUPSUpgradeable, OwnableUpgradeable {
         );
         r.finalized = true;
         emit RecoveryFinalized(account, r.newOwner);
+    }
+
+    /// Wave 5.5 — finalize AND rotate the BlankAccount owner key in one
+    /// on-chain step. Same threshold + window + veto checks as
+    /// finalizeRecovery, but ALSO calls BlankAccount.setOwner(newX, newY)
+    /// so the recovery actually rotates the passkey on-chain.
+    ///
+    /// The original finalizeRecovery() stays for backward-compat (its
+    /// event is still useful for indexers), but new flows should call
+    /// this function — it's the only path that completes the recovery
+    /// end-to-end without an off-chain operator.
+    ///
+    /// Caller MUST be one of the approving guardians. This binds the
+    /// new pubkey to a guardian who explicitly approved this recovery
+    /// session, closing the front-running gap where an attacker reads
+    /// the (newX, newY) off-chain and races to finalize first.
+    ///
+    /// Pre-req: BlankAccount.recoveryModule must equal this contract's
+    /// address. Users set this once via setRecoveryModule() from a
+    /// passkey-signed UserOp before enrolling guardians.
+    function finalizeRecoveryAndRotate(
+        address account,
+        uint256 newOwnerX,
+        uint256 newOwnerY
+    ) external {
+        GuardianSet storage gs = _sets[account];
+        RecoveryRequest storage r = _recoveries[account];
+        require(r.requestedAt > 0, "GuardianModule: no request");
+        require(!r.finalized, "GuardianModule: already finalized");
+        require(!r.vetoed, "GuardianModule: vetoed");
+        require(r.approvals >= gs.threshold, "GuardianModule: below threshold");
+        require(
+            block.timestamp >= r.requestedAt + RECOVERY_WINDOW_SECONDS,
+            "GuardianModule: window open"
+        );
+        require(r.hasApproved[msg.sender], "GuardianModule: caller did not approve");
+        require(newOwnerX != 0 || newOwnerY != 0, "GuardianModule: zero pubkey");
+
+        r.finalized = true;
+        emit RecoveryFinalized(account, r.newOwner);
+        emit RecoveryRotated(account, newOwnerX, newOwnerY);
+
+        // External call to BlankAccount happens AFTER state changes
+        // (CEI pattern). If the call reverts (e.g. account hasn't set
+        // recoveryModule to us yet), the whole tx reverts and r.finalized
+        // stays unset, so the recovery can be retried after the user
+        // wires the module.
+        IBlankAccount(account).setOwner(newOwnerX, newOwnerY);
     }
 
     // ─── Views ──────────────────────────────────────────────────────

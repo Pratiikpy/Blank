@@ -171,3 +171,136 @@ describe("GuardianModule", () => {
     expect(await ctx.module.hasApproved(ctx.account.address, ctx.g2.address)).to.equal(true);
   });
 });
+
+// Wave 5.5 — finalizeRecoveryAndRotate: the end-to-end recovery path that
+// actually calls BlankAccount.setOwner on-chain. Uses a mock BlankAccount
+// because the real one needs an EntryPoint instance.
+describe("GuardianModule — Wave 5.5 finalizeRecoveryAndRotate", () => {
+  async function deployRotateFixture() {
+    const [_owner, g1, g2, g3, g4, attacker, newOwnerAddr] = await hre.ethers.getSigners();
+    const module = await deployProxy("GuardianModule", [TESTNET_WINDOW]);
+
+    const MockAccount = await hre.ethers.getContractFactory("MockBlankAccountForRecovery");
+    const account = await MockAccount.deploy();
+    await account.waitForDeployment();
+    // Account opts into recovery via this module — mirrors the real
+    // BlankAccount.setRecoveryModule() flow that Wave 5.5 also ships.
+    await account.setRecoveryModule(await module.getAddress());
+
+    const accountAddr = await account.getAddress();
+    // Account self-configures its guardian set (in production the
+    // BlankAccount executes this UserOp via its passkey).
+    await hre.network.provider.send("hardhat_setBalance", [accountAddr, "0xDE0B6B3A7640000"]);
+    await hre.network.provider.send("hardhat_impersonateAccount", [accountAddr]);
+    const accountSigner = await hre.ethers.getSigner(accountAddr);
+    await module.connect(accountSigner).addGuardian(g1.address);
+    await module.connect(accountSigner).addGuardian(g2.address);
+    await module.connect(accountSigner).addGuardian(g3.address);
+    await module.connect(accountSigner).setThreshold(2);
+    await hre.network.provider.send("hardhat_stopImpersonatingAccount", [accountAddr]);
+
+    return { module, account, accountAddr, g1, g2, g3, g4, attacker, newOwnerAddr };
+  }
+
+  const PUBKEY_X = 0x1234567890abcdefn;
+  const PUBKEY_Y = 0xfedcba0987654321n;
+
+  it("happy path: rotates pubkey on-chain after threshold + window", async () => {
+    const ctx = await deployRotateFixture();
+    await ctx.module.connect(ctx.g1).requestRecovery(ctx.accountAddr, ctx.newOwnerAddr.address);
+    await ctx.module.connect(ctx.g2).approveRecovery(ctx.accountAddr);
+
+    await hre.network.provider.send("evm_increaseTime", [TESTNET_WINDOW + 1]);
+    await hre.network.provider.send("evm_mine");
+
+    expect(await ctx.account.setOwnerCallCount()).to.equal(0n);
+
+    await expect(
+      ctx.module.connect(ctx.g1).finalizeRecoveryAndRotate(ctx.accountAddr, PUBKEY_X, PUBKEY_Y),
+    )
+      .to.emit(ctx.module, "RecoveryRotated").withArgs(ctx.accountAddr, PUBKEY_X, PUBKEY_Y)
+      .and.to.emit(ctx.module, "RecoveryFinalized").withArgs(ctx.accountAddr, ctx.newOwnerAddr.address);
+
+    expect(await ctx.account.ownerX()).to.equal(PUBKEY_X);
+    expect(await ctx.account.ownerY()).to.equal(PUBKEY_Y);
+    expect(await ctx.account.setOwnerCallCount()).to.equal(1n);
+    expect(await ctx.account.lastCaller()).to.equal(await ctx.module.getAddress());
+  });
+
+  it("caller must be one of the approving guardians", async () => {
+    const ctx = await deployRotateFixture();
+    await ctx.module.connect(ctx.g1).requestRecovery(ctx.accountAddr, ctx.newOwnerAddr.address);
+    await ctx.module.connect(ctx.g2).approveRecovery(ctx.accountAddr);
+    await hre.network.provider.send("evm_increaseTime", [TESTNET_WINDOW + 1]);
+    await hre.network.provider.send("evm_mine");
+
+    // g3 didn't approve this session even though they're a guardian.
+    await expect(
+      ctx.module.connect(ctx.g3).finalizeRecoveryAndRotate(ctx.accountAddr, PUBKEY_X, PUBKEY_Y),
+    ).to.be.revertedWith("GuardianModule: caller did not approve");
+
+    // attacker (non-guardian) also rejected.
+    await expect(
+      ctx.module.connect(ctx.attacker).finalizeRecoveryAndRotate(ctx.accountAddr, PUBKEY_X, PUBKEY_Y),
+    ).to.be.revertedWith("GuardianModule: caller did not approve");
+  });
+
+  it("zero pubkey rejected", async () => {
+    const ctx = await deployRotateFixture();
+    await ctx.module.connect(ctx.g1).requestRecovery(ctx.accountAddr, ctx.newOwnerAddr.address);
+    await ctx.module.connect(ctx.g2).approveRecovery(ctx.accountAddr);
+    await hre.network.provider.send("evm_increaseTime", [TESTNET_WINDOW + 1]);
+    await hre.network.provider.send("evm_mine");
+
+    await expect(
+      ctx.module.connect(ctx.g1).finalizeRecoveryAndRotate(ctx.accountAddr, 0, 0),
+    ).to.be.revertedWith("GuardianModule: zero pubkey");
+  });
+
+  it("reverts when recoveryModule not wired on the account", async () => {
+    const ctx = await deployRotateFixture();
+    // Un-wire by setting recoveryModule to a random address.
+    await ctx.account.setRecoveryModule(ctx.attacker.address);
+
+    await ctx.module.connect(ctx.g1).requestRecovery(ctx.accountAddr, ctx.newOwnerAddr.address);
+    await ctx.module.connect(ctx.g2).approveRecovery(ctx.accountAddr);
+    await hre.network.provider.send("evm_increaseTime", [TESTNET_WINDOW + 1]);
+    await hre.network.provider.send("evm_mine");
+
+    // The BlankAccount.setOwner call reverts with "not recovery module"
+    // because our mock's recoveryModule no longer equals the module addr.
+    // The whole tx reverts (CEI: r.finalized stays unset → retryable).
+    await expect(
+      ctx.module.connect(ctx.g1).finalizeRecoveryAndRotate(ctx.accountAddr, PUBKEY_X, PUBKEY_Y),
+    ).to.be.revertedWith("Mock: not recovery module");
+
+    const state = await ctx.module.recoveryState(ctx.accountAddr);
+    expect(state.finalized).to.equal(false);
+  });
+
+  it("cannot rotate twice (finalized flag latches)", async () => {
+    const ctx = await deployRotateFixture();
+    await ctx.module.connect(ctx.g1).requestRecovery(ctx.accountAddr, ctx.newOwnerAddr.address);
+    await ctx.module.connect(ctx.g2).approveRecovery(ctx.accountAddr);
+    await hre.network.provider.send("evm_increaseTime", [TESTNET_WINDOW + 1]);
+    await hre.network.provider.send("evm_mine");
+
+    await ctx.module.connect(ctx.g1).finalizeRecoveryAndRotate(ctx.accountAddr, PUBKEY_X, PUBKEY_Y);
+    await expect(
+      ctx.module.connect(ctx.g1).finalizeRecoveryAndRotate(ctx.accountAddr, PUBKEY_X, PUBKEY_Y),
+    ).to.be.revertedWith("GuardianModule: already finalized");
+  });
+
+  it("veto blocks rotate even after window", async () => {
+    const ctx = await deployRotateFixture();
+    await ctx.module.connect(ctx.g1).requestRecovery(ctx.accountAddr, ctx.newOwnerAddr.address);
+    await ctx.module.connect(ctx.g2).approveRecovery(ctx.accountAddr);
+    await ctx.module.connect(ctx.g3).vetoRecovery(ctx.accountAddr);
+    await hre.network.provider.send("evm_increaseTime", [TESTNET_WINDOW + 1]);
+    await hre.network.provider.send("evm_mine");
+
+    await expect(
+      ctx.module.connect(ctx.g1).finalizeRecoveryAndRotate(ctx.accountAddr, PUBKEY_X, PUBKEY_Y),
+    ).to.be.revertedWith("GuardianModule: vetoed");
+  });
+});

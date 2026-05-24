@@ -56,3 +56,4 @@ import "./deploy-blank-handles";
 import "./deploy-guardian-module";
 import "./deploy-proof-of-balance";
 import "./rotate-offramp-arbiter";
+import "./deploy-upgrade-wave5-recovery";
