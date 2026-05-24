@@ -387,7 +387,10 @@ async function buyStorefrontAsBob(page: Page, ctx: BrowserContext, extId: string
   const before = await getNonce(BOB);
   await page.locator("button:visible:not([disabled])").filter({ hasText: /^Buy now$/i }).first().click();
   await drainRabbyPopups(ctx, extId, known, "storefront-bob", 5);
-  await page.locator("text=/Payment locked in/i").first().waitFor({ state: "visible", timeout: 180_000 });
+  // 300s — storefront encrypted-payment lock takes longer than a normal FHE
+  // settlement (encrypted listing + escrow lock + buyer ciphertext). Prior
+  // 180s timed out exactly when the live UI hit "Payment locked in".
+  await page.locator("text=/Payment locked in|Your encrypted payment is on-chain/i").first().waitFor({ state: "visible", timeout: 300_000 });
   await snap(page, "storefront-bob-success");
   return await txHashesFrom(BOB, before);
 }
