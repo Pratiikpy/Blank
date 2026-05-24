@@ -359,10 +359,11 @@ async function claimUsedLinkAsCarol(page: Page, ctx: BrowserContext, extId: stri
   };
 }
 
-async function createStorefront(page: Page, ctx: BrowserContext, extId: string, known: Set<Page>): Promise<{ url: string; hashes: Hash[] }> {
+async function createStorefront(page: Page, ctx: BrowserContext, extId: string, known: Set<Page>): Promise<{ url: string; hashes: Hash[]; title: string }> {
   await page.goto(`${VERCEL_URL}/app/sell`, { waitUntil: "domcontentloaded", timeout: 60_000 });
   await page.waitForTimeout(2_500);
-  await safeFill(page.locator('input[placeholder*="Hand-bound" i]').first(), `QA Fixed ${Date.now().toString().slice(-6)}`);
+  const title = `QA Fixed ${Date.now().toString().slice(-6)}`;
+  await safeFill(page.locator('input[placeholder*="Hand-bound" i]').first(), title);
   await safeFill(page.locator("textarea").first(), "QA fixed-price buyer path");
   await safeFill(page.locator('input[placeholder="10.00"]').first(), "0.1");
   await safeFill(page.locator('input[placeholder*="@yourhandle" i], input[placeholder*="telegram" i]').first(), "QA delivery");
@@ -376,7 +377,25 @@ async function createStorefront(page: Page, ctx: BrowserContext, extId: string, 
   const m = text.match(new RegExp(`${VERCEL_URL.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/shop/${CHAIN_ID}/\\d+`));
   if (!m) throw new Error(`shop URL missing in success text: ${text.slice(0, 500)}`);
   const hashes = await txHashesFrom(DAVE, before);
-  return { url: m[0], hashes };
+  return { url: m[0], hashes, title };
+}
+
+/// Dave revisits /app/sell after Bob buys. Verifies the listing is in
+/// the "Your listings" section (proves seller-side dashboard reads the
+/// chain state correctly), then hard-refreshes and re-verifies (proves
+/// the data persists across reloads, not just session state).
+async function verifyDaveSeesListing(page: Page, title: string): Promise<{ ok: boolean; afterBuy: string; afterRefresh: string }> {
+  await page.goto(`${VERCEL_URL}/app/sell`, { waitUntil: "domcontentloaded", timeout: 60_000 });
+  await page.waitForTimeout(4_000);
+  await page.locator(`text=/Your listings/i`).first().waitFor({ state: "visible", timeout: 60_000 }).catch(() => undefined);
+  const afterBuyMatch = await page.locator(`text=${title}`).first().waitFor({ state: "visible", timeout: 60_000 }).then(() => true).catch(() => false);
+  const afterBuy = await snap(page, "storefront-dave-revisit-after-buy");
+  await page.reload({ waitUntil: "domcontentloaded", timeout: 60_000 });
+  await page.waitForTimeout(4_000);
+  await page.locator(`text=/Your listings/i`).first().waitFor({ state: "visible", timeout: 60_000 }).catch(() => undefined);
+  const afterRefreshMatch = await page.locator(`text=${title}`).first().waitFor({ state: "visible", timeout: 60_000 }).then(() => true).catch(() => false);
+  const afterRefresh = await snap(page, "storefront-dave-revisit-after-refresh");
+  return { ok: afterBuyMatch && afterRefreshMatch, afterBuy, afterRefresh };
 }
 
 async function buyStorefrontAsBob(page: Page, ctx: BrowserContext, extId: string, known: Set<Page>, url: string): Promise<Hash[]> {
@@ -404,10 +423,11 @@ async function viewStorefrontAsCarol(page: Page, url: string): Promise<boolean> 
   return /Payment locked|Fixed price|Buy now|Listing|Storefront/i.test(text);
 }
 
-async function createCrowdfund(page: Page, ctx: BrowserContext, extId: string, known: Set<Page>): Promise<{ url: string; hashes: Hash[] }> {
+async function createCrowdfund(page: Page, ctx: BrowserContext, extId: string, known: Set<Page>): Promise<{ url: string; hashes: Hash[]; title: string }> {
   await page.goto(`${VERCEL_URL}/app/fundraise`, { waitUntil: "domcontentloaded", timeout: 60_000 });
   await page.waitForTimeout(2_500);
-  await safeFill(page.locator('input[placeholder*="Save the bees" i]').first(), `QA Fund ${Date.now().toString().slice(-6)}`);
+  const title = `QA Fund ${Date.now().toString().slice(-6)}`;
+  await safeFill(page.locator('input[placeholder*="Save the bees" i]').first(), title);
   await safeFill(page.locator("textarea").first(), "QA crowdfund contributor path");
   await safeFill(page.locator('input[placeholder="500.00"]').first(), "1");
   await snap(page, "fund-create-filled");
@@ -420,7 +440,24 @@ async function createCrowdfund(page: Page, ctx: BrowserContext, extId: string, k
   const m = text.match(new RegExp(`${VERCEL_URL.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/fund/${CHAIN_ID}/\\d+`));
   if (!m) throw new Error(`fund URL missing in success text: ${text.slice(0, 500)}`);
   const hashes = await txHashesFrom(DAVE, before);
-  return { url: m[0], hashes };
+  return { url: m[0], hashes, title };
+}
+
+/// Dave revisits /app/fundraise after Bob + Carol contribute. Verifies
+/// the campaign is in the "Your campaigns" section, then refreshes and
+/// re-verifies.
+async function verifyDaveSeesCampaign(page: Page, title: string): Promise<{ ok: boolean; afterContribute: string; afterRefresh: string }> {
+  await page.goto(`${VERCEL_URL}/app/fundraise`, { waitUntil: "domcontentloaded", timeout: 60_000 });
+  await page.waitForTimeout(4_000);
+  await page.locator(`text=/Your campaigns/i`).first().waitFor({ state: "visible", timeout: 60_000 }).catch(() => undefined);
+  const afterContributeMatch = await page.locator(`text=${title}`).first().waitFor({ state: "visible", timeout: 60_000 }).then(() => true).catch(() => false);
+  const afterContribute = await snap(page, "fund-dave-revisit-after-contribute");
+  await page.reload({ waitUntil: "domcontentloaded", timeout: 60_000 });
+  await page.waitForTimeout(4_000);
+  await page.locator(`text=/Your campaigns/i`).first().waitFor({ state: "visible", timeout: 60_000 }).catch(() => undefined);
+  const afterRefreshMatch = await page.locator(`text=${title}`).first().waitFor({ state: "visible", timeout: 60_000 }).then(() => true).catch(() => false);
+  const afterRefresh = await snap(page, "fund-dave-revisit-after-refresh");
+  return { ok: afterContributeMatch && afterRefreshMatch, afterContribute, afterRefresh };
 }
 
 async function contributeAsBob(page: Page, ctx: BrowserContext, extId: string, known: Set<Page>, url: string): Promise<Hash[]> {
@@ -535,11 +572,17 @@ async function main(): Promise<void> {
     };
   });
 
+  // Carried between runFlows so the seller/creator revisit can find the
+  // exact listing/campaign by title after the buy/contribute has settled.
+  let storefrontCreated: { url: string; hashes: Hash[]; title: string } | null = null;
+  let crowdfundCreated: { url: string; hashes: Hash[]; title: string } | null = null;
+
   await runFlow("Storefront buyer", async () => {
     await switchRabbyAccount(rabbyPage, extId, "Dave");
     await ensureDappAccount(page, ctx, extId, known, "Dave");
     setupHashes.Dave ??= await ensureShielded(page, ctx, extId, known, "Dave", "2");
     const created = await createStorefront(page, ctx, extId, known);
+    storefrontCreated = created;
     await switchRabbyAccount(rabbyPage, extId, "Bob");
     await ensureDappAccount(page, ctx, extId, known, "Bob");
     setupHashes.Bob ??= await ensureShielded(page, ctx, extId, known, "Bob", "2");
@@ -552,8 +595,27 @@ async function main(): Promise<void> {
       status: created.hashes.length > 0 && buyHashes.length > 0 && carolCanView ? "green" : "red",
       url: created.url,
       hashes: [...created.hashes, ...buyHashes],
-      note: "Dave created fixed-price listing, Bob bought it, Carol viewed as non-buyer",
+      note: `Dave created '${created.title}', Bob bought, Carol viewed as non-buyer`,
       screenshot: resolve(OUT, "storefront-carol-nonbuyer.png"),
+    };
+  });
+
+  // Separate flow so a crash here doesn't lose the buyer-flow proof. The
+  // seller-revisit truth is its own row in the report.
+  await runFlow("Storefront seller revisit", async () => {
+    if (!storefrontCreated) {
+      throw new Error("no storefront listing was created — skipping seller revisit");
+    }
+    await switchRabbyAccount(rabbyPage, extId, "Dave");
+    await ensureDappAccount(page, ctx, extId, known, "Dave");
+    const sellerSide = await verifyDaveSeesListing(page, storefrontCreated.title);
+    return {
+      name: "Storefront seller revisit",
+      status: sellerSide.ok ? "green" : "red",
+      url: storefrontCreated.url,
+      hashes: [],
+      note: `Dave's /app/sell shows listing '${storefrontCreated.title}' (afterBuy=${sellerSide.ok ? "match" : "miss"}, refresh=${sellerSide.ok ? "match" : "miss"})`,
+      screenshot: sellerSide.afterRefresh,
     };
   });
 
@@ -562,6 +624,7 @@ async function main(): Promise<void> {
     await ensureDappAccount(page, ctx, extId, known, "Dave");
     setupHashes.Dave ??= await ensureShielded(page, ctx, extId, known, "Dave", "2");
     const created = await createCrowdfund(page, ctx, extId, known);
+    crowdfundCreated = created;
     await switchRabbyAccount(rabbyPage, extId, "Bob");
     await ensureDappAccount(page, ctx, extId, known, "Bob");
     setupHashes.Bob ??= await ensureShielded(page, ctx, extId, known, "Bob", "2");
@@ -575,8 +638,25 @@ async function main(): Promise<void> {
       status: created.hashes.length > 0 && contributeHashes.length > 0 && carolHashes.length > 0 ? "green" : "red",
       url: created.url,
       hashes: [...created.hashes, ...contributeHashes, ...carolHashes],
-      note: "Dave created campaign, Bob and Carol contributed",
+      note: `Dave created '${created.title}', Bob and Carol contributed`,
       screenshot: resolve(OUT, "fund-carol-success.png"),
+    };
+  });
+
+  await runFlow("Crowdfund creator revisit", async () => {
+    if (!crowdfundCreated) {
+      throw new Error("no crowdfund campaign was created — skipping creator revisit");
+    }
+    await switchRabbyAccount(rabbyPage, extId, "Dave");
+    await ensureDappAccount(page, ctx, extId, known, "Dave");
+    const creatorSide = await verifyDaveSeesCampaign(page, crowdfundCreated.title);
+    return {
+      name: "Crowdfund creator revisit",
+      status: creatorSide.ok ? "green" : "red",
+      url: crowdfundCreated.url,
+      hashes: [],
+      note: `Dave's /app/fundraise shows campaign '${crowdfundCreated.title}' (afterContribute=${creatorSide.ok ? "match" : "miss"}, refresh=${creatorSide.ok ? "match" : "miss"})`,
+      screenshot: creatorSide.afterRefresh,
     };
   });
 
