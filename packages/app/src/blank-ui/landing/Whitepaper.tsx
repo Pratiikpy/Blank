@@ -57,7 +57,7 @@ export default function Whitepaper() {
               },
               {
                 title: "Product surface",
-                body: "Send, invoices, requests, payroll, gifts, groups, proofs, claim links, storefront, crowdfund, escrow, swap, bridge, and P2P exchange.",
+                body: "Send, invoices, requests, payroll, gifts, groups, proofs, claim links, storefront, crowdfund, escrow, swap, bridge, P2P exchange, and P2P offramp.",
               },
             ].map((item) => (
               <div key={item.title} className="ll-stat" style={{ textAlign: "left" }}>
@@ -83,6 +83,19 @@ export default function Whitepaper() {
               are supported on both chains; Blank passkey smart accounts are
               available when sponsorship is available. Mobile UI is live across
               the route map, with expanded mobile transaction coverage next.
+            </div>
+          </div>
+
+          <div className="ll-step" style={{ textAlign: "left", marginTop: "1rem" }}>
+            <div className="ll-step-title">Testnet demo controls</div>
+            <div className="ll-step-body">
+              Wave 5 P2P offramp and recovery contracts are live on both
+              testnets. Offramp disputes currently use a deployer-operated
+              arbiter and Reclaim proof checks use an operator-signed mock
+              verifier so the demo can run while provider approvals are still
+              pending. Those are testnet controls. Mainnet requires a 3-of-5
+              Safe arbiter, live Reclaim provider IDs, third-party contract
+              audit, and a decentralized threshold operator set.
             </div>
           </div>
         </div>

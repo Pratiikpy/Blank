@@ -61,6 +61,13 @@ no-extension onboarding, with sponsorship when the paymaster is available.
 Mobile UI is live across the route map; expanded mobile transaction
 coverage comes next.
 
+Wave 5 includes P2P offramp and recovery flows on both testnets. For
+demo safety, offramp disputes currently use the deployer-operated arbiter
+and Reclaim proof checks run through an operator-signed mock verifier.
+That is acceptable for public testnet demos and QA; before mainnet value,
+the arbiter rotates to a 3-of-5 Safe and Reclaim moves to live provider
+IDs for the supported rails.
+
 ## In 5 minutes
 
 Every payment on a public blockchain is a postcard. Amount, sender, receiver: all visible to anyone with a block explorer. Employees see each other's salaries. Competitors map your supply chain from payment flows. MEV bots front-run visible swaps.
@@ -251,7 +258,7 @@ It's a t-of-n threshold. You trust that the majority of operators isn't colludin
 Sender + receiver are on-chain in cleartext, which means jurisdictions that require traceable counterparties get exactly that. Only the *amount* is encrypted, which is closer to bank-account privacy than to mixer-style anonymity. We're testnet-only until the operator set decentralizes; mainnet conversations will involve regulatory counsel.
 
 **Why testnet only?**
-Two reasons: Fhenix's threshold operator set is still small enough that we don't recommend storing real-money amounts. And our team hasn't been audited by a third party yet. Testnet lets users build muscle memory; we'll graduate when both are ready.
+Four reasons: Fhenix's threshold operator set is still small enough that we don't recommend storing real-money amounts; the contracts still need an external audit; P2P offramp disputes still use a deployer-operated arbiter for demo safety; and Reclaim proof checks are in operator-signed mock mode until live provider IDs are approved. Testnet lets users build muscle memory while those mainnet gates close.
 
 **When token?**
 Never. There is no $BLANK token and there will not be one. Read the next section.
@@ -263,7 +270,7 @@ Never. There is no $BLANK token and there will not be one. Read the next section
 - **A mixer.** Sender + receiver are public on purpose.
 - **A speculation app.** No token. No points farm. No "encrypted DeFi yield."
 - **Every-chain sprawl.** We support Base Sepolia and Ethereum Sepolia today, with USDC bridge support between them. We will not add chains just to look bigger.
-- **Mainnet** until the threshold operator set is decentralized and the contracts are audited. Specific mainnet gates: rotate the P2POfframp arbiter from the deployer EOA to a 3-of-5 Safe so no single key can fake-resolve disputes; flip the Reclaim adapter from mock-mode operator-signed proofs to live Reclaim Protocol provider IDs (UPI, Wise, Venmo, PayPal). Both are testnet-optional, mainnet-mandatory.
+- **Mainnet before the gates close.** The current P2POfframp arbiter and mock Reclaim verifier are testnet demo controls, not production trust assumptions. Mainnet requires threshold-operator decentralization, third-party contract audit, a 3-of-5 Safe arbiter, and live Reclaim Protocol provider IDs for the supported rails.
 - **A creator economy super-app.** Privacy is the wedge; features that do not sharpen it get removed.
 
 This list is not aspirational. It's what we say no to in design reviews.
