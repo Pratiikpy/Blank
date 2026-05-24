@@ -55,3 +55,4 @@ import "./deploy-p2p-offramp";
 import "./deploy-blank-handles";
 import "./deploy-guardian-module";
 import "./deploy-proof-of-balance";
+import "./rotate-offramp-arbiter";
