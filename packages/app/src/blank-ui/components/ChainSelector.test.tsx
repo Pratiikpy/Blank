@@ -94,6 +94,7 @@ const ME = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" as `0x${string}`;
 
 const setActiveChainMock = vi.fn();
 const switchChainMock = vi.fn();
+const switchChainAsyncMock = vi.fn();
 
 beforeEach(() => {
   useAccountMock.mockReset();
@@ -103,6 +104,7 @@ beforeEach(() => {
   hasPasskeyMock.mockReset();
   setActiveChainMock.mockReset();
   switchChainMock.mockReset();
+  switchChainAsyncMock.mockReset();
 
   useChainMock.mockReturnValue({
     activeChainId: 11155111,
@@ -113,7 +115,7 @@ beforeEach(() => {
     isSmartAccount: false,
   });
   useAccountMock.mockReturnValue({ isConnected: true });
-  useSwitchChainMock.mockReturnValue({ switchChain: switchChainMock });
+  useSwitchChainMock.mockReturnValue({ switchChain: switchChainMock, switchChainAsync: switchChainAsyncMock });
   hasPasskeyMock.mockResolvedValue(false);
 });
 
@@ -224,13 +226,13 @@ describe("ChainSelector — chain switch dispatch (§15.x)", () => {
       .getAllByRole("option")
       .find((o) => o.textContent?.includes("Base Sepolia"))!;
     fireEvent.click(baseRow);
-    expect(switchChainMock).toHaveBeenCalledWith({ chainId: 84532 });
+    expect(switchChainAsyncMock).toHaveBeenCalledWith({ chainId: 84532 });
     expect(setActiveChainMock).toHaveBeenCalledTimes(0);
   });
 
   it("AA fallback (no wagmi connector) -> setActiveChain called directly", () => {
     useAccountMock.mockReturnValue({ isConnected: false });
-    useSwitchChainMock.mockReturnValue({ switchChain: switchChainMock });
+    useSwitchChainMock.mockReturnValue({ switchChain: switchChainMock, switchChainAsync: undefined });
     useEffectiveAddressMock.mockReturnValue({
       effectiveAddress: ME,
       isSmartAccount: true,
@@ -246,7 +248,7 @@ describe("ChainSelector — chain switch dispatch (§15.x)", () => {
   });
 
   it("AA fallback (switchChain undefined) -> setActiveChain called directly", () => {
-    useSwitchChainMock.mockReturnValue({ switchChain: undefined });
+    useSwitchChainMock.mockReturnValue({ switchChain: undefined, switchChainAsync: undefined });
     render(<ChainSelector />);
     fireEvent.click(screen.getByRole("button"));
     const baseRow = screen

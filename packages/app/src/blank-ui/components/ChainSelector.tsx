@@ -30,7 +30,8 @@ export function ChainSelector() {
   // from here gets reverted on the next render. Ask the wallet to switch
   // instead; the sync effect then pulls activeChainId along.
   const { isConnected: isWagmiConnected } = useAccount();
-  const { switchChain } = useSwitchChain();
+  const { switchChain, switchChainAsync } = useSwitchChain();
+  const [isSwitching, setIsSwitching] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -70,8 +71,8 @@ export function ChainSelector() {
   return (
     <div ref={ref} className="relative">
       <button
-        onClick={() => { if (isConnected) setOpen((v) => !v); }}
-        disabled={!isConnected}
+        onClick={() => { if (isConnected && !isSwitching) setOpen((v) => !v); }}
+        disabled={!isConnected || isSwitching}
         className={cn(
           "flex items-center gap-3 w-full px-4 py-2.5 rounded-full transition-colors",
           isConnected
@@ -124,11 +125,15 @@ export function ChainSelector() {
                 disabled={disabled}
                 onClick={() => {
                   if (!isActive && !disabled) {
-                    if (isWagmiConnected && switchChain) {
-                      // EOA: trigger MetaMask's native switch popup. On
-                      // approval, BlankApp's wallet→app sync updates
-                      // activeChainId; on rejection, nothing changes.
-                      switchChain({ chainId: id });
+                    if (isWagmiConnected && (switchChainAsync || switchChain)) {
+                      // EOA: await the wallet result explicitly. A rejected
+                      // wallet popup should leave both the wallet chain and
+                      // the app chain unchanged.
+                      setIsSwitching(true);
+                      const maybePromise = switchChainAsync
+                        ? switchChainAsync({ chainId: id })
+                        : switchChain?.({ chainId: id });
+                      void Promise.resolve(maybePromise).finally(() => setIsSwitching(false));
                     } else {
                       // No wagmi connector (shouldn't happen for enabled
                       // rows, but keep as a safe fallback).

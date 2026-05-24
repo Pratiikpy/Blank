@@ -546,6 +546,27 @@ describe("SendConfirm — paymaster resilience tri-state (Phase 7.5/7.6) (§15.x
     expect(confirmSendMock).toHaveBeenCalledWith(undefined);
   });
 
+  it("double click on confirm only dispatches one send", async () => {
+    let release!: () => void;
+    confirmSendMock.mockImplementation(
+      () => new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+    );
+    const { getByText } = render(<SendConfirm />);
+    const button = getByText("Confirm & Send");
+    await act(async () => {
+      fireEvent.click(button);
+      fireEvent.click(button);
+      await Promise.resolve();
+    });
+    expect(confirmSendMock).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      release();
+      await Promise.resolve();
+    });
+  });
+
   it("CRITICAL needsFunding click -> opens FundAccountModal (NOT confirmSend)", async () => {
     usePaymasterHealthMock.mockReturnValue({ status: "unavailable" });
     useBalanceMock.mockReturnValue({ data: { value: 0n }, refetch: refetchMock });

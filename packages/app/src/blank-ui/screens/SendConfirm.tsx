@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useBalance } from "wagmi";
 import { parseUnits } from "viem";
@@ -142,8 +142,14 @@ export default function SendConfirm() {
   const aaCanSelfPay = aaBalanceWei >= SELF_PAY_REQUIRED_WEI;
   const needsFunding = paymasterUnavailable && !aaCanSelfPay;
   const [fundModalOpen, setFundModalOpen] = useState(false);
+  // UI-side synchronous latch. The hook also guards double-submit, but
+  // this closes the gap before React commits the next render and before
+  // the button's disabled prop flips.
+  const confirmLatchRef = useRef(false);
 
   const handleConfirm = async () => {
+    if (confirmLatchRef.current) return;
+    confirmLatchRef.current = true;
     // #377 diag: e2e wave4 phase 02 sees the user click confirm but never
     // sees the passphrase modal. Log every entry into handleConfirm so the
     // e2e trace shows which branch fires.
@@ -196,6 +202,7 @@ export default function SendConfirm() {
       } finally {
         setMetaStealthBusy(false);
       }
+      confirmLatchRef.current = false;
       return;
     }
     // Stealth mode only applies to single-recipient sends — its claim-code
@@ -207,10 +214,12 @@ export default function SendConfirm() {
       if (amount) params.set("amount", amount);
       if (note) params.set("note", note);
       navigate(`/app/stealth${params.size > 0 ? `?${params.toString()}` : ""}`);
+      confirmLatchRef.current = false;
       return;
     }
     if (needsFunding) {
       setFundModalOpen(true);
+      confirmLatchRef.current = false;
       return;
     }
     // Phase 7.D: when the paymaster is unavailable AND the AA already has
@@ -225,14 +234,19 @@ export default function SendConfirm() {
     // is the existing behaviour for everyone today.
     const paymasterMode: "sponsored" | "self" | undefined =
       paymasterUnavailable && aaCanSelfPay ? "self" : undefined;
-    void confirmSend(paymasterMode);
+    try {
+      await confirmSend(paymasterMode);
+    } finally {
+      confirmLatchRef.current = false;
+    }
   };
 
+  const buttonBusy = isProcessing || confirmLatchRef.current;
   const statusLabel = isErrored
     ? "Try again"
     : isEncrypting
       ? "Encrypting..."
-      : isSending || metaStealthBusy
+      : isSending || metaStealthBusy || confirmLatchRef.current
         ? "Broadcasting..."
         : step === "sending"
           ? "Processing..."
@@ -609,10 +623,10 @@ export default function SendConfirm() {
             // The pre-fix race manifested as a silent
             // "Smart wallet not ready" toast and a never-arriving passphrase
             // modal in wave4 phase 02 e2e.
-            disabled={isProcessing || !effectiveAddress}
+            disabled={buttonBusy || !effectiveAddress}
             className={cn(
               "w-full h-14 rounded-2xl font-medium transition-all active:scale-95 flex items-center justify-center gap-2",
-              isProcessing
+              buttonBusy
                 ? "bg-gray-200 dark:bg-gray-800 text-gray-400 dark:text-gray-600 cursor-not-allowed"
                 : isErrored
                   ? "bg-red-600 hover:bg-red-700 text-white"
@@ -625,7 +639,7 @@ export default function SendConfirm() {
                         : "bg-[#1D1D1F] dark:bg-white text-white dark:text-[#0A0A0A] hover:bg-[#000000] dark:hover:bg-gray-100",
             )}
           >
-            {isProcessing ? (
+            {buttonBusy ? (
               <div className="w-5 h-5 border-2 border-gray-400/30 border-t-gray-400 rounded-full animate-spin" />
             ) : isErrored ? (
               <AlertCircle size={18} strokeWidth={2.2} />
