@@ -47,7 +47,11 @@ type FlowResult = {
 };
 
 const accountByPersona: Record<Persona, Address> = { Dave: DAVE, Bob: BOB, Carol: CAROL };
-const labelByPersona: Record<Persona, string> = { Dave: "Private Key 1", Bob: "Private Key 2", Carol: "Seed Phrase 1 #1" };
+const labelByPersona: Record<Persona, string[]> = {
+  Dave: ["Private Key 1", "Seed Phrase 1 #1"],
+  Bob: ["Private Key 2", "Seed Phrase 1 #2"],
+  Carol: ["Private Key 3", "Seed Phrase 1 #3", "Seed Phrase 1 #1"],
+};
 const results: FlowResult[] = [];
 
 async function snap(page: Page, label: string): Promise<string> {
@@ -173,7 +177,7 @@ async function verifyWalletState(page: Page, rabbyPage: Page, extId: string, per
 }
 
 async function switchRabbyAccount(rabbyPage: Page, extId: string, persona: Persona): Promise<void> {
-  const target = labelByPersona[persona];
+  const targets = labelByPersona[persona];
   const expected = accountByPersona[persona].toLowerCase();
   await rabbyPage.goto(`chrome-extension://${extId}/index.html`).catch(() => undefined);
   await rabbyPage.waitForTimeout(1_500);
@@ -196,10 +200,20 @@ async function switchRabbyAccount(rabbyPage: Page, extId: string, persona: Perso
   await rabbyPage.waitForTimeout(1_500);
   await snap(rabbyPage, `rabby-account-menu-${persona.toLowerCase()}`);
 
-  const targetRows = rabbyPage.locator("div, button").filter({ hasText: new RegExp(target, "i") });
-  const count = await targetRows.count().catch(() => 0);
-  if (count === 0) throw new Error(`Rabby account row not found for ${target}`);
-  const row = targetRows.nth(Math.max(0, count - 1));
+  const shortAddress = `${expected.slice(0, 6)}...${expected.slice(-4)}`;
+  let row = rabbyPage.locator("div, button").filter({ hasText: new RegExp(shortAddress.replace(".", "\\."), "i") }).last();
+  let visible = await row.isVisible({ timeout: 2_000 }).catch(() => false);
+  if (!visible) {
+    for (const target of targets) {
+      const candidate = rabbyPage.locator("div, button").filter({ hasText: new RegExp(target, "i") }).last();
+      visible = await candidate.isVisible({ timeout: 1_500 }).catch(() => false);
+      if (visible) {
+        row = candidate;
+        break;
+      }
+    }
+  }
+  if (!visible) throw new Error(`Rabby account row not found for ${persona}: ${targets.join(", ")} / ${shortAddress}`);
   const box = await row.boundingBox({ timeout: 5_000 }).catch(() => null);
   if (box) await rabbyPage.mouse.click(box.x + box.width / 2, box.y + Math.min(box.height / 2, 38));
   else await row.click({ force: true });
@@ -305,7 +319,7 @@ async function createClaimLink(page: Page, ctx: BrowserContext, extId: string, k
   await page.locator("text=/Link ready/i").first().waitFor({ state: "visible", timeout: 180_000 });
   await snap(page, "claim-create-success");
   const text = (await page.locator("body").textContent().catch(() => "")) ?? "";
-  const m = text.match(new RegExp(`https://blank-omega-jade\\.vercel\\.app/claim/${CHAIN_ID}/\\d+#[A-Za-z0-9._-]+`));
+  const m = text.match(new RegExp(`${VERCEL_URL.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/claim/${CHAIN_ID}/\\d+#[A-Za-z0-9._:-]+`));
   if (!m) throw new Error(`full claim URL missing in success text: ${text.slice(0, 500)}`);
   const hashes = await txHashesFrom(DAVE, before);
   return { url: m[0], hashes };
@@ -359,7 +373,7 @@ async function createStorefront(page: Page, ctx: BrowserContext, extId: string, 
   await page.locator("text=/Listing live/i").first().waitFor({ state: "visible", timeout: 180_000 });
   await snap(page, "storefront-create-success");
   const text = (await page.locator("body").textContent().catch(() => "")) ?? "";
-  const m = text.match(new RegExp(`https://blank-omega-jade\\.vercel\\.app/shop/${CHAIN_ID}/\\d+`));
+  const m = text.match(new RegExp(`${VERCEL_URL.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/shop/${CHAIN_ID}/\\d+`));
   if (!m) throw new Error(`shop URL missing in success text: ${text.slice(0, 500)}`);
   const hashes = await txHashesFrom(DAVE, before);
   return { url: m[0], hashes };
@@ -400,7 +414,7 @@ async function createCrowdfund(page: Page, ctx: BrowserContext, extId: string, k
   await page.locator("text=/Campaign live/i").first().waitFor({ state: "visible", timeout: 180_000 });
   await snap(page, "fund-create-success");
   const text = (await page.locator("body").textContent().catch(() => "")) ?? "";
-  const m = text.match(new RegExp(`https://blank-omega-jade\\.vercel\\.app/fund/${CHAIN_ID}/\\d+`));
+  const m = text.match(new RegExp(`${VERCEL_URL.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/fund/${CHAIN_ID}/\\d+`));
   if (!m) throw new Error(`fund URL missing in success text: ${text.slice(0, 500)}`);
   const hashes = await txHashesFrom(DAVE, before);
   return { url: m[0], hashes };

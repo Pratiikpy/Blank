@@ -42,7 +42,11 @@ const BOB = "0x0D1883c48E14d733D464478f53706D92b7648b9d" as Address;
 const CAROL = "0x54488ad8d58f9147c1a99673ef8743608cd1b526" as Address;
 type Persona = "Dave" | "Bob" | "Carol";
 const accountByPersona: Record<Persona, Address> = { Dave: DAVE, Bob: BOB, Carol: CAROL };
-const labelByPersona: Record<Persona, string> = { Dave: "Private Key 1", Bob: "Private Key 2", Carol: "Seed Phrase 1 #1" };
+const labelByPersona: Record<Persona, string[]> = {
+  Dave: ["Private Key 1", "Seed Phrase 1 #1"],
+  Bob: ["Private Key 2", "Seed Phrase 1 #2"],
+  Carol: ["Private Key 3", "Seed Phrase 1 #3", "Seed Phrase 1 #1"],
+};
 
 const publicClient = createPublicClient({
   chain: IS_ETH ? sepolia : baseSepolia,
@@ -79,14 +83,19 @@ function cloneProfile(persona: Persona): string {
   cpSync(SOURCE_PROFILE, target, {
     recursive: true,
     force: true,
-    filter: (src) => !/[\\/]Singleton/.test(src) && !/[\\/]lockfile$/i.test(src),
+    filter: (src) =>
+      !/[\\/]Singleton/.test(src) &&
+      !/[\\/]lockfile$/i.test(src) &&
+      !/[\\/]Cookies(?:-journal)?$/i.test(src) &&
+      !/[\\/]Network[\\/]/i.test(src),
   });
   return target;
 }
 
 async function switchRabbyAccount(rabbyPage: Page, extId: string, persona: Persona): Promise<void> {
-  const target = labelByPersona[persona];
+  const targets = labelByPersona[persona];
   const expected = accountByPersona[persona].toLowerCase();
+  const personaIndex = persona === "Dave" ? 0 : persona === "Bob" ? 1 : 2;
   await rabbyPage.goto(`chrome-extension://${extId}/index.html`).catch(() => undefined);
   await rabbyPage.waitForTimeout(1_500);
   await dismissRabbyWhatsNew(rabbyPage);
@@ -96,10 +105,28 @@ async function switchRabbyAccount(rabbyPage: Page, extId: string, persona: Perso
   if (await current.isVisible({ timeout: 5_000 }).catch(() => false)) await current.click({ force: true }).catch(() => undefined);
   else await rabbyPage.mouse.click(130, 95);
   await rabbyPage.waitForTimeout(1_500);
-  const rows = rabbyPage.locator("div, button").filter({ hasText: new RegExp(target, "i") });
-  const count = await rows.count().catch(() => 0);
-  if (count === 0) throw new Error(`Rabby account row not found for ${target}`);
-  const row = rows.nth(Math.max(0, count - 1));
+  const shortAddress = `${expected.slice(0, 6)}...${expected.slice(-4)}`;
+  let row = rabbyPage.locator("div, button").filter({ hasText: new RegExp(shortAddress.replace(".", "\\."), "i") }).last();
+  let visible = await row.isVisible({ timeout: 2_000 }).catch(() => false);
+  if (!visible) {
+    for (const target of targets) {
+      const candidate = rabbyPage.locator("div, button").filter({ hasText: new RegExp(target, "i") }).last();
+      visible = await candidate.isVisible({ timeout: 1_500 }).catch(() => false);
+      if (visible) {
+        row = candidate;
+        break;
+      }
+    }
+  }
+  if (!visible) {
+    const genericRows = rabbyPage.locator("div, button").filter({ hasText: /Private Key|Seed Phrase/i });
+    const genericCount = await genericRows.count().catch(() => 0);
+    if (genericCount > personaIndex) {
+      row = genericRows.nth(personaIndex);
+      visible = await row.isVisible({ timeout: 1_500 }).catch(() => false);
+    }
+  }
+  if (!visible) throw new Error(`Rabby account row not found for ${persona}: ${targets.join(", ")} / ${shortAddress}`);
   const box = await row.boundingBox({ timeout: 5_000 }).catch(() => null);
   if (box) await rabbyPage.mouse.click(box.x + box.width / 2, box.y + Math.min(box.height / 2, 38));
   else await row.click({ force: true });
@@ -217,21 +244,52 @@ async function openBusiness(page: Page): Promise<void> {
   await page.waitForTimeout(2_000);
 }
 
-async function waitForInvoiceRow(page: Page, note: string, status: RegExp, label: string, timeoutMs = 180_000): Promise<{ ok: boolean; text: string; screenshot: string }> {
+function shortAddr(address: Address): string {
+  return `${address.slice(0, 6)}...${address.slice(-4)}`.toLowerCase();
+}
+
+async function findInvoiceRowText(
+  page: Page,
+  note: string,
+  status: RegExp,
+  counterparty?: Address,
+): Promise<string> {
+  return await page.evaluate(
+    ({ note, source, flags, counterparty }) => {
+      const statusRe = new RegExp(source, flags);
+      const short = counterparty ? `${counterparty.slice(0, 6)}...${counterparty.slice(-4)}`.toLowerCase() : "";
+      const rows = Array.from(document.querySelectorAll("div"))
+        .map((el) => (((el as HTMLElement).innerText ?? "").replace(/\s+/g, " ").trim()))
+        .filter(Boolean);
+
+      const exact = rows
+        .filter((text) => text.includes(note) && statusRe.test(text))
+        .sort((a, b) => a.length - b.length);
+      if (exact[0]) return exact[0];
+
+      if (!short) return "";
+
+      const scoped = rows
+        .filter((text) => text.toLowerCase().includes(short) && statusRe.test(text))
+        .sort((a, b) => a.length - b.length);
+      return scoped[0] ?? "";
+    },
+    { note, source: status.source, flags: status.flags, counterparty },
+  );
+}
+
+async function waitForInvoiceRow(
+  page: Page,
+  note: string,
+  status: RegExp,
+  label: string,
+  timeoutMs = 180_000,
+  counterparty?: Address,
+): Promise<{ ok: boolean; text: string; screenshot: string }> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     await openBusiness(page);
-    const rowText = await page.evaluate(
-      ({ note, source, flags }) => {
-        const status = new RegExp(source, flags);
-        const rows = Array.from(document.querySelectorAll("div"))
-          .map((el) => (el as HTMLElement).innerText?.replace(/\s+/g, " ").trim() ?? "")
-          .filter((text) => text.includes(note) && status.test(text))
-          .sort((a, b) => a.length - b.length);
-        return rows[0] ?? "";
-      },
-      { note, source: status.source, flags: status.flags },
-    );
+    const rowText = await findInvoiceRowText(page, note, status, counterparty);
     if (rowText) return { ok: true, text: rowText.slice(0, 500), screenshot: await snap(page, label) };
     await page.waitForTimeout(8_000);
   }
@@ -259,7 +317,7 @@ async function createInvoice(dave: { page: Page; ctx: BrowserContext; extId: str
   await snap(dave.page, "invoice-create-filled");
   await dave.page.getByRole("button", { name: /^Create Invoice$/i }).click({ force: true });
   await drainRabbyPopups(dave.ctx, dave.extId, dave.known, "invoice-create", 5);
-  const created = await waitForInvoiceRow(dave.page, note, /pending/i, "invoice-dave-created");
+  const created = await waitForInvoiceRow(dave.page, note, /pending/i, "invoice-dave-created", 180_000, BOB);
   if (!created.ok) throw new Error(`Dave did not see created invoice: ${created.text}`);
   const invoiceId = await findInvoiceId(dave.page, note);
   const preview = await dave.page.goto(`${VERCEL_URL}/app/invoice/${CHAIN_ID}/${invoiceId}`, { waitUntil: "domcontentloaded", timeout: 60_000 }).catch(() => null);
@@ -271,32 +329,47 @@ async function createInvoice(dave: { page: Page; ctx: BrowserContext; extId: str
 
 async function payInvoice(bob: { page: Page; ctx: BrowserContext; extId: string; known: Set<Page> }, note: string, invoiceId: number): Promise<Hash[]> {
   const before = await publicClient.getTransactionCount({ address: BOB, blockTag: "pending" });
-  const incoming = await waitForInvoiceRow(bob.page, note, /pending/i, "invoice-bob-incoming", 180_000);
+  const incoming = await waitForInvoiceRow(bob.page, note, /pending/i, "invoice-bob-incoming", 180_000, DAVE);
   if (!incoming.ok) throw new Error(`Bob did not see pending invoice: ${incoming.text}`);
-  const row = bob.page.locator("div").filter({ hasText: note }).filter({ hasText: /pending/i }).first();
-  await row.getByRole("button", { name: /^Pay$/i }).click({ force: true });
+  const row = bob.page
+    .locator("div")
+    .filter({ hasText: note })
+    .filter({ hasText: /pending/i })
+    .filter({ has: bob.page.getByRole("button", { name: /^Pay$/i }) })
+    .last();
+  await row.locator("button").filter({ hasText: /^Pay$/i }).first().click({ force: true });
   await safeFill(bob.page.locator('input[placeholder="0.00"]').last(), "0.001");
   await snap(bob.page, "invoice-bob-pay-filled");
   await bob.page.getByRole("button", { name: /^Pay$/i }).last().click({ force: true });
   await drainRabbyPopups(bob.ctx, bob.extId, bob.known, "invoice-pay", 5);
-  const paymentPending = await waitForInvoiceRow(bob.page, note, /payment_pending/i, "invoice-bob-payment-pending", 240_000);
+  const paymentPending = await waitForInvoiceRow(bob.page, note, /payment_pending/i, "invoice-bob-payment-pending", 240_000, DAVE);
   if (!paymentPending.ok) throw new Error(`Bob did not see payment_pending invoice: ${paymentPending.text}`);
-  const pendingRow = bob.page.locator("div").filter({ hasText: note }).filter({ hasText: /payment_pending/i }).first();
-  await pendingRow.getByRole("button", { name: /^Finalize$/i }).first().click({ force: true });
+  const pendingRow = bob.page
+    .locator("div")
+    .filter({ hasText: note })
+    .filter({ hasText: /payment_pending/i })
+    .filter({ has: bob.page.getByRole("button", { name: /^Finalize$/i }) })
+    .last();
+  await pendingRow.locator("button").filter({ hasText: /^Finalize$/i }).first().click({ force: true });
   await drainRabbyPopups(bob.ctx, bob.extId, bob.known, "invoice-finalize", 5);
-  const paid = await waitForInvoiceRow(bob.page, note, /paid/i, "invoice-bob-paid", 300_000);
+  const paid = await waitForInvoiceRow(bob.page, note, /paid/i, "invoice-bob-paid", 300_000, DAVE);
   if (!paid.ok) throw new Error(`Bob did not see paid invoice #${invoiceId}: ${paid.text}`);
   return await txsFrom(BOB, before);
 }
 
 async function finalizeExistingInvoice(bob: { page: Page; ctx: BrowserContext; extId: string; known: Set<Page> }, note: string, invoiceId: number): Promise<Hash[]> {
   const before = await publicClient.getTransactionCount({ address: BOB, blockTag: "pending" });
-  const paymentPending = await waitForInvoiceRow(bob.page, note, /payment_pending/i, "invoice-bob-payment-pending-recover", 180_000);
+  const paymentPending = await waitForInvoiceRow(bob.page, note, /payment_pending/i, "invoice-bob-payment-pending-recover", 180_000, DAVE);
   if (!paymentPending.ok) throw new Error(`Bob did not see recoverable payment_pending invoice #${invoiceId}: ${paymentPending.text}`);
-  const pendingRow = bob.page.locator("div").filter({ hasText: note }).filter({ hasText: /payment_pending/i }).first();
-  await pendingRow.getByRole("button", { name: /^Finalize$/i }).first().click({ force: true });
+  const pendingRow = bob.page
+    .locator("div")
+    .filter({ hasText: note })
+    .filter({ hasText: /payment_pending/i })
+    .filter({ has: bob.page.getByRole("button", { name: /^Finalize$/i }) })
+    .last();
+  await pendingRow.locator("button").filter({ hasText: /^Finalize$/i }).first().click({ force: true });
   await drainRabbyPopups(bob.ctx, bob.extId, bob.known, "invoice-finalize", 5);
-  const paid = await waitForInvoiceRow(bob.page, note, /paid/i, "invoice-bob-paid", 300_000);
+  const paid = await waitForInvoiceRow(bob.page, note, /paid/i, "invoice-bob-paid", 300_000, DAVE);
   if (!paid.ok) throw new Error(`Bob did not see paid invoice #${invoiceId}: ${paid.text}`);
   return await txsFrom(BOB, before);
 }
@@ -613,7 +686,7 @@ async function main(): Promise<void> {
           ...(await finalizeExistingInvoice(bob, note, created.invoiceId)),
         ]
       : await payInvoice(bob, note, created.invoiceId);
-    const davePaid = await waitForInvoiceRow(dave.page, note, /paid/i, "invoice-dave-paid", 240_000);
+    const davePaid = await waitForInvoiceRow(dave.page, note, /paid/i, "invoice-dave-paid", 240_000, BOB);
     results.push({
       name: "Invoice create -> client pays -> client finalizes -> both see paid",
       status: created.hashes.length > 0 && bobHashes.length > 0 && davePaid.ok ? "green" : "red",

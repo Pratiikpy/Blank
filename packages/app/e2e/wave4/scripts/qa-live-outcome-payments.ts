@@ -34,7 +34,10 @@ const DAVE = "0x7eF99105308230eab5B8E4765842bc2BF7B1D175" as Address;
 const BOB = "0x0D1883c48E14d733D464478f53706D92b7648b9d" as Address;
 type Persona = "Dave" | "Bob";
 const accountByPersona: Record<Persona, Address> = { Dave: DAVE, Bob: BOB };
-const labelByPersona: Record<Persona, string> = { Dave: "Private Key 1", Bob: "Private Key 2" };
+const labelByPersona: Record<Persona, string[]> = {
+  Dave: ["Private Key 1", "Seed Phrase 1 #1"],
+  Bob: ["Private Key 2", "Seed Phrase 1 #2"],
+};
 
 const publicClient = createPublicClient({
   chain: IS_ETH ? sepolia : baseSepolia,
@@ -71,7 +74,11 @@ function cloneProfile(persona: Persona): string {
   cpSync(SOURCE_PROFILE, target, {
     recursive: true,
     force: true,
-    filter: (src) => !/[\\/]Singleton/.test(src) && !/[\\/]lockfile$/i.test(src),
+    filter: (src) =>
+      !/[\\/]Singleton/.test(src) &&
+      !/[\\/]lockfile$/i.test(src) &&
+      !/[\\/]Cookies(?:-journal)?$/i.test(src) &&
+      !/[\\/]Network[\\/]/i.test(src),
   });
   return target;
 }
@@ -111,7 +118,7 @@ async function launchPersona(persona: Persona): Promise<{ ctx: BrowserContext; h
 }
 
 async function switchRabbyAccount(rabbyPage: Page, extId: string, persona: Persona): Promise<void> {
-  const target = labelByPersona[persona];
+  const targets = labelByPersona[persona];
   const expected = accountByPersona[persona].toLowerCase();
   await rabbyPage.goto(`chrome-extension://${extId}/index.html`).catch(() => undefined);
   await rabbyPage.waitForTimeout(1_500);
@@ -122,10 +129,20 @@ async function switchRabbyAccount(rabbyPage: Page, extId: string, persona: Perso
   if (await current.isVisible({ timeout: 5_000 }).catch(() => false)) await current.click({ force: true }).catch(() => undefined);
   else await rabbyPage.mouse.click(130, 95);
   await rabbyPage.waitForTimeout(1_500);
-  const rows = rabbyPage.locator("div, button").filter({ hasText: new RegExp(target, "i") });
-  const count = await rows.count().catch(() => 0);
-  if (count === 0) throw new Error(`Rabby account row not found for ${target}`);
-  const row = rows.nth(Math.max(0, count - 1));
+  const shortAddress = `${expected.slice(0, 6)}...${expected.slice(-4)}`;
+  let row = rabbyPage.locator("div, button").filter({ hasText: new RegExp(shortAddress.replace(".", "\\."), "i") }).last();
+  let visible = await row.isVisible({ timeout: 2_000 }).catch(() => false);
+  if (!visible) {
+    for (const target of targets) {
+      const candidate = rabbyPage.locator("div, button").filter({ hasText: new RegExp(target, "i") }).last();
+      visible = await candidate.isVisible({ timeout: 1_500 }).catch(() => false);
+      if (visible) {
+        row = candidate;
+        break;
+      }
+    }
+  }
+  if (!visible) throw new Error(`Rabby account row not found for ${persona}: ${targets.join(", ")} / ${shortAddress}`);
   const box = await row.boundingBox({ timeout: 5_000 }).catch(() => null);
   if (box) await rabbyPage.mouse.click(box.x + box.width / 2, box.y + Math.min(box.height / 2, 38));
   else await row.click({ force: true });

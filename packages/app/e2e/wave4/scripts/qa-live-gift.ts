@@ -1,21 +1,21 @@
 /**
- * QA: drive Gift Envelope creation on live Vercel with Rabby.
+ * QA: drive Gift Envelope create + recipient claim on live Vercel with Rabby.
  *
- *   pnpm exec tsx packages/app/e2e/wave4/scripts/qa-live-gift.ts
- *
- * Dave creates an encrypted gift envelope from his shielded balance.
- * Verifies the create flow surfaces a shareable URL + on-chain tx.
- *
- * Prereq: Dave has shielded balance from qa-live-deposit.ts.
+ * Examples:
+ *   CHAIN_ID=84532    pnpm exec tsx e2e/wave4/scripts/qa-live-gift.ts
+ *   CHAIN_ID=11155111 pnpm exec tsx e2e/wave4/scripts/qa-live-gift.ts
  */
 import { chromium, type Page } from "@playwright/test";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { mkdirSync, writeFileSync, existsSync } from "node:fs";
+import { createPublicClient, http, type Address, type Hash } from "viem";
+import { baseSepolia, sepolia } from "viem/chains";
 import {
   unlockRabby,
   dismissRabbyWhatsNew,
   waitAndConfirmRabbyPopup,
+  selectRabbyChain,
 } from "../../fixtures/rabby/rabby-driver";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -27,7 +27,142 @@ const RABBY_EXT_DIR = resolve(REPO, "packages/app/e2e/fixtures/rabby/ext");
 const RABBY_PROFILE_DIR =
   process.env.RABBY_PROFILE_DIR ?? resolve(REPO, ".rabby-profile-blank");
 const RABBY_PASSWORD = process.env.RABBY_PASSWORD ?? "RabbyPass123!QA";
-const OUT = resolve(REPO, "packages/app/test-results/qa-live-gift");
+const CHAIN_ID = Number(process.env.CHAIN_ID ?? 84532);
+if (CHAIN_ID !== 84532 && CHAIN_ID !== 11155111) {
+  throw new Error(`Unsupported CHAIN_ID ${CHAIN_ID}`);
+}
+const IS_ETH = CHAIN_ID === 11155111;
+const CHAIN_NAME = IS_ETH ? "Ethereum Sepolia" : "Base Sepolia";
+const RPC_URL = IS_ETH ? "https://ethereum-sepolia.publicnode.com" : "https://base-sepolia-rpc.publicnode.com";
+const EXPLORER_URL = IS_ETH ? "https://sepolia.etherscan.io" : "https://sepolia.basescan.org";
+const BLOCKSCOUT_URL = IS_ETH ? "https://eth-sepolia.blockscout.com" : "https://base-sepolia.blockscout.com";
+const OUT = resolve(REPO, `packages/app/test-results/qa-live-gift-${IS_ETH ? "eth" : "base"}`);
+
+const DAVE = "0x7eF99105308230eab5B8E4765842bc2BF7B1D175" as Address;
+const BOB = "0x0D1883c48E14d733D464478f53706D92b7648b9d" as Address;
+
+const publicClient = createPublicClient({
+  chain: IS_ETH ? sepolia : baseSepolia,
+  transport: http(RPC_URL),
+});
+
+async function txsFrom(address: Address, fromNonce: number): Promise<Hash[]> {
+  const deadline = Date.now() + 180_000;
+  while (Date.now() < deadline) {
+    const url = `${BLOCKSCOUT_URL}/api?module=account&action=txlist&address=${address}&sort=desc`;
+    const res = await fetch(url).then((r) => r.json()).catch(() => null) as
+      | { result?: Array<{ hash: Hash; nonce: string | number; from?: string; isError?: string }> }
+      | null;
+    const found = (res?.result ?? [])
+      .filter((tx) => tx.from?.toLowerCase() === address.toLowerCase() && Number(tx.nonce) >= fromNonce && tx.isError !== "1")
+      .map((tx) => ({ nonce: Number(tx.nonce), hash: tx.hash }));
+    if (found.length > 0) return found.sort((a, b) => a.nonce - b.nonce).map((x) => x.hash);
+    await new Promise((r) => setTimeout(r, 3_000));
+  }
+  return [];
+}
+
+async function snap(page: Page, label: string): Promise<string> {
+  const file = resolve(OUT, `${label}.png`);
+  await page.screenshot({ path: file, fullPage: true }).catch(() => undefined);
+  return file;
+}
+
+async function safeFill(page: Page, selector: string, value: string, index = 0): Promise<void> {
+  const loc = page.locator(selector).nth(index);
+  await loc.waitFor({ state: "visible", timeout: 20_000 });
+  await loc.click({ force: true }).catch(() => undefined);
+  await loc.press(process.platform === "darwin" ? "Meta+A" : "Control+A").catch(() => undefined);
+  await loc.press("Backspace").catch(() => undefined);
+  await loc.type(value, { delay: 25 });
+  await loc.press("Tab").catch(() => undefined);
+}
+
+async function switchRabbyAccount(rabbyPage: Page, extId: string, targetLabel: string, targetAddress: Address): Promise<void> {
+  await rabbyPage.goto(`chrome-extension://${extId}/index.html`).catch(() => undefined);
+  await rabbyPage.waitForTimeout(1_500);
+  await dismissRabbyWhatsNew(rabbyPage);
+  const expected = targetAddress.toLowerCase();
+  const body = ((await rabbyPage.locator("body").textContent().catch(() => "")) ?? "").toLowerCase();
+  if (body.includes(expected.slice(0, 8)) || body.includes(expected.slice(0, 6))) return;
+
+  const current = rabbyPage.locator("text=/Private Key \\d|Seed Phrase/i").first();
+  if (await current.isVisible({ timeout: 3_000 }).catch(() => false)) {
+    await current.click({ force: true }).catch(() => undefined);
+  } else {
+    await rabbyPage.mouse.click(130, 95);
+  }
+  await rabbyPage.waitForTimeout(1_500);
+
+  const shortAddress = `${expected.slice(0, 6)}...${expected.slice(-4)}`;
+  const byAddress = rabbyPage.locator("div, button").filter({ hasText: new RegExp(shortAddress.replace(".", "\\."), "i") }).last();
+  if (await byAddress.isVisible({ timeout: 2_000 }).catch(() => false)) {
+    await byAddress.click({ force: true }).catch(() => undefined);
+    await rabbyPage.waitForTimeout(2_000);
+    return;
+  }
+
+  const byLabel = rabbyPage.locator("div, button").filter({ hasText: new RegExp(targetLabel, "i") }).last();
+  if (await byLabel.isVisible({ timeout: 2_000 }).catch(() => false)) {
+    await byLabel.click({ force: true }).catch(() => undefined);
+    await rabbyPage.waitForTimeout(2_000);
+    return;
+  }
+
+  throw new Error(`Rabby account row not found for ${targetLabel} / ${shortAddress}`);
+}
+
+async function ensureConnected(dapp: Page, knownPages: Set<Page>, extId: string): Promise<void> {
+  for (let i = 0; i < 6; i++) {
+    const card = dapp.locator('[data-testid="wallet-choice-existing"]');
+    if (await card.isVisible({ timeout: 1_000 }).catch(() => false)) break;
+    const heading = dapp.locator("h1, h2").filter({ hasText: /Gift|Envelope/i }).first();
+    if (await heading.isVisible({ timeout: 1_000 }).catch(() => false)) return;
+    const next = dapp.locator("button").filter({ hasText: /^Next/i }).first();
+    if (!(await next.isVisible({ timeout: 1_000 }).catch(() => false))) break;
+    await next.click({ force: true }).catch(() => undefined);
+    await dapp.waitForTimeout(1_000);
+  }
+
+  const existingCard = dapp.locator('[data-testid="wallet-choice-existing"]');
+  if (await existingCard.isVisible({ timeout: 2_000 }).catch(() => false)) {
+    const connect = existingCard.locator("button").filter({ hasText: /Rabby/i }).first();
+    await connect.click({ force: true });
+    await waitAndConfirmRabbyPopup((dapp.context() as any), extId, knownPages, OUT, "rabby-connect", 30_000, {
+      chainName: CHAIN_NAME,
+    });
+    await waitAndConfirmRabbyPopup((dapp.context() as any), extId, knownPages, OUT, "rabby-siwe", 20_000).catch(() => undefined);
+    await dapp.waitForTimeout(3_000);
+    await dapp.goto(`${VERCEL_URL}/app/gifts`, { waitUntil: "domcontentloaded", timeout: 60_000 });
+  }
+}
+
+async function waitForClaimState(page: Page, state: "received" | "claimed", timeoutMs = 180_000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await page.goto(`${VERCEL_URL}/app/gifts`, { waitUntil: "domcontentloaded", timeout: 60_000 });
+    await page.locator('button[aria-label="Received gifts"]').click().catch(() => undefined);
+    await page.waitForTimeout(3_000);
+    await page.locator("button").filter({ hasText: /^Install$/i }).locator("xpath=..").getByRole("button", { name: /^×$|^x$|close/i }).click().catch(() => undefined);
+    const button = page.locator("button").filter({ hasText: state === "received" ? /^Claim$/i : /^Claimed$/i }).first();
+    if (await button.isVisible({ timeout: 5_000 }).catch(() => false)) return true;
+    await page.waitForTimeout(8_000);
+  }
+  return false;
+}
+
+async function waitForAliceClaimed(page: Page, timeoutMs = 240_000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await page.goto(`${VERCEL_URL}/app/gifts`, { waitUntil: "domcontentloaded", timeout: 60_000 });
+    await page.locator('button[aria-label="Sent gifts"]').click().catch(() => undefined);
+    await page.waitForTimeout(3_000);
+    const badge = page.locator("text=/claimed/i").first();
+    if (await badge.isVisible({ timeout: 5_000 }).catch(() => false)) return true;
+    await page.waitForTimeout(8_000);
+  }
+  return false;
+}
 
 async function main(): Promise<void> {
   if (!existsSync(RABBY_EXT_DIR)) {
@@ -40,7 +175,7 @@ async function main(): Promise<void> {
   }
 
   mkdirSync(OUT, { recursive: true });
-  console.log(`QA Gift Envelope · ${VERCEL_URL}`);
+  console.log(`QA Gift create + claim · ${CHAIN_NAME} · ${VERCEL_URL}`);
   console.log(`Output: ${OUT}`);
 
   const ctx = await chromium.launchPersistentContext(RABBY_PROFILE_DIR, {
@@ -68,176 +203,89 @@ async function main(): Promise<void> {
     process.exit(3);
   }
 
-  const home = await ctx.newPage();
-  await home.goto(`chrome-extension://${extId}/index.html`).catch(() => {});
-  await home.waitForTimeout(2_000);
-  await unlockRabby(home, RABBY_PASSWORD);
-  await dismissRabbyWhatsNew(home);
+  const rabby = await ctx.newPage();
+  await rabby.goto(`chrome-extension://${extId}/index.html`).catch(() => undefined);
+  await rabby.waitForTimeout(2_000);
+  await unlockRabby(rabby, RABBY_PASSWORD);
+  await dismissRabbyWhatsNew(rabby);
+  await selectRabbyChain(rabby, CHAIN_NAME, OUT).catch(() => undefined);
 
   const dapp = await ctx.newPage();
-  await dapp.goto(`${VERCEL_URL}/app/gifts`, { waitUntil: "domcontentloaded", timeout: 60_000 });
-  await dapp.waitForTimeout(3_000);
-
   const knownPages = new Set<Page>(ctx.pages());
 
-  // The /app/gifts route may also gate on connect — walk carousel + connect if not on dashboard.
-  for (let i = 0; i < 6; i++) {
-    const card = dapp.locator('[data-testid="wallet-choice-existing"]');
-    if (await card.isVisible({ timeout: 1_500 }).catch(() => false)) break;
-    const heading = dapp.locator("h1, h2").filter({ hasText: /Gift|Envelope/i }).first();
-    if (await heading.isVisible({ timeout: 1_500 }).catch(() => false)) break;
-    const next = dapp.locator("button").filter({ hasText: /^Next/i }).first();
-    if (!(await next.isVisible({ timeout: 2_000 }).catch(() => false))) break;
-    await next.click({ force: true }).catch(() => {});
-    await dapp.waitForTimeout(1_200);
-  }
+  try {
+    await switchRabbyAccount(rabby, extId, "Private Key 1", DAVE);
+    await dapp.goto(`${VERCEL_URL}/app/gifts`, { waitUntil: "domcontentloaded", timeout: 60_000 });
+    await ensureConnected(dapp, knownPages, extId);
+    await snap(dapp, "01-gifts-dave-landing");
 
-  const onGifts = await dapp
-    .locator("h1, h2")
-    .filter({ hasText: /Gift|Envelope/i })
-    .first()
-    .isVisible({ timeout: 3_000 })
-    .catch(() => false);
+    const createNonce = await publicClient.getTransactionCount({ address: DAVE, blockTag: "pending" });
+    const amount = "0.5";
+    const message = `QA gift ${CHAIN_NAME} ${Date.now()}`;
+    await safeFill(dapp, 'input[placeholder*="0.00"]', amount);
+    await safeFill(dapp, 'input[placeholder*="0x"]', BOB);
+    await safeFill(dapp, 'textarea[placeholder*="heartfelt"]', message);
+    await dapp.locator("button").filter({ hasText: /^(Birthday|Celebration|Love|Thank You)$/i }).first().click({ force: true });
+    await snap(dapp, "02-gift-filled");
 
-  if (!onGifts) {
-    // Try Connect via WalletChoiceCard.
-    const existingCard = dapp.locator('[data-testid="wallet-choice-existing"]');
-    if (await existingCard.isVisible({ timeout: 3_000 }).catch(() => false)) {
-      const connect = existingCard.locator("button").filter({ hasText: /Rabby/i }).first();
-      await connect.click({ force: true });
-      await waitAndConfirmRabbyPopup(ctx, extId, knownPages, OUT, "rabby-connect", 30_000, {
-        chainName: "Base Sepolia",
-      });
-      await waitAndConfirmRabbyPopup(ctx, extId, knownPages, OUT, "rabby-siwe", 20_000);
-      await dapp.waitForTimeout(3_000);
-      await dapp.goto(`${VERCEL_URL}/app/gifts`, { waitUntil: "domcontentloaded" });
-      await dapp.waitForTimeout(3_000);
-    }
-  }
+    const submitBtn = dapp.locator("button").filter({ hasText: /Send Gift Envelope/i }).first();
+    await submitBtn.click({ force: true });
+    await waitAndConfirmRabbyPopup(ctx, extId, knownPages, OUT, "rabby-gift-create-1", 60_000, { chainName: CHAIN_NAME });
+    await waitAndConfirmRabbyPopup(ctx, extId, knownPages, OUT, "rabby-gift-create-2", 45_000).catch(() => undefined);
+    await dapp.getByRole("heading", { name: /Gift Sent!/i }).waitFor({ state: "visible", timeout: 180_000 });
+    const createTxHash = await dapp.locator('[data-testid="gift-create-tx-hash"]').getAttribute("data-tx-hash").catch(() => null);
+    const createHashes = createTxHash ? [createTxHash as Hash] : await txsFrom(DAVE, createNonce);
+    await snap(dapp, "03-gift-created");
 
-  await dapp.screenshot({ path: resolve(OUT, "01-gifts-landing.png"), fullPage: true });
-  console.log("✓ /app/gifts loaded");
+    await switchRabbyAccount(rabby, extId, "Private Key 2", BOB);
+    await dapp.goto(`${VERCEL_URL}/app/gifts`, { waitUntil: "domcontentloaded", timeout: 60_000 });
+    await ensureConnected(dapp, knownPages, extId);
+    const claimReady = await waitForClaimState(dapp, "received", 240_000);
+    if (!claimReady) throw new Error("Bob did not see claimable gift");
+    await snap(dapp, "04-bob-claim-ready");
 
-  // Gifts.tsx renders the form inline (not behind a "Create" button).
-  // Fill amount, recipient address, then click "Send Gift Envelope"
-  // (line 649 in Gifts.tsx).
-  const amount = "0.5";
+    const claimNonce = await publicClient.getTransactionCount({ address: BOB, blockTag: "pending" });
+    await dapp.locator('button[aria-label="Received gifts"]').click().catch(() => undefined);
+    const claimBtn = dapp.locator("button").filter({ hasText: /^Claim$/i }).first();
+    await claimBtn.scrollIntoViewIfNeeded().catch(() => undefined);
+    await claimBtn.waitFor({ state: "visible", timeout: 20_000 });
+    await claimBtn.click({ force: true });
+    await waitAndConfirmRabbyPopup(ctx, extId, knownPages, OUT, "rabby-gift-claim-1", 60_000, { chainName: CHAIN_NAME });
+    await waitAndConfirmRabbyPopup(ctx, extId, knownPages, OUT, "rabby-gift-claim-2", 45_000).catch(() => undefined);
+    const bobClaimed = await waitForClaimState(dapp, "claimed", 240_000);
+    const claimHashes = await txsFrom(BOB, claimNonce);
+    if (!bobClaimed) throw new Error("Bob did not see claimed gift state");
+    await snap(dapp, "05-bob-claimed");
 
-  // Amount input has placeholder "$ 0.00" or "0.00" — match both.
-  const amountInput = dapp.locator('input[placeholder*="0.00"]').first();
-  await amountInput.waitFor({ state: "visible", timeout: 10_000 });
-  await amountInput.fill(amount);
-  console.log(`✓ Filled amount: ${amount}`);
-  await dapp.screenshot({ path: resolve(OUT, "02-amount-filled.png"), fullPage: true });
+    await switchRabbyAccount(rabby, extId, "Private Key 1", DAVE);
+    const aliceClaimed = await waitForAliceClaimed(dapp, 240_000);
+    await snap(dapp, "06-dave-sent-claimed");
+    const claimProven = claimHashes.length > 0 || (bobClaimed && aliceClaimed);
+    const overallGreen = createHashes.length > 0 && claimProven;
 
-  // Recipient input — placeholder includes "0x... (address)" per the form.
-  const recipientInput = dapp.locator('input[placeholder*="0x"]').first();
-  await recipientInput.waitFor({ state: "visible", timeout: 5_000 });
-  await recipientInput.fill("0x000000000000000000000000000000000000dEaD");
-  // Trigger blur so React's controlled-input state catches up. fill()
-  // alone sometimes leaves React's state empty until blur fires.
-  await recipientInput.press("Tab");
-  console.log(`✓ Filled recipient: 0x...dEaD`);
-  await dapp.waitForTimeout(800);
-  await dapp.screenshot({ path: resolve(OUT, "03-recipient-filled.png"), fullPage: true });
-
-  // Pick a gift theme — required by Gifts.tsx:590 (selectedTheme gates
-  // the Send button render). Theme cards have visible labels like
-  // "Birthday", "Celebration", "Love", "Thank You". Click the first
-  // visible theme card.
-  const themeBtn = dapp
-    .locator("button")
-    .filter({ hasText: /^(Birthday|Celebration|Love|Thank You)$/i })
-    .first();
-  await themeBtn.waitFor({ state: "visible", timeout: 5_000 });
-  await themeBtn.click();
-  console.log(`✓ Selected gift theme`);
-  await dapp.waitForTimeout(800);
-  await dapp.screenshot({ path: resolve(OUT, "03b-theme-selected.png"), fullPage: true });
-
-  // Click "Send Gift Envelope". The button (Gifts.tsx:635-650) is
-  // disabled while !giftAmount || (!giftRecipient.trim() && recipients.length === 0).
-  // After fill + Tab the state should be valid. Relax selector — find
-  // by text first, then check if disabled.
-  const submitBtn = dapp.locator("button").filter({ hasText: /Send Gift Envelope/i }).first();
-  const exists = await submitBtn.count().catch(() => 0);
-  console.log(`  submit button count in DOM: ${exists}`);
-  if (exists === 0) {
-    console.error("✘ Send Gift Envelope button NOT in DOM — form may be in different state");
-    await dapp.screenshot({ path: resolve(OUT, "04-no-submit-button.png"), fullPage: true });
+    const md = [
+      `# QA Gift Envelope outcome`,
+      `Generated: ${new Date().toISOString()}`,
+      `URL base: ${VERCEL_URL}`,
+      `Chain: ${CHAIN_NAME} (${CHAIN_ID})`,
+      `Sender: Dave (Rabby EOA)`,
+      `Recipient: Bob (Rabby EOA)`,
+      "",
+      "| Flow | Status | Tx hashes | Detail |",
+      "|---|---|---|---|",
+      `| Gift create -> recipient claims -> sender sees claimed | ${overallGreen ? "green" : "red"} | ${[...createHashes, ...claimHashes].map((h) => `[${h.slice(0, 10)}...](${EXPLORER_URL}/tx/${h})`).join("<br>") || "-"} | amount=${amount}; message=${message}; claimHashes=${claimHashes.length}; bobClaimed=${bobClaimed}; aliceClaimed=${aliceClaimed} |`,
+      "",
+      `Output dir: ${OUT}`,
+    ].join("\n");
+    writeFileSync(resolve(OUT, "REPORT.md"), md);
+    console.log(md);
+    if (!overallGreen) process.exit(2);
+  } finally {
     await ctx.close();
-    process.exit(11);
   }
-  // Scroll into view + check enabled state.
-  await submitBtn.scrollIntoViewIfNeeded({ timeout: 5_000 }).catch(() => {});
-  const isDisabled = await submitBtn.isDisabled({ timeout: 2_000 }).catch(() => true);
-  console.log(`  submit button disabled: ${isDisabled}`);
-  if (isDisabled) {
-    console.error("✘ Send Gift Envelope button is disabled — form validation failed");
-    await dapp.screenshot({ path: resolve(OUT, "04-submit-disabled.png"), fullPage: true });
-    await ctx.close();
-    process.exit(12);
-  }
-  await submitBtn.click();
-  console.log("✓ Create gift submitted");
-  await dapp.waitForTimeout(2_000);
-
-  // Drive Rabby popup chain (encrypted gift = approve + create like deposit).
-  const popup1 = await waitAndConfirmRabbyPopup(ctx, extId, knownPages, OUT, "rabby-gift-1", 60_000);
-  console.log(`  popup1: ${popup1.clicks} click(s), closed=${popup1.closed}`);
-  const popup2 = await waitAndConfirmRabbyPopup(ctx, extId, knownPages, OUT, "rabby-gift-2", 30_000);
-  console.log(`  popup2: ${popup2.clicks} click(s), closed=${popup2.closed}`);
-
-  // Wait for success — gift URL surfaces OR Activity updates OR receipt banner appears.
-  let giftUrl = "";
-  let successBanner = false;
-  for (let i = 0; i < 24; i++) {
-    // Gift share URL pattern: /gift/<chainId>/<id>
-    const giftHref = await dapp
-      .locator('a[href*="/gift/"]')
-      .first()
-      .getAttribute("href", { timeout: 3_000 })
-      .catch(() => null);
-    if (giftHref) {
-      giftUrl = giftHref;
-      break;
-    }
-    successBanner = await dapp
-      .locator("text=/Gift created|Gift sent|Envelope created|Successfully created/i")
-      .first()
-      .isVisible({ timeout: 2_000 })
-      .catch(() => false);
-    if (successBanner) break;
-    await dapp.waitForTimeout(3_000);
-  }
-
-  await dapp.screenshot({ path: resolve(OUT, "05-final-state.png"), fullPage: true });
-
-  const status = giftUrl || successBanner ? "🟢 GREEN" : "🔴 RED";
-  const md = [
-    `# QA Gift Envelope (live Vercel)`,
-    `Generated: ${new Date().toISOString()}`,
-    `URL base: ${VERCEL_URL}`,
-    `Wallet: Dave (Rabby EOA)`,
-    `Chain: Base Sepolia`,
-    `Amount: ${amount} USDC`,
-    ``,
-    `## Result`,
-    ``,
-    `${status} — ${giftUrl ? `Gift URL: ${giftUrl}` : successBanner ? "Success banner surfaced" : "No success indicator captured"}`,
-    ``,
-    `## Rabby popups`,
-    ``,
-    `- Popup 1: ${popup1.clicks} clicks, closed=${popup1.closed}`,
-    `- Popup 2: ${popup2.clicks} clicks, closed=${popup2.closed}`,
-  ].join("\n");
-  writeFileSync(resolve(OUT, "REPORT.md"), md);
-  console.log(`\n✓ Report: ${resolve(OUT, "REPORT.md")}`);
-
-  await ctx.close();
 }
 
 main().catch((e) => {
-  console.error("FATAL:", (e as Error).message);
+  console.error("FATAL:", (e as Error).stack ?? (e as Error).message);
   process.exit(99);
 });
