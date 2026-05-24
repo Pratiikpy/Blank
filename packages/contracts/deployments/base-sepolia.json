@@ -82,5 +82,7 @@
   "GuardianModule_Impl": "0xBaFD785e265Bf680dAf271163CAF908267C383b6",
   "GuardianModule": "0x4fa2152A940651404F2722c0192624d0662e5B46",
   "ProofOfBalance_Impl": "0xD966Da3F4b9d17078cE571699df4347BB3b47f98",
-  "ProofOfBalance": "0x25e7383Bd5602a07928629e9Ec6eaec9535536Ff"
+  "ProofOfBalance": "0x25e7383Bd5602a07928629e9Ec6eaec9535536Ff",
+  "BlankAccount_Impl_wave5_recovery": "0x2ACd5dfb0be077a6C8a17f1C901E007277129037",
+  "GuardianModule_Impl_wave5_5": "0x1536615175A92bB05BB4C50dAd4Dd9dF5d1CE7c3"
 }
