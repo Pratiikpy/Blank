@@ -180,3 +180,46 @@ jobs:
           end=$(date +%s)
           start=${{ steps.start.outputs.ts }}
           echo "Contracts job elapsed: $((end - start))s"
+
+  # Wave 5 post-deploy smoke check. Runs only on push to main, AFTER
+  # Vercel has had a chance to roll forward. Uses continue-on-error so
+  # public-RPC flakes surface as warnings, not as deploy blockers.
+  # On a real regression (constants.ts drift, missing impl bytecode,
+  # bundle missing pinned addresses), the job goes red as a visible
+  # signal even though the workflow itself stays green.
+  wave5-verify:
+    name: Wave 5 — live deploy smoke (post-merge)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [app, contracts]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+
+      - name: Wait briefly for Vercel rollout
+        run: sleep 60
+
+      - name: On-chain + live-bundle probe
+        working-directory: packages/app
+        run: pnpm verify:wave5:all
+
+      - name: Ops health (paymaster + relayer balances)
+        working-directory: packages/app
+        continue-on-error: true
+        run: pnpm verify:ops
