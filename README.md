@@ -263,7 +263,7 @@ Never. There is no $BLANK token and there will not be one. Read the next section
 - **A mixer.** Sender + receiver are public on purpose.
 - **A speculation app.** No token. No points farm. No "encrypted DeFi yield."
 - **Every-chain sprawl.** We support Base Sepolia and Ethereum Sepolia today, with USDC bridge support between them. We will not add chains just to look bigger.
-- **Mainnet** until the threshold operator set is decentralized and the contracts are audited.
+- **Mainnet** until the threshold operator set is decentralized and the contracts are audited. Specific mainnet gates: rotate the P2POfframp arbiter from the deployer EOA to a 3-of-5 Safe so no single key can fake-resolve disputes; flip the Reclaim adapter from mock-mode operator-signed proofs to live Reclaim Protocol provider IDs (UPI, Wise, Venmo, PayPal). Both are testnet-optional, mainnet-mandatory.
 - **A creator economy super-app.** Privacy is the wedge; features that do not sharpen it get removed.
 
 This list is not aspirational. It's what we say no to in design reviews.
