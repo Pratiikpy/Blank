@@ -50,6 +50,16 @@ const ROWS: Row[] = [
     without: "Address linkage across sends reveals your counterparty graph.",
     with: "Addresses unlinkable AND amounts encrypted.",
   },
+  {
+    feature: "Encrypted off-ramp",
+    without: "Public order book shows your selling rate and quantity. Front-runners pick you off, takers grief by re-locking at worse prices.",
+    with: "Ciphertext order book. Rate is public, encrypted quantity stays hidden until a taker locks and submits a Reclaim proof of the off-chain fiat transfer.",
+  },
+  {
+    feature: "Encrypted analytics",
+    without: "Aggregate totals across vaults / invoices / payroll require revealing each underlying value, defeating the purpose of encrypting them in the first place.",
+    with: "Counts and trends computed over encrypted state. Per-row amounts stay encrypted; CSV export releases only the aggregates you choose to reveal.",
+  },
 ];
 
 export default function HowItWorks() {

@@ -83,7 +83,7 @@ describe("HowItWorks — 6-row comparison table (§15.x)", () => {
     expect(headers).toContain("With FHE (Blank)");
   });
 
-  it("renders all 6 feature rows in correct order", () => {
+  it("renders all 8 feature rows in correct order", () => {
     const { container } = withRouter(<HowItWorks />);
     const features = Array.from(container.querySelectorAll(".hiw-feature")).map(
       (el) => el.textContent?.trim(),
@@ -95,6 +95,9 @@ describe("HowItWorks — 6-row comparison table (§15.x)", () => {
       "Group expense splits",
       "Gift envelopes",
       "Stealth + encrypted",
+      // Wave 5 additions.
+      "Encrypted off-ramp",
+      "Encrypted analytics",
     ]);
   });
 
