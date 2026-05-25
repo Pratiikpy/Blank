@@ -157,7 +157,7 @@ export default function BalanceProof() {
           />
           <button
             onClick={handleLookup}
-            className="h-11 px-5 rounded-xl bg-black/5 font-medium"
+            className="h-11 px-5 rounded-xl bg-black/5 font-medium whitespace-nowrap shrink-0"
             data-testid="lookup-button"
           >
             Look up
