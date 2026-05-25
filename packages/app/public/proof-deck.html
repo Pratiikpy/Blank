@@ -5,20 +5,20 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Blank · proof deck</title>
 <meta name="theme-color" content="#fafaf7">
-<meta name="description" content="Live testnet evidence for Blank on desktop Rabby across Ethereum Sepolia and Base Sepolia. Real screenshots and verified on-chain transactions.">
+<meta name="description" content="Blank keeps payment amounts encrypted on-chain while outcomes remain verifiable. Product story and live testnet receipts.">
 <link rel="icon" href="/favicon.ico" sizes="any">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="icon" type="image/png" sizes="64x64" href="/logo-png/favicon-64.png">
 <link rel="apple-touch-icon" sizes="256x256" href="/logo-png/favicon-256.png">
 <meta property="og:title" content="Blank · proof deck">
-<meta property="og:description" content="Live testnet evidence on desktop Rabby across Ethereum Sepolia and Base Sepolia. Real screens and verified transactions.">
+<meta property="og:description" content="Payment amounts stay encrypted on-chain. Product story and live testnet receipts from Blank.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://www.myblank.app/proof-deck">
 <meta property="og:site_name" content="Blank">
 <meta property="og:image" content="https://www.myblank.app/og/blank-og.png">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Blank · proof deck">
-<meta name="twitter:description" content="Live testnet evidence on desktop Rabby across Ethereum Sepolia and Base Sepolia.">
+<meta name="twitter:description" content="Payment amounts stay encrypted on-chain. Product story and live testnet receipts from Blank.">
 <meta name="twitter:image" content="https://www.myblank.app/og/blank-og.png">
 <link rel="canonical" href="https://www.myblank.app/proof-deck">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -56,6 +56,47 @@ html, body { margin: 0; padding: 0; background: var(--bg); color: var(--fg); fon
 .section { margin-top: 64px; }
 .section h2 { font-size: 36px; letter-spacing: 0; margin: 0 0 8px; line-height: 1.05; }
 .section .lede { font-size: 17px; color: var(--muted); line-height: 1.55; max-width: 720px; margin: 0 0 24px; }
+.proof-bar { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; margin: 42px 0 0; border: 1px solid var(--border); background: var(--border); border-radius: 8px; overflow: hidden; }
+.proof-stat { background: var(--card); padding: 18px 20px; }
+.proof-stat strong { display: block; font-size: 26px; line-height: 1; margin-bottom: 7px; }
+.proof-stat span { color: var(--muted); font-size: 14px; line-height: 1.4; }
+.problem-grid { display: grid; grid-template-columns: .95fr 1.05fr; gap: 18px; align-items: stretch; }
+.statement { border-radius: 8px; background: #101110; color: #fff; padding: 30px; }
+.statement p { color: #d1d5db; font-size: 20px; line-height: 1.45; margin: 0; }
+.statement strong { color: #10b981; font-weight: 600; }
+.privacy-model { border: 1px solid var(--border); background: var(--card); border-radius: 8px; overflow: hidden; }
+.privacy-row { display: grid; grid-template-columns: 105px 1fr; gap: 18px; padding: 17px 20px; border-bottom: 1px solid var(--border); font-size: 15px; line-height: 1.45; }
+.privacy-row:last-child { border-bottom: 0; }
+.privacy-row .key { font: 600 11px/1.5 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.privacy-row.private .key { color: var(--good); }
+.surface { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.surface-item { background: var(--card); min-height: 92px; padding: 17px 18px; }
+.surface-item strong { display: block; font-size: 16px; margin-bottom: 6px; }
+.surface-item span { display: block; color: var(--muted); font-size: 13px; line-height: 1.38; }
+.journey { padding: 28px; background: #101110; color: #fff; border-radius: 8px; }
+.journey h2 { color: #fff; }
+.journey .lede { color: #cbd5e1; }
+.journey-steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 24px; }
+.journey-step { border: 1px solid rgba(255,255,255,.12); border-radius: 6px; padding: 15px 16px; }
+.journey-step b { display: block; font: 600 11px/1.5 var(--mono); text-transform: uppercase; letter-spacing: .09em; color: #10b981; margin-bottom: 8px; }
+.journey-step strong { display: block; font-size: 17px; margin-bottom: 5px; }
+.journey-step span { display: block; color: #cbd5e1; font-size: 14px; line-height: 1.4; }
+.journey .shot { border-color: rgba(255,255,255,.13); }
+.journey .shot button { height: 300px; background: #f5f7f6; overflow: hidden; }
+.journey .shot img { height: 100%; object-fit: cover; object-position: top; }
+.journey .shot.focus-bottom img { object-position: bottom; }
+.journey .shot figcaption { color: #cbd5e1; border-top-color: rgba(255,255,255,.13); background: #101110; }
+.pipeline { display: grid; grid-template-columns: repeat(4, 1fr); gap: 28px; margin: 28px 0 0; }
+.pipeline-step { position: relative; border-top: 2px solid #10b981; padding: 16px 0 0; }
+.pipeline-step:not(:last-child)::after { content: ""; position: absolute; right: -20px; top: -6px; width: 12px; height: 12px; border-top: 2px solid #10b981; border-right: 2px solid #10b981; transform: rotate(45deg); background: var(--bg); }
+.pipeline-step b { display: block; font: 600 11px/1.5 var(--mono); letter-spacing: .09em; text-transform: uppercase; color: var(--good); margin-bottom: 7px; }
+.pipeline-step strong { font-size: 16px; display: block; margin-bottom: 6px; }
+.pipeline-step p { font-size: 14px; line-height: 1.45; color: var(--muted); margin: 0; }
+.receipts { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 25px; }
+.receipts a { display: inline-flex; align-items: center; gap: 8px; padding: 10px 13px; border: 1px solid var(--border); border-radius: 5px; background: var(--card); color: var(--accent); text-decoration: none; font-size: 14px; }
+.receipts a:hover { border-color: rgba(5,150,105,.4); }
+.appendix-head { padding-top: 16px; }
+.appendix-head h2 { font-size: 42px; }
 .shot-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
 .shot { position: relative; background: var(--card); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
 .shot button { display: block; width: 100%; padding: 0; border: 0; background: transparent; cursor: zoom-in; }
@@ -102,6 +143,13 @@ footer { margin-top: 96px; padding-top: 24px; border-top: 1px solid var(--border
   .hero { padding: 40px 0 24px; }
   .hero h1 { font-size: 44px; }
   .hero p { font-size: 18px; }
+  .proof-bar, .problem-grid, .surface, .journey-steps, .pipeline { grid-template-columns: 1fr; }
+  .surface-item { min-height: 0; }
+  .journey { padding: 20px; }
+  .pipeline { gap: 18px; }
+  .pipeline-step:not(:last-child)::after { display: none; }
+  .privacy-row { grid-template-columns: 1fr; gap: 5px; }
+  .appendix-head h2 { font-size: 34px; }
   .shot .view { opacity: 1; }
   .lightbox { padding: 12px; }
   .lightbox-dialog { max-width: calc(100vw - 24px); max-height: calc(100vh - 24px); }
@@ -112,42 +160,124 @@ footer { margin-top: 96px; padding-top: 24px; border-top: 1px solid var(--border
 <body>
 <div class="page">
 
-<div class="topline"><span>blank. / verified testnet evidence</span><span>Desktop Rabby · Base Sepolia + Ethereum Sepolia</span></div>
+<div class="topline"><span>blank. / product proof</span><span>Live testnet receipts · 2026-05-25</span></div>
 <header class="hero">
-  <div class="eyebrow">Testnet launch proof · 2026-05-25</div>
-  <h1>Every desktop Rabby flow,<br><span>proven on both chains.</span></h1>
-  <p>Encrypted payments on Ethereum Sepolia and Base Sepolia. The screens below were captured from the live app using Rabby; linked transaction receipts succeeded on-chain.</p>
+  <div class="eyebrow">Confidential payments and commerce</div>
+  <h1>Amounts stay private.<br><span>Outcomes stay verifiable.</span></h1>
+  <p>Blank is a payment application built with Fhenix CoFHE. People pay, sell, raise funds and exchange value without putting the amount in public view.</p>
   <div class="cta">
-    <a class="cta-primary" href="https://www.myblank.app/app" target="_blank" rel="noopener">Open the live app →</a>
-    <a class="cta-secondary" href="#txs">Jump to on-chain proof</a>
+    <a class="cta-primary" href="https://www.myblank.app/app" target="_blank" rel="noopener">Open live product →</a>
+    <a class="cta-secondary" href="#journey">See one real journey</a>
+    <a class="cta-secondary" href="#evidence">Inspect evidence</a>
+  </div>
+  <div class="proof-bar" aria-label="Proven testnet scope">
+    <div class="proof-stat"><strong>2</strong><span>test networks with live transaction evidence</span></div>
+    <div class="proof-stat"><strong>3</strong><span>personas used for cross-user outcomes</span></div>
+    <div class="proof-stat"><strong>Rabby</strong><span>desktop EOA path driven through the live UI</span></div>
   </div>
 </header>
 
-<div class="summary">
-  <p><strong>Proven scope:</strong> desktop Rabby EOA flows on Base Sepolia and Ethereum Sepolia, including cross-user outcomes and refresh checks. Mobile route rendering is separately checked; mobile transactions are not claimed here.</p>
-  <p><strong>Stack:</strong> Fhenix CoFHE encrypted state + ERC-4337 account infrastructure + Vercel + React. Sponsored/passkey operations depend on maintained paymaster deposits and are separate from this Rabby EOA proof.</p>
-  <p><strong>Coverage:</strong> focused automated suites plus live UI-driven evidence. This page indexes lifecycle receipts and screenshots for the judge-visible flows below.</p>
-  <p><strong>Wave 5 contracts live on both chains:</strong> P2POfframp · MockReclaimVerifier · GuardianModule · BlankHandles · ProofOfBalance · ReclaimAdapter. All 12 addresses found in production bundle <code>index-*.js</code>.</p>
-  <p><strong>FHE primitives in use across the Solidity codebase:</strong> <code>FHE.select</code> ×36, <code>FHE.gte</code> ×25, <code>FHE.add</code> ×19, <code>FHE.eq</code> ×11, <code>FHE.sub</code> ×11, <code>FHE.and</code> ×8, plus ACL grants. Payment amounts are encrypted; addresses, asset type, workflow status, and selected marketplace/offramp metadata remain public where product discovery and settlement require them.</p>
-</div>
+<section class="section" id="problem">
+  <div class="eyebrow">01 / Problem and boundary</div>
+  <h2>Public money reveals private business.</h2>
+  <p class="lede">Wallet activity can expose an invoice amount, a contribution size, a commercial price or a settlement value. Blank hides the amount, not the existence of the transaction.</p>
+  <div class="problem-grid">
+    <div class="statement">
+      <p>paid <strong>[ amount encrypted ]</strong> USDC to a public recipient. The transfer can be confirmed without disclosing its value.</p>
+    </div>
+    <div class="privacy-model" aria-label="Blank privacy model">
+      <div class="privacy-row private"><span class="key">Encrypted</span><span>Payment amounts and confidential value handled by CoFHE contracts.</span></div>
+      <div class="privacy-row"><span class="key">Public</span><span>Sender, receiver, asset, transaction existence and workflow state.</span></div>
+      <div class="privacy-row"><span class="key">Not claimed</span><span>Sender anonymity, receiver anonymity or mixer behavior.</span></div>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="surface">
+  <div class="eyebrow">02 / Product surface</div>
+  <h2>One privacy model across real payment jobs.</h2>
+  <p class="lede">The user chooses a normal financial action. Blank supplies encrypted amount handling and a visible outcome.</p>
+  <div class="surface">
+    <div class="surface-item"><strong>Send</strong><span>Private amount transfer and claim links.</span></div>
+    <div class="surface-item"><strong>Invoices</strong><span>Vendor payment and settlement state.</span></div>
+    <div class="surface-item"><strong>Gifts</strong><span>Recipient claim without amount exposure.</span></div>
+    <div class="surface-item"><strong>Groups</strong><span>Shared expenses with private balances.</span></div>
+    <div class="surface-item"><strong>Storefront</strong><span>Encrypted pricing and buyer outcome.</span></div>
+    <div class="surface-item"><strong>Crowdfund</strong><span>Private contribution amounts.</span></div>
+    <div class="surface-item"><strong>Exchange</strong><span>Encrypted P2P offer amount.</span></div>
+    <div class="surface-item"><strong>Offramp</strong><span>Encrypted USDC settlement lifecycle.</span></div>
+  </div>
+</section>
+
+<section class="section journey" id="journey">
+  <div class="eyebrow">03 / Signature journey</div>
+  <h2>Confidential commerce, seen by every party.</h2>
+  <p class="lede">A real storefront path on the live testnet product. Dave offers an item with encrypted price handling, Bob pays, and Dave sees the purchased listing after returning to his seller view.</p>
+  <div class="journey-steps" aria-label="Storefront participant outcome">
+    <div class="journey-step"><b>Seller / Dave</b><strong>Creates listing</strong><span>Price is committed through the encrypted flow.</span></div>
+    <div class="journey-step"><b>Buyer / Bob</b><strong>Pays for access</strong><span>The payment state changes and seller delivery instructions appear.</span></div>
+    <div class="journey-step"><b>Seller / Dave</b><strong>Sees purchase</strong><span>Returning to the selling view reflects the sale.</span></div>
+  </div>
+  <div class="shot-grid">
+    <figure class="shot">
+      <img src="/proof-images/eth-storefront-create-success.png" alt="Dave creates an encrypted storefront listing">
+      <figcaption><span class="chain eth">Eth</span> Dave creates the listing.</figcaption>
+    </figure>
+    <figure class="shot">
+      <img src="/proof-images/eth-storefront-bob-success.png" alt="Bob completes the storefront purchase">
+      <figcaption><span class="chain eth">Eth</span> Bob completes payment.</figcaption>
+    </figure>
+    <figure class="shot focus-bottom">
+      <img src="/proof-images/eth-storefront-dave-revisit-after-buy.png" alt="Dave sees the sold storefront listing">
+      <figcaption><span class="chain eth">Eth</span> Dave sees the sold listing.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section class="section" id="architecture">
+  <div class="eyebrow">04 / Privacy architecture</div>
+  <h2>The product path behind the receipt.</h2>
+  <p class="lede">A user signs in Rabby. Blank encrypts the amount client-side for a CoFHE-aware contract call. The chain records the state transition and the application returns the resulting status.</p>
+  <div class="pipeline" aria-label="Blank system path">
+    <div class="pipeline-step"><b>01</b><strong>Rabby wallet</strong><p>User approves the action from a standard EOA wallet.</p></div>
+    <div class="pipeline-step"><b>02</b><strong>Blank UI</strong><p>Amount input is prepared for encrypted contract execution.</p></div>
+    <div class="pipeline-step"><b>03</b><strong>CoFHE contracts</strong><p>Encrypted values are stored and processed on testnet.</p></div>
+    <div class="pipeline-step"><b>04</b><strong>Visible outcome</strong><p>The user sees status, receipt link and counterparty state.</p></div>
+  </div>
+  <div class="receipts">
+    <a href="https://www.myblank.app/app" target="_blank" rel="noopener">Live application</a>
+    <a href="https://www.myblank.app/status" target="_blank" rel="noopener">Network status</a>
+    <a href="/whitepaper.pdf" target="_blank" rel="noopener">Whitepaper</a>
+    <a href="#txs">Transaction index</a>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<section class="section appendix-head" id="evidence">
+  <div class="eyebrow">Evidence appendix</div>
+  <h2>Receipts, screenshots and cross-user outcomes.</h2>
+  <p class="lede">This archive supports the product story above. It records desktop Rabby EOA flows driven on Ethereum Sepolia and Base Sepolia from the live application. Mobile transaction coverage and sponsored/passkey readiness are not claimed on this page.</p>
+</section>
 
 <nav class="toc">
-  <h3>Selected visual walk-through</h3>
+  <h3>Evidence index</h3>
   <ol>
-    <li><a href="#wallet">1. Wallet identity</a></li>
-    <li><a href="#claim">2. Claim Link (send to anyone)</a></li>
-    <li><a href="#storefront">3. Storefront (encrypted sales)</a></li>
-    <li><a href="#crowdfund">4. Crowdfund (encrypted contributions)</a></li>
-    <li><a href="#p2p">5. P2P Exchange (encrypted swap)</a></li>
-    <li><a href="#offramp-create">6. P2P Offramp · create (headline)</a></li>
-    <li><a href="#offramp-lifecycle">7. P2P Offramp · take → proof → release</a></li>
-    <li><a href="#txs">8. On-chain transaction index</a></li>
+    <li><a href="#coverage">Recorded desktop coverage</a></li>
+    <li><a href="#wallet">Wallet identity</a></li>
+    <li><a href="#claim">Claim Link</a></li>
+    <li><a href="#storefront">Storefront</a></li>
+    <li><a href="#crowdfund">Crowdfund</a></li>
+    <li><a href="#p2p">P2P Exchange</a></li>
+    <li><a href="#offramp-create">P2P Offramp creation</a></li>
+    <li><a href="#offramp-lifecycle">P2P Offramp lifecycle</a></li>
+    <li><a href="#txs">On-chain transaction index</a></li>
   </ol>
 </nav>
 
 <section class="section" id="coverage">
-  <h2>Complete desktop coverage</h2>
-  <p class="lede">The visual sections below focus on externally shareable and Wave 5 headline journeys. The complete Rabby EOA matrix was driven through the live application on both Sepolia chains.</p>
+  <h2>Recorded desktop coverage</h2>
+  <p class="lede">The visual sections focus on shareable and Wave 5 headline journeys. The matrix below states the Rabby EOA outcomes recorded during live QA on both Sepolia chains.</p>
   <table class="matrix" aria-label="Desktop Rabby testnet feature coverage">
     <thead>
       <tr><th>Outcome verified</th><th>Base Sepolia</th><th>Ethereum Sepolia</th></tr>
