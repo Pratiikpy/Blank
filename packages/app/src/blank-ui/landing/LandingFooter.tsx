@@ -16,6 +16,7 @@ export function LandingFooter() {
         <a href={PUBLIC_LINKS.brand}>Brand Kit</a>
         <a href={PUBLIC_LINKS.blog}>Blog</a>
         <Link to="/manifesto">Manifesto</Link>
+        <a href="/proof-deck">Proof deck</a>
         <a href={PUBLIC_LINKS.app}>Launch app</a>
         <a
           href="https://github.com/Pratiikpy/Blank"
