@@ -89,6 +89,7 @@ footer { margin-top: 96px; padding-top: 24px; border-top: 1px solid var(--border
   <p><strong>Stack:</strong> Fhenix CoFHE (encrypted state) + ERC-4337 (sponsored gas via paymaster) + Vercel + React. Same contracts live on both Sepolia chains.</p>
   <p><strong>Coverage:</strong> 6,528 tests passing (5,942 frontend unit + 586 contract), 18 distinct end-to-end QA dirs, 16 status=1 lifecycle txs this session.</p>
   <p><strong>Wave 5 contracts live on both chains:</strong> P2POfframp · MockReclaimVerifier · GuardianModule · BlankHandles · ProofOfBalance · ReclaimAdapter. All 12 addresses found in production bundle <code>index-*.js</code>.</p>
+  <p><strong>FHE primitives in use across the Solidity codebase:</strong> <code>FHE.select</code> ×36 (private branches), <code>FHE.gte</code> ×25 (encrypted thresholds), <code>FHE.add</code> ×19 (running encrypted totals), <code>FHE.eq</code> ×11 (encrypted equality), <code>FHE.sub</code> ×11, <code>FHE.and</code> ×8, plus <code>FHE.allow</code>/<code>FHE.allowThis</code>/<code>FHE.allowTransient</code> ×229 ACL grants. Every encrypted value passes through an FHE primitive; plaintext never touches the wire.</p>
 </div>
 
 <nav class="toc">
