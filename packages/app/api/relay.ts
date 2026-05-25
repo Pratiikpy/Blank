@@ -231,6 +231,18 @@ async function handleImpl(req: any, res: any) {
     catch { res.status(400).json({ error: "invalid JSON body" }); return; }
   }
 
+  // Wave 5.5 — mock-reclaim-sign branch. Folded into /api/relay because
+  // Vercel Hobby plan caps at 12 serverless functions and we hit the
+  // limit. Routed by `kind` field in the body rather than a separate
+  // endpoint URL. Skips the rate-limit + chainId validation since this
+  // path doesn't hit the chain — it's a pure ECDSA helper for the
+  // MockReclaimVerifier flow.
+  if (body && (body as { kind?: string }).kind === "mock-reclaim-sign") {
+    const { handleMockReclaimSign } = await import("./_lib/mock-reclaim-sign.js");
+    await handleMockReclaimSign(body, res);
+    return;
+  }
+
   const { userOp, chainId } = body ?? {};
   if (typeof chainId !== "number" || !SUPPORTED_CHAINS[chainId]) {
     res.status(400).json({ error: `unsupported chainId — must be one of ${Object.keys(SUPPORTED_CHAINS).join(", ")}` });

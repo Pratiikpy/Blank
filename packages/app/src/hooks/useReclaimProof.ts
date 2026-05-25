@@ -72,14 +72,16 @@ export function useReclaimProof(mode: ReclaimMode = ENV_MODE) {
         // Wave 5.5 — server-side mock signing. The MockReclaimVerifier
         // on-chain recovers the signature against `operator` (the
         // deployer key); having the taker sign with their own wallet
-        // would never satisfy that check. We POST to /api/mock-reclaim-sign
-        // which signs with the operator PK (server-only env var).
-        // Replaces the prior wallet-sign flow that always failed on-chain.
+        // would never satisfy that check. We POST to /api/relay with
+        // `kind: "mock-reclaim-sign"` which signs with the operator PK
+        // (server-only env var). Folded into /api/relay because Vercel
+        // Hobby plan caps at 12 functions.
         setState("proving");
-        const resp = await fetch("/api/mock-reclaim-sign", {
+        const resp = await fetch("/api/relay", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
+            kind: "mock-reclaim-sign",
             providerId: req.providerId,
             receiverHandle: req.receiverHandle,
             amountMicroUSD: req.amountMicroUSD.toString(),
