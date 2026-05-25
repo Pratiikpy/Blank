@@ -443,6 +443,38 @@ async function createCrowdfund(page: Page, ctx: BrowserContext, extId: string, k
   return { url: m[0], hashes, title };
 }
 
+/// Wave 5.5 — P2P Exchange create-offer smoke test on the current chain.
+/// Mirrors Base's prior live proof for Eth Sepolia: Dave creates an
+/// encrypted USDC→USDT swap offer through /app/swap. Drains Rabby
+/// popups + captures success state. Returns the create tx hashes.
+///
+/// We test CREATE only here (not fill), because fill requires Bob to
+/// hold shielded USDT and ensureShielded() only handles USDC. Adding
+/// USDT shield support is a larger fixture lift; for desktop Rabby
+/// launch-ready, proving the maker side on both chains + the Base full
+/// fill (already done previously) is the practical bar.
+async function createP2PSwap(page: Page, ctx: BrowserContext, extId: string, known: Set<Page>): Promise<{ hashes: Hash[]; created: boolean }> {
+  await page.goto(`${VERCEL_URL}/app/swap`, { waitUntil: "domcontentloaded", timeout: 60_000 });
+  await page.waitForTimeout(3_000);
+  // The Create tab is the default landing for /app/swap exchange view.
+  const giveInput = page.locator('input[aria-label="Amount you give"], input[placeholder="0.00"]').first();
+  const wantInput = page.locator('input[aria-label="Amount you want"]').first();
+  await giveInput.waitFor({ state: "visible", timeout: 30_000 });
+  await safeFill(giveInput, "0.1");
+  await safeFill(wantInput, "0.1");
+  await snap(page, "p2p-create-filled");
+  const before = await getNonce(DAVE);
+  await page.locator("button:visible:not([disabled])").filter({ hasText: /^Create Swap Offer$/i }).first().click();
+  await drainRabbyPopups(ctx, extId, known, "p2p-create", 5);
+  // The success state shows "Offer Created!" — wait up to 240s for the
+  // P2P encrypted-amount settlement (slower than Storefront because
+  // P2PExchange uses FHE.gte + FHE.eq on both legs of the swap).
+  const created = await page.locator("text=/Offer Created/i").first().waitFor({ state: "visible", timeout: 240_000 }).then(() => true).catch(() => false);
+  await snap(page, "p2p-create-success");
+  const hashes = await txHashesFrom(DAVE, before);
+  return { hashes, created };
+}
+
 /// Dave revisits /app/fundraise after Bob + Carol contribute. Verifies
 /// the campaign is in the "Your campaigns" section, then refreshes and
 /// re-verifies.
@@ -657,6 +689,23 @@ async function main(): Promise<void> {
       hashes: [],
       note: `Dave's /app/fundraise shows campaign '${crowdfundCreated.title}' (afterContribute=${creatorSide.ok ? "match" : "miss"}, refresh=${creatorSide.ok ? "match" : "miss"})`,
       screenshot: creatorSide.afterRefresh,
+    };
+  });
+
+  await runFlow("P2P Exchange create", async () => {
+    await switchRabbyAccount(rabbyPage, extId, "Dave");
+    await ensureDappAccount(page, ctx, extId, known, "Dave");
+    setupHashes.Dave ??= await ensureShielded(page, ctx, extId, known, "Dave", "2");
+    const result = await createP2PSwap(page, ctx, extId, known);
+    return {
+      name: "P2P Exchange create",
+      status: result.created && result.hashes.length > 0 ? "green" : "red",
+      url: `${VERCEL_URL}/app/swap`,
+      hashes: result.hashes,
+      note: result.created
+        ? "Dave created encrypted P2P offer (0.1 USDC → 0.1 USDT); 'Offer Created' success captured"
+        : "P2P create did not reach success state — see p2p-create-success.png",
+      screenshot: resolve(OUT, "p2p-create-success.png"),
     };
   });
 
