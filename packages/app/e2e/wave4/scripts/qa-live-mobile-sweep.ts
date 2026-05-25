@@ -1,7 +1,7 @@
 import { chromium, type BrowserContext, type Page } from "@playwright/test";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 
 import {
   unlockRabby,
@@ -22,6 +22,7 @@ const CHAIN_ID = Number(process.env.CHAIN_ID ?? 84532);
 if (CHAIN_ID !== 84532 && CHAIN_ID !== 11155111) throw new Error(`Unsupported CHAIN_ID ${CHAIN_ID}`);
 const CHAIN_NAME = CHAIN_ID === 11155111 ? "Ethereum Sepolia" : "Base Sepolia";
 const OUT = resolve(REPO, `packages/app/test-results/qa-live-mobile-sweep-${CHAIN_ID === 11155111 ? "eth" : "base"}`);
+const RUN_PROFILE = resolve(OUT, "profiles", `run-${Date.now()}`);
 
 const ROUTES: Array<{ path: string; label: string }> = [
   { path: "/app", label: "01-dashboard" },
@@ -170,9 +171,19 @@ async function analyze(page: Page): Promise<string[]> {
 async function main(): Promise<void> {
   if (!existsSync(RABBY_EXT_DIR) || !existsSync(RABBY_PROFILE_DIR)) throw new Error("Rabby extension or profile missing");
   mkdirSync(OUT, { recursive: true });
+  mkdirSync(resolve(OUT, "profiles"), { recursive: true });
+  cpSync(RABBY_PROFILE_DIR, RUN_PROFILE, {
+    recursive: true,
+    force: true,
+    filter: (src) =>
+      !/[\\/]Singleton/.test(src) &&
+      !/[\\/]lockfile$/i.test(src) &&
+      !/[\\/]Cookies(?:-journal)?$/i.test(src) &&
+      !/[\\/]Network[\\/]/i.test(src),
+  });
   console.log(`QA live mobile sweep · ${CHAIN_NAME} · ${VERCEL_URL}`);
 
-  const ctx = await chromium.launchPersistentContext(RABBY_PROFILE_DIR, {
+  const ctx = await chromium.launchPersistentContext(RUN_PROFILE, {
     headless: false,
     viewport: { width: 390, height: 844 },
     isMobile: true,
