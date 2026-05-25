@@ -118,34 +118,54 @@ footer { margin-top: 96px; padding-top: 24px; border-top: 1px solid var(--border
 
 <section class="section" id="claim">
   <h2>2. Claim Link · send to anyone</h2>
-  <p class="lede">Dave creates a magic link, Bob opens it and claims, Carol is rejected on the spent link. Used → blocked enforcement is on-chain.</p>
+  <p class="lede">Dave creates a magic link, Bob opens it and claims, Carol is rejected on the spent link. Used → blocked enforcement is on-chain. Same flow proven on both chains.</p>
   <div class="shot-grid">
     <figure class="shot">
       <img src="/proof-images/eth-claim-create-success.png" alt="Dave creates claim link">
-      <figcaption>Dave creates · receives a /claim/&lt;chain&gt;/&lt;id&gt;#&lt;secret&gt; link</figcaption>
+      <figcaption><span class="chain eth">Eth</span> Dave creates · /claim/11155111/&lt;id&gt;#&lt;secret&gt;</figcaption>
+    </figure>
+    <figure class="shot">
+      <img src="/proof-images/base-claim-create-success.png" alt="Dave creates claim link on Base">
+      <figcaption><span class="chain base">Base</span> Same flow, /claim/84532/&lt;id&gt;#&lt;secret&gt;</figcaption>
     </figure>
     <figure class="shot">
       <img src="/proof-images/eth-claim-bob-success.png" alt="Bob claims the link">
-      <figcaption>Bob claims · encrypted USDC moves to Bob</figcaption>
+      <figcaption><span class="chain eth">Eth</span> Bob claims · encrypted USDC moves to Bob</figcaption>
+    </figure>
+    <figure class="shot">
+      <img src="/proof-images/base-claim-bob-success.png" alt="Bob claims the link on Base">
+      <figcaption><span class="chain base">Base</span> Bob claims · same outcome</figcaption>
     </figure>
   </div>
 </section>
 
 <section class="section" id="storefront">
   <h2>3. Storefront · encrypted sales</h2>
-  <p class="lede">Dave lists, Bob buys, Carol can browse but can't see Bob's purchase. Dave revisits /app/sell after the buy and sees the listing in his "Your listings" section with up-to-date state.</p>
+  <p class="lede">Dave lists, Bob buys, Carol can browse but can't see Bob's purchase. Dave revisits /app/sell after the buy and sees the listing in his "Your listings" section with up-to-date state. Same flow proven on both chains.</p>
   <div class="shot-grid">
     <figure class="shot">
       <img src="/proof-images/eth-storefront-create-success.png" alt="Storefront create">
-      <figcaption>Dave creates listing · encrypted price commit</figcaption>
+      <figcaption><span class="chain eth">Eth</span> Dave creates listing · encrypted price commit</figcaption>
+    </figure>
+    <figure class="shot">
+      <img src="/proof-images/base-storefront-create-success.png" alt="Storefront create on Base">
+      <figcaption><span class="chain base">Base</span> Same · encrypted price commit</figcaption>
     </figure>
     <figure class="shot">
       <img src="/proof-images/eth-storefront-bob-success.png" alt="Bob buys">
-      <figcaption>Bob buys · encrypted USDC out, item ownership in</figcaption>
+      <figcaption><span class="chain eth">Eth</span> Bob buys · encrypted USDC out, item in</figcaption>
+    </figure>
+    <figure class="shot">
+      <img src="/proof-images/base-storefront-bob-success.png" alt="Bob buys on Base">
+      <figcaption><span class="chain base">Base</span> Bob buys · same outcome</figcaption>
     </figure>
     <figure class="shot">
       <img src="/proof-images/eth-storefront-dave-revisit-after-buy.png" alt="Dave seller revisit after buy">
-      <figcaption>Dave returns to /app/sell · sees the sold listing</figcaption>
+      <figcaption><span class="chain eth">Eth</span> Dave returns to /app/sell · sees sold listing</figcaption>
+    </figure>
+    <figure class="shot">
+      <img src="/proof-images/base-storefront-dave-revisit-after-buy.png" alt="Dave seller revisit after buy on Base">
+      <figcaption><span class="chain base">Base</span> Same revisit, same state</figcaption>
     </figure>
   </div>
 </section>
@@ -156,7 +176,11 @@ footer { margin-top: 96px; padding-top: 24px; border-top: 1px solid var(--border
   <div class="shot-grid">
     <figure class="shot">
       <img src="/proof-images/eth-fund-create-success.png" alt="Crowdfund create">
-      <figcaption>Dave creates campaign · goal encrypted on-chain</figcaption>
+      <figcaption><span class="chain eth">Eth</span> Dave creates campaign · goal encrypted on-chain</figcaption>
+    </figure>
+    <figure class="shot">
+      <img src="/proof-images/base-fund-create-success.png" alt="Crowdfund create on Base">
+      <figcaption><span class="chain base">Base</span> Same · goal encrypted on-chain</figcaption>
     </figure>
     <figure class="shot">
       <img src="/proof-images/eth-fund-bob-success.png" alt="Bob contributes">
