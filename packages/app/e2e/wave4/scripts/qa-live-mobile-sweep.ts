@@ -223,8 +223,17 @@ async function main(): Promise<void> {
         .isVisible({ timeout: 1_000 })
         .catch(() => false);
       if (notFound) notes.push("404 rendered");
+      // Check for the runtime ErrorBoundary fallback explicitly so we
+      // can tell "JS crashed on this route" apart from "route renders
+      // without a heading tag" downstream.
+      const errorBoundary = await page
+        .locator("text=Something broke")
+        .first()
+        .isVisible({ timeout: 1_000 })
+        .catch(() => false);
+      if (errorBoundary) notes.push("ErrorBoundary fired");
       const hasHeading = await page.locator("h1, h2, h3, [role='heading']").first().isVisible({ timeout: 2_000 }).catch(() => false);
-      if (!hasHeading) notes.push("no visible heading");
+      if (!hasHeading && !errorBoundary) notes.push("no visible heading");
       notes.push(...(await analyze(page)));
       screenshot = await snap(page, route.label);
     } catch (err) {
