@@ -575,6 +575,10 @@ async function main(): Promise<void> {
   const setupHashes: Partial<Record<Persona, Hash[]>> = {};
   const walletProofs: string[] = [];
 
+  // Wave 5.5 — OFFRAMP_ONLY=1 skips earlier flows when re-running just
+  // to validate the Offramp lifecycle. Saves ~25 min per chain.
+  const offrampOnly = process.env.OFFRAMP_ONLY === "1";
+
   await runFlow("Wallet identity preflight", async () => {
     for (const persona of ["Dave", "Bob", "Carol"] as const) {
       await ensureDappAccount(page, ctx, extId, known, persona);
@@ -589,7 +593,7 @@ async function main(): Promise<void> {
     };
   });
 
-  await runFlow("Claim Link recipient", async () => {
+  if (!offrampOnly) await runFlow("Claim Link recipient", async () => {
     await switchRabbyAccount(rabbyPage, extId, "Dave");
     await ensureDappAccount(page, ctx, extId, known, "Dave");
     setupHashes.Dave ??= await ensureShielded(page, ctx, extId, known, "Dave", "2");
@@ -617,7 +621,7 @@ async function main(): Promise<void> {
   let storefrontCreated: { url: string; hashes: Hash[]; title: string } | null = null;
   let crowdfundCreated: { url: string; hashes: Hash[]; title: string } | null = null;
 
-  await runFlow("Storefront buyer", async () => {
+  if (!offrampOnly) await runFlow("Storefront buyer", async () => {
     await switchRabbyAccount(rabbyPage, extId, "Dave");
     await ensureDappAccount(page, ctx, extId, known, "Dave");
     setupHashes.Dave ??= await ensureShielded(page, ctx, extId, known, "Dave", "2");
@@ -642,7 +646,7 @@ async function main(): Promise<void> {
 
   // Separate flow so a crash here doesn't lose the buyer-flow proof. The
   // seller-revisit truth is its own row in the report.
-  await runFlow("Storefront seller revisit", async () => {
+  if (!offrampOnly) await runFlow("Storefront seller revisit", async () => {
     if (!storefrontCreated) {
       throw new Error("no storefront listing was created — skipping seller revisit");
     }
@@ -659,7 +663,7 @@ async function main(): Promise<void> {
     };
   });
 
-  await runFlow("Crowdfund contributor", async () => {
+  if (!offrampOnly) await runFlow("Crowdfund contributor", async () => {
     await switchRabbyAccount(rabbyPage, extId, "Dave");
     await ensureDappAccount(page, ctx, extId, known, "Dave");
     setupHashes.Dave ??= await ensureShielded(page, ctx, extId, known, "Dave", "2");
@@ -683,7 +687,7 @@ async function main(): Promise<void> {
     };
   });
 
-  await runFlow("Crowdfund creator revisit", async () => {
+  if (!offrampOnly) await runFlow("Crowdfund creator revisit", async () => {
     if (!crowdfundCreated) {
       throw new Error("no crowdfund campaign was created — skipping creator revisit");
     }
@@ -700,7 +704,7 @@ async function main(): Promise<void> {
     };
   });
 
-  await runFlow("P2P Exchange create", async () => {
+  if (!offrampOnly) await runFlow("P2P Exchange create", async () => {
     await switchRabbyAccount(rabbyPage, extId, "Dave");
     await ensureDappAccount(page, ctx, extId, known, "Dave");
     setupHashes.Dave ??= await ensureShielded(page, ctx, extId, known, "Dave", "2");
