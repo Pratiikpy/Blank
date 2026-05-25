@@ -530,7 +530,7 @@ async function runFlow(name: string, fn: () => Promise<FlowResult>): Promise<voi
   try {
     const result = await fn();
     results.push(result);
-    console.log(`GREEN ${name}`);
+    console.log(`${result.status === "green" ? "GREEN" : "RED"} ${name}${result.status === "red" ? `: ${result.note}` : ""}`);
   } catch (err) {
     const note = err instanceof Error ? err.message : String(err);
     results.push({ name, status: "red", hashes: [], note });
