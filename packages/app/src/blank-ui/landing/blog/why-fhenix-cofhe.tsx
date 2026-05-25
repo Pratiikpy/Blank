@@ -29,10 +29,32 @@ const post: BlogPost = {
         a separate world."
       </p>
 
+      <figure className="ll-blog-figure">
+        <img
+          src="/og/blank-og.png"
+          alt="Blank wordmark on a card that reads &quot;public sender, public receiver, redacted amount.&quot;"
+          loading="lazy"
+        />
+        <figcaption>
+          What stays public on Blank: sender, receiver, memo. What stays encrypted: the amount.
+        </figcaption>
+      </figure>
+
       <h2>The architectural fork: L1 vs co-processor</h2>
       <p>
         Most FHE-on-blockchain projects choose one of two paths.
       </p>
+
+      <figure className="ll-blog-figure">
+        <img
+          src="/blog-images/cofhe-architecture.svg"
+          alt="Two architecture diagrams side by side. Left: an FHE-native Layer 1 where every node runs FHE operations. Right: an FHE co-processor model where Ethereum stays a plain EVM, contracts hold euint64 handles, a TaskManager dispatches FHE work to a threshold quorum of operators, and the operators return permits the EVM verifies."
+          loading="lazy"
+        />
+        <figcaption>
+          Left: every node runs FHE. Right: Ethereum stays plain; encrypted work delegates to a threshold quorum that returns EVM-verifiable permits.
+        </figcaption>
+      </figure>
       <p>
         <strong>Path 1: FHE Layer 1.</strong> Every node in the network
         runs FHE operations. The chain itself is FHE-native. Inco and

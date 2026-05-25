@@ -83,6 +83,13 @@
 
 .ll-nav-links {
   display: flex;
+  /* `align-items: center` keeps the <button> dropdown trigger and the
+   * <a> siblings on the same baseline. Without it, the default
+   * `stretch` alignment leaves the "For ▾" trigger visibly lower than
+   * its anchor siblings because the button's inline-flex layout box
+   * has different intrinsic vertical metrics than a plain anchor's
+   * text node. Reviewer flagged the misalignment 2026-05-25. */
+  align-items: center;
   gap: 2rem;
 }
 .ll-nav-links a {

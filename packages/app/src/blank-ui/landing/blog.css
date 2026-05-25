@@ -84,6 +84,29 @@
   font-style: italic;
 }
 
+/* Inline figures (added 2026-05-25 after reviewer feedback that blog
+   posts felt dense without imagery). Scoped to .ll-blog-prose so the
+   styles only affect blog post bodies, not other figure usage on the
+   marketing site. */
+.ll-blog-figure {
+  margin: 2rem 0;
+}
+.ll-blog-figure img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 10px;
+  border: 1px solid var(--ll-border);
+  background: var(--ll-paper, #fff);
+}
+.ll-blog-figure figcaption {
+  margin-top: 0.65rem;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: var(--ll-muted);
+  text-align: center;
+}
+
 @media (max-width: 720px) {
   .ll-blog-prose {
     font-size: 1rem;
@@ -91,5 +114,8 @@
   .ll-blog-prose h2 {
     font-size: 1.35rem;
     margin-top: 2.5rem;
+  }
+  .ll-blog-figure {
+    margin: 1.5rem 0;
   }
 }
