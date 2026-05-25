@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Blank — proof deck</title>
+<title>Blank · proof deck</title>
 <style>
 :root {
   color-scheme: light;
@@ -59,7 +59,7 @@ footer { margin-top: 96px; padding-top: 24px; border-top: 1px solid var(--border
 
 <header class="hero">
   <div class="eyebrow">Testnet launch proof · 2026-05-25</div>
-  <h1>Blank — every flow proven<br>on desktop Rabby, both chains.</h1>
+  <h1>Blank · every flow proven<br>on desktop Rabby, both chains.</h1>
   <p>Encrypted payments on Ethereum Sepolia and Base Sepolia. Every screen below is a real live screenshot from <code>https://www.myblank.app</code> driven by a real Rabby extension; every transaction is on-chain with <code>status=1</code>.</p>
 </header>
 
@@ -95,7 +95,7 @@ footer { margin-top: 96px; padding-top: 24px; border-top: 1px solid var(--border
 </section>
 
 <section class="section" id="claim">
-  <h2>2. Claim Link — send to anyone</h2>
+  <h2>2. Claim Link · send to anyone</h2>
   <p class="lede">Dave creates a magic link, Bob opens it and claims, Carol is rejected on the spent link. Used → blocked enforcement is on-chain.</p>
   <div class="shot-grid">
     <figure class="shot">
@@ -110,7 +110,7 @@ footer { margin-top: 96px; padding-top: 24px; border-top: 1px solid var(--border
 </section>
 
 <section class="section" id="storefront">
-  <h2>3. Storefront — encrypted sales</h2>
+  <h2>3. Storefront · encrypted sales</h2>
   <p class="lede">Dave lists, Bob buys, Carol can browse but can't see Bob's purchase. Dave revisits /app/sell after the buy and sees the listing in his "Your listings" section with up-to-date state.</p>
   <div class="shot-grid">
     <figure class="shot">
@@ -129,7 +129,7 @@ footer { margin-top: 96px; padding-top: 24px; border-top: 1px solid var(--border
 </section>
 
 <section class="section" id="crowdfund">
-  <h2>4. Crowdfund — encrypted contributions</h2>
+  <h2>4. Crowdfund · encrypted contributions</h2>
   <p class="lede">Bob and Carol contribute privately to Dave's campaign. Their amounts are encrypted; only the on-chain total handle is visible. Dave revisits /app/fundraise and sees the campaign with both contributions reflected.</p>
   <div class="shot-grid">
     <figure class="shot">
@@ -152,7 +152,7 @@ footer { margin-top: 96px; padding-top: 24px; border-top: 1px solid var(--border
 </section>
 
 <section class="section" id="p2p">
-  <h2>5. P2P Exchange — encrypted swap</h2>
+  <h2>5. P2P Exchange · encrypted swap</h2>
   <p class="lede">Encrypted-amount swap offer on the P2PExchange contract. Maker's offer amount is committed encrypted; takers can only fill the exact pre-encrypted amount, no drift between match and release.</p>
   <div class="shot-grid">
     <figure class="shot">
@@ -163,7 +163,7 @@ footer { margin-top: 96px; padding-top: 24px; border-top: 1px solid var(--border
 </section>
 
 <section class="section" id="offramp-create">
-  <h2>6. P2P Offramp — create (headline)</h2>
+  <h2>6. P2P Offramp · create (headline)</h2>
   <p class="lede">Wave 5 headline build. Dave creates an encrypted offramp offer: 1 USDC for $1 PhonePe UPI. The USDC amount is committed encrypted; the fiat rail + price are public so takers can find it. Offer appears in the public book.</p>
   <div class="shot-grid">
     <figure class="shot">
@@ -174,7 +174,7 @@ footer { margin-top: 96px; padding-top: 24px; border-top: 1px solid var(--border
 </section>
 
 <section class="section" id="offramp-lifecycle">
-  <h2>7. P2P Offramp — full lifecycle</h2>
+  <h2>7. P2P Offramp · full lifecycle</h2>
   <p class="lede">Bob takes Dave's offer, pays Dave off-chain on PhonePe, generates a Reclaim Protocol attestation (mock-signed by operator on testnet, real Reclaim on mainnet), submits it on-chain, waits the 300-second challenge window, then releases the encrypted USDC to himself.</p>
   <div class="shot-grid">
     <figure class="shot">
@@ -193,12 +193,12 @@ footer { margin-top: 96px; padding-top: 24px; border-top: 1px solid var(--border
   <div class="tx">
     <h3>On-chain proof · both chains</h3>
     <ul>
-      <li><span class="label"><span class="chain eth">Eth</span></span><a href="https://sepolia.etherscan.io/tx/0x785db560f123392bc090a82cbeb6c978e5e697d8af0229cf90d01b731e634d91" target="_blank" rel="noopener">0x785db560…</a> — FillLocked (Bob takeOffer)</li>
-      <li><span class="label"><span class="chain eth">Eth</span></span><a href="https://sepolia.etherscan.io/tx/0x85b3bbfdf57dc71bf7efe9ca64b75bd3e63f9d6b9f014b7496c85014398a9258" target="_blank" rel="noopener">0x85b3bbfd…</a> — ProofSubmitted</li>
-      <li><span class="label"><span class="chain eth">Eth</span></span><a href="https://sepolia.etherscan.io/tx/0x159e292c7b54d9677c06722bb65a4a4e33287881bd0294ddb6af375c794cb0f3" target="_blank" rel="noopener">0x159e292c…</a> — FillReleased</li>
-      <li><span class="label"><span class="chain base">Base</span></span><a href="https://sepolia.basescan.org/tx/0x2fb0361da7ac2543e891756c49a8b52c64ac4374381a421053b9376364f0a66a" target="_blank" rel="noopener">0x2fb0361d…</a> — FillLocked (Bob takeOffer)</li>
-      <li><span class="label"><span class="chain base">Base</span></span><a href="https://sepolia.basescan.org/tx/0x98b34e7e7452995e546ebd9c6ec354b043e2d6277c8eb2515d128b4db87d692f" target="_blank" rel="noopener">0x98b34e7e…</a> — ProofSubmitted</li>
-      <li><span class="label"><span class="chain base">Base</span></span><a href="https://sepolia.basescan.org/tx/0x8a82353bab43caf63d01dd79a88a8f4fd86fb6d9514152715a6da91bf12a7aa5" target="_blank" rel="noopener">0x8a82353b…</a> — FillReleased</li>
+      <li><span class="label"><span class="chain eth">Eth</span></span><a href="https://sepolia.etherscan.io/tx/0x785db560f123392bc090a82cbeb6c978e5e697d8af0229cf90d01b731e634d91" target="_blank" rel="noopener">0x785db560…</a> · FillLocked (Bob takeOffer)</li>
+      <li><span class="label"><span class="chain eth">Eth</span></span><a href="https://sepolia.etherscan.io/tx/0x85b3bbfdf57dc71bf7efe9ca64b75bd3e63f9d6b9f014b7496c85014398a9258" target="_blank" rel="noopener">0x85b3bbfd…</a> · ProofSubmitted</li>
+      <li><span class="label"><span class="chain eth">Eth</span></span><a href="https://sepolia.etherscan.io/tx/0x159e292c7b54d9677c06722bb65a4a4e33287881bd0294ddb6af375c794cb0f3" target="_blank" rel="noopener">0x159e292c…</a> · FillReleased</li>
+      <li><span class="label"><span class="chain base">Base</span></span><a href="https://sepolia.basescan.org/tx/0x2fb0361da7ac2543e891756c49a8b52c64ac4374381a421053b9376364f0a66a" target="_blank" rel="noopener">0x2fb0361d…</a> · FillLocked (Bob takeOffer)</li>
+      <li><span class="label"><span class="chain base">Base</span></span><a href="https://sepolia.basescan.org/tx/0x98b34e7e7452995e546ebd9c6ec354b043e2d6277c8eb2515d128b4db87d692f" target="_blank" rel="noopener">0x98b34e7e…</a> · ProofSubmitted</li>
+      <li><span class="label"><span class="chain base">Base</span></span><a href="https://sepolia.basescan.org/tx/0x8a82353bab43caf63d01dd79a88a8f4fd86fb6d9514152715a6da91bf12a7aa5" target="_blank" rel="noopener">0x8a82353b…</a> · FillReleased</li>
     </ul>
   </div>
 </section>
@@ -206,7 +206,7 @@ footer { margin-top: 96px; padding-top: 24px; border-top: 1px solid var(--border
 <div class="divider"></div>
 
 <section class="section" id="txs">
-  <h2>8. On-chain transaction index — this session</h2>
+  <h2>8. On-chain transaction index · this session</h2>
   <p class="lede">Every transaction below is a real <code>cast receipt</code> with <code>status=1 (success)</code> on the labeled chain. Click through to Etherscan/Basescan to verify independently.</p>
 
   <div class="tx">
