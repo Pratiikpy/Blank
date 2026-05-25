@@ -581,6 +581,10 @@ async function main(): Promise<void> {
 
   await runFlow("Wallet identity preflight", async () => {
     for (const persona of ["Dave", "Bob", "Carol"] as const) {
+      // Switch Rabby first; ensureDappAccount throws if the dApp's
+      // eth_accounts doesn't include the expected persona (which it
+      // wouldn't if Rabby is still on the prior persona).
+      await switchRabbyAccount(rabbyPage, extId, persona);
       await ensureDappAccount(page, ctx, extId, known, persona);
       walletProofs.push(await verifyWalletState(page, rabbyPage, extId, persona));
     }
