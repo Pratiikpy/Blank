@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
-import { keccak256, toBytes, encodeAbiParameters, type Hex } from "viem";
-import { useSignMessage, useAccount } from "wagmi";
+import { keccak256, toBytes, type Hex } from "viem";
+import { useAccount } from "wagmi";
 
 import type { RailId } from "@/lib/reclaim-providers";
 
@@ -45,34 +45,8 @@ export interface ReclaimProofResult {
 
 const ENV_MODE = (import.meta.env?.VITE_RECLAIM_MODE as ReclaimMode | undefined) ?? "mock";
 
-/**
- * Compute the EIP-191 personal-sign message that MockReclaimVerifier
- * reconstructs. Used by the mock path so the same connected wallet
- * that the MockReclaimVerifier was initialized with can produce a
- * valid signature off-chain.
- *
- * NOTE: in production this would NEVER be the taker's wallet — the
- * MockReclaimVerifier ships with operator=address(0) (disabled) and
- * all proofs go through the real Reclaim SDK. The mock path here is
- * for testnet flows where the connected wallet IS the configured
- * operator (single-user demos / hardhat tests).
- */
-function buildMockMessage(req: ReclaimProofRequest): Hex {
-  return keccak256(
-    encodeAbiParameters(
-      [
-        { type: "uint32" },
-        { type: "bytes32" },
-        { type: "uint64" },
-      ],
-      [req.providerId, req.receiverHandle as Hex, req.amountMicroUSD],
-    ),
-  );
-}
-
 export function useReclaimProof(mode: ReclaimMode = ENV_MODE) {
   const { address } = useAccount();
-  const { signMessageAsync } = useSignMessage();
   const [state, setState] = useState<ReclaimState>("idle");
   const [error, setError] = useState<string | null>(null);
 
@@ -93,15 +67,31 @@ export function useReclaimProof(mode: ReclaimMode = ENV_MODE) {
           );
         }
 
-        if (!address) throw new Error("Connect a wallet to sign the mock proof.");
+        if (!address) throw new Error("Connect a wallet to take the offer first.");
 
-        const messageHash = buildMockMessage(req);
+        // Wave 5.5 — server-side mock signing. The MockReclaimVerifier
+        // on-chain recovers the signature against `operator` (the
+        // deployer key); having the taker sign with their own wallet
+        // would never satisfy that check. We POST to /api/mock-reclaim-sign
+        // which signs with the operator PK (server-only env var).
+        // Replaces the prior wallet-sign flow that always failed on-chain.
         setState("proving");
-        const signature = await signMessageAsync({
-          message: { raw: messageHash },
+        const resp = await fetch("/api/mock-reclaim-sign", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            providerId: req.providerId,
+            receiverHandle: req.receiverHandle,
+            amountMicroUSD: req.amountMicroUSD.toString(),
+          }),
         });
+        if (!resp.ok) {
+          const body = (await resp.json().catch(() => ({}))) as { error?: string };
+          throw new Error(body.error ?? `mock-reclaim-sign HTTP ${resp.status}`);
+        }
+        const { signature } = (await resp.json()) as { signature: Hex; signer: `0x${string}` };
 
-        const proof = signature as Hex;
+        const proof = signature;
         const proofHashLocal = keccak256(toBytes(proof));
         setState("ready");
         return { proof, providerId: req.providerId, proofHashLocal };
@@ -112,7 +102,7 @@ export function useReclaimProof(mode: ReclaimMode = ENV_MODE) {
         throw e;
       }
     },
-    [address, mode, signMessageAsync],
+    [address, mode],
   );
 
   const reset = useCallback(() => {
