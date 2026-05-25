@@ -31,9 +31,15 @@ function setAllEnv() {
 }
 
 function makeRes() {
-  const captured: { status?: number; body?: Record<string, unknown> } = {};
+  const captured: { status?: number; body?: Record<string, unknown>; headers: Record<string, string> } = {
+    headers: {},
+  };
   return {
     captured,
+    setHeader(k: string, v: string) {
+      captured.headers[k] = v;
+      return this;
+    },
     status(s: number) {
       captured.status = s;
       return this;
@@ -69,6 +75,14 @@ afterEach(() => {
 });
 
 describe("/api/health — status code (§15.x)", () => {
+  it("allows branded application health probes through the central endpoint", async () => {
+    mockProbeAllOk();
+    const res = makeRes();
+    await handler({ headers: { origin: "https://app.myblank.app" } }, res);
+    expect(res.captured.headers["Access-Control-Allow-Origin"]).toBe("https://app.myblank.app");
+    expect(res.captured.headers.Vary).toBe("Origin");
+  });
+
   it("returns 503 'degraded' when ZERO env vars are set", async () => {
     mockProbeAllOk();
     const res = makeRes();

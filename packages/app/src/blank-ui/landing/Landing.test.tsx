@@ -79,13 +79,13 @@ describe("Landing — ProofOfProduct (§15.x)", () => {
     expect(container.textContent).toContain("Not a roadmap. Working software");
   });
 
-  it("renders the 3 stat numbers: 'Live', '16', 'FHE'", () => {
+  it("renders the 3 stat numbers: 'Live', '21', 'FHE'", () => {
     const { container } = withRouter(<Landing />);
     const statNumbers = Array.from(container.querySelectorAll(".ll-stat-number")).map((el) =>
       el.textContent?.trim(),
     );
     expect(statNumbers).toContain("Live");
-    expect(statNumbers).toContain("16");
+    expect(statNumbers).toContain("21");
     expect(statNumbers).toContain("FHE");
   });
 

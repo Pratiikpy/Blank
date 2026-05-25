@@ -1,9 +1,7 @@
 import { useEffect, useState } from "react";
 import { CheckCircle, AlertTriangle, AlertOctagon, RefreshCw, ExternalLink } from "lucide-react";
 
-// Public read-only status page at /status. Mirrored at status.blank.app
-// via a separate Vercel project that reads the same /api/health?kind=status
-// endpoint.
+// Public read-only status page at /status.
 //
 // Surfaces:
 //   - Per-chain RPC liveness (block number latency)
@@ -226,7 +224,7 @@ export default function Status() {
                     <span className="text-xs text-[var(--text-secondary)]">{row.label}</span>
                   </div>
                   {row.probe.ok ? (
-                    <div className="text-sm">HTTP {row.probe.status}</div>
+                    <div className="text-sm">Reachable</div>
                   ) : (
                     <div className="text-xs text-rose-600 break-words">{row.probe.error}</div>
                   )}
@@ -246,17 +244,17 @@ export default function Status() {
             </div>
             <div>
               <div className="text-xs text-[var(--text-secondary)] mb-1">Region</div>
-              <div className="font-medium">{data.deploy.region ?? "—"}</div>
+              <div className="font-medium">{data.deploy.region ?? "-"}</div>
             </div>
             <div>
               <div className="text-xs text-[var(--text-secondary)] mb-1">Branch</div>
-              <div className="font-medium">{data.deploy.branch ?? "—"}</div>
+              <div className="font-medium">{data.deploy.branch ?? "-"}</div>
             </div>
             <div>
               <div className="text-xs text-[var(--text-secondary)] mb-1">Commit</div>
               {data.deploy.sha ? (
                 <a
-                  href={`https://github.com/Pratiikpy/fhenix-builder/commit/${data.deploy.sha}`}
+                  href={`https://github.com/Pratiikpy/Blank/commit/${data.deploy.sha}`}
                   className="font-mono text-xs inline-flex items-center gap-1 hover:underline"
                   target="_blank"
                   rel="noopener noreferrer"
@@ -264,7 +262,7 @@ export default function Status() {
                   {data.deploy.sha.slice(0, 7)} <ExternalLink size={11} />
                 </a>
               ) : (
-                <div className="font-medium">—</div>
+                <div className="font-medium">-</div>
               )}
             </div>
           </div>
@@ -290,8 +288,7 @@ export default function Status() {
         </section>
 
         <footer className="text-xs text-[var(--text-secondary)] text-center pb-8">
-          Pulls live from <code>/api/health?kind=status</code>. Mirrored at{" "}
-          <a href="https://status.blank.app" className="underline">status.blank.app</a>.
+          Live data from <code>/api/health?kind=status</code>.
         </footer>
       </div>
     </div>

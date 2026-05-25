@@ -94,7 +94,7 @@ export default function Manifesto() {
           <h2>Private payments aren't a feature</h2>
 
           <p>
-            Blank ships sixteen surfaces: P2P send, requests, group bills,
+            Blank ships twenty-one surfaces: P2P send, requests, group bills,
             creator tips, invoicing, batch payroll, escrow with arbiter,
             claim-code transfers, gift envelopes, inheritance, P2P exchange,
             encrypted proofs, claim links, storefront, crowdfund, and bridge.

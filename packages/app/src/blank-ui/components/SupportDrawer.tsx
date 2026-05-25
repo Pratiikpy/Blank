@@ -118,21 +118,17 @@ export function SupportDrawer({ open, onClose }: SupportDrawerProps) {
               <div>
                 External docs:{" "}
                 <a
-                  href="https://docs.blank.app"
+                  href="https://docs.myblank.app"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="underline inline-flex items-center gap-1"
                 >
-                  docs.blank.app <ExternalLink size={10} />
+                  docs.myblank.app <ExternalLink size={10} />
                 </a>
               </div>
               <div>
                 Status:{" "}
                 <Link to="/status" className="underline">/status</Link>
-              </div>
-              <div>
-                Contact:{" "}
-                <a href="mailto:support@blank.app" className="underline">support@blank.app</a>
               </div>
             </footer>
           </>

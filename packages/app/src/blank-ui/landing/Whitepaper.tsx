@@ -8,7 +8,7 @@ import "./landing.css";
 export default function Whitepaper() {
   useEffect(() => {
     const previousTitle = document.title;
-    document.title = "Blank Whitepaper";
+    document.title = "Blank Whitepaper | Private Amount Payments";
     return () => {
       document.title = previousTitle;
     };

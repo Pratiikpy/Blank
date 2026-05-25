@@ -59,7 +59,7 @@ function ProofOfProduct() {
         "Deployed on Base Sepolia and Ethereum Sepolia. Open source and testable today.",
     },
     {
-      num: "16",
+      num: "21",
       label:
         "product surfaces: invoices, escrow, payroll, requests, gifts, stealth, inheritance, claim links, storefronts, crowdfund, encrypted escrow, and more.",
     },
@@ -76,7 +76,7 @@ function ProofOfProduct() {
         Not a roadmap. Working software.
       </h2>
       <p className="ll-section-lead">
-        Two testnets live today. Sixteen product surfaces shipped. Core
+        Two testnets live today. Twenty-one product surfaces shipped. Core
         desktop flows have real testnet receipts through the real UI.
         No waitlist.
       </p>
@@ -139,7 +139,7 @@ function HowItWorks() {
 function ExploreLinks() {
   const links = [
     {
-      kicker: "Sixteen surfaces",
+      kicker: "Twenty-one surfaces",
       title: "Every way to pay privately",
       body: "Send, split, tip, invoice, payroll, escrow, stealth, gift, claim, sell, fund, bridge, and swap. One encrypted vault.",
       to: "/features",

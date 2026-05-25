@@ -5,7 +5,7 @@
 // route so the support drawer can deep-link. Article body is plain
 // markdown with code spans for paths + commands.
 //
-// External docs site (docs.blank.app) renders the same array.
+// External docs site (docs.myblank.app) renders the same array.
 
 export interface HelpArticle {
   slug: string;
@@ -166,8 +166,8 @@ look-alike handles.`,
    + rail (UPI, Wise, Venmo, PayPal).
 3. Taker takes the offer. Maker's USDC moves into escrow.
 4. Taker pays the maker off-chain via the rail.
-5. Taker submits a Reclaim Protocol attestation (zkTLS proof of
-   the fiat payment).
+5. Taker submits settlement evidence. On testnet this is an
+   operator-signed attestation; production requires a live proof provider.
 6. After a challenge window, anyone can release the USDC to taker.
 
 If the proof is bad, maker disputes. Arbiter (3-of-5 multisig)

@@ -25,6 +25,18 @@ export interface ServiceHealth {
 
 const POLL_MS = 90_000;
 
+export function getHealthEndpoint(
+  host = typeof window === "undefined" ? "" : window.location.hostname.toLowerCase(),
+) {
+  if (!host) return "/api/health";
+
+  if (host.endsWith(".myblank.app") && host !== "www.myblank.app") {
+    return "https://www.myblank.app/api/health";
+  }
+
+  return "/api/health";
+}
+
 const DEFAULT_HEALTH: ServiceHealth = {
   agentsReachable: true,
   relayReachable: true,
@@ -41,7 +53,7 @@ export function useServiceHealth(): ServiceHealth {
 
     const probe = async () => {
       try {
-        const res = await fetch("/api/health", {
+        const res = await fetch(getHealthEndpoint(), {
           signal: AbortSignal.timeout(5_000),
         });
         const body: Record<string, unknown> = await res.json().catch(() => ({}));

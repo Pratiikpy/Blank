@@ -3,7 +3,7 @@ import { render } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import Features from "./Features";
 
-// §15.x test for the Features catalog page. 16 features, each a row
+// §15.x test for the Features catalog page. 21 features, each a row
 // with copy + a CSS-only Preview card. The Preview component is a
 // discriminated union over 8 kinds (receipt/group/badge/invoice/
 // stealth/envelope/countdown/swap); adding a future kind without a
@@ -25,9 +25,9 @@ describe("Features — page chrome (§15.x)", () => {
 });
 
 describe("Features — hero (§15.x)", () => {
-  it("kicker reads 'Sixteen private surfaces' (the landing-page tagline)", () => {
+  it("kicker reads 'Twenty-one private surfaces' (the landing-page tagline)", () => {
     const { container } = withRouter(<Features />);
-    expect(container.textContent).toContain("Sixteen private surfaces");
+    expect(container.textContent).toContain("Twenty-one private surfaces");
   });
 
   it("CRITICAL headline: 'The payment workflows people expect. With the amounts sealed shut.'", () => {
@@ -45,8 +45,8 @@ describe("Features — hero (§15.x)", () => {
   });
 });
 
-describe("Features — 16-feature catalog (§15.x)", () => {
-  it("renders all 16 feature names", () => {
+describe("Features — 21-feature catalog (§15.x)", () => {
+  it("renders representative feature names", () => {
     const { container } = withRouter(<Features />);
     const text = container.textContent ?? "";
     const features = [
@@ -212,9 +212,9 @@ describe("Features — scenarios + pitches (§15.x)", () => {
 });
 
 describe("Features — bottom CTA (§15.x)", () => {
-  it("CTA section heading: 'One vault. Sixteen ways in.'", () => {
+  it("CTA section heading: 'One vault. Twenty-one ways in.'", () => {
     const { container } = withRouter(<Features />);
-    expect(container.textContent).toContain("One vault. Sixteen ways in");
+    expect(container.textContent).toContain("One vault. Twenty-one ways in");
   });
 
   it("'Launch Blank' CTA links to /app", () => {

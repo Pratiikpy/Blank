@@ -93,12 +93,13 @@ describe("Roadmap — Next block (§15.x)", () => {
     expect(container.textContent).toContain("Next up. Product hardening");
   });
 
-  it("renders all 6 next-up item titles", () => {
+  it("renders all 7 next-up item titles", () => {
     const { container } = withRouter(<Roadmap />);
     const text = container.textContent ?? "";
     const next = [
       "Design system extraction",
       "Trust layer",
+      "Complete notification delivery",
       "SDK + embeddable checkout",
       "X-Ray reveal in-app",
       "Optimistic balance + caching",

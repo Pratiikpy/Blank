@@ -267,6 +267,21 @@ describe("LiveDemo — faucet step (§15.x)", () => {
     });
   });
 
+  it("clears a pending successful-action transition when unmounted", async () => {
+    vi.useFakeTimers();
+    mintTestTokensMock.mockResolvedValue("0xfaucet" as `0x${string}`);
+    const { unmount } = render(<LiveDemo />);
+
+    fireEvent.click(screen.getByRole("button", { name: /Mint test USDC/ }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(vi.getTimerCount()).toBeGreaterThan(0);
+
+    unmount();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it("isMinting=true -> button shows 'Minting…' + disabled", () => {
     useShieldMock.mockReturnValue({
       mintTestTokens: mintTestTokensMock,

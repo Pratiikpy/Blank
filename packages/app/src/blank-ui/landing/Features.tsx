@@ -263,7 +263,7 @@ const FEATURES: Feature[] = [
   {
     tag: "17. Cash out",
     name: "Off-ramp",
-    pitch: "List your encrypted USDC balance for fiat at a rate you pick. A taker locks the offer, sends the fiat through UPI/Wise/Venmo/PayPal, and submits a Reclaim proof. The chain only sees ciphertext; the rail handles plaintext money.",
+    pitch: "List your encrypted USDC balance for fiat at a rate you pick. A taker locks the offer and submits settlement evidence. Testnet verification is operator-signed; a live proof provider is required before production use.",
     scenario: "Maya, a freelancer in Bangalore, off-ramps her client's USDC payment to her UPI account without publishing the amount on a public DEX.",
     route: "/app/offramp",
     preview: {
@@ -519,12 +519,12 @@ export default function Features() {
       <LandingNav />
       <main>
         <section className="ll-page-hero">
-          <div className="ll-section-kicker">Sixteen private surfaces</div>
+          <div className="ll-section-kicker">Twenty-one private surfaces</div>
           <h1 className="ll-section-title">
             The payment workflows people expect. With the amounts sealed shut.
           </h1>
           <p className="ll-section-lead">
-            One encrypted vault. Sixteen product surfaces. The shipped
+            One encrypted vault. Twenty-one product surfaces. The shipped
             surfaces run on real contracts, real FHE, and live deployments
             on Ethereum Sepolia and Base Sepolia.
           </p>
@@ -553,7 +553,7 @@ export default function Features() {
         </div>
 
         <section className="ll-cta">
-          <h2 className="ll-cta-title">One vault. Sixteen ways in.</h2>
+          <h2 className="ll-cta-title">One vault. Twenty-one ways in.</h2>
           <p className="ll-cta-sub">
             Shield some USDC. Pick any feature. Ship your first private
             payment in under a minute.

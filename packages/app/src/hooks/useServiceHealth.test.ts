@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
-import { useServiceHealth } from "./useServiceHealth";
+import { getHealthEndpoint, useServiceHealth } from "./useServiceHealth";
 
 // §15.x hook test for the /api/health poller. Drives the
 // ServiceHealthBanner; misclassification means the user sees a
@@ -27,6 +27,13 @@ function mockHealthResponse(derived: Record<string, unknown>) {
 }
 
 describe("useServiceHealth (§15.x)", () => {
+  it("uses central production health for branded subdomains", () => {
+    expect(getHealthEndpoint("app.myblank.app")).toBe("https://www.myblank.app/api/health");
+    expect(getHealthEndpoint("docs.myblank.app")).toBe("https://www.myblank.app/api/health");
+    expect(getHealthEndpoint("www.myblank.app")).toBe("/api/health");
+    expect(getHealthEndpoint("localhost")).toBe("/api/health");
+  });
+
   it("starts loading=true with optimistic-default reachability", () => {
     mockHealthResponse({});
     const { result } = renderHook(() => useServiceHealth());

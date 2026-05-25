@@ -44,6 +44,7 @@ describe("ServiceHealthBanner (§15.x)", () => {
     });
     const { container } = render(<ServiceHealthBanner />);
     expect(container.firstChild).toBeNull();
+    expect(useServiceHealthMock).not.toHaveBeenCalled();
   });
 
   it("offline (supabaseReachable=false) wins highest priority", () => {

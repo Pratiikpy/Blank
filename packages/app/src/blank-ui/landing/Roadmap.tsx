@@ -84,7 +84,7 @@ const SHIPPED: RoadmapItem[] = [
   {
     title: "Encrypted P2P off-ramp",
     detail:
-      "Wave 5 headline. Maker lists encrypted USDC for fiat at a rate they pick; taker locks the offer, sends fiat via UPI/Wise/Venmo/PayPal, submits a Reclaim proof to claim. Full-fill in v1; partial fills are Wave 6.",
+      "Maker lists encrypted USDC for fiat at a rate they pick; a taker locks the offer and submits settlement evidence. Testnet verification is operator-signed. A live proof provider and independent controls are required before production use.",
   },
   {
     title: "@handles + public profile pages",
@@ -102,11 +102,6 @@ const SHIPPED: RoadmapItem[] = [
       "Aggregate counts across vaults, invoices, escrows, and offramp fills in one place. Per-row amounts stay encrypted unless revealed. CSV export of aggregates only.",
   },
   {
-    title: "Notification center + push",
-    detail:
-      "12 event types, Supabase Realtime + Web Push + transactional email. Bell icon with unread counts. Cross-tab broadcast so all open tabs update on a single event.",
-  },
-  {
     title: "Empty / error / loading primitives",
     detail:
       "One source of truth for state surfaces across the app. Refactor target for new screens; consistent feel without rebuilding the layout each time.",
@@ -114,7 +109,7 @@ const SHIPPED: RoadmapItem[] = [
   {
     title: "Mobile PWA install + status page",
     detail:
-      "Android + iOS Safari install prompts. Public /status page polling chain RPC, paymaster balance, relayer balance, and last-deploy SHA. status.blank.app subdomain ready.",
+      "Android + iOS Safari install prompts. Public /status page polling chain RPC, paymaster balance, relayer balance, and last-deploy SHA.",
   },
 ];
 
@@ -128,6 +123,11 @@ const NEXT: RoadmapItem[] = [
     title: "Trust layer (security + audit)",
     detail:
       "Status page is live; remaining: /security page, public bug bounty, third-party audit booking. The boring work that turns 'project that ships' into 'product you can rely on'.",
+  },
+  {
+    title: "Complete notification delivery",
+    detail:
+      "Notification surfaces and push plumbing exist. Production email delivery and full cross-user notification qualification remain operational work.",
   },
   {
     title: "SDK + embeddable checkout",

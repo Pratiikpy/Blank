@@ -64,12 +64,15 @@ export function ReclaimWidget({
       </div>
       <p className="text-sm text-[var(--text-secondary)] mb-4">
         After you pay the maker off-chain on their {rail?.label ?? "rail"} account,
-        click below to attest the payment with Reclaim Protocol.
+        click below to submit settlement evidence.
         {reclaim.mode === "mock" && (
           <>
             {" "}Testnet mock mode: an operator-signed attestation is generated
             in-browser. Live Reclaim Protocol integration ships after Block 0.5.
           </>
+        )}
+        {reclaim.mode !== "mock" && (
+          <> Live mode uses Reclaim Protocol verification.</>
         )}
       </p>
 

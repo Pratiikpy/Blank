@@ -38,7 +38,7 @@ Blank encrypts amounts in the browser and settles encrypted state through Fhenix
 
 | Area | Available capabilities |
 | --- | --- |
-| Payments | Encrypted sends, payment requests, invoices, recurring and scheduled payments, batch payments |
+| Payments | Encrypted sends, payment requests, invoices and batch payments |
 | Shared money | Groups, gifts, claim links, inheritance planning |
 | Commerce | Storefront purchases, crowdfund campaigns, encrypted escrow |
 | Exchange | Private token exchange, cross-chain bridge interface, P2P offramp flow |
@@ -49,6 +49,7 @@ Blank encrypts amounts in the browser and settles encrypted state through Fhenix
 
 - Storefront records payment and purchase state. Digital-item delivery is seller-handled today.
 - Offramp contracts and UI are available on testnet; the proof path uses the declared testnet verification setup until production provider and arbitration controls are activated.
+- Scheduled-send authorization surfaces are present; automated execution is not yet a supported testnet capability.
 - Testnet assets only. Blank is not available for mainnet value.
 
 ## Live Testnet

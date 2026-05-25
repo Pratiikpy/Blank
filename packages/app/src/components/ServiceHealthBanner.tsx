@@ -17,7 +17,6 @@ import { useServiceHealth } from "@/hooks/useServiceHealth";
  * green, renders nothing.
  */
 export function ServiceHealthBanner() {
-  const h = useServiceHealth();
   const pathname = typeof window !== "undefined" ? window.location.pathname : "";
   const productRoute =
     pathname === "/app" ||
@@ -30,6 +29,11 @@ export function ServiceHealthBanner() {
     pathname.startsWith("/verify/");
 
   if (!productRoute) return null;
+  return <ProductServiceHealthBanner />;
+}
+
+function ProductServiceHealthBanner() {
+  const h = useServiceHealth();
   if (h.loading) return null;
 
   if (!h.supabaseReachable) {

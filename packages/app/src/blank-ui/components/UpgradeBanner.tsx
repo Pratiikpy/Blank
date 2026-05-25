@@ -174,12 +174,13 @@ export function UpgradeBanner() {
       </div>
       <div className="flex-1 min-w-0">
         <p className="text-sm font-semibold text-violet-900 dark:text-violet-200 mb-0.5">
-          New: session keys for recurring sends
+          Preview: session keys for recurring sends
         </p>
         <p className="text-sm text-violet-700 dark:text-violet-300/80 leading-snug">
-          Upgrade your smart wallet to enable scheduled payments (rent, payroll,
-          subscriptions). Your address and balances stay the same. Your
-          existing passkey keeps working unchanged.
+          Upgrade your smart wallet to configure scheduled-payment authorization.
+          Automated execution is not active on this testnet deployment. Your
+          address and balances stay the same. Your existing passkey keeps
+          working unchanged.
         </p>
       </div>
       <div className="flex items-center gap-1 shrink-0">

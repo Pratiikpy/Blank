@@ -42,6 +42,17 @@ async function probe(url: string, timeoutMs = 3000): Promise<{ ok: boolean; stat
 }
 
 export default async function handler(req: any, res: any) {
+  const origin = typeof req.headers?.origin === "string" ? req.headers.origin : "";
+  if (
+    origin === "https://app.myblank.app" ||
+    origin === "https://docs.myblank.app" ||
+    origin === "https://brand.myblank.app" ||
+    origin === "https://blog.myblank.app"
+  ) {
+    res.setHeader?.("Access-Control-Allow-Origin", origin);
+    res.setHeader?.("Vary", "Origin");
+  }
+
   // Dispatcher: /api/health?kind=relayer routes to relayer-balance probe;
   // /api/health?kind=status routes to the consolidated /status page view.
   // Kept inline to stay under Vercel Hobby's 12-function cap (consolidated

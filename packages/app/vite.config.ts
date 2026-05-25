@@ -1,12 +1,157 @@
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import wasm from "vite-plugin-wasm";
 import topLevelAwait from "vite-plugin-top-level-await";
+import fs from "node:fs";
 import path from "path";
 import { apiRoutesPlugin } from "./vite-plugin-api";
 
+interface RouteShell {
+  file: string;
+  title: string;
+  description: string;
+  canonical: string;
+}
+
+const ROUTE_SHELLS: RouteShell[] = [
+  {
+    file: "features",
+    title: "Features | Blank",
+    description: "Private payment, commerce, proof and exchange surfaces on Blank testnet.",
+    canonical: "https://www.myblank.app/features",
+  },
+  {
+    file: "how-it-works",
+    title: "How Blank Works | Fhenix CoFHE Payments",
+    description: "How Blank keeps payment amounts encrypted while transactions settle on public chains.",
+    canonical: "https://www.myblank.app/how-it-works",
+  },
+  {
+    file: "roadmap",
+    title: "Roadmap | Blank",
+    description: "What Blank has shipped on testnet and what remains gated before mainnet.",
+    canonical: "https://www.myblank.app/roadmap",
+  },
+  {
+    file: "live",
+    title: "Live Activity | Blank",
+    description: "Public testnet activity for Blank with encrypted payment amounts and explorer-linked settlement.",
+    canonical: "https://www.myblank.app/live",
+  },
+  {
+    file: "manifesto",
+    title: "Manifesto | Blank",
+    description: "Why public settlement should not require permanently public payment amounts.",
+    canonical: "https://www.myblank.app/manifesto",
+  },
+  {
+    file: "pricing",
+    title: "Pricing | Blank",
+    description: "Testnet access and intended pricing direction for private amount payments on Blank.",
+    canonical: "https://www.myblank.app/pricing",
+  },
+  {
+    file: "for-individuals",
+    title: "Blank For Individuals | Private Payments",
+    description: "Private amount payments for everyday transfers and shared expenses.",
+    canonical: "https://www.myblank.app/for/individuals",
+  },
+  {
+    file: "for-creators",
+    title: "Blank For Creators | Private Payments",
+    description: "Private tips, storefront payments and supporter flows for creators.",
+    canonical: "https://www.myblank.app/for/creators",
+  },
+  {
+    file: "for-businesses",
+    title: "Blank For Businesses | Private Payments",
+    description: "Private invoice, payroll and vendor payment workflows for businesses.",
+    canonical: "https://www.myblank.app/for/businesses",
+  },
+  {
+    file: "for-daos",
+    title: "Blank For DAOs | Private Payments",
+    description: "Private contributor payments and treasury workflows for on-chain organizations.",
+    canonical: "https://www.myblank.app/for/daos",
+  },
+  {
+    file: "status",
+    title: "Blank Status | Testnet Health",
+    description: "Live health for Blank on Base Sepolia and Ethereum Sepolia.",
+    canonical: "https://www.myblank.app/status",
+  },
+  {
+    file: "whitepaper",
+    title: "Blank Whitepaper | Private Amount Payments",
+    description: "Blank's privacy model, CoFHE architecture, product surface and testnet security boundary.",
+    canonical: "https://docs.myblank.app/whitepaper",
+  },
+  {
+    file: "brand-kit",
+    title: "Blank Brand Kit",
+    description: "The identity system and public brand assets for Blank.",
+    canonical: "https://brand.myblank.app/brand-kit",
+  },
+  {
+    file: "blog",
+    title: "Blank Blog",
+    description: "Technical writing and product decisions behind confidential payments built with Fhenix CoFHE.",
+    canonical: "https://blog.myblank.app/blog",
+  },
+  {
+    file: "blog-why-fhenix-cofhe",
+    title: "Why Blank Chose Fhenix CoFHE Over FHE L1s | Blank",
+    description: "Why Blank uses the Fhenix CoFHE co-processor model for private amount payments on Ethereum.",
+    canonical: "https://blog.myblank.app/blog/why-fhenix-cofhe",
+  },
+  {
+    file: "blog-fhe-vs-zk",
+    title: "FHE And Zero-Knowledge For Private Payments | Blank",
+    description: "Why computation on encrypted payment values requires a different primitive from proving statements.",
+    canonical: "https://blog.myblank.app/blog/fhe-vs-zk",
+  },
+  {
+    file: "blog-wave-3-shipped",
+    title: "Wave 3 Shipped | Blank",
+    description: "Workspace modes, private invoice escrow and proof-of-payment features shipped on Blank testnet.",
+    canonical: "https://blog.myblank.app/blog/wave-3-shipped",
+  },
+  {
+    file: "blog-why-no-token-ever",
+    title: "Why Blank Has No Token | Blank",
+    description: "Why Blank is building private payment infrastructure without issuing a token.",
+    canonical: "https://blog.myblank.app/blog/why-no-token-ever",
+  },
+];
+
+function routeMetadataShells(): Plugin {
+  return {
+    name: "route-metadata-shells",
+    apply: "build",
+    closeBundle() {
+      const dist = path.resolve(__dirname, "dist");
+      const base = fs.readFileSync(path.join(dist, "index.html"), "utf8");
+      const shellDir = path.join(dist, "route-shells");
+      fs.mkdirSync(shellDir, { recursive: true });
+
+      for (const shell of ROUTE_SHELLS) {
+        const html = base
+          .replace(/<title>[^<]*<\/title>/, `<title>${shell.title}</title>`)
+          .replace(/<meta name="description" content="[^"]*" \/>/, `<meta name="description" content="${shell.description}" />`)
+          .replace(/<meta property="og:title" content="[^"]*" \/>/, `<meta property="og:title" content="${shell.title}" />`)
+          .replace(/<meta property="og:description" content="[^"]*" \/>/, `<meta property="og:description" content="${shell.description}" />`)
+          .replace(/<meta property="og:url" content="[^"]*" \/>/, `<meta property="og:url" content="${shell.canonical}" />`)
+          .replace(/<link rel="canonical" href="[^"]*" \/>/, `<link rel="canonical" href="${shell.canonical}" />`)
+          .replace(/<meta name="twitter:title" content="[^"]*" \/>/, `<meta name="twitter:title" content="${shell.title}" />`)
+          .replace(/<meta name="twitter:description" content="[^"]*" \/>/, `<meta name="twitter:description" content="${shell.description}" />`);
+        fs.writeFileSync(path.join(shellDir, `${shell.file}.html`), html);
+      }
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [react(), wasm(), topLevelAwait(), apiRoutesPlugin()],
+  plugins: [react(), wasm(), topLevelAwait(), apiRoutesPlugin(), routeMetadataShells()],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),

@@ -355,7 +355,7 @@
   justify-content: flex-end;
   background: var(--bk-cipher);
   color: #ffffff;
-  min-width: 130px;
+  min-width: 0;
 }
 
 .bk-color-grid {

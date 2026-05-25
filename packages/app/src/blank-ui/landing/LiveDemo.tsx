@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useAccount, useConnect } from "wagmi";
 import {
   Wallet,
@@ -53,15 +53,34 @@ export function LiveDemo() {
   const [faucetTxHash, setFaucetTxHash] = useState<`0x${string}` | null>(null);
   const [revealVisible, setRevealVisible] = useState(false);
   const [fheSyncTimedOut, setFheSyncTimedOut] = useState(false);
+  const transitionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearTransitionTimer = useCallback(() => {
+    if (transitionTimer.current !== null) {
+      clearTimeout(transitionTimer.current);
+      transitionTimer.current = null;
+    }
+  }, []);
+
+  const scheduleStep = useCallback((step: StepKey) => {
+    clearTransitionTimer();
+    transitionTimer.current = setTimeout(() => {
+      transitionTimer.current = null;
+      setActiveStep(step);
+    }, 800);
+  }, [clearTransitionTimer]);
+
+  useEffect(() => clearTransitionTimer, [clearTransitionTimer]);
 
   // Reset demo state when wallet disconnects — no stale tx hashes or step progress.
   useEffect(() => {
     if (!isConnected) {
+      clearTransitionTimer();
       setActiveStep("connect");
       setFaucetTxHash(null);
       setRevealVisible(false);
     }
-  }, [isConnected]);
+  }, [clearTransitionTimer, isConnected]);
 
   // Auto-advance on wallet connection (proper effect so timers are cleaned up
   // and multiple timeouts don't queue when the tab re-renders while hidden).
@@ -91,16 +110,16 @@ export function LiveDemo() {
     const hash = await mintTestTokens();
     if (hash) {
       setFaucetTxHash(hash);
-      setTimeout(() => setActiveStep("shield"), 800);
+      scheduleStep("shield");
     }
-  }, [mintTestTokens]);
+  }, [mintTestTokens, scheduleStep]);
 
   const handleShield = useCallback(async () => {
     const hash = await shield(SHIELD_AMOUNT);
     if (hash) {
-      setTimeout(() => setActiveStep("reveal"), 800);
+      scheduleStep("reveal");
     }
-  }, [shield]);
+  }, [scheduleStep, shield]);
 
   const handleReveal = useCallback(async () => {
     setRevealVisible(true);
@@ -121,7 +140,7 @@ export function LiveDemo() {
       <div className="ld-eyebrow">Live demo · {activeChain.shortName}</div>
       <h2 className="ld-title">See it work in 60 seconds.</h2>
       <p className="ld-lead">
-        Real testnet. Real encryption. Same code as the production app.
+        Real testnet. Real encryption. Same flow as the app.
         Each step is a real on-chain transaction. Your balance only
         appears when <em>you</em> reveal it.
       </p>

@@ -2,6 +2,7 @@ import { Suspense, lazy } from "react";
 import { Routes, Route, Link, Navigate, useLocation } from "react-router-dom";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { getSubdomainRouteTarget } from "@/lib/subdomainRouting";
+import { PublicMetadata } from "@/components/PublicMetadata";
 
 // Landing-level pages — each is its own bundle chunk (lazy-loaded)
 const Landing       = lazy(() => import("@/blank-ui/landing/Landing"));
@@ -21,8 +22,7 @@ const Blog         = lazy(() => import("@/blank-ui/landing/Blog"));
 const BlogPost     = lazy(() => import("@/blank-ui/landing/BlogPost"));
 const Whitepaper   = lazy(() => import("@/blank-ui/landing/Whitepaper"));
 const BrandKit     = lazy(() => import("@/blank-ui/landing/BrandKit"));
-// Wave 5 Block 0.3 — public status page reading /api/health?kind=status.
-// Mirrored at status.blank.app via a separate Vercel project.
+// Wave 5 Block 0.3 - public status page reading /api/health?kind=status.
 const Status = lazy(() => import("@/blank-ui/screens/Status"));
 // Wave 5 Block 2 — public @handle profile page. /u/:handle resolves
 // the per-chain handle registry and shows owner + send CTA.
@@ -120,6 +120,7 @@ export function App() {
     <ErrorBoundary>
       <Suspense fallback={<LoadingScreen />}>
         <SubdomainRouteRedirect />
+        <PublicMetadata />
         <Routes>
           {/* Public landing-level pages */}
           <Route path="/"                    element={<Landing />} />
