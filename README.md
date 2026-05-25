@@ -1,556 +1,221 @@
 <div align="center">
+  <img src="packages/app/public/logo-png/logo-circle-128.png" width="64" height="64" alt="Blank logo" />
 
-<img src="https://img.shields.io/badge/Live-www.myblank.app-000000?style=for-the-badge" alt="Live" />
-<img src="https://img.shields.io/badge/Base_Sepolia-84532-0052FF?style=for-the-badge&logo=coinbase&logoColor=white" alt="Base Sepolia" />
-<img src="https://img.shields.io/badge/Ethereum_Sepolia-11155111-627EEA?style=for-the-badge&logo=ethereum&logoColor=white" alt="Eth Sepolia" />
-<img src="https://img.shields.io/badge/FHE-Fhenix_CoFHE-8B5CF6?style=for-the-badge" alt="FHE" />
+# blank.
 
-<br /><br />
+### Private amounts for public Ethereum payments.
 
-# Blank
+Sender and receiver remain public. Payment amounts stay encrypted.
 
-### Send a private invoice. Get paid privately. Share a link.
+[![Live](https://img.shields.io/badge/live-testnet-0AA77F?style=flat-square)](https://app.myblank.app)
+[![Fhenix CoFHE](https://img.shields.io/badge/Fhenix-CoFHE-101010?style=flat-square)](https://www.fhenix.io/)
+[![Base Sepolia](https://img.shields.io/badge/Base-Sepolia-0052FF?style=flat-square)](https://sepolia.basescan.org/)
+[![Ethereum Sepolia](https://img.shields.io/badge/Ethereum-Sepolia-627EEA?style=flat-square)](https://sepolia.etherscan.io/)
 
-**Same chain. Same finality. Different visibility.**
-
-</div>
-
-| What everyone sees on Etherscan today | What everyone sees on Blank |
-|---|---|
-| `0x1111 → 0x2222:` &nbsp; `5,200.00 USDC` | `0x1111 → 0x2222:` &nbsp; `████.██ USDC` |
-| `0x3333 → 0x4444:` &nbsp; `12.50 USDC` | `0x3333 → 0x4444:` &nbsp; `████.██ USDC` |
-| `0x5555 → 0x6666:` &nbsp; `87,500.00 USDC` | `0x5555 → 0x6666:` &nbsp; `████.██ USDC` |
-
-<div align="center">
-
-Blank is encrypted payments on Ethereum. Amounts are FHE-encrypted before
-they touch the chain; smart contracts add, compare, and transfer ciphertext;
-sender and receiver decrypt with their own keys. Everyone else sees ████.
-
-[**Launch the app →**](https://www.myblank.app) &nbsp; · &nbsp; [**Read the whitepaper →**](https://www.myblank.app/whitepaper) &nbsp; · &nbsp; [**Pitch deck →**](docs/SLIDE_DECK.md) &nbsp; · &nbsp; [**Watch it live →**](https://www.myblank.app/live) &nbsp; · &nbsp; [**Brand kit →**](https://www.myblank.app/brand-kit) &nbsp; · &nbsp; [**Read the manifesto →**](https://www.myblank.app/manifesto)
-
-<br />
-
-<table>
-  <tr>
-    <th>Product</th>
-    <th>Identity</th>
-  </tr>
-  <tr>
-    <td><img src="docs/screenshots/landing.png" alt="Blank landing page showing private invoice positioning" width="520" /></td>
-    <td><img src="docs/screenshots/brand-kit.png" alt="Blank brand kit page showing the visual identity system" width="520" /></td>
-  </tr>
-</table>
+[Launch app](https://app.myblank.app) | [Whitepaper](https://docs.myblank.app) | [Proof deck](https://www.myblank.app/proof-deck) | [Status](https://www.myblank.app/status) | [Brand kit](https://brand.myblank.app) | [Blog](https://blog.myblank.app)
 
 </div>
 
----
+<p align="center">
+  <img src="docs/screenshots/landing.png" alt="Blank public payment experience" width="100%" />
+</p>
 
-## In 5 seconds
+## What Blank Is
 
-Private payment rails for Ethereum where the amount is encrypted. Sender + receiver public; the number isn't.
+Blank is confidential payment infrastructure for public blockchains. It is built for payments where public amounts expose commercially sensitive information: invoices, vendor payments, payroll, fundraising, commerce, and settlement.
 
-## Public testnet
+Blank encrypts amounts in the browser and settles encrypted state through Fhenix CoFHE contracts on public testnets. It is not a mixer and does not conceal who transacted or that a transaction occurred.
 
-Blank is live on Base Sepolia and Ethereum Sepolia at
-[www.myblank.app](https://www.myblank.app).
+### Privacy Boundary
 
-The public testnet app supports standard EVM wallet connections on both
-chains. Blank passkey smart accounts are built into the product for
-no-extension onboarding, with sponsorship when the paymaster is available.
-Mobile UI is live across the route map; expanded mobile transaction
-coverage comes next.
+| Public on-chain | Encrypted or permission-gated |
+| --- | --- |
+| Sender and recipient addresses | Payment amounts |
+| Network, timing, contract calls, transaction hashes | Configured aggregate values and threshold checks |
+| Public lifecycle transitions, such as created or settled | Decryption output where a permit is required |
 
-Wave 5 includes P2P offramp and recovery flows on both testnets. For
-demo safety, offramp disputes currently use the deployer-operated arbiter
-and Reclaim proof checks run through an operator-signed mock verifier.
-That is acceptable for public testnet demos and QA; before mainnet value,
-the arbiter rotates to a 3-of-5 Safe and Reclaim moves to live provider
-IDs for the supported rails.
+## Product Surface
 
-## In 5 minutes
+| Area | Available capabilities |
+| --- | --- |
+| Payments | Encrypted sends, payment requests, invoices, recurring and scheduled payments, batch payments |
+| Shared money | Groups, gifts, claim links, inheritance planning |
+| Commerce | Storefront purchases, crowdfund campaigns, encrypted escrow |
+| Exchange | Private token exchange, cross-chain bridge interface, P2P offramp flow |
+| Identity and proofs | Payment handles, public payment pages, payment receipts, encrypted proofs, proof of balance |
+| Account safety | Guardian recovery surfaces, privacy controls, activity history |
 
-Every payment on a public blockchain is a postcard. Amount, sender, receiver: all visible to anyone with a block explorer. Employees see each other's salaries. Competitors map your supply chain from payment flows. MEV bots front-run visible swaps.
+### Important Product Boundaries
 
-Blank fixes one of those: the amount. We use Fully Homomorphic Encryption (Fhenix CoFHE) so smart contracts can `add`, `compare`, and `transfer` ciphertext without ever decrypting it. The plaintext is never on-chain. Senders and receivers decrypt locally with their own keys; bystanders see ████.
+- Storefront records payment and purchase state. Digital-item delivery is seller-handled today.
+- Offramp contracts and UI are available on testnet; the proof path uses the declared testnet verification setup until production provider and arbitration controls are activated.
+- Testnet assets only. Blank is not available for mainnet value.
 
-```
-You send $250         →  Encrypted in your browser (TFHE ciphertext + ZK proof)
-Smart contract runs   →  FHE.add(balance, amount), operates on ciphertext
-Recipient receives    →  Decrypts with their key → sees $250
-Everyone else sees    →  $████.██
-```
+## Live Testnet
 
-No mixer. No trusted custodian. No hardware enclaves. Pure math + a threshold network for decryption permits.
+| Network | Chain ID | Application | Explorer |
+| --- | ---: | --- | --- |
+| Base Sepolia | `84532` | [Open app](https://app.myblank.app) | [BaseScan](https://sepolia.basescan.org/) |
+| Ethereum Sepolia | `11155111` | [Open app](https://app.myblank.app) | [Etherscan](https://sepolia.etherscan.io/) |
 
----
+Public surfaces:
 
-## Why now
+| Resource | URL |
+| --- | --- |
+| Product site | [www.myblank.app](https://www.myblank.app) |
+| Application | [app.myblank.app](https://app.myblank.app) |
+| Technical paper | [docs.myblank.app](https://docs.myblank.app) |
+| Brand system | [brand.myblank.app](https://brand.myblank.app) |
+| Writing | [blog.myblank.app](https://blog.myblank.app) |
+| Network status | [www.myblank.app/status](https://www.myblank.app/status) |
 
-- **Encrypted compute went from research to production in 2024–25.** Fhenix CoFHE made it cheap enough for real apps. We're standing on infra that didn't exist 18 months ago.
-- **Web3 payroll just crossed the "real money" threshold.** Bitwage, Toku, Request Finance moved from crypto-curious to default-payment-rail for thousands of contractors. Their amounts are public.
-- **Nobody owns the privacy layer for normal payments.** Tornado-style mixers got sanctioned for hiding senders. Blank inverts the model: public sender, private amount. Different threat model, different legal posture, different market.
+The current public testnet scope supports standard EVM wallets across both Sepolia networks. Smart-account and sponsored transaction surfaces exist in the product, with operational readiness dependent on funded paymasters and dedicated qualification.
 
----
+Responsive screens are available. Full mobile transaction qualification remains separate from the desktop testnet scope.
 
-## What you can do today
+## How Amount Privacy Works
 
-| | | |
-|---|---|---|
-| **Send** | Encrypted P2P transfers | One person → another, amount hidden |
-| **Invoice** | Private invoice escrow | Vendor + client + auto-refund-on-mismatch |
-| **Request** | Payment requests | "Pay me $X" links, encrypted on accept |
-| **Payroll** | Confidential batch sends | Up to 30 employees, nobody sees each other's pay |
-| **Split** | Group expenses | Splitwise but nobody can see the dinner total |
-| **Gift** | Encrypted gift envelopes | Equal or random splits, expiry, claim codes |
-| **Stealth** | Claim-code transfers with reduced wallet linkability | One-time codes, 30-day refund window |
-| **Inherit** | Dead-man's-switch wallet | Heir claims after N days inactive |
-| **Prove** | Verifiable balance proofs | Share "balance ≥ $X" without the balance |
-| **Tip** | Creator support with tiers | Encrypted tip totals, on-chain Bronze/Silver/Gold |
-| **Swap** | P2P encrypted exchange | Atomic settlement, encrypted amounts |
-| **Agent** | AI-derived payments | Plain English → signed → on-chain |
-| **Claim links** | Bearer / email / address-bound payment links | Send to anyone via URL, claim with secret + (optional) email or wallet |
-| **Storefront** | Per-listing FixedPrice / Auction / PWYW | Encrypted prices, sealed-bid auctions, seller-handled delivery |
-| **Crowdfund** | Encrypted goal + encrypted contributions | Private fundraising, on-chain `FHE.gte(raised, goal)` verdict |
-| **Encrypted escrow** | Arbiter-or-deadline release | Encrypted-amount escrow with dispute path or auto-refund at expiry |
+1. The browser encrypts the payment amount before it reaches the contract call.
+2. CoFHE validates encrypted input and makes ciphertext available for permitted contract computation.
+3. Blank contracts update balances, totals and conditions while amounts remain ciphertext.
+4. Authorized users request permitted decryption only where a product flow requires revealed output.
 
-Sixteen product surfaces. One encrypted vault. One link to share.
-
----
-
-## Send any of these links
-
-```
-/i/12345                          ← invoice (public link, private amount)
-/r/0xabc?amt=10                   ← payment request
-/g/<claim-code>                   ← gift envelope
-/v/<proof-id>                     ← balance proof
-/claim/<chainId>/<linkId>#<secret>  ← magic claim link (bearer / email / address-bound)
-/shop/<chainId>/<listingId>       ← storefront listing (private payment, seller-handled delivery)
-/fund/<chainId>/<campaignId>      ← encrypted crowdfund campaign
-/escrow/<chainId>/<escrowId>      ← encrypted escrow detail
+```text
+User input
+   |
+   v
+Client-side encrypted amount + proof
+   |
+   v
+Blank contract on Sepolia <-> Fhenix CoFHE coprocessor
+   |
+   v
+Encrypted state update on a public chain
 ```
 
-Each link carries the payment workflow. Public pages can be opened directly, paid from an existing wallet, or claimed through Blank's passkey smart-account path where supported.
-
----
-
-## How it works
-
-```
-┌─────────────────┐     ┌──────────────────┐     ┌─────────────────────┐
-│  Your browser    │     │  Fhenix CoFHE    │     │  Base / Eth Sepolia │
-│                  │     │  threshold net   │     │  smart contracts    │
-│  1. Enter $250   │     │                  │     │                     │
-│  2. TFHE encrypt │────►│  3. ZK verify    │     │                     │
-│     in WebWorker │     │  4. ECDSA sign   │────►│  5. ecrecover       │
-│                  │     │                  │     │  6. FHE.add()       │
-│                  │     │                  │     │  7. Store ciphertext│
-│                  │◄────│                  │◄────│                     │
-│  8. Recipient    │     │  Async decrypt   │     │  Permit-gated       │
-│     sees $250    │     │  via permits     │     │  access control     │
-└─────────────────┘     └──────────────────┘     └─────────────────────┘
-```
-
-1. **Client-side encryption**: plaintext never leaves your browser. TFHE WASM runs in a Web Worker.
-2. **Zero-knowledge verification**: Fhenix's threshold network validates the proof and signs it.
-3. **On-chain computation**: contracts operate on ciphertext via `FHE.add`, `FHE.eq`, `FHE.select`. They never see plaintext.
-4. **Permit-based decryption**: only addresses you've granted (`allowSender`, `allow`) can ask the threshold network to decrypt.
-
----
-
-## What is actually novel here
-
-Most ERC-4337 reference implementations cover 60-70% of the
-concerns below; Blank's stack covers all of them, integrated
-with FHE handle management.
-
-### The 11-file passkey-AA control flow
-
-| Step | File | Role |
-|---|---|---|
-| 1 | `hooks/useSmartAccount.ts` | React orchestration, 6-state FSM |
-| 2 | `lib/userop.ts` | PackedUserOp v0.8, defers EIP-712 to chain |
-| 3 | `lib/passkey.ts` | P-256 custody, AES-GCM at rest, prehash:false |
-| 4 | `api/relay.ts` | Submission, env or AWS-KMS signer |
-| 5 | `contracts/BlankPaymaster.sol` | 4-layer gas-sponsor defense |
-| 6 | `contracts/BlankAccount.sol` | Length-discriminated EOA / passkey dispatch |
-| 7 | `contracts/BlankAccountFactory.sol` | CREATE2 idempotent deploy |
-
-Plus auxiliary:
-
-| File | Role |
-|---|---|
-| `providers/SmartAccountCofheBinder.tsx` | FHE-AA bridge (waits for `isDeployed`) |
-| `api/_lib/sig-auth.ts` | Off-chain auth, asymmetric replay window |
-| `api/_lib/supabase-admin.ts` | Privileged DB, mechanical leak prevention |
-
-### Three engineering choices that matter
-
-1. **Defer to on-chain authority for hashing.** `lib/userop.ts`
-   reads `userOpHash` from EntryPoint instead of reimplementing
-   EIP-712 in JS. One extra RPC per signing for direct
-   agreement.
-
-2. **HSM-only signing in production.** `_lib/signer.ts` supports
-   both env-var (dev) and AWS KMS (prod) backends via one env
-   var. KMS path: keys never leave the HSM, recovery-bit-by-trial
-   reconstructs canonical Ethereum signatures from KMS's DER output.
-
-3. **`prehash: false` on every passkey signature.** `lib/passkey.ts`
-   L253. The default Noble curve setting would silently produce
-   sigs over `sha256(digest)`; on-chain RIP-7212 verifier rejects.
-   The in-code note names the exact failure mode.
-
-### BusinessHub: the canonical FHE async-decrypt pattern
-
-The strongest piece of cryptographic engineering in the codebase.
-`payInvoiceFinalize` verifies the threshold-network signature
-on-chain via `FHE.publishDecryptResult`, gates with
-`FHE.getDecryptResultSafe`, branches plaintext-side. The 3-line
-`FHE.eq` plus ACL-grant idiom is templated verbatim across 4
-invoice flows (regular pay, escrow, swap, plus a fourth). Same
-async-decrypt block at 2 finalize sites.
-
-### Privacy-aware defaults at 5 surfaces
-
-| Surface | Default | Enforcement |
-|---|---|---|
-| Sentry observability | Opt-in via `VITE_SENTRY_DSN` | Behavioral |
-| Email API auth | Strict by default | Behavioral |
-| Database tables | RLS enabled, no public policies | Behavioral (PostgreSQL) |
-| Service-role key | Frontend-blocked at build | Mechanical (Vite no-`VITE_`-prefix) |
-| Permissions-Policy | geolocation/mic/camera disabled at header | Mechanical (Vercel header) |
-
-The mechanical defaults survive developer error. The behavioral
-defaults survive deployment misconfig. Both are present.
-
----
-
-## Wallets: two paths, same UI
-
-| | Passkey wallet | EVM wallet / EOA |
-|---|---|---|
-| **Setup** | Passphrase, no extension | Connect any browser wallet |
-| **Signing** | P-256 passkey (WebAuthn) | Standard ECDSA |
-| **Gas** | Sponsored when paymaster is available | User pays |
-| **Transactions** | Batched into one UserOp (ERC-4337) | One popup per op |
-| **Best for** | New users and passkey-native flows | Existing crypto users and desktop flows |
-
-Both route through `useUnifiedWrite`. We don't maintain two versions of the app.
-
----
-
-## Anti-FAQ
-
-The questions a skeptical reader is already asking.
-
-**Isn't this just a mixer with extra steps?**
-No. Mixers hide *who* paid *whom*; the amount is public. Blank inverts that: sender + receiver are public, the amount isn't. Different threat model, different legal posture. We don't break the link between addresses; we encrypt the field between them.
-
-**Why FHE and not zero-knowledge proofs?**
-ZK proves a statement ("this address paid the right amount"). FHE *computes on hidden data*. ZK still needs plaintext to exist somewhere; FHE keeps the amount as ciphertext through every contract operation. Different tools, different problems. We pick FHE because the threat model (bystanders reading amounts off-chain) is exactly the one FHE is built for.
-
-**Threshold network = trusted third party?**
-It's a t-of-n threshold. You trust that the majority of operators isn't colluding (same trust model as a multisig validator set, weaker than a single-prover ZK proof, stronger than any custodial product). We're explicit about this. As Fhenix decentralizes the operator set, the trust assumption weakens.
-
-**What about regulators / FATF travel rule?**
-Sender + receiver are on-chain in cleartext, which means jurisdictions that require traceable counterparties get exactly that. Only the *amount* is encrypted, which is closer to bank-account privacy than to mixer-style anonymity. We're testnet-only until the operator set decentralizes; mainnet conversations will involve regulatory counsel.
-
-**Why testnet only?**
-Four reasons: Fhenix's threshold operator set is still small enough that we don't recommend storing real-money amounts; the contracts still need an external audit; P2P offramp disputes still use a deployer-operated arbiter for demo safety; and Reclaim proof checks are in operator-signed mock mode until live provider IDs are approved. Testnet lets users build muscle memory while those mainnet gates close.
-
-**When token?**
-Never. There is no $BLANK token and there will not be one. Read the next section.
-
----
-
-## What Blank will not be
-
-- **A mixer.** Sender + receiver are public on purpose.
-- **A speculation app.** No token. No points farm. No "encrypted DeFi yield."
-- **Every-chain sprawl.** We support Base Sepolia and Ethereum Sepolia today, with USDC bridge support between them. We will not add chains just to look bigger.
-- **Mainnet before the gates close.** The current P2POfframp arbiter and mock Reclaim verifier are testnet demo controls, not production trust assumptions. Mainnet requires threshold-operator decentralization, third-party contract audit, a 3-of-5 Safe arbiter, and live Reclaim Protocol provider IDs for the supported rails.
-- **A creator economy super-app.** Privacy is the wedge; features that do not sharpen it get removed.
-
-This list is not aspirational. It's what we say no to in design reviews.
-
----
-
-## Compared honestly
-
-| | Tornado Cash | Aztec | zkBob | **Blank** |
-|---|---|---|---|---|
-| Amount privacy | ✓ | ✓ | ✓ | **✓** |
-| Sender privacy | ✓ | ✓ | ✓ | **✗** *(public on purpose)* |
-| Composable with public DeFi | ✗ | ✗ | ✗ | **✓** |
-| Audit posture | sanctioned | encrypted accounts | shielded pools | **public sender + private amount** |
-| Speed today | n/a | seconds | seconds | **testnet threshold decrypt can be slow** |
-| Token-free | ✗ | ✗ | ✗ | **✓** |
-
-The honest weaknesses (sender privacy is *intentionally absent*; threshold decrypt on testnet is slow today) are why the green checkmarks are credible.
-
----
-
-## How we got here
-
-We ship in waves. If you have 30 seconds, read the box below. If you have 10 minutes, read the wave detail underneath. Every commit hash links to `main` so you can verify any claim.
-
-> **The story so far. Read this if you have 30 seconds:**
->
-> - **Wave 1** *(Mar 29 to Apr 16)*. **We built the core app.** A working encrypted-payment app with 16 smart contracts, 12 features, and 23 screens. Live on testnet.
-> - **Wave 2** *(Apr 17 to Apr 30)*. **We made it usable for real people.** Passkey wallets so users do not need a browser extension. The same app runs on two chains. AI agents can sign payments. Anyone can verify a balance proof without a wallet or a server.
-> - **Wave 3** *(May 1 to May 9)*. **We made it explainable and faster.** Public pricing page, roadmap, and blog with four long-form posts. Resolved a production startup incident. Fixed a multichain bug. Shipped a Fhenix-recommended performance optimization on both chains in one day. Tests grew from 17 to 154.
-> - **Wave 4** *(May 10 to present)*. **We made it composable.** Magic claim links over email, sealed-bid storefronts, encrypted crowdfunding, encrypted escrow with arbiter-or-deadline release. 4 new contracts (ClaimLinks, Storefront, EncryptedCrowdfund, EncryptedEscrow) plus FHE pipeline UI for every encrypted op.
-
-The pattern: **build → harden → open.** Wave 1 added the surface; Wave 2 disciplined the code that runs it; Wave 3 made the rationale public and shipped a perf optimization onchain.
-
----
-
-### Wave 1. Foundation *(Mar 29 to Apr 16)*
-
-> **In one line:** A working app where you send USDC and the amount stays hidden. 16 smart contracts. 12 features. 23 screens. Live on testnet.
-
-**What the app does** *(live at [www.myblank.app](https://www.myblank.app))*
-
-*Core payments:*
-- Encrypted wallet: turn public USDC into encrypted eUSDC ("shield"), and back ("unshield")
-- Send a private payment to anyone. The amount is encrypted in your browser before it hits the chain
-- Request money via a payment link
-- Receive money via a QR code
-
-*Social features:*
-- Split a group expense. Equal share or custom per person, with encrypted voting if you want a quadratic split
-- Tip a creator. Public tier badges (Bronze / Silver / Gold) but encrypted tip totals
-- Send gift envelopes. Equal or random splits, with expiry dates
-- Pay through one-time stealth codes that resist front-running
-
-*Business tools:*
-- Invoice a client with the amount encrypted
-- Run payroll for up to 30 employees. Nobody sees anyone else's salary
-- 2-of-2 escrow with arbiter dispute resolution
-- P2P exchange with real-time order book
-
-*Advanced:*
-- Inheritance dead-man's-switch. Heir claims after a 7-day challenge period if you go inactive
-- Privacy permits. Track who has decryption access to your encrypted data
-- Global search, transaction details, settings, help
-
-**How it's built**
-
-*Smart contracts (Solidity 0.8.25):*
-- All 16 contracts use the UUPS upgradeable proxy pattern (we can fix bugs without redeploying)
-- We use `FHE.select()` instead of `require()` everywhere. A normal `require` revert would leak "balance insufficient" to anyone watching the chain
-- Cross-contract encrypted transfers use `FHE.allowTransient()` (one-transaction-only access)
-- Built on `@fhenixprotocol/cofhe-contracts` v0.1.3
-
-*Frontend (React):*
-- Fhenix's SDK loads only when needed (lazy-load). Loading it eagerly conflicted with our styling library
-- Real homomorphic encryption happens in your browser via TFHE WASM in a Web Worker. Plaintext never leaves your device
-- Each encrypted input goes through Fhenix's ZK verifier, which returns a signed ciphertext we can submit on-chain
-- Manual 5M gas limit on FHE transactions (the standard gas estimator can't see the FHE precompile)
-- Accessibility from day one: 99 aria-labels, WCAG AA contrast, 44px touch targets, keyboard focus indicators
-
-*Data:*
-- Supabase is for notifications and cache only. The blockchain is always the source of truth
-- Real-time updates on 8 tables for instant UI refresh
-- We log activity *after* on-chain confirmation, never before
-- Input validation on every one of the 18 contract calls that touch FHE
-
-**Anchor commits:** [`a4c320f`](https://github.com/Pratiikpy/Blank/commit/a4c320f) initial · [`fb11f42`](https://github.com/Pratiikpy/Blank/commit/fb11f42) full release · [`321f6c3`](https://github.com/Pratiikpy/Blank/commit/321f6c3) initial 17-test suite
-
----
-
-### Wave 2. Hardening + business *(Apr 17 to Apr 30)*
-
-> **In one line:** Made the app usable for real people. Passkey wallets, dual-chain, AI-signed payments, public balance proofs, five-phase hardening pass.
-
-**Passkey wallets, the biggest change this wave**
-You sign up with a passphrase. No browser extension. The app creates an ERC-4337 smart account, signs with P-256 (the same crypto your phone uses for Face ID and Touch ID), and can route gas through a paymaster when sponsorship is available. Standard EVM wallets work for users who prefer an EOA. Both paths run through one shared hook in the code, so we don't maintain two versions of the app.
-
-**What you can do**  
-Send encrypted payments. Request money. Invoice clients. Run payroll where no employee can see another's pay. Split group expenses. Tip creators. Send gifts. Plan inheritance as a dead-man's-switch. Claim stealth payments with one-time codes. Generate a proof that your balance is above some number, without revealing the actual balance.
-
-**Dual-chain on one codebase**  
-The app runs on both Base Sepolia and Ethereum Sepolia. Explorer links automatically point at the right chain. Activity feeds show each transaction on the chain it actually happened on, not on whichever chain you're currently looking at. Most of the bugs we caught came from us using the app as a real user with two wallets in two browser windows.
-
-**AI agent payments**  
-A user types "send Alice $50 every Friday" in plain English. A server-side model parses the payment intent, then signs that amount with an agent-specific private key. On-chain, our PaymentHub contract uses `ecrecover` to verify the signature and ties every payment back to the agent that authored it. The agent's private key never leaves the server. Signatures expire in ten minutes; a stolen signature cannot be replayed.
-
-**Verifiable proofs, no trusted server**  
-A user generates a proof that their balance is above some number (say "I make more than $5,000/month") and gets a shareable URL. Anyone, even without a wallet, can open the URL and click verify. The Threshold Network's decrypted answer gets published on-chain with a signature check, and the contract does the math. Nobody has to trust our server. The chain has the receipt.
-
-**Under the hood**  
-16 UUPS-upgradeable contracts, 28 FHE operations, all migrated from Fhenix's older testnet to the CoFHE v0.4 API. The pattern we're proudest of is `transferFromVerified`. A Hub contract verifies an encrypted input in its own context (where `msg.sender` is the user), then passes the verified handle along to the vault. Without this pattern, cross-contract FHE signature checks fail silently with no visible error. The pattern is now isolated, documented, and reused across the app.
-
-**Where we are**  
-The CoFHE migration is done. Every feature that existed before still works, and everything new this wave sits on the v0.4 foundation. The product is usable on testnet today, with mainnet readiness gated on threshold decentralization, audit, and production operations.
-
-PaymentHub on Base Sepolia: [`0xF420102D...e831`](https://sepolia.basescan.org/address/0xF420102Dea1acf437bfc49ded5F4E2f5ed32e831)
-
-**Anchor commits:** [`34b1e8a`](https://github.com/Pratiikpy/Blank/commit/34b1e8a) P1 security · [`741ffa0`](https://github.com/Pratiikpy/Blank/commit/741ffa0) P2 storage gap · [`0ccd6f8`](https://github.com/Pratiikpy/Blank/commit/0ccd6f8) P3 cleanup · [`107fa41`](https://github.com/Pratiikpy/Blank/commit/107fa41) P4 architecture · [`7bfa6ca`](https://github.com/Pratiikpy/Blank/commit/7bfa6ca) P5 cofhe-shim CI · [`2c03451`](https://github.com/Pratiikpy/Blank/commit/2c03451) workspace modes + invoice escrow · [`8897baf`](https://github.com/Pratiikpy/Blank/commit/8897baf) AA contracts · [`cca2c42`](https://github.com/Pratiikpy/Blank/commit/cca2c42) passkey end-to-end
-
----
-
-### Wave 3. Partner-grade ship-readiness *(May 1 to May 9)*
-
-> **In one line:** Made the app explainable (public pricing, roadmap, four blog posts) and faster (Fhenix-recommended perf optimization shipped onchain on both chains in one day).
-
-**Built the parts that aren't code**  
-[`/pricing`](https://www.myblank.app/pricing), [`/roadmap`](https://www.myblank.app/roadmap), and [`/blog`](https://www.myblank.app/blog) all shipped this wave. Pricing says we charge nothing today and we'll figure out mainnet pricing later, with the reasoning visible. Roadmap groups everything as **Shipped / Next / Blocked**, where the Blocked rows name their actual gates: Fhenix CoFHE mainnet readiness, third-party audit, threshold operator decentralization. Blog has four long-form posts: a deep dive on [why we picked FHE over zero-knowledge for our specific problem](https://www.myblank.app/blog/fhe-vs-zk), an even deeper one on [why we picked Fhenix CoFHE over the FHE Layer 1 alternatives](https://www.myblank.app/blog/why-fhenix-cofhe), the Wave 3 changelog, and a writeup on why we'll never issue a token. Each post links back to product decisions, code, or deployed work.
-
-**Production startup incident**
-Mid-wave, the live site rendered a blank page on Vercel. We traced it in two passes. First diagnosis: the Content Security Policy was too strict and was blocking Web3 libraries from using `eval`. We relaxed the CSP. The page still failed. Second diagnosis: a Vite `manualChunks` bundling config was splitting `viem` and `wagmi` into separate JavaScript chunks, and one was loading before the other initialized, creating a runtime error. We removed the manual chunking (Vite's default is fine), pushed, and the site loaded again. We also wrote a Playwright diagnostic script during the chase. It captures console errors, page errors, and CSP violations on a real Vercel URL, so future startup failures start from a repeatable diagnostic instead of assumptions.
-
-**Multichain bug fix**  
-The "Encrypted USDC moved" counter on the landing page was showing a confusing dash on the Base Sepolia tab whenever the user's wallet was on Eth Sepolia. The bug was subtle: `usePublicClient()` from wagmi defaults to the wallet's chain, not whichever tab the user clicked. So clicking *Base Sepolia* while connected to Eth Sepolia tried to read Base Sepolia's contract address against Eth Sepolia's RPC: silent failure, dash. The fix is one line: pass `chainId: activeChainId` explicitly. Plus friendlier UX: instead of a dash, the page now says *Switch wallet to Base Sepolia* and offers a button that does the switch.
-
-**Perf pass using Fhenix's own guide**  
-Fhenix publishes a canonical AI training material called `marronjo/fhe-assistant`, a single `core.md` file they point their own AI assistants at. We pulled it into our local references and read it cover to cover. One thing jumped out: every `FHE.allow(x, msg.sender)` should be rewritten as `FHE.allowSender(x)`. Same effect, smaller bytecode, cheaper hot paths. Fhenix flags it explicitly as the slow form. We had 20 sites across nine contracts using the slow form. Twenty surgical edits, ran the full 154-test suite (still 154 passing, zero regression), and rolled the new bytecode out via UUPS upgrade on both chains the same day. Nine proxies on Eth Sepolia, nine plus the USDT alias proxy on Base Sepolia, every one verified by reading the EIP-1967 implementation slot directly from chain storage. We also wrote a `verify-upgrade.js` script that any future upgrade can use to prove correctness without trusting console output.
-
-**Where we are**  
-Wave 3 is the wave where Blank stops being a thing we shipped and starts being a thing we explain. Tests grew from 17 at the end of Wave 1 to 154 today, about a **9× increase**. Storage drift across every UUPS upgrade we ran: **zero**. UUPS upgrades shipped this wave: **18**, across two chains. Long-form blog posts live: **4**. Multichain bugs in landing-page widgets: **0**.
-
-**Anchor commits:** [`925d5e4`](https://github.com/Pratiikpy/Blank/commit/925d5e4) CSP relax · [`ab4eaf4`](https://github.com/Pratiikpy/Blank/commit/ab4eaf4) /pricing + /roadmap + /blog · [`968b00a`](https://github.com/Pratiikpy/Blank/commit/968b00a) Why-Fhenix-CoFHE post · [`bdf9415`](https://github.com/Pratiikpy/Blank/commit/bdf9415) multichain GlobalCounter fix · [`015701e`](https://github.com/Pratiikpy/Blank/commit/015701e) allowSender refactor · [`c1ffa7e`](https://github.com/Pratiikpy/Blank/commit/c1ffa7e) UUPS rollout
-
-### Wave 4. Composable public-link surface *(May 10 to present)*
-
-> **In one line:** Made every payment shape a public link that visitors can open and connected wallets can act on, while the amount stays encrypted. Magic claim links, sealed-bid storefronts, encrypted crowdfunding, encrypted escrow.
-
-**4 new contracts (all UUPS, all storage-layout tracked)**
-`ClaimLinks` ships bearer / email-bound / address-bound payment links with on-chain `keccak256(DOMAIN, mode, secret, ...)` matching, hard-capped at 365 days expiry. `Storefront` ships three sale modes per listing: `FixedPrice` (FHE.eq matching), sealed-bid `Auction` (FHE-tournament selection via `FHE.gt` + `FHE.select`, async-decrypted via `revealWinner`), and `PayWhatYouWant`. `EncryptedCrowdfund` keeps the goal AND every contribution encrypted; `closeCampaign` runs `FHE.gte(raised, goal)` and the verdict is published via `FHE.publishDecryptResult`. `EncryptedEscrow` ships arbiter-or-deadline release with the disputed-without-arbiter fund-lock fixed at create time.
-
-**FHE pipeline UI**
-Every encrypted operation now has a 5-step progress UI (`useFhePipeline`): cofhe SDK init, encrypt input, ZK proof, submit tx, confirm. Wired into all four Wave 4 hooks plus `useClaimLinks`. The hook surfaces step + sub-step state through a single React state machine; the component renders both compact and full modes.
-
-**Auction settlement**
-The previous Wave 4 prototype set `runningWinner = bids[i].bidder` unconditionally inside the close loop, so the last bidder won regardless of bid amount. The existing test masked the bug because it used ascending bids (5, 8, 10), where the last bidder happened to also be the highest. Phase A disabled `closeAuction` with a clear revert. Phase B reimplemented via FHE-tournament: encrypted winner index tracked alongside running max via `FHE.select`, off-chain decrypted, posted on-chain via `revealWinner(listingId, plaintextIdx, signature)`. The new 5/10/7 differentiating test proves charlie at $10 wins instead of dave at $7, and catches the regression if it ever returns.
-
-**Storage layout coverage**
-TRACKED_CONTRACTS swept from 12 to 19 (the 4 new Wave 4 contracts plus 3 pre-Wave-4 contracts that were never tracked: `EncryptedFlags`, `EventHub`, `TokenRegistry`). UUPS storage-layout coverage: **100%**. CI gate now runs `pnpm storage:check` on every PR and blocks layout-breaking upgrades.
-
-**CI uplift**
-4 new gating checks added: vitest unit tests (103 passing), Vercel function typecheck (`api/tsconfig.json`), hardhat task typecheck, storage layout check. Total CI surface: 4 jobs to 8.
-
-**Where we are**
-Wave 4 shipped the public-link surface across 4 new contracts, with slot-preserving UUPS upgrades (`__gap` decremented when consumed), 4-of-4 Wave 4 contract tests, and a live deployment on Base Sepolia and Ethereum Sepolia.
-
-**Anchor commits:** `7c241d7` test wallet hygiene · `71d85ae` EncryptedEscrow no-arbiter fix · `429551d` + `333c508` + `a841ebb` Storefront auction settlement · `2e5f7d9` ClaimLinks expiry cap · `f866153` Inheritance flow fix · `e2eca12` extractEventId fails closed · `7992351` cancel default fix · `3058e32` storage-layout coverage · `b351e2e` CI uplift · `68f9d8e` README polish · `d7c24fc` engineering tour · `273c508` README surface refresh
-
----
-
-**What's next** lives at [`/roadmap`](https://www.myblank.app/roadmap). Explicit gates, no dates we can't keep.
-
----
-
-## Live deployments
-
-UUPS-upgradeable proxies, deployed on **Base Sepolia** (84532) and **Ethereum Sepolia** (11155111). Top contracts:
-
-| Contract | Base Sepolia | Purpose |
-|----------|-------------|---------|
-| FHERC20Vault | `0x789f0bC4...B0ff23` | Encrypted vault: shield, unshield, transfer |
-| PaymentHub | `0xF420102D...e831` | P2P, requests, batch send |
-| BusinessHub | `0xEfD67E33...21EFD` | Invoicing, payroll, escrow |
-| StealthPayments | `0x76aDF6D8...32F1C` | Anonymous claim-code transfers |
-| InheritanceManager | `0x289714c4...973d5` | Dead-man's-switch |
-| BlankPaymaster | `0xB1CbBD59...e63de` | Gas sponsorship for passkey users |
-| ClaimLinks | `0x2eD78815...654665` | Bearer / email / address-bound payment links |
-| Storefront | `0xeA8a38f2...Dfd419` | FixedPrice / Auction / PWYW listings |
-| EncryptedCrowdfund | `0x0F217055...4183C` | Encrypted goal + contributions, FHE.gte verdict |
-| EncryptedEscrow | `0x6414742D...3e421` | Arbiter-or-deadline release with encrypted amount |
-
-Full address list including Ethereum Sepolia: [`packages/contracts/deployments/`](packages/contracts/deployments).
-
----
-
-## Security posture
-
-| Layer | What we do |
-|-------|------------|
-| **Privacy** | `FHE.select()` over `require()`. A revert leaks one bit of information. Blank never reverts on insufficient funds. |
-| **Encryption** | Every encrypted input is ZK-verified + threshold-signed before on-chain use. Decrypts gated by `FHE.publishDecryptResult` + threshold signature on-chain. |
-| **ACL** | 4-tier FHE permits (`allowThis`, `allowSender`, `allow`, `allowTransient`). Sender retains decrypt rights on their own values until claim or refund. |
-| **Contracts** | Reentrancy guards everywhere. UUPS storage layout snapshotted in CI for **all 19 UUPS contracts**; every upgrade fails the build if a slot moves. Append-via-`__gap` pattern enforced (`__gap[N]` decremented when a new state variable is added; total slot count preserved). |
-| **AA** | ERC-1271 length guards on passkey accounts. Paymaster validates every target in `executeBatch`. No bypass via batched calls. |
-| **Auction** | Sealed-bid auctions resolve via FHE-tournament (`FHE.gt` + `FHE.select`) with off-chain threshold-signed `revealWinner`. No last-bidder-wins; the differentiating 5/10/7 test catches regression. |
-| **Escrow** | No-arbiter escrows reject `disputeEscrow` at the source; funds always retrievable via `claimExpiredEscrow` after the deadline. No permanent fund-lock path. |
-| **Claim links** | Per-link expiry capped at 365 days (`MAX_EXPIRY_SECONDS`). No unbounded expiry. Domain-separated hashes (`keccak256(BLANK_CLAIM_v1, mode, secret, ...)`) prevent cross-mode replay. |
-| **Stealth** | Claim codes bound to `keccak256(code, claimer)`. Intercepting the code is useless without the claimer's address. |
-| **Stealth keystore** | AES-GCM-at-rest with PBKDF2-derived key (250k iterations) on the user's passphrase. Plaintext never on disk. |
-| **Frontend** | Wallet-signed challenges on all email + push endpoints. CSP, X-Frame-Options DENY, Permissions-Policy headers. CI typechecks Vercel functions. |
-| **Test wallets** | Real testnet mnemonics created by `tasks/fund-mm-test-wallet` are ignored by Git at `packages/contracts/.gitignore`. The task includes an operator warning, and mnemonics are not committed to history. |
-
-Find a hole? Open an issue or email. We treat security reports seriously.
-
----
-
-## Tech stack
-
-| Layer | Technology |
-|-------|-----------|
-| **Chains** | Base Sepolia, Ethereum Sepolia |
-| **Contracts** | Solidity 0.8.25, UUPS proxies, `@fhenixprotocol/cofhe-contracts` v0.1.3 |
-| **FHE** | Fhenix CoFHE (`@cofhe/sdk` v0.5.1), TFHE WASM, threshold decryption |
-| **Account abstraction** | ERC-4337, P-256 passkey signing, EntryPoint v0.7 |
-| **Frontend** | React, Vite, TypeScript, Tailwind |
-| **Wallets** | wagmi + viem; standard EVM wallets, passkey smart accounts, and shared EOA connector plumbing |
-| **Realtime** | Supabase (cache + notifications; never the source of truth) |
-| **Deployment** | Vercel (frontend), Hardhat (contracts) |
-
----
-
-## Get started in 30 seconds
-
-**Use the live app:**
-
-```
-1. Visit www.myblank.app
-2. Connect an EVM wallet on Base Sepolia or Ethereum Sepolia
-3. Mint test USDC from the in-app faucet
-4. Send a private payment, create an invoice, or open a public link
+## Architecture
+
+| Layer | Responsibility | Primary code |
+| --- | --- | --- |
+| Web application | Wallet interaction, encrypted input, transaction UX, public pages | [`packages/app`](packages/app) |
+| Smart contracts | Vaults, payments, commerce, proofs, recovery and exchange state | [`packages/contracts`](packages/contracts) |
+| CoFHE integration | Encrypted inputs, ACL permissions and FHE operations | [`packages/contracts/contracts`](packages/contracts/contracts) |
+| API and indexing | Health, metadata, events and operational endpoints | [`packages/app/api`](packages/app/api) |
+| Product documentation | Architecture, threat boundaries and public specification | [`docs`](docs) |
+
+Contract families include encrypted vaults and payments, business and creator workflows, commerce and escrow, exchange and offramp, handles and recovery, and privacy proofs.
+
+For a detailed system map, read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and the [code maps](docs/CODEMAPS).
+
+## Testnet Deployments
+
+The following contracts are currently deployed on both supported testnets.
+
+| Contract | Base Sepolia | Ethereum Sepolia |
+| --- | --- | --- |
+| `FHERC20Vault_USDC` | [`0x789f...ff23`](https://sepolia.basescan.org/address/0x789f0bC466E172eD737493e9796a6d0a3aB0ff23) | [`0x3a58...AB51`](https://sepolia.etherscan.io/address/0x3a587f224CC3e1745565cfca8500e5934485AB51) |
+| `PaymentHub` | [`0xF420...e831`](https://sepolia.basescan.org/address/0xF420102Dea1acf437bfc49ded5F4E2f5ed32e831) | [`0xB628...b5eB`](https://sepolia.etherscan.io/address/0xB628719994C21A5CcAb190019b42750f092Fb5eB) |
+| `BusinessHub` | [`0xEfD6...1EFD`](https://sepolia.basescan.org/address/0xEfD67E33f12a7b3A221d25f965f70d1BE6721EFD) | [`0x3048...5717`](https://sepolia.etherscan.io/address/0x3048Df6de18355EB6ce2eF0bB923B55E75FB5717) |
+| `ClaimLinks` | [`0x2eD7...4665`](https://sepolia.basescan.org/address/0x2eD78815299C2B1F2cBd2313CF763B56A0654665) | [`0x9E21...12Be`](https://sepolia.etherscan.io/address/0x9E2189149deec5e78cB2976d8DF64CAec40B12Be) |
+| `Storefront` | [`0xeA8a...d419`](https://sepolia.basescan.org/address/0xeA8a38f25ECF9Cc8C9240aafb35b561D14Dfd419) | [`0x786C...695b`](https://sepolia.etherscan.io/address/0x786C85880e0FCF123D726600D9784ee88B84695b) |
+| `EncryptedCrowdfund` | [`0x0F21...183C`](https://sepolia.basescan.org/address/0x0F21705575e2CC83dC410AE2af6973B150a4183C) | [`0x383B...24e1`](https://sepolia.etherscan.io/address/0x383B58973f7e8DC3E47D1C2f55393E2ac48b24e1) |
+| `EncryptedEscrow` | [`0x6414...e421`](https://sepolia.basescan.org/address/0x6414742D2da28eCEf06D79b82F406B6b8ab3e421) | [`0x4253...0feC`](https://sepolia.etherscan.io/address/0x4253163CfCd0cf9885333E0a7B7476d61F010feC) |
+| `P2PExchange` | [`0xDa60...f116`](https://sepolia.basescan.org/address/0xDa606096d5C2bdE73ccB418771e12630030Ff116) | [`0x5339...A054`](https://sepolia.etherscan.io/address/0x53392D0766964723649443c8bA36c4517A79A054) |
+| `P2POfframp` | [`0xd717...32f9`](https://sepolia.basescan.org/address/0xd717E7AFE5eB627c9913bc682003d6E83b9032f9) | [`0x5981...444a`](https://sepolia.etherscan.io/address/0x5981C437032Da38844AE9a3aa382F993b1B8444a) |
+| `ProofOfBalance` | [`0x25e7...36Ff`](https://sepolia.basescan.org/address/0x25e7383Bd5602a07928629e9Ec6eaec9535536Ff) | [`0xff0F...1856`](https://sepolia.etherscan.io/address/0xff0Fa776116a17b6fbD62E48CA14F48b31E31856) |
+| `GuardianModule` | [`0x4fa2...5B46`](https://sepolia.basescan.org/address/0x4fa2152A940651404F2722c0192624d0662e5B46) | [`0xdBE8...0c3E`](https://sepolia.etherscan.io/address/0xdBE8252D1e089759b56E742843303f0b18700c3E) |
+
+Complete machine-readable deployment manifests:
+
+- [Base Sepolia deployment](packages/contracts/deployments/base-sepolia.json)
+- [Ethereum Sepolia deployment](packages/contracts/deployments/eth-sepolia.json)
+
+## Repository
+
+```text
+blank/
+|-- packages/
+|   |-- app/                 React application, API routes and live QA flows
+|   `-- contracts/           Solidity contracts, deployments and tests
+|-- docs/                    Architecture, paper and product documentation
+|-- CLAUDE.md                Engineering and release rules
+`-- README.md
 ```
 
-Passkey mode is built for no-extension onboarding with sponsored gas.
-Standard EVM wallet mode is available for users who already live in a
-wallet. Mobile UI is live across the product route map.
+## Develop Locally
 
-**Try a Wave 4 feature in 60 seconds:**
+Requirements:
 
-```
-- /app/claim-link        create a magic claim link, share via URL
-- /app/shop              create a sealed-bid auction listing
-- /app/fund              start an encrypted-goal crowdfund
-- /app/escrow            open an encrypted-amount escrow with arbiter
-```
-
-**Run locally:**
+- Node.js 20+
+- pnpm 10+
+- A browser wallet for interactive testnet use
 
 ```bash
-git clone https://github.com/Pratiikpy/Blank.git
-cd Blank && pnpm install
+git clone https://github.com/Pratiikpy/blank.git
+cd blank
+pnpm install --frozen-lockfile
 
-# Frontend (terminal 1)
-cd packages/app && cp .env.example .env && pnpm dev
-
-# Contracts (terminal 2): compile + run full test suite
-cd packages/contracts && cp .env.example .env
-pnpm exec hardhat compile && pnpm exec hardhat test
-
-# Storage layout safety (UUPS upgrade gate)
-cd packages/contracts && pnpm storage:check
-
-# Frontend unit tests (vitest, ~5s)
-cd packages/app && pnpm exec vitest run
-
-# Typecheck Vercel functions
-cd packages/app && pnpm exec tsc --noEmit -p api/tsconfig.json
+cd packages/app
+pnpm dev
 ```
 
-All 4 of those local checks run automatically in CI on every PR.
-A fresh clone, `pnpm install`, then any of the above commands
-mirrors what the build does on push.
+Create local environment configuration only for flows that require RPC, indexing or operational integrations:
 
----
+```bash
+cd packages/app
+cp .env.example .env
+```
 
-<sub>MIT · built with [Fhenix CoFHE](https://fhenix.io) · [report a bug](https://github.com/Pratiikpy/Blank/issues)</sub>
+On Windows PowerShell:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+## Validation
+
+Application:
+
+```bash
+cd packages/app
+pnpm run ci
+pnpm exec vitest run
+pnpm check:voice:strict
+```
+
+Contracts:
+
+```bash
+cd packages/contracts
+pnpm exec hardhat compile
+pnpm exec hardhat test
+pnpm storage:check
+```
+
+Operational testnet verification scripts are maintained with the application in [`packages/app/e2e`](packages/app/e2e). Public health is visible at [www.myblank.app/status](https://www.myblank.app/status).
+
+## Security And Release Boundary
+
+- Blank protects amount confidentiality, not participant identity or transaction existence.
+- Ciphertext permissions and decryption rely on the CoFHE access model and its network assumptions.
+- Upgradeable contracts are guarded by storage layout checks in development and CI.
+- The storefront does not yet provide automatic digital file fulfillment.
+- The offramp is a testnet product surface; production-grade provider verification, dispute operations and governance controls remain release gates.
+- Mainnet use is not supported before an external audit, Fhenix production readiness, finalized operations and key-management controls.
+
+Security issues should be reported according to [SECURITY.md](SECURITY.md).
+
+## Read More
+
+| Document | Purpose |
+| --- | --- |
+| [Whitepaper](https://docs.myblank.app) | Privacy model, architecture and security boundary |
+| [Proof deck](https://www.myblank.app/proof-deck) | Product presentation and supporting material |
+| [Brand kit](https://brand.myblank.app) | Identity system and public assets |
+| [Blog](https://blog.myblank.app) | Technical and product writing |
+| [Architecture](docs/ARCHITECTURE.md) | Engineering reference |
+| [Launch readiness](docs/LAUNCH_READINESS.md) | Testnet scope and release boundaries |
+
+## License
+
+MIT. Built with [Fhenix CoFHE](https://www.fhenix.io/).
