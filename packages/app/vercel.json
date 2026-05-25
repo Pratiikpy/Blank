@@ -1,6 +1,7 @@
 {
   "rewrites": [
     { "source": "/pitchdeck", "destination": "/pitchdeck.html" },
+    { "source": "/proof-deck", "destination": "/proof-deck.html" },
     { "source": "/v/:proofId", "destination": "/api/share/proof?id=:proofId" },
     { "source": "/api/relayer-health", "destination": "/api/health?kind=relayer" },
     { "source": "/api/reconcile-user", "destination": "/api/cron/reconcile-user" },
