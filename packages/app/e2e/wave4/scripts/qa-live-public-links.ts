@@ -54,6 +54,14 @@ const labelByPersona: Record<Persona, string[]> = {
 };
 const results: FlowResult[] = [];
 
+// Wave 5.5 — handoff state for the optional Offramp lifecycle runFlow.
+// Populated by the "Offramp create" flow when it can parse the
+// createOffer receipt; consumed by the "Offramp take+proof+release"
+// flow which only runs when OFFRAMP_LIFECYCLE=1 is set (the lifecycle
+// adds ~6 minutes for the 300s challenge window so it's opt-in).
+let lastOfframpOfferId: bigint | null = null;
+let lastOfframpMakerHandle: string | null = null;
+
 async function snap(page: Page, label: string): Promise<string> {
   const path = resolve(OUT, `${label}.png`);
   await page.screenshot({ path, fullPage: true }).catch(() => undefined);
@@ -721,7 +729,8 @@ async function main(): Promise<void> {
     // PhonePe UPI handle needs the `name@provider` shape per the rail's
     // handlePattern regex /^[\w.\-]+@[\w.\-]+$/i; bare `qa-NNN` got
     // silently rejected with a toast.error and the modal stayed open.
-    await safeFill(page.locator('[data-testid="offramp-create-handle"]'), `qa${Date.now().toString().slice(-6)}@upi`);
+    const makerHandle = `qa${Date.now().toString().slice(-6)}@upi`;
+    await safeFill(page.locator('[data-testid="offramp-create-handle"]'), makerHandle);
     await safeFill(page.locator('[data-testid="offramp-create-usdc"]'), "1");
     await safeFill(page.locator('[data-testid="offramp-create-fiat"]'), "1");
     await safeFill(page.locator('[data-testid="offramp-create-rate"]'), "1.0000");
@@ -740,17 +749,132 @@ async function main(): Promise<void> {
       .catch(() => false);
     await snap(page, "offramp-create-after");
     const hashes = await txHashesFrom(DAVE, before);
+    // Walk receipts (newest first) and extract the offerId from the
+    // OfferCreated event topic[1] for handoff to the lifecycle flow.
+    // P2POfframp addresses: Eth 0x5981C437…, Base 0xd717E7AF….
+    const offrampAddr = (IS_ETH
+      ? "0x5981C437032Da38844AE9a3aa382F993b1B8444a"
+      : "0xd717E7AFE5eB627c9913bc682003d6E83b9032f9").toLowerCase();
+    for (const h of [...hashes].reverse()) {
+      try {
+        const r = await publicClient.getTransactionReceipt({ hash: h });
+        if (r.status !== "success") continue;
+        for (const log of r.logs) {
+          if (log.address.toLowerCase() !== offrampAddr) continue;
+          if (log.topics.length < 2 || !log.topics[1]) continue;
+          try {
+            const id = BigInt(log.topics[1]);
+            lastOfframpOfferId = id;
+            lastOfframpMakerHandle = makerHandle;
+            break;
+          } catch { /* not the indexed offerId we want */ }
+        }
+        if (lastOfframpOfferId !== null) break;
+      } catch { /* skip */ }
+    }
     return {
       name: "Offramp create",
       status: success && hashes.length > 0 ? "green" : "red",
       url: `${VERCEL_URL}/app/offramp`,
       hashes,
       note: success
-        ? `Dave created encrypted offramp offer (1 USDC for $1 fiat); modal closed + offer visible. Mock-mode signing fix (commit 3d178b4) makes proof submission possible — full take+proof harness deferred to next iteration.`
+        ? `Dave created encrypted offramp offer (1 USDC for $1 fiat); modal closed + offer visible.${lastOfframpOfferId !== null ? ` offerId=${lastOfframpOfferId.toString()}` : ""} Set OFFRAMP_LIFECYCLE=1 to also drive Bob take + proof + release on the same offer.`
         : "Offramp create did not reach success state — see offramp-create-after.png",
       screenshot: resolve(OUT, "offramp-create-after.png"),
     };
   });
+
+  // Wave 5.5 — opt-in Offramp lifecycle: Bob takes Dave's just-created
+  // offer, submits the mock-signed Reclaim proof, waits the 300s
+  // challenge window, then releases. Gated behind OFFRAMP_LIFECYCLE=1
+  // because the wait adds ~6 minutes per chain.
+  if (process.env.OFFRAMP_LIFECYCLE === "1" && lastOfframpOfferId !== null) {
+    const offerId = lastOfframpOfferId;
+    await runFlow("Offramp take + proof + release", async () => {
+      const hashes: Hash[] = [];
+      let note = "";
+
+      // (1) Bob takes the offer.
+      await switchRabbyAccount(rabbyPage, extId, "Bob");
+      await ensureDappAccount(page, ctx, extId, known, "Bob");
+      await page.goto(`${VERCEL_URL}/app/offramp/${offerId.toString()}`, { waitUntil: "domcontentloaded", timeout: 60_000 });
+      await page.locator('[data-testid="offramp-detail-take"]').waitFor({ state: "visible", timeout: 30_000 });
+      await snap(page, "offramp-take-before");
+      const beforeTake = await getNonce(BOB);
+      await page.locator('[data-testid="offramp-detail-take"]').click();
+      await drainRabbyPopups(ctx, extId, known, "offramp-take", 3);
+      // After takeOffer, page navigates to /app/offramp/fill/:fillId.
+      await page.waitForURL(/\/app\/offramp\/fill\/\d+/, { timeout: 180_000 }).catch(() => undefined);
+      await snap(page, "offramp-take-after");
+      const takeHashes = await txHashesFrom(BOB, beforeTake);
+      hashes.push(...takeHashes);
+      if (takeHashes.length === 0) {
+        return {
+          name: "Offramp take + proof + release",
+          status: "red",
+          url: `${VERCEL_URL}/app/offramp/${offerId.toString()}`,
+          hashes,
+          note: "Bob's takeOffer didn't land on chain — see offramp-take-after.png",
+          screenshot: resolve(OUT, "offramp-take-after.png"),
+        };
+      }
+      // Extract fillId from the URL we navigated to.
+      const fillIdFromUrl = page.url().match(/\/fill\/(\d+)/)?.[1] ?? null;
+      note += `take: Bob took offer ${offerId.toString()} → fill ${fillIdFromUrl ?? "?"}. `;
+
+      // (2) Bob submits the Reclaim proof. The widget POSTs to /api/relay
+      // (server-side operator signing), then the hook fires submitProof
+      // through Rabby. One additional popup.
+      await page.locator('[data-testid="offramp-reclaim-start"]').waitFor({ state: "visible", timeout: 30_000 });
+      await snap(page, "offramp-proof-before");
+      const beforeProof = await getNonce(BOB);
+      await page.locator('[data-testid="offramp-reclaim-start"]').click();
+      await drainRabbyPopups(ctx, extId, known, "offramp-proof", 2);
+      await page.waitForFunction(
+        () => /Proof submitted|Challenge window|Release/.test(document.body.innerText),
+        { timeout: 180_000 },
+      ).catch(() => undefined);
+      await snap(page, "offramp-proof-after");
+      const proofHashes = await txHashesFrom(BOB, beforeProof);
+      hashes.push(...proofHashes);
+      if (proofHashes.length === 0) {
+        return {
+          name: "Offramp take + proof + release",
+          status: "red",
+          url: `${VERCEL_URL}/app/offramp/${offerId.toString()}`,
+          hashes,
+          note: note + "submitProof didn't land on chain — see offramp-proof-after.png",
+          screenshot: resolve(OUT, "offramp-proof-after.png"),
+        };
+      }
+      note += `proof: submitted. `;
+
+      // (3) Wait for the 300s challenge window + 30s buffer, then release.
+      await page.waitForTimeout(330_000);
+      await page.locator('[data-testid="offramp-fill-release"]').waitFor({ state: "visible", timeout: 30_000 });
+      await snap(page, "offramp-release-before");
+      const beforeRelease = await getNonce(BOB);
+      await page.locator('[data-testid="offramp-fill-release"]').click();
+      await drainRabbyPopups(ctx, extId, known, "offramp-release", 2);
+      await page.waitForFunction(
+        () => /Released|paid out to the taker/i.test(document.body.innerText),
+        { timeout: 180_000 },
+      ).catch(() => undefined);
+      await snap(page, "offramp-release-after");
+      const releaseHashes = await txHashesFrom(BOB, beforeRelease);
+      hashes.push(...releaseHashes);
+      note += releaseHashes.length > 0 ? `release: confirmed.` : `release: no tx — see offramp-release-after.png`;
+
+      return {
+        name: "Offramp take + proof + release",
+        status: hashes.length >= 3 ? "green" : "red",
+        url: `${VERCEL_URL}/app/offramp/${offerId.toString()}`,
+        hashes,
+        note,
+        screenshot: resolve(OUT, "offramp-release-after.png"),
+      };
+    });
+  }
 
   const md = [
     "# QA live public links",
