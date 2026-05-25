@@ -1,7 +1,7 @@
-import { Link } from "react-router-dom";
 import { ArrowRight, Check } from "lucide-react";
 import { LandingNav } from "./LandingNav";
 import { LandingFooter } from "./LandingFooter";
+import { canonicalPublicHref } from "./publicLinks";
 import "./landing.css";
 
 // ══════════════════════════════════════════════════════════════════
@@ -368,9 +368,9 @@ export default function Pricing() {
             Mainnet pricing will be announced when we have honest numbers.
             Until then, testnet flows are free to use, with no asterisk.
           </p>
-          <Link to="/app" className="ll-btn ll-btn--hero ll-btn--ink">
+          <a href={canonicalPublicHref("/app")} className="ll-btn ll-btn--hero ll-btn--ink">
             Launch Blank <ArrowRight size={17} strokeWidth={2.2} />
-          </Link>
+          </a>
         </section>
       </main>
       <LandingFooter />

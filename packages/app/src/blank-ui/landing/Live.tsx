@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
 import { ArrowRight, ExternalLink } from "lucide-react";
 import { LandingNav } from "./LandingNav";
 import { LandingFooter } from "./LandingFooter";
 import { useLiveActivities, type LiveActivity } from "@/hooks/useLiveActivities";
 import { getExplorerTxUrl } from "@/lib/constants";
 import { truncateAddress } from "@/lib/address";
+import { canonicalPublicHref } from "./publicLinks";
 import "./landing.css";
 
 // ══════════════════════════════════════════════════════════════════
@@ -141,9 +141,9 @@ export default function Live() {
             <div className="ll-live-list">
               <div className="ll-live-empty">
                 No transactions yet.{" "}
-                <Link to="/app" style={{ color: "var(--ll-accent-dark)", fontWeight: 600 }}>
+                <a href={canonicalPublicHref("/app")} style={{ color: "var(--ll-accent-dark)", fontWeight: 600 }}>
                   Be the first
-                </Link>
+                </a>
                 .
               </div>
             </div>
@@ -164,9 +164,9 @@ export default function Live() {
             Launch the app, shield a bit of USDC, and send your first
             encrypted payment. You'll see it appear here.
           </p>
-          <Link to="/app" className="ll-btn ll-btn--hero ll-btn--ink">
+          <a href={canonicalPublicHref("/app")} className="ll-btn ll-btn--hero ll-btn--ink">
             Launch Blank <ArrowRight size={17} strokeWidth={2.2} />
-          </Link>
+          </a>
         </section>
       </main>
       <LandingFooter />

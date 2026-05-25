@@ -153,7 +153,7 @@ describe("Pricing — CTAs (§15.x)", () => {
     );
     expect(launchCtas.length).toBeGreaterThanOrEqual(1);
     for (const cta of launchCtas) {
-      expect(cta.getAttribute("href")).toBe("/app");
+      expect(cta.getAttribute("href")).toBe("https://app.myblank.app");
     }
   });
 

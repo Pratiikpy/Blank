@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { canonicalPublicHref } from "./publicLinks";
 import { ArrowRight } from "lucide-react";
 import { LandingNav } from "./LandingNav";
 import { LandingFooter } from "./LandingFooter";
@@ -541,9 +541,9 @@ export default function Features() {
                 <h2 className="ll-feature-name-lg">{f.name}</h2>
                 <p className="ll-feature-pitch">{f.pitch}</p>
                 <div className="ll-feature-scenario">{f.scenario}</div>
-                <Link to={f.route} className="ll-feature-cta">
+                <a href={canonicalPublicHref(f.route)} className="ll-feature-cta">
                   Try {f.name} <ArrowRight size={16} strokeWidth={2.2} />
-                </Link>
+                </a>
               </div>
               <div className="ll-feature-visual">
                 <Preview p={f.preview} />
@@ -558,9 +558,9 @@ export default function Features() {
             Shield some USDC. Pick any feature. Ship your first private
             payment in under a minute.
           </p>
-          <Link to="/app" className="ll-btn ll-btn--hero ll-btn--ink">
+          <a href={canonicalPublicHref("/app")} className="ll-btn ll-btn--hero ll-btn--ink">
             Launch Blank <ArrowRight size={17} strokeWidth={2.2} />
-          </Link>
+          </a>
         </section>
       </main>
       <LandingFooter />

@@ -1,5 +1,4 @@
-import { Link } from "react-router-dom";
-import { PUBLIC_LINKS } from "./publicLinks";
+import { canonicalPublicHref, PUBLIC_LINKS } from "./publicLinks";
 
 // Shared footer across all landing-level pages.
 export function LandingFooter() {
@@ -7,16 +6,16 @@ export function LandingFooter() {
     <footer className="ll-footer">
       <div>© {new Date().getFullYear()} Blank. Private by design.</div>
       <div className="ll-footer-links">
-        <Link to="/features">Features</Link>
-        <Link to="/how-it-works">How it works</Link>
-        <Link to="/pricing">Pricing</Link>
-        <Link to="/roadmap">Roadmap</Link>
-        <Link to="/live">Live</Link>
+        <a href={canonicalPublicHref("/features")}>Features</a>
+        <a href={canonicalPublicHref("/how-it-works")}>How it works</a>
+        <a href={canonicalPublicHref("/pricing")}>Pricing</a>
+        <a href={canonicalPublicHref("/roadmap")}>Roadmap</a>
+        <a href={canonicalPublicHref("/live")}>Live</a>
         <a href={PUBLIC_LINKS.docs}>Docs</a>
         <a href={PUBLIC_LINKS.brand}>Brand Kit</a>
         <a href={PUBLIC_LINKS.blog}>Blog</a>
-        <Link to="/manifesto">Manifesto</Link>
-        <a href="/proof-deck">Proof deck</a>
+        <a href={canonicalPublicHref("/manifesto")}>Manifesto</a>
+        <a href={canonicalPublicHref("/proof-deck")}>Proof deck</a>
         <a href={PUBLIC_LINKS.app}>Launch app</a>
         <a
           href="https://github.com/Pratiikpy/Blank"

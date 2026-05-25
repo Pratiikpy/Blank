@@ -1,7 +1,7 @@
-import { Link } from "react-router-dom";
 import { ArrowRight } from "lucide-react";
 import { LandingNav } from "./LandingNav";
 import { LandingFooter } from "./LandingFooter";
+import { canonicalPublicHref } from "./publicLinks";
 import "./landing.css";
 
 // ══════════════════════════════════════════════════════════════════
@@ -141,12 +141,12 @@ export default function Manifesto() {
           <p className="ll-signature">The Blank team</p>
 
           <div className="ll-manifesto-ctas">
-            <Link to="/app" className="ll-btn ll-btn--hero ll-btn--ink">
+            <a href={canonicalPublicHref("/app")} className="ll-btn ll-btn--hero ll-btn--ink">
               Launch Blank <ArrowRight size={17} strokeWidth={2.2} />
-            </Link>
-            <Link to="/live" className="ll-btn ll-btn--hero ll-btn--ghost">
+            </a>
+            <a href={canonicalPublicHref("/live")} className="ll-btn ll-btn--hero ll-btn--ghost">
               See it live
-            </Link>
+            </a>
           </div>
         </article>
       </main>

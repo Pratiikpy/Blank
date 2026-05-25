@@ -1,9 +1,9 @@
-import { Link } from "react-router-dom";
 import { ArrowRight, Sparkles, ExternalLink } from "lucide-react";
 import { LandingNav } from "./LandingNav";
 import { LandingFooter } from "./LandingFooter";
 import { AGENT_ATTESTATION_ADDRESS } from "@/lib/constants";
 import { useChain } from "@/providers/ChainProvider";
+import { canonicalPublicHref } from "./publicLinks";
 import "./landing.css";
 import "./how-it-works.css";
 
@@ -139,12 +139,12 @@ export default function HowItWorks() {
             That's the default web3 ships with. Blank ships the other column.
           </p>
           <div className="ll-hero-ctas">
-            <Link to="/app" className="ll-btn ll-btn--hero ll-btn--ink">
+            <a href={canonicalPublicHref("/app")} className="ll-btn ll-btn--hero ll-btn--ink">
               Try it now <ArrowRight size={17} strokeWidth={2.2} />
-            </Link>
-            <Link to="/features" className="ll-btn ll-btn--hero ll-btn--ghost">
+            </a>
+            <a href={canonicalPublicHref("/features")} className="ll-btn ll-btn--hero ll-btn--ghost">
               See every feature
-            </Link>
+            </a>
           </div>
         </section>
       </main>

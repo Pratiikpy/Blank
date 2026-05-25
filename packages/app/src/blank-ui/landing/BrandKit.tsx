@@ -1,5 +1,4 @@
 import { useEffect, type ReactNode } from "react";
-import { Link } from "react-router-dom";
 import {
   ArrowRight,
   Circle,
@@ -15,6 +14,7 @@ import {
 import { BlankLogo } from "./BlankLogo";
 import { LandingFooter } from "./LandingFooter";
 import { LandingNav } from "./LandingNav";
+import { canonicalPublicHref } from "./publicLinks";
 import "./landing.css";
 import "./brand-kit.css";
 
@@ -354,11 +354,11 @@ export default function BrandKit() {
         >
           <div className="bk-card bk-components">
             <div className="bk-button-row">
-              <Link to="/app" className="ll-btn ll-btn--ink">
+              <a href={canonicalPublicHref("/app")} className="ll-btn ll-btn--ink">
                 Launch Blank <ArrowRight size={15} strokeWidth={2.3} />
-              </Link>
-              <Link to="/live" className="ll-btn ll-btn--ghost">See it live</Link>
-              <Link to="/manifesto" className="bk-text-link">Read manifesto</Link>
+              </a>
+              <a href={canonicalPublicHref("/live")} className="ll-btn ll-btn--ghost">See it live</a>
+              <a href={canonicalPublicHref("/manifesto")} className="bk-text-link">Read manifesto</a>
             </div>
             <div className="bk-pill-row">
               <span className="bk-pill live">Live</span>
@@ -421,7 +421,7 @@ export default function BrandKit() {
               <span className="bk-pill live">Private by design</span>
               <h3>Your money is <em>nobody else's</em> business.</h3>
               <p>Encrypted invoices. On-chain escrow. Public proof, private amounts.</p>
-              <Link to="/app" className="ll-btn ll-btn--ink">Launch Blank</Link>
+              <a href={canonicalPublicHref("/app")} className="ll-btn ll-btn--ink">Launch Blank</a>
             </div>
             <div className="bk-sample-brand">
               <BlankLogo variant="lockup" size={42} wordmarkSize="2.5rem" />

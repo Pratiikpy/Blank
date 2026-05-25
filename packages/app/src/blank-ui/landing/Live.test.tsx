@@ -142,7 +142,7 @@ describe("Live — 4-state UI (§15.x)", () => {
     const beFirst = Array.from(container.querySelectorAll("a")).find((a) =>
       a.textContent?.includes("Be the first"),
     );
-    expect(beFirst?.getAttribute("href")).toBe("/app");
+    expect(beFirst?.getAttribute("href")).toBe("https://app.myblank.app");
   });
 
   it("populated list renders one row per activity", () => {
@@ -353,7 +353,7 @@ describe("Live — bottom CTA (§15.x)", () => {
     );
     expect(launchCtas.length).toBeGreaterThanOrEqual(1);
     for (const cta of launchCtas) {
-      expect(cta.getAttribute("href")).toBe("/app");
+      expect(cta.getAttribute("href")).toBe("https://app.myblank.app");
     }
   });
 });

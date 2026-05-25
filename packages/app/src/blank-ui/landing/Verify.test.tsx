@@ -191,7 +191,7 @@ describe("Verify — not-found state (§15.x)", () => {
     // Find the Sepolia mention inside the not-found message specifically
     expect(screen.getAllByText("Sepolia").length).toBeGreaterThan(0);
     const backLink = screen.getByRole("link", { name: /Back to Blank/ });
-    expect((backLink as HTMLAnchorElement).getAttribute("href")).toBe("/");
+    expect((backLink as HTMLAnchorElement).getAttribute("href")).toBe("https://www.myblank.app");
   });
 
   it("malformed proofId (non-numeric) -> not-found state without crashing", async () => {

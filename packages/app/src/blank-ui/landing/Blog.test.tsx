@@ -57,7 +57,7 @@ describe("Blog index — post list (§15.x)", () => {
       a.getAttribute("href"),
     );
     for (const post of POSTS) {
-      expect(links).toContain(`/blog/${post.slug}`);
+      expect(links).toContain(`https://blog.myblank.app/${post.slug}`);
     }
   });
 

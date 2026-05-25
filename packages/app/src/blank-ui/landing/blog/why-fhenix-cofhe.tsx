@@ -2,7 +2,7 @@ import type { BlogPost } from "./posts";
 
 const post: BlogPost = {
   slug: "why-fhenix-cofhe",
-  title: "Why we built Blank on Fhenix CoFHE, not on an FHE L1",
+  title: "Why Blank chose Fhenix CoFHE over FHE L1s",
   date: "2026-05-01",
   summary:
     "There are multiple FHE projects you could build on today. We picked Fhenix. The reason isn't 'FHE is better'. It's that Fhenix's specific architectural shape, the co-processor, is the right shape for application builders shipping on Ethereum.",
@@ -261,7 +261,7 @@ FHE.allowSender(balance);`}
       <h2>For other builders</h2>
       <p>
         If you're choosing an FHE stack right now: the decision rule
-        we'd offer is the same as in our <a href="/blog/fhe-vs-zk">FHE-vs-ZK
+        we'd offer is the same as in our <a href="https://blog.myblank.app/fhe-vs-zk">FHE-vs-ZK
         post</a>. Start from your problem.
       </p>
       <ul>

@@ -27,9 +27,9 @@ describe("LandingFooter (§15.x)", () => {
     const internalHrefs = Array.from(container.querySelectorAll("a"))
       .filter((a) => !a.target)
       .map((a) => a.getAttribute("href"));
-    expect(internalHrefs).toContain("/features");
-    expect(internalHrefs).toContain("/live");
-    expect(internalHrefs).toContain("/manifesto");
+    expect(internalHrefs).toContain("https://www.myblank.app/features");
+    expect(internalHrefs).toContain("https://www.myblank.app/live");
+    expect(internalHrefs).toContain("https://www.myblank.app/manifesto");
     const hrefs = Array.from(container.querySelectorAll("a")).map((a) => a.getAttribute("href"));
     expect(hrefs).toContain("https://docs.myblank.app");
     expect(hrefs).toContain("https://brand.myblank.app");
@@ -66,11 +66,11 @@ describe("LandingFooter (§15.x)", () => {
 });
 
 describe("LandingNav — rendering (§15.x)", () => {
-  it("renders the BlankLogo wrapped in a Link to '/'", () => {
+  it("renders the BlankLogo linked to the canonical homepage", () => {
     const { container } = withRouter(<LandingNav />);
     const logoLink = container.querySelector(".ll-logo");
     expect(logoLink).not.toBeNull();
-    expect(logoLink!.getAttribute("href")).toBe("/");
+    expect(logoLink!.getAttribute("href")).toBe("https://www.myblank.app");
     expect(logoLink!.getAttribute("aria-label")).toBe("Blank home");
   });
 
@@ -78,13 +78,13 @@ describe("LandingNav — rendering (§15.x)", () => {
     const { container } = withRouter(<LandingNav />);
     const linkHrefs = Array.from(container.querySelectorAll(".ll-nav-links a, .ll-nav-links button"))
       .map((el) => el.getAttribute("href"));
-    expect(linkHrefs).toContain("/features");
-    expect(linkHrefs).toContain("/how-it-works");
-    expect(linkHrefs).toContain("/pricing");
-    expect(linkHrefs).toContain("/roadmap");
+    expect(linkHrefs).toContain("https://www.myblank.app/features");
+    expect(linkHrefs).toContain("https://www.myblank.app/how-it-works");
+    expect(linkHrefs).toContain("https://www.myblank.app/pricing");
+    expect(linkHrefs).toContain("https://www.myblank.app/roadmap");
     expect(linkHrefs).toContain("https://blog.myblank.app");
-    expect(linkHrefs).toContain("/live");
-    expect(linkHrefs).toContain("/manifesto");
+    expect(linkHrefs).toContain("https://www.myblank.app/live");
+    expect(linkHrefs).toContain("https://www.myblank.app/manifesto");
   });
 
   it("'Launch app' CTA links to app.myblank.app on the right side", () => {
@@ -135,10 +135,10 @@ describe("LandingNav — 'For' dropdown (§15.x)", () => {
       a.getAttribute("href"),
     );
     expect(menuLinks).toEqual([
-      "/for/individuals",
-      "/for/creators",
-      "/for/businesses",
-      "/for/daos",
+      "https://www.myblank.app/for/individuals",
+      "https://www.myblank.app/for/creators",
+      "https://www.myblank.app/for/businesses",
+      "https://www.myblank.app/for/daos",
     ]);
   });
 

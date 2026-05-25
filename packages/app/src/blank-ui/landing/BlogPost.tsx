@@ -1,8 +1,9 @@
-import { Link, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import { LandingNav } from "./LandingNav";
 import { LandingFooter } from "./LandingFooter";
 import { POSTS_BY_SLUG } from "./blog/posts";
+import { PUBLIC_LINKS } from "./publicLinks";
 import "./landing.css";
 import "./blog.css";
 
@@ -28,9 +29,9 @@ export default function BlogPost() {
             <h1 className="ll-hero-h1">Post not found</h1>
             <p className="ll-subline">
               We don't have anything at that URL. Try the{" "}
-              <Link to="/blog" style={{ textDecoration: "underline" }}>
+              <a href={PUBLIC_LINKS.blog} style={{ textDecoration: "underline" }}>
                 blog index
-              </Link>
+              </a>
               .
             </p>
           </section>
@@ -51,8 +52,8 @@ export default function BlogPost() {
             padding: "0 1.5rem",
           }}
         >
-          <Link
-            to="/blog"
+          <a
+            href={PUBLIC_LINKS.blog}
             style={{
               display: "inline-flex",
               alignItems: "center",
@@ -64,7 +65,7 @@ export default function BlogPost() {
             }}
           >
             <ArrowLeft size={14} strokeWidth={2.2} /> All posts
-          </Link>
+          </a>
 
           <div
             style={{

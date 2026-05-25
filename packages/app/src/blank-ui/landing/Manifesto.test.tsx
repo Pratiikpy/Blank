@@ -119,7 +119,7 @@ describe("Manifesto — CTAs (§15.x)", () => {
     const launchCta = Array.from(container.querySelectorAll("a")).find((a) =>
       a.textContent?.includes("Launch Blank"),
     );
-    expect(launchCta?.getAttribute("href")).toBe("/app");
+    expect(launchCta?.getAttribute("href")).toBe("https://app.myblank.app");
   });
 
   it("'See it live' CTA links to /live", () => {
@@ -127,7 +127,7 @@ describe("Manifesto — CTAs (§15.x)", () => {
     const liveCta = Array.from(container.querySelectorAll("a")).find((a) =>
       a.textContent?.includes("See it live"),
     );
-    expect(liveCta?.getAttribute("href")).toBe("/live");
+    expect(liveCta?.getAttribute("href")).toBe("https://www.myblank.app/live");
   });
 
   it("ends with the team signature line", () => {

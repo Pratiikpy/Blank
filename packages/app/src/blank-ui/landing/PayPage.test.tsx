@@ -139,7 +139,7 @@ describe("PayPage — error phase (§15.x)", () => {
     const back = Array.from(container.querySelectorAll("a")).find((a) =>
       a.textContent?.includes("Back to Blank"),
     );
-    expect(back?.getAttribute("href")).toBe("/");
+    expect(back?.getAttribute("href")).toBe("https://www.myblank.app");
   });
 });
 

@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { ArrowDownToLine, ExternalLink } from "lucide-react";
 import { LandingFooter } from "./LandingFooter";
 import { LandingNav } from "./LandingNav";
+import { PUBLIC_LINKS } from "./publicLinks";
 import "./landing.css";
 
 export default function Whitepaper() {
@@ -37,10 +38,10 @@ export default function Whitepaper() {
               marginBottom: "1.25rem",
             }}
           >
-            <a className="ll-btn ll-btn--ink" href="/whitepaper.pdf">
+            <a className="ll-btn ll-btn--ink" href={`${PUBLIC_LINKS.site}/whitepaper.pdf`}>
               Open PDF <ExternalLink size={16} strokeWidth={2.2} />
             </a>
-            <a className="ll-btn" href="/whitepaper.pdf" download>
+            <a className="ll-btn" href={`${PUBLIC_LINKS.site}/whitepaper.pdf`} download>
               Download <ArrowDownToLine size={16} strokeWidth={2.2} />
             </a>
           </div>

@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { useParams, Link, useSearchParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
 import { useAccount } from "wagmi";
 import {
   CheckCircle2,
@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { LandingNav } from "./LandingNav";
 import { LandingFooter } from "./LandingFooter";
+import { canonicalPublicHref } from "./publicLinks";
 import { useQualificationProof, type ProofRecord } from "@/hooks/useQualificationProof";
 import { useChain } from "@/providers/ChainProvider";
 import "./landing.css";
@@ -245,9 +246,9 @@ export default function Verify() {
                 Check the link, or switch to the chain where the proof was
                 created. Each proof lives on a single chain.
               </p>
-              <Link to="/" className="ll-btn ll-btn--ghost">
+              <a href={canonicalPublicHref("/")} className="ll-btn ll-btn--ghost">
                 Back to Blank
-              </Link>
+              </a>
             </div>
           )}
 
@@ -365,12 +366,12 @@ export default function Verify() {
               })()}
 
               <div className="verify-actions">
-                <Link to="/how-it-works" className="ll-btn ll-btn--ghost">
+                <a href={canonicalPublicHref("/how-it-works")} className="ll-btn ll-btn--ghost">
                   How does this work?
-                </Link>
-                <Link to="/app/proofs" className="ll-btn ll-btn--ink">
+                </a>
+                <a href={canonicalPublicHref("/app/proofs")} className="ll-btn ll-btn--ink">
                   Create your own proof <ArrowRight size={14} />
-                </Link>
+                </a>
               </div>
             </div>
           )}

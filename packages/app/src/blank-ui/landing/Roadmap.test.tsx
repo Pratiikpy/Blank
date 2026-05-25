@@ -180,6 +180,6 @@ describe("Roadmap — CTA (§15.x)", () => {
     const cta = Array.from(container.querySelectorAll("a")).find((a) =>
       a.textContent?.includes("Read the blog"),
     );
-    expect(cta?.getAttribute("href")).toBe("/blog");
+    expect(cta?.getAttribute("href")).toBe("https://blog.myblank.app");
   });
 });

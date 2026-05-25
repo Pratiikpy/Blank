@@ -69,7 +69,7 @@ describe("Landing — Hero (§15.x)", () => {
     const launch = ctas.find((a) => a.textContent?.includes("Launch Blank"));
     const live = ctas.find((a) => a.textContent?.includes("See it live"));
     expect(launch?.getAttribute("href")).toBe("https://app.myblank.app");
-    expect(live?.getAttribute("href")).toBe("/live");
+    expect(live?.getAttribute("href")).toBe("https://www.myblank.app/live");
   });
 });
 
@@ -149,9 +149,9 @@ describe("Landing — ExploreLinks (§15.x)", () => {
     const hrefs = Array.from(container.querySelectorAll("a.ll-step")).map((a) =>
       a.getAttribute("href"),
     );
-    expect(hrefs).toContain("/features");
-    expect(hrefs).toContain("/live");
-    expect(hrefs).toContain("/manifesto");
+    expect(hrefs).toContain("https://www.myblank.app/features");
+    expect(hrefs).toContain("https://www.myblank.app/live");
+    expect(hrefs).toContain("https://www.myblank.app/manifesto");
   });
 
   it("manifesto card surfaces the $900M MEV + 272K leaked addresses framing", () => {

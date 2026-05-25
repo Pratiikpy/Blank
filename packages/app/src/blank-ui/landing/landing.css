@@ -92,6 +92,7 @@
   text-transform: uppercase;
   color: var(--ll-ink-2);
   text-decoration: none;
+  white-space: nowrap;
   transition: color 0.18s ease;
 }
 .ll-nav-links a:hover { color: var(--ll-muted); }
@@ -114,6 +115,7 @@
   text-transform: uppercase;
   color: var(--ll-ink-2);
   cursor: pointer;
+  white-space: nowrap;
   padding: 0;
   transition: color 0.18s ease;
 }
@@ -165,6 +167,40 @@
   line-height: 0;
 }
 .ll-nav-social a:hover { opacity: 1; }
+.ll-mobile-nav { display: none; position: relative; }
+.ll-nav-menu-toggle {
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  background: #ffffff;
+  border: 1px solid var(--ll-line);
+  border-radius: 999px;
+  color: var(--ll-ink-2);
+  cursor: pointer;
+}
+.ll-mobile-menu {
+  position: absolute;
+  top: calc(100% + 0.7rem);
+  right: 0;
+  min-width: 224px;
+  padding: 0.45rem;
+  background: #ffffff;
+  border: 1px solid var(--ll-line);
+  border-radius: 8px;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.1);
+  display: grid;
+  z-index: 51;
+}
+.ll-mobile-menu a {
+  padding: 0.65rem 0.75rem;
+  border-radius: 6px;
+  color: var(--ll-ink-2);
+  font-size: 0.9rem;
+  font-weight: 500;
+  text-decoration: none;
+}
+.ll-mobile-menu a:hover { background: var(--ll-surface); }
 
 .ll-btn {
   display: inline-flex;
@@ -587,9 +623,11 @@
 }
 
 /* ─── Responsive ──────────────────────────────────────────────── */
-@media (max-width: 900px) {
+@media (max-width: 1160px) {
   .ll-nav { padding: 1rem 1.25rem; }
   .ll-nav-links, .ll-nav-social { display: none; }
+  .ll-mobile-nav, .ll-nav-menu-toggle { display: inline-flex; }
+  .ll-nav-right { gap: 0.65rem; }
   .ll-section { padding: 3.5rem 1.25rem; }
   .ll-hero { padding: 2.5rem 1.25rem 1rem; }
   .ll-stats-grid, .ll-steps { grid-template-columns: 1fr; }
@@ -601,6 +639,7 @@
 }
 @media (max-width: 560px) {
   .ll-features { grid-template-columns: 1fr; }
+  .ll-nav .ll-btn { padding: 0.7rem 0.9rem; }
 }
 
 /* ══════════════════════════════════════════════════════════════════

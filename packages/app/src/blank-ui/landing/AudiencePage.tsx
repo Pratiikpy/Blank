@@ -1,10 +1,10 @@
 import { useEffect } from "react";
-import { Link } from "react-router-dom";
 import { ArrowRight, Check } from "lucide-react";
 import { LandingNav } from "./LandingNav";
 import { LandingFooter } from "./LandingFooter";
 import "./landing.css";
 import "./audience.css";
+import { canonicalPublicHref } from "./publicLinks";
 
 // ──────────────────────────────────────────────────────────────────
 //  AudiencePage — one component, four audiences (`/for/<who>`).
@@ -148,12 +148,12 @@ export default function AudiencePage({ audience }: AudiencePageProps) {
           <h1 className="aud-headline">{c.headline}</h1>
           <p className="aud-subhead">{c.subhead}</p>
           <div className="aud-cta-row">
-            <Link to={c.primaryCta.to} className="ll-btn ll-btn--hero ll-btn--ink">
+            <a href={canonicalPublicHref(c.primaryCta.to)} className="ll-btn ll-btn--hero ll-btn--ink">
               {c.primaryCta.label} <ArrowRight size={16} strokeWidth={2.2} />
-            </Link>
-            <Link to={c.secondaryCta.to} className="ll-btn ll-btn--hero ll-btn--ghost">
+            </a>
+            <a href={canonicalPublicHref(c.secondaryCta.to)} className="ll-btn ll-btn--hero ll-btn--ghost">
               {c.secondaryCta.label}
-            </Link>
+            </a>
           </div>
         </section>
 
@@ -163,9 +163,9 @@ export default function AudiencePage({ audience }: AudiencePageProps) {
             <div className="aud-lead-eyebrow">Lead use case</div>
             <h2 className="aud-lead-title">{c.leadFeature.title}</h2>
             <p className="aud-lead-body">{c.leadFeature.body}</p>
-            <Link to={c.leadFeature.cta.to} className="ll-btn ll-btn--ink">
+            <a href={canonicalPublicHref(c.leadFeature.cta.to)} className="ll-btn ll-btn--ink">
               {c.leadFeature.cta.label} <ArrowRight size={14} strokeWidth={2.2} />
-            </Link>
+            </a>
           </div>
         </section>
 
@@ -198,7 +198,7 @@ export default function AudiencePage({ audience }: AudiencePageProps) {
             {(["individuals", "creators", "businesses", "daos"] as Audience[])
               .filter((a) => a !== audience)
               .map((a) => (
-                <Link key={a} to={`/for/${a}`} className="aud-cross-link">
+                <a key={a} href={canonicalPublicHref(`/for/${a}`)} className="aud-cross-link">
                   <span className="aud-cross-arrow">→</span>
                   <div>
                     <div className="aud-cross-kicker">For {a}</div>
@@ -206,7 +206,7 @@ export default function AudiencePage({ audience }: AudiencePageProps) {
                       {CONTENT[a].headline.split(".")[0]}.
                     </div>
                   </div>
-                </Link>
+                </a>
               ))}
           </div>
         </section>

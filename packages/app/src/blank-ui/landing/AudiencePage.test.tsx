@@ -71,7 +71,7 @@ describe("AudiencePage — lead use case CTAs (§15.x)", () => {
     const cta = Array.from(container.querySelectorAll("a")).find((a) =>
       a.textContent?.includes("Try the proof flow"),
     );
-    expect(cta?.getAttribute("href")).toBe("/app/proofs");
+    expect(cta?.getAttribute("href")).toBe("https://app.myblank.app/proofs");
   });
 
   it("creators lead CTA links to /app/creators", () => {
@@ -79,7 +79,7 @@ describe("AudiencePage — lead use case CTAs (§15.x)", () => {
     const cta = Array.from(container.querySelectorAll("a")).find((a) =>
       a.textContent?.includes("Set up CreatorHub"),
     );
-    expect(cta?.getAttribute("href")).toBe("/app/creators");
+    expect(cta?.getAttribute("href")).toBe("https://app.myblank.app/creators");
   });
 
   it("businesses lead CTA links to /app/business", () => {
@@ -87,7 +87,7 @@ describe("AudiencePage — lead use case CTAs (§15.x)", () => {
     const cta = Array.from(container.querySelectorAll("a")).find((a) =>
       a.textContent?.includes("Open BusinessTools"),
     );
-    expect(cta?.getAttribute("href")).toBe("/app/business");
+    expect(cta?.getAttribute("href")).toBe("https://app.myblank.app/business");
   });
 
   it("daos lead CTA links to /app/send", () => {
@@ -95,7 +95,7 @@ describe("AudiencePage — lead use case CTAs (§15.x)", () => {
     const cta = Array.from(container.querySelectorAll("a")).find((a) =>
       a.textContent?.includes("Try a payment"),
     );
-    expect(cta?.getAttribute("href")).toBe("/app/send");
+    expect(cta?.getAttribute("href")).toBe("https://app.myblank.app/send");
   });
 });
 
@@ -126,17 +126,17 @@ describe("AudiencePage — primary + secondary CTAs (§15.x)", () => {
       const launchCta = Array.from(container.querySelectorAll("a")).find((a) =>
         a.textContent?.includes("Launch Blank"),
       );
-      expect(launchCta?.getAttribute("href")).toBe("/app");
+      expect(launchCta?.getAttribute("href")).toBe("https://app.myblank.app");
       unmount();
     }
   });
 
   it("secondary CTA destinations differ per audience (intentional cross-link)", () => {
     const cases = [
-      ["individuals", "How does this work?", "/how-it-works"],
-      ["creators", "See features", "/features"],
-      ["businesses", "AI agents demo", "/app/agents"],
-      ["daos", "Read the manifesto", "/manifesto"],
+      ["individuals", "How does this work?", "https://www.myblank.app/how-it-works"],
+      ["creators", "See features", "https://www.myblank.app/features"],
+      ["businesses", "AI agents demo", "https://app.myblank.app/agents"],
+      ["daos", "Read the manifesto", "https://www.myblank.app/manifesto"],
     ] as const;
     for (const [aud, label, href] of cases) {
       const { container, unmount } = withRouter(<AudiencePage audience={aud} />);
@@ -158,7 +158,7 @@ describe("AudiencePage — cross-sell grid (§15.x)", () => {
 
       const hrefs = Array.from(crossLinks).map((a) => a.getAttribute("href"));
       // Current must NOT appear in cross-sell.
-      expect(hrefs).not.toContain(`/for/${current}`);
+      expect(hrefs).not.toContain(`https://www.myblank.app/for/${current}`);
       unmount();
     }
   });
@@ -168,9 +168,9 @@ describe("AudiencePage — cross-sell grid (§15.x)", () => {
     const hrefs = Array.from(container.querySelectorAll(".aud-cross-link")).map((a) =>
       a.getAttribute("href"),
     );
-    expect(hrefs).toContain("/for/creators");
-    expect(hrefs).toContain("/for/businesses");
-    expect(hrefs).toContain("/for/daos");
+    expect(hrefs).toContain("https://www.myblank.app/for/creators");
+    expect(hrefs).toContain("https://www.myblank.app/for/businesses");
+    expect(hrefs).toContain("https://www.myblank.app/for/daos");
   });
 
   it("cross-sell card kicker reads 'For <audience>'", () => {

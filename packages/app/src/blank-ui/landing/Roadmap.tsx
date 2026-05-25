@@ -1,7 +1,7 @@
-import { Link } from "react-router-dom";
 import { ArrowRight, Check, Clock, AlertCircle } from "lucide-react";
 import { LandingNav } from "./LandingNav";
 import { LandingFooter } from "./LandingFooter";
+import { PUBLIC_LINKS } from "./publicLinks";
 import "./landing.css";
 
 // ══════════════════════════════════════════════════════════════════
@@ -386,9 +386,9 @@ export default function Roadmap() {
             No newsletter sign-up, no notification spam. Just open
             the blog when you want an update.
           </p>
-          <Link to="/blog" className="ll-btn ll-btn--hero ll-btn--ink">
+          <a href={PUBLIC_LINKS.blog} className="ll-btn ll-btn--hero ll-btn--ink">
             Read the blog <ArrowRight size={17} strokeWidth={2.2} />
-          </Link>
+          </a>
         </section>
       </main>
       <LandingFooter />

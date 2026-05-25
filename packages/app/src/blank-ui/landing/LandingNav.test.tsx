@@ -192,10 +192,10 @@ describe("LandingNav — 'For' dropdown (§15.x)", () => {
     renderAt("/");
     fireEvent.click(screen.getByRole("button", { name: /^For/ }));
     const menu = screen.getByRole("menu");
-    expect(menu.querySelector('a[href="/for/individuals"]')).not.toBeNull();
-    expect(menu.querySelector('a[href="/for/creators"]')).not.toBeNull();
-    expect(menu.querySelector('a[href="/for/businesses"]')).not.toBeNull();
-    expect(menu.querySelector('a[href="/for/daos"]')).not.toBeNull();
+    expect(menu.querySelector('a[href="https://www.myblank.app/for/individuals"]')).not.toBeNull();
+    expect(menu.querySelector('a[href="https://www.myblank.app/for/creators"]')).not.toBeNull();
+    expect(menu.querySelector('a[href="https://www.myblank.app/for/businesses"]')).not.toBeNull();
+    expect(menu.querySelector('a[href="https://www.myblank.app/for/daos"]')).not.toBeNull();
   });
 
   it("each dropdown item has role='menuitem' for assistive tech", () => {
@@ -250,6 +250,24 @@ describe("LandingNav — 'For' dropdown (§15.x)", () => {
   });
 });
 
+describe("LandingNav — compact navigation (§15.x)", () => {
+  it("opens a compact menu with canonical public routes", () => {
+    renderAt("/");
+    fireEvent.click(screen.getByRole("button", { name: "Open navigation" }));
+    expect(screen.getByRole("button", { name: "Close navigation" })).toBeInTheDocument();
+    const menu = screen.getByLabelText("Site navigation");
+    expect(menu.querySelector('a[href="https://www.myblank.app/roadmap"]')).not.toBeNull();
+    expect(menu.querySelector('a[href="https://blog.myblank.app"]')).not.toBeNull();
+  });
+
+  it("closes the compact menu on Escape", () => {
+    renderAt("/");
+    fireEvent.click(screen.getByRole("button", { name: "Open navigation" }));
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByLabelText("Site navigation")).toBeNull();
+  });
+});
+
 // ───────────────────────────────────────────────────────────
 //  Scroll effect
 // ───────────────────────────────────────────────────────────
@@ -291,10 +309,10 @@ describe("LandingNav — scroll effect (§15.x)", () => {
 // ───────────────────────────────────────────────────────────
 
 describe("LandingNav — logo home link (§15.x)", () => {
-  it("logo link points to '/' with aria-label='Blank home'", () => {
+  it("logo link points to the canonical homepage with aria-label='Blank home'", () => {
     renderAt("/");
     const logoLink = screen.getByLabelText("Blank home");
-    expect((logoLink as HTMLAnchorElement).getAttribute("href")).toBe("/");
+    expect((logoLink as HTMLAnchorElement).getAttribute("href")).toBe("https://www.myblank.app");
   });
 
   it("logo renders the BlankLogo component (stubbed)", () => {

@@ -89,31 +89,31 @@ describe("LandingFooter — internal links (§15.x)", () => {
   it("Features link points to /features", () => {
     renderFooter();
     const link = screen.getByRole("link", { name: "Features" });
-    expect((link as HTMLAnchorElement).getAttribute("href")).toBe("/features");
+    expect((link as HTMLAnchorElement).getAttribute("href")).toBe("https://www.myblank.app/features");
   });
 
   it("How it works link points to /how-it-works", () => {
     renderFooter();
     const link = screen.getByRole("link", { name: "How it works" });
-    expect((link as HTMLAnchorElement).getAttribute("href")).toBe("/how-it-works");
+    expect((link as HTMLAnchorElement).getAttribute("href")).toBe("https://www.myblank.app/how-it-works");
   });
 
   it("Pricing link points to /pricing", () => {
     renderFooter();
     const link = screen.getByRole("link", { name: "Pricing" });
-    expect((link as HTMLAnchorElement).getAttribute("href")).toBe("/pricing");
+    expect((link as HTMLAnchorElement).getAttribute("href")).toBe("https://www.myblank.app/pricing");
   });
 
   it("Roadmap link points to /roadmap", () => {
     renderFooter();
     const link = screen.getByRole("link", { name: "Roadmap" });
-    expect((link as HTMLAnchorElement).getAttribute("href")).toBe("/roadmap");
+    expect((link as HTMLAnchorElement).getAttribute("href")).toBe("https://www.myblank.app/roadmap");
   });
 
   it("Live link points to /live", () => {
     renderFooter();
     const link = screen.getByRole("link", { name: "Live" });
-    expect((link as HTMLAnchorElement).getAttribute("href")).toBe("/live");
+    expect((link as HTMLAnchorElement).getAttribute("href")).toBe("https://www.myblank.app/live");
   });
 
   it("Docs link points to docs.myblank.app", () => {
@@ -137,7 +137,7 @@ describe("LandingFooter — internal links (§15.x)", () => {
   it("Manifesto link points to /manifesto", () => {
     renderFooter();
     const link = screen.getByRole("link", { name: "Manifesto" });
-    expect((link as HTMLAnchorElement).getAttribute("href")).toBe("/manifesto");
+    expect((link as HTMLAnchorElement).getAttribute("href")).toBe("https://www.myblank.app/manifesto");
   });
 
   it("Launch app link points to app.myblank.app", () => {
@@ -200,6 +200,6 @@ describe("LandingFooter — semantic markup (§15.x)", () => {
   it("Proof deck link points to /proof-deck", () => {
     renderFooter();
     const link = screen.getByRole("link", { name: "Proof deck" });
-    expect(link.getAttribute("href")).toBe("/proof-deck");
+    expect(link.getAttribute("href")).toBe("https://www.myblank.app/proof-deck");
   });
 });

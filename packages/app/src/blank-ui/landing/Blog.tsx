@@ -1,7 +1,7 @@
-import { Link } from "react-router-dom";
 import { LandingNav } from "./LandingNav";
 import { LandingFooter } from "./LandingFooter";
 import { POSTS } from "./blog/posts";
+import { PUBLIC_LINKS } from "./publicLinks";
 import "./landing.css";
 
 // ══════════════════════════════════════════════════════════════════
@@ -70,9 +70,9 @@ export default function Blog() {
             }}
           >
             {POSTS.map((p) => (
-              <Link
+              <a
                 key={p.slug}
-                to={`/blog/${p.slug}`}
+                href={`${PUBLIC_LINKS.blog}/${p.slug}`}
                 className="ll-step"
                 style={{
                   textDecoration: "none",
@@ -119,7 +119,7 @@ export default function Blog() {
                   {p.title}
                 </div>
                 <div className="ll-step-body">{p.summary}</div>
-              </Link>
+              </a>
             ))}
           </div>
         </section>

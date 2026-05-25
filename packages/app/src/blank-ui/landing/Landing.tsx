@@ -1,4 +1,3 @@
-import { Link } from "react-router-dom";
 import { ArrowRight } from "lucide-react";
 import { DecodeWord } from "./DecodeWord";
 import { XRaySlider } from "./XRaySlider";
@@ -6,7 +5,7 @@ import { LandingNav } from "./LandingNav";
 import { LandingFooter } from "./LandingFooter";
 import { LiveDemo } from "./LiveDemo";
 import { GlobalCounter } from "./GlobalCounter";
-import { PUBLIC_LINKS } from "./publicLinks";
+import { canonicalPublicHref, PUBLIC_LINKS } from "./publicLinks";
 import "./landing.css";
 
 // ══════════════════════════════════════════════════════════════════
@@ -37,9 +36,9 @@ function Hero() {
         <a href={PUBLIC_LINKS.app} className="ll-btn ll-btn--hero ll-btn--ink">
           Launch Blank <ArrowRight size={17} strokeWidth={2.2} />
         </a>
-        <Link to="/live" className="ll-btn ll-btn--hero ll-btn--ghost">
+        <a href={canonicalPublicHref("/live")} className="ll-btn ll-btn--hero ll-btn--ghost">
           See it live
-        </Link>
+        </a>
       </div>
 
       <XRaySlider
@@ -167,9 +166,9 @@ function ExploreLinks() {
       <h2 className="ll-section-title">Three more places to look.</h2>
       <div className="ll-steps">
         {links.map((l) => (
-          <Link
+          <a
             key={l.to}
-            to={l.to}
+            href={canonicalPublicHref(l.to)}
             className="ll-step"
             style={{ textDecoration: "none", display: "block" }}
           >
@@ -206,7 +205,7 @@ function ExploreLinks() {
               {l.cta}{" "}
               <ArrowRight size={15} strokeWidth={2.3} />
             </div>
-          </Link>
+          </a>
         ))}
       </div>
     </section>

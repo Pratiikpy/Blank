@@ -104,26 +104,26 @@ describe("Features — 16-feature catalog (§15.x)", () => {
     const ctas = Array.from(container.querySelectorAll(".ll-feature-cta")) as HTMLAnchorElement[];
     expect(ctas.length).toBe(21);
     const routes = ctas.map((a) => a.getAttribute("href"));
-    expect(routes).toContain("/app/send");
-    expect(routes).toContain("/app/requests");
-    expect(routes).toContain("/app/groups");
-    expect(routes).toContain("/app/creators");
-    expect(routes).toContain("/app/business");
-    expect(routes).toContain("/app/stealth");
-    expect(routes).toContain("/app/gifts");
-    expect(routes).toContain("/app/inheritance");
-    expect(routes).toContain("/app/swap");
-    expect(routes).toContain("/app/proofs");
-    expect(routes).toContain("/app/claim-link");
-    expect(routes).toContain("/app/sell");
-    expect(routes).toContain("/app/fundraise");
-    expect(routes).toContain("/app/bridge");
+    expect(routes).toContain("https://app.myblank.app/send");
+    expect(routes).toContain("https://app.myblank.app/requests");
+    expect(routes).toContain("https://app.myblank.app/groups");
+    expect(routes).toContain("https://app.myblank.app/creators");
+    expect(routes).toContain("https://app.myblank.app/business");
+    expect(routes).toContain("https://app.myblank.app/stealth");
+    expect(routes).toContain("https://app.myblank.app/gifts");
+    expect(routes).toContain("https://app.myblank.app/inheritance");
+    expect(routes).toContain("https://app.myblank.app/swap");
+    expect(routes).toContain("https://app.myblank.app/proofs");
+    expect(routes).toContain("https://app.myblank.app/claim-link");
+    expect(routes).toContain("https://app.myblank.app/sell");
+    expect(routes).toContain("https://app.myblank.app/fundraise");
+    expect(routes).toContain("https://app.myblank.app/bridge");
     // Wave 5 entries (17-21).
-    expect(routes).toContain("/app/offramp");
-    expect(routes).toContain("/u/alice");
-    expect(routes).toContain("/recover/alice");
-    expect(routes).toContain("/app/insights");
-    expect(routes).toContain("/app/proof-of-balance");
+    expect(routes).toContain("https://app.myblank.app/offramp");
+    expect(routes).toContain("https://www.myblank.app/u/alice");
+    expect(routes).toContain("https://www.myblank.app/recover/alice");
+    expect(routes).toContain("https://app.myblank.app/insights");
+    expect(routes).toContain("https://app.myblank.app/proof-of-balance");
   });
 });
 
@@ -222,6 +222,6 @@ describe("Features — bottom CTA (§15.x)", () => {
     const cta = Array.from(container.querySelectorAll("a")).find((a) =>
       a.textContent?.includes("Launch Blank"),
     );
-    expect(cta?.getAttribute("href")).toBe("/app");
+    expect(cta?.getAttribute("href")).toBe("https://app.myblank.app");
   });
 });

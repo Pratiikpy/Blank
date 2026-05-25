@@ -174,7 +174,7 @@ describe("HowItWorks — closing callout + CTAs (§15.x)", () => {
     const tryCta = Array.from(container.querySelectorAll("a")).find((a) =>
       a.textContent?.includes("Try it now"),
     );
-    expect(tryCta?.getAttribute("href")).toBe("/app");
+    expect(tryCta?.getAttribute("href")).toBe("https://app.myblank.app");
   });
 
   it("'See every feature' CTA links to /features", () => {
@@ -182,6 +182,6 @@ describe("HowItWorks — closing callout + CTAs (§15.x)", () => {
     const featCta = Array.from(container.querySelectorAll("a")).find((a) =>
       a.textContent?.includes("See every feature"),
     );
-    expect(featCta?.getAttribute("href")).toBe("/features");
+    expect(featCta?.getAttribute("href")).toBe("https://www.myblank.app/features");
   });
 });

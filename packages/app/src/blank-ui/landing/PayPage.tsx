@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   CheckCircle2,
   Clock,
@@ -16,6 +16,7 @@ import {
 } from "@/lib/pay-resolver";
 import { truncateAddress } from "@/lib/address";
 import { AddressLabel } from "@/blank-ui/components";
+import { canonicalPublicHref } from "./publicLinks";
 import { lookupName } from "@/lib/address-resolver";
 import "./landing.css";
 
@@ -132,12 +133,12 @@ export default function PayPage() {
               <p className="text-sm text-[var(--text-secondary)] mb-6">
                 {payErrorMessage(state.result.error)}
               </p>
-              <Link
-                to="/"
+              <a
+                href={canonicalPublicHref("/")}
                 className="inline-flex items-center gap-2 text-emerald-600 hover:underline font-medium"
               >
                 Back to Blank
-              </Link>
+              </a>
             </div>
           )}
 

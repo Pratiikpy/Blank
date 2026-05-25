@@ -133,7 +133,7 @@ const post: BlogPost = {
       <ul>
         <li>
           <strong>No token.</strong> Discussed{" "}
-          <a href="/blog/why-no-token-ever">at length</a>.
+          <a href="https://blog.myblank.app/why-no-token-ever">at length</a>.
         </li>
         <li>
           <strong>No mainnet.</strong> Gated on Fhenix CoFHE
@@ -166,7 +166,7 @@ const post: BlogPost = {
         you ship a wide product surface quickly.
       </p>
       <p>
-        The roadmap will live at <a href="/roadmap">/roadmap</a> with
+        The roadmap will live at <a href="https://www.myblank.app/roadmap">/roadmap</a> with
         explicit dependencies. We don't promise dates, but we
         publish what blocks each step.
       </p>

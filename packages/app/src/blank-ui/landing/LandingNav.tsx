@@ -1,17 +1,18 @@
 import { useEffect, useState, useRef } from "react";
-import { Link, NavLink, useLocation } from "react-router-dom";
-import { ArrowRight, Github, ChevronDown } from "lucide-react";
+import { useLocation } from "react-router-dom";
+import { ArrowRight, Github, ChevronDown, Menu, X } from "lucide-react";
 import { BlankLogo } from "./BlankLogo";
-import { PUBLIC_LINKS } from "./publicLinks";
+import { canonicalPublicHref, PUBLIC_LINKS } from "./publicLinks";
 
 // Shared nav used on every landing-level page (/, /features, /live, /manifesto).
-// NavLink marks the current route — `end` on root-ish items prevents prefix bleed.
 //
 // "For" dropdown surfaces the audience pages without bloating the top nav.
 export function LandingNav() {
   const [scrolled, setScrolled] = useState(false);
   const [forOpen, setForOpen] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
   const forRef = useRef<HTMLDivElement>(null);
+  const mobileRef = useRef<HTMLDivElement>(null);
   const location = useLocation();
 
   useEffect(() => {
@@ -22,7 +23,10 @@ export function LandingNav() {
   }, []);
 
   // Close dropdown on outside click / Escape / route change
-  useEffect(() => { setForOpen(false); }, [location.pathname]);
+  useEffect(() => {
+    setForOpen(false);
+    setMobileOpen(false);
+  }, [location.pathname]);
   useEffect(() => {
     if (!forOpen) return;
     const onClick = (e: MouseEvent) => {
@@ -36,22 +40,35 @@ export function LandingNav() {
       document.removeEventListener("keydown", onKey);
     };
   }, [forOpen]);
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const onClick = (e: MouseEvent) => {
+      if (mobileRef.current && !mobileRef.current.contains(e.target as Node)) setMobileOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setMobileOpen(false); };
+    document.addEventListener("mousedown", onClick);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onClick);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [mobileOpen]);
 
   const onForRoute = location.pathname.startsWith("/for/");
 
   return (
     <nav className={`ll-nav${scrolled ? " scrolled" : ""}`} aria-label="Primary">
-      <Link to="/" className="ll-logo" aria-label="Blank home">
+      <a href={PUBLIC_LINKS.site} className="ll-logo" aria-label="Blank home">
         <BlankLogo variant="lockup" size={22} />
-      </Link>
+      </a>
 
       <div className="ll-nav-links">
-        <NavLink to="/features" className={({ isActive }) => isActive ? "active" : ""}>
+        <a href={canonicalPublicHref("/features")} className={location.pathname === "/features" ? "active" : ""}>
           Features
-        </NavLink>
-        <NavLink to="/how-it-works" className={({ isActive }) => isActive ? "active" : ""}>
+        </a>
+        <a href={canonicalPublicHref("/how-it-works")} className={location.pathname === "/how-it-works" ? "active" : ""}>
           How it works
-        </NavLink>
+        </a>
 
         <div ref={forRef} className="ll-nav-dropdown">
           <button
@@ -65,38 +82,64 @@ export function LandingNav() {
           </button>
           {forOpen && (
             <div role="menu" className="ll-nav-dropdown-menu">
-              <NavLink to="/for/individuals" role="menuitem">Individuals</NavLink>
-              <NavLink to="/for/creators" role="menuitem">Creators</NavLink>
-              <NavLink to="/for/businesses" role="menuitem">Businesses</NavLink>
-              <NavLink to="/for/daos" role="menuitem">DAOs</NavLink>
+              <a href={canonicalPublicHref("/for/individuals")} role="menuitem">Individuals</a>
+              <a href={canonicalPublicHref("/for/creators")} role="menuitem">Creators</a>
+              <a href={canonicalPublicHref("/for/businesses")} role="menuitem">Businesses</a>
+              <a href={canonicalPublicHref("/for/daos")} role="menuitem">DAOs</a>
             </div>
           )}
         </div>
 
-        <NavLink to="/pricing" className={({ isActive }) => isActive ? "active" : ""}>
+        <a href={canonicalPublicHref("/pricing")} className={location.pathname === "/pricing" ? "active" : ""}>
           Pricing
-        </NavLink>
-        <NavLink to="/roadmap" className={({ isActive }) => isActive ? "active" : ""}>
+        </a>
+        <a href={canonicalPublicHref("/roadmap")} className={location.pathname === "/roadmap" ? "active" : ""}>
           Roadmap
-        </NavLink>
+        </a>
         <a
           href={PUBLIC_LINKS.blog}
           className={location.pathname === "/blog" || location.pathname.startsWith("/blog/") ? "active" : ""}
         >
           Blog
         </a>
-        <NavLink to="/live" className={({ isActive }) => isActive ? "active" : ""}>
+        <a href={canonicalPublicHref("/live")} className={location.pathname === "/live" ? "active" : ""}>
           Live
-        </NavLink>
-        <NavLink to="/manifesto" className={({ isActive }) => isActive ? "active" : ""}>
+        </a>
+        <a href={canonicalPublicHref("/manifesto")} className={location.pathname === "/manifesto" ? "active" : ""}>
           Manifesto
-        </NavLink>
+        </a>
         <a href="https://github.com/Pratiikpy/Blank" target="_blank" rel="noopener noreferrer">
           GitHub
         </a>
       </div>
 
       <div className="ll-nav-right">
+        <div className="ll-mobile-nav" ref={mobileRef}>
+          <button
+            type="button"
+            className="ll-nav-menu-toggle"
+            aria-label={mobileOpen ? "Close navigation" : "Open navigation"}
+            aria-expanded={mobileOpen}
+            onClick={() => setMobileOpen((open) => !open)}
+          >
+            {mobileOpen ? <X size={20} /> : <Menu size={20} />}
+          </button>
+          {mobileOpen && (
+            <div className="ll-mobile-menu" aria-label="Site navigation">
+              <a href={canonicalPublicHref("/features")}>Features</a>
+              <a href={canonicalPublicHref("/how-it-works")}>How it works</a>
+              <a href={canonicalPublicHref("/pricing")}>Pricing</a>
+              <a href={canonicalPublicHref("/roadmap")}>Roadmap</a>
+              <a href={PUBLIC_LINKS.blog}>Blog</a>
+              <a href={canonicalPublicHref("/live")}>Live</a>
+              <a href={canonicalPublicHref("/manifesto")}>Manifesto</a>
+              <a href={canonicalPublicHref("/for/individuals")}>For individuals</a>
+              <a href={canonicalPublicHref("/for/creators")}>For creators</a>
+              <a href={canonicalPublicHref("/for/businesses")}>For businesses</a>
+              <a href={canonicalPublicHref("/for/daos")}>For DAOs</a>
+            </div>
+          )}
+        </div>
         <div className="ll-nav-social">
           <a
             href="https://github.com/Pratiikpy/Blank"
