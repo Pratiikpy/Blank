@@ -18,6 +18,11 @@
 .bk-page a {
   color: inherit;
 }
+/* `.bk-page a { color: inherit }` above also wipes the white text out of
+ * the dark `.ll-btn--ink` button used in the Components sample. Restore
+ * the original button colors so "Launch Blank" stays readable. */
+.bk-page a.ll-btn--ink { color: #ffffff; }
+.bk-page a.ll-btn--ghost { color: var(--ll-ink-2, #1d1d1f); }
 
 .bk-page .bl-lockup,
 .bk-page .bl-wordmark {
