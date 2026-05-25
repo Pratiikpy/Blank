@@ -35,7 +35,7 @@ const RPC_URL = IS_ETH ? "https://ethereum-sepolia.publicnode.com" : "https://ba
 const EXPLORER_URL = IS_ETH ? "https://sepolia.etherscan.io" : "https://sepolia.basescan.org";
 const BLOCKSCOUT_URL = IS_ETH ? "https://eth-sepolia.blockscout.com" : "https://base-sepolia.blockscout.com";
 const OUT = resolve(REPO, `packages/app/test-results/qa-live-outcome-${MODE}-${IS_ETH ? "eth" : "base"}`);
-const PROFILE_ROOT = resolve(OUT, "profiles");
+const PROFILE_ROOT = resolve(OUT, "profiles", `run-${Date.now()}`);
 
 const DAVE = "0x7eF99105308230eab5B8E4765842bc2BF7B1D175" as Address;
 const BOB = "0x0D1883c48E14d733D464478f53706D92b7648b9d" as Address;
@@ -78,7 +78,6 @@ async function safeFill(loc: Locator, value: string): Promise<void> {
 
 function cloneProfile(persona: Persona): string {
   const target = resolve(PROFILE_ROOT, persona.toLowerCase());
-  if (existsSync(target)) return target;
   mkdirSync(PROFILE_ROOT, { recursive: true });
   cpSync(SOURCE_PROFILE, target, {
     recursive: true,
@@ -197,26 +196,31 @@ async function launchPersona(persona: Persona): Promise<{ ctx: BrowserContext; h
       "--no-sandbox",
     ],
   });
-  let extId = "";
-  for (let i = 0; i < 40; i++) {
-    const sw = ctx.serviceWorkers().find((w) => w.url().includes("chrome-extension://"));
-    if (sw) {
-      extId = sw.url().split("/")[2];
-      break;
+  try {
+    let extId = "";
+    for (let i = 0; i < 40; i++) {
+      const sw = ctx.serviceWorkers().find((w) => w.url().includes("chrome-extension://"));
+      if (sw) {
+        extId = sw.url().split("/")[2];
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 500));
     }
-    await new Promise((r) => setTimeout(r, 500));
+    if (!extId) throw new Error(`Rabby service worker did not register for ${persona}`);
+    const home = await ctx.newPage();
+    await home.goto(`chrome-extension://${extId}/index.html`).catch(() => undefined);
+    await home.waitForTimeout(2_000);
+    await unlockRabby(home, RABBY_PASSWORD);
+    await dismissRabbyWhatsNew(home);
+    await switchRabbyAccount(home, extId, persona);
+    const known = new Set<Page>(ctx.pages());
+    const page = await ctx.newPage();
+    await ensureDappAccount(page, ctx, extId, known, persona);
+    return { ctx, home, extId, page, known };
+  } catch (error) {
+    await ctx.close().catch(() => undefined);
+    throw error;
   }
-  if (!extId) throw new Error(`Rabby service worker did not register for ${persona}`);
-  const home = await ctx.newPage();
-  await home.goto(`chrome-extension://${extId}/index.html`).catch(() => undefined);
-  await home.waitForTimeout(2_000);
-  await unlockRabby(home, RABBY_PASSWORD);
-  await dismissRabbyWhatsNew(home);
-  await switchRabbyAccount(home, extId, persona);
-  const known = new Set<Page>(ctx.pages());
-  const page = await ctx.newPage();
-  await ensureDappAccount(page, ctx, extId, known, persona);
-  return { ctx, home, extId, page, known };
 }
 
 async function txsFrom(address: Address, fromNonce: number): Promise<Hash[]> {
@@ -568,6 +572,10 @@ async function openP2P(page: Page): Promise<void> {
   await page.evaluate((chainId) => localStorage.setItem("blank:active_chain_id", String(chainId)), CHAIN_ID).catch(() => undefined);
   await page.reload({ waitUntil: "domcontentloaded", timeout: 60_000 });
   await page.getByRole("heading", { name: /Exchange/i }).waitFor({ state: "visible", timeout: 60_000 });
+  const pwaDismiss = page.getByTestId("pwa-install-dismiss");
+  if (await pwaDismiss.isVisible({ timeout: 1_000 }).catch(() => false)) {
+    await pwaDismiss.click({ force: true });
+  }
   await page.waitForTimeout(3_000);
 }
 
@@ -591,9 +599,11 @@ async function createP2POffer(dave: { page: Page; ctx: BrowserContext; extId: st
   await snap(dave.page, "p2p-create-filled");
   await dave.page.getByRole("button", { name: /^Create Swap Offer$/i }).click({ force: true });
   await drainRabbyPopups(dave.ctx, dave.extId, dave.known, "p2p-create", 6);
+  const hashes = await txsFrom(DAVE, before);
+  if (hashes.length === 0) throw new Error("Dave submitted P2P creation but no new chain transaction was found");
   const created = await waitForP2PText(dave.page, /My Open Offers|Offering 0\.001 USDC for 0\.001 USDT|0\.001 USDC.*0\.001 USDT/i, "p2p-dave-open", 240_000);
   if (!created.ok) throw new Error(`Dave did not see open P2P offer: ${created.text}`);
-  return await txsFrom(DAVE, before);
+  return hashes;
 }
 
 async function fillP2POffer(
