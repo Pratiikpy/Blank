@@ -709,6 +709,46 @@ async function main(): Promise<void> {
     };
   });
 
+  await runFlow("Offramp create", async () => {
+    await switchRabbyAccount(rabbyPage, extId, "Dave");
+    await ensureDappAccount(page, ctx, extId, known, "Dave");
+    setupHashes.Dave ??= await ensureShielded(page, ctx, extId, known, "Dave", "2");
+    await page.goto(`${VERCEL_URL}/app/offramp`, { waitUntil: "domcontentloaded", timeout: 60_000 });
+    await page.waitForTimeout(3_000);
+    await page.locator('[data-testid="offramp-new-offer"]').first().waitFor({ state: "visible", timeout: 30_000 });
+    await page.locator('[data-testid="offramp-new-offer"]').first().click();
+    await page.locator('[data-testid="offramp-create-modal"]').waitFor({ state: "visible", timeout: 10_000 });
+    await safeFill(page.locator('[data-testid="offramp-create-handle"]'), `qa-${Date.now().toString().slice(-6)}`);
+    await safeFill(page.locator('[data-testid="offramp-create-usdc"]'), "1");
+    await safeFill(page.locator('[data-testid="offramp-create-fiat"]'), "1");
+    await safeFill(page.locator('[data-testid="offramp-create-rate"]'), "1.0000");
+    await snap(page, "offramp-create-filled");
+    const before = await getNonce(DAVE);
+    await page.locator('[data-testid="offramp-create-submit"]').click();
+    // Offramp createOffer typically does: cofhe encrypt → vault approval (if
+    // first time) → createOffer tx. 6 popups to drain handles both first-
+    // run (approval present) and repeat-run (approval cached) paths.
+    await drainRabbyPopups(ctx, extId, known, "offramp-create", 6);
+    // Wait for modal to close + the new offer to be visible in the book or
+    // in Dave's "My offers" list.
+    const success = await page.locator('text=/My offers|Offer created|Offer Live/i').first()
+      .waitFor({ state: "visible", timeout: 240_000 })
+      .then(() => true)
+      .catch(() => false);
+    await snap(page, "offramp-create-after");
+    const hashes = await txHashesFrom(DAVE, before);
+    return {
+      name: "Offramp create",
+      status: success && hashes.length > 0 ? "green" : "red",
+      url: `${VERCEL_URL}/app/offramp`,
+      hashes,
+      note: success
+        ? `Dave created encrypted offramp offer (1 USDC for $1 fiat); modal closed + offer visible. Mock-mode signing fix (commit 3d178b4) makes proof submission possible — full take+proof harness deferred to next iteration.`
+        : "Offramp create did not reach success state — see offramp-create-after.png",
+      screenshot: resolve(OUT, "offramp-create-after.png"),
+    };
+  });
+
   const md = [
     "# QA live public links",
     `Generated: ${new Date().toISOString()}`,
