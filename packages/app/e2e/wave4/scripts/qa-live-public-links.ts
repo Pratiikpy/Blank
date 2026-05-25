@@ -718,7 +718,10 @@ async function main(): Promise<void> {
     await page.locator('[data-testid="offramp-new-offer"]').first().waitFor({ state: "visible", timeout: 30_000 });
     await page.locator('[data-testid="offramp-new-offer"]').first().click();
     await page.locator('[data-testid="offramp-create-modal"]').waitFor({ state: "visible", timeout: 10_000 });
-    await safeFill(page.locator('[data-testid="offramp-create-handle"]'), `qa-${Date.now().toString().slice(-6)}`);
+    // PhonePe UPI handle needs the `name@provider` shape per the rail's
+    // handlePattern regex /^[\w.\-]+@[\w.\-]+$/i; bare `qa-NNN` got
+    // silently rejected with a toast.error and the modal stayed open.
+    await safeFill(page.locator('[data-testid="offramp-create-handle"]'), `qa${Date.now().toString().slice(-6)}@upi`);
     await safeFill(page.locator('[data-testid="offramp-create-usdc"]'), "1");
     await safeFill(page.locator('[data-testid="offramp-create-fiat"]'), "1");
     await safeFill(page.locator('[data-testid="offramp-create-rate"]'), "1.0000");
