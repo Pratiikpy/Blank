@@ -35,6 +35,12 @@ html, body { margin: 0; padding: 0; background: var(--bg); color: var(--fg); fon
 .hero { padding: 56px 0 32px; }
 .hero h1 { font-size: 56px; line-height: 1.05; margin: 0 0 16px; letter-spacing: -0.02em; }
 .hero p { font-size: 22px; line-height: 1.4; color: var(--muted); max-width: 720px; margin: 0; }
+.cta { margin-top: 28px; display: flex; gap: 12px; flex-wrap: wrap; }
+.cta a { display: inline-block; padding: 12px 22px; border-radius: 999px; text-decoration: none; font-weight: 500; font-size: 15px; }
+.cta-primary { background: var(--accent); color: #fff; }
+.cta-primary:hover { background: #000; }
+.cta-secondary { background: transparent; color: var(--accent); border: 1px solid var(--border); }
+.cta-secondary:hover { background: var(--card); }
 .eyebrow { font-size: 13px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--good); margin-bottom: 8px; }
 .section { margin-top: 64px; }
 .section h2 { font-size: 32px; letter-spacing: -0.015em; margin: 0 0 8px; }
@@ -73,6 +79,10 @@ footer { margin-top: 96px; padding-top: 24px; border-top: 1px solid var(--border
   <div class="eyebrow">Testnet launch proof · 2026-05-25</div>
   <h1>Blank · every flow proven<br>on desktop Rabby, both chains.</h1>
   <p>Encrypted payments on Ethereum Sepolia and Base Sepolia. Every screen below is a real live screenshot from <code>https://www.myblank.app</code> driven by a real Rabby extension; every transaction is on-chain with <code>status=1</code>.</p>
+  <div class="cta">
+    <a class="cta-primary" href="https://www.myblank.app/app" target="_blank" rel="noopener">Open the live app →</a>
+    <a class="cta-secondary" href="#txs">Jump to on-chain proof</a>
+  </div>
 </header>
 
 <div class="summary">
