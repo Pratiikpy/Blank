@@ -57,8 +57,11 @@ html, body { margin: 0; padding: 0; background: var(--bg); color: var(--fg); fon
 .section h2 { font-size: 36px; letter-spacing: 0; margin: 0 0 8px; line-height: 1.05; }
 .section .lede { font-size: 17px; color: var(--muted); line-height: 1.55; max-width: 720px; margin: 0 0 24px; }
 .shot-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
-.shot { background: var(--card); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+.shot { position: relative; background: var(--card); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+.shot button { display: block; width: 100%; padding: 0; border: 0; background: transparent; cursor: zoom-in; }
 .shot img { display: block; width: 100%; height: auto; }
+.shot .view { position: absolute; top: 10px; right: 10px; padding: 7px 10px; border-radius: 4px; background: rgba(10,10,10,.84); color: #fff; font: 600 10px/1.4 var(--mono); letter-spacing: .07em; text-transform: uppercase; opacity: 0; transition: opacity .16s ease; pointer-events: none; }
+.shot:hover .view, .shot:focus-within .view { opacity: 1; }
 .shot figcaption { padding: 10px 14px; font-size: 13px; color: var(--muted); border-top: 1px solid var(--border); }
 .tx { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 16px 20px; margin-top: 16px; font-size: 14px; }
 .tx h3 { font-size: 15px; margin: 0 0 8px; color: var(--accent); }
@@ -85,6 +88,13 @@ html, body { margin: 0; padding: 0; background: var(--bg); color: var(--fg); fon
 .matrix tr:last-child td { border-bottom: 0; }
 .matrix th { font: 600 11px/1.5 var(--mono); letter-spacing: .09em; text-transform: uppercase; color: var(--muted); background: #f7f8f6; }
 .matrix .green { color: var(--good); font: 600 12px/1.5 var(--mono); text-transform: uppercase; }
+.lightbox { position: fixed; inset: 0; z-index: 100; display: none; align-items: center; justify-content: center; background: rgba(7, 9, 8, .92); padding: 32px; }
+.lightbox.open { display: flex; }
+.lightbox-dialog { position: relative; max-width: min(1440px, calc(100vw - 64px)); max-height: calc(100vh - 64px); display: flex; flex-direction: column; gap: 10px; }
+.lightbox img { max-width: 100%; max-height: calc(100vh - 108px); width: auto; height: auto; object-fit: contain; background: #fff; border-radius: 6px; }
+.lightbox-caption { color: #fff; font: 500 13px/1.5 "Outfit", system-ui, sans-serif; }
+.lightbox-close { position: absolute; right: -12px; top: -12px; width: 38px; height: 38px; border-radius: 999px; border: 1px solid rgba(255,255,255,.22); background: #0a0a0a; color: #fff; font-size: 22px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+body.lightbox-active { overflow: hidden; }
 footer { margin-top: 96px; padding-top: 24px; border-top: 1px solid var(--border); font-size: 13px; color: var(--muted); }
 @media (max-width: 700px) {
   .page { padding: 24px 16px 64px; }
@@ -92,6 +102,10 @@ footer { margin-top: 96px; padding-top: 24px; border-top: 1px solid var(--border
   .hero { padding: 40px 0 24px; }
   .hero h1 { font-size: 44px; }
   .hero p { font-size: 18px; }
+  .shot .view { opacity: 1; }
+  .lightbox { padding: 12px; }
+  .lightbox-dialog { max-width: calc(100vw - 24px); max-height: calc(100vh - 24px); }
+  .lightbox img { max-height: calc(100vh - 72px); }
 }
 </style>
 </head>
@@ -372,5 +386,62 @@ footer { margin-top: 96px; padding-top: 24px; border-top: 1px solid var(--border
 </footer>
 
 </div>
+<div class="lightbox" id="lightbox" role="dialog" aria-modal="true" aria-label="Full-size evidence screenshot" aria-hidden="true">
+  <div class="lightbox-dialog">
+    <button class="lightbox-close" type="button" aria-label="Close full-size image">&times;</button>
+    <img src="" alt="">
+    <div class="lightbox-caption"></div>
+  </div>
+</div>
+<script>
+(() => {
+  const lightbox = document.getElementById("lightbox");
+  const page = document.querySelector(".page");
+  const enlarged = lightbox.querySelector("img");
+  const caption = lightbox.querySelector(".lightbox-caption");
+  const close = lightbox.querySelector(".lightbox-close");
+  let returnFocus = null;
+  const open = (button) => {
+    const img = button.querySelector("img");
+    const figure = button.closest(".shot");
+    enlarged.src = img.currentSrc || img.src;
+    enlarged.alt = img.alt;
+    caption.textContent = figure.querySelector("figcaption").innerText;
+    returnFocus = button;
+    lightbox.classList.add("open");
+    lightbox.setAttribute("aria-hidden", "false");
+    page.inert = true;
+    document.body.classList.add("lightbox-active");
+    close.focus();
+  };
+  const dismiss = () => {
+    lightbox.classList.remove("open");
+    lightbox.setAttribute("aria-hidden", "true");
+    page.inert = false;
+    document.body.classList.remove("lightbox-active");
+    enlarged.src = "";
+    if (returnFocus) returnFocus.focus();
+  };
+  document.querySelectorAll(".shot img").forEach((img) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.setAttribute("aria-label", `View full size: ${img.alt}`);
+    img.parentNode.insertBefore(button, img);
+    button.appendChild(img);
+    const badge = document.createElement("span");
+    badge.className = "view";
+    badge.textContent = "View full size";
+    button.appendChild(badge);
+    button.addEventListener("click", () => open(button));
+  });
+  close.addEventListener("click", dismiss);
+  lightbox.addEventListener("click", (event) => {
+    if (event.target === lightbox) dismiss();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && lightbox.classList.contains("open")) dismiss();
+  });
+})();
+</script>
 </body>
 </html>
