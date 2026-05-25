@@ -54,6 +54,15 @@ const ROUTES: Array<{ path: string; label: string }> = [
   { path: "/app/privacy", label: "28-privacy" },
   { path: "/app/settings", label: "29-settings" },
   { path: "/app/help", label: "30-help" },
+  // Wave 5 routes — proof, recovery, handles, offramp, insights, social, notifications
+  { path: "/app/offramp", label: "31-offramp" },
+  { path: "/app/handles", label: "32-handles" },
+  { path: "/app/insights", label: "33-insights" },
+  { path: "/app/recovery", label: "34-recovery" },
+  { path: "/app/proof", label: "35-proof" },
+  { path: "/app/proof-of-balance", label: "36-proof-of-balance" },
+  { path: "/app/encrypted-social", label: "37-encrypted-social" },
+  { path: "/app/notifications", label: "38-notifications" },
 ];
 
 type RouteReport = {
