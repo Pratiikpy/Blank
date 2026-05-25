@@ -1,10 +1,14 @@
 {
+  "redirects": [
+    { "source": "/", "has": [{ "type": "host", "value": "app.myblank.app" }], "destination": "/app", "permanent": false },
+    { "source": "/", "has": [{ "type": "host", "value": "docs.myblank.app" }], "destination": "/whitepaper", "permanent": false },
+    { "source": "/", "has": [{ "type": "host", "value": "brand.myblank.app" }], "destination": "/brand-kit", "permanent": false },
+    { "source": "/", "has": [{ "type": "host", "value": "blog.myblank.app" }], "destination": "/blog", "permanent": false }
+  ],
   "rewrites": [
     { "source": "/pitchdeck", "destination": "/pitchdeck.html" },
     { "source": "/proof-deck", "destination": "/proof-deck.html" },
-    { "source": "/", "has": [{ "type": "host", "value": "docs.myblank.app" }], "destination": "/route-shells/whitepaper.html" },
-    { "source": "/", "has": [{ "type": "host", "value": "brand.myblank.app" }], "destination": "/route-shells/brand-kit.html" },
-    { "source": "/", "has": [{ "type": "host", "value": "blog.myblank.app" }], "destination": "/route-shells/blog.html" },
+    { "source": "/app", "destination": "/route-shells/app.html" },
     { "source": "/features", "destination": "/route-shells/features.html" },
     { "source": "/how-it-works", "destination": "/route-shells/how-it-works.html" },
     { "source": "/roadmap", "destination": "/route-shells/roadmap.html" },

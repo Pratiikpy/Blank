@@ -15,6 +15,12 @@ interface RouteShell {
 
 const ROUTE_SHELLS: RouteShell[] = [
   {
+    file: "app",
+    title: "Blank App | Private Amount Payments",
+    description: "Send and receive private amount payments on supported Ethereum testnets.",
+    canonical: "https://app.myblank.app",
+  },
+  {
     file: "features",
     title: "Features | Blank",
     description: "Private payment, commerce, proof and exchange surfaces on Blank testnet.",
