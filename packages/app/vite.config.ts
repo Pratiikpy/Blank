@@ -100,7 +100,7 @@ const ROUTE_SHELLS: RouteShell[] = [
   },
   {
     file: "blog",
-    title: "Blank Blog",
+    title: "Blank Blog | Private Payments and FHE",
     description: "Technical writing and product decisions behind confidential payments built with Fhenix CoFHE.",
     canonical: "https://blog.myblank.app/blog",
   },

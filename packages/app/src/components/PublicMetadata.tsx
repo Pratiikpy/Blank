@@ -53,7 +53,7 @@ function metadataForPath(pathname: string): PageMetadata {
     };
     if (postMetadata[pathname]) return postMetadata[pathname];
     return {
-      title: "Blank Blog",
+      title: "Blank Blog | Private Payments and FHE",
       description: "Technical writing and product decisions behind confidential payments built with Fhenix CoFHE.",
       canonical: `${BLOG}/blog`,
     };
