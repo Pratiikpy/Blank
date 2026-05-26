@@ -13,7 +13,7 @@ Sender and receiver remain public. Payment amounts stay encrypted.
 [![Ethereum Sepolia](https://img.shields.io/badge/Ethereum-Sepolia-627EEA?style=flat-square)](https://sepolia.etherscan.io/)
 [![CI](https://github.com/Pratiikpy/Blank/actions/workflows/ci.yml/badge.svg)](https://github.com/Pratiikpy/Blank/actions/workflows/ci.yml)
 
-[Launch app](https://app.myblank.app) | [Whitepaper](https://docs.myblank.app) | [Proof deck](https://www.myblank.app/proof-deck) | [Status](https://www.myblank.app/status) | [Brand kit](https://brand.myblank.app) | [Blog](https://blog.myblank.app/blog)
+[Launch app](https://app.myblank.app) | [Whitepaper](https://docs.myblank.app) | [Pitch deck](https://www.myblank.app/pitchdeck) | [Proof deck](https://www.myblank.app/proof-deck) | [Status](https://www.myblank.app/status) | [Brand kit](https://brand.myblank.app) | [Blog](https://blog.myblank.app/blog)
 
 </div>
 
@@ -212,7 +212,8 @@ Security issues should be reported according to [SECURITY.md](SECURITY.md).
 | Document | Purpose |
 | --- | --- |
 | [Whitepaper](https://docs.myblank.app) | Privacy model, architecture and security boundary |
-| [Proof deck](https://www.myblank.app/proof-deck) | Product presentation and supporting material |
+| [Pitch deck](https://www.myblank.app/pitchdeck) | Product story, market framing and founder context |
+| [Proof deck](https://www.myblank.app/proof-deck) | Public testnet evidence and supporting material |
 | [Brand kit](https://brand.myblank.app) | Identity system and public assets |
 | [Blog](https://blog.myblank.app/blog) | Technical and product writing |
 | [Architecture](docs/ARCHITECTURE.md) | Engineering reference |

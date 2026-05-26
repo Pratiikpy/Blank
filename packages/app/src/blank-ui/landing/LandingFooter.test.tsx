@@ -5,8 +5,8 @@ import { MemoryRouter } from "react-router-dom";
 // §15.x test for LandingFooter. Shared footer across every
 // landing-level page. Minimal footer with primary public links
 // (Features / How it works / Pricing / Roadmap / Live / Docs /
-// Brand Kit / Blog / Manifesto / Proof deck / Launch app / GitHub /
-// Fhenix attribution). The footer is intentionally static so it
+// Brand Kit / Blog / Manifesto / Pitch deck / Proof deck / Launch app /
+// GitHub / Fhenix attribution). The footer is intentionally static so it
 // renders identically on every page; the only dynamic part is
 // the copyright year via new Date().getFullYear().
 //
@@ -192,9 +192,15 @@ describe("LandingFooter — semantic markup (§15.x)", () => {
     expect(footer!.tagName).toBe("FOOTER");
   });
 
-  it("total link count is exactly 13 (11 internal + 2 external)", () => {
+  it("total link count is exactly 14 (12 internal + 2 external)", () => {
     renderFooter();
-    expect(screen.getAllByRole("link")).toHaveLength(13);
+    expect(screen.getAllByRole("link")).toHaveLength(14);
+  });
+
+  it("Pitch deck link points to /pitchdeck", () => {
+    renderFooter();
+    const link = screen.getByRole("link", { name: "Pitch deck" });
+    expect(link.getAttribute("href")).toBe("https://www.myblank.app/pitchdeck");
   });
 
   it("Proof deck link points to /proof-deck", () => {

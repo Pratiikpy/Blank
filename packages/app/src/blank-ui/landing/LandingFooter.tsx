@@ -15,6 +15,7 @@ export function LandingFooter() {
         <a href={PUBLIC_LINKS.brand}>Brand Kit</a>
         <a href={PUBLIC_BLOG_INDEX}>Blog</a>
         <a href={canonicalPublicHref("/manifesto")}>Manifesto</a>
+        <a href={canonicalPublicHref("/pitchdeck")}>Pitch deck</a>
         <a href={canonicalPublicHref("/proof-deck")}>Proof deck</a>
         <a href={PUBLIC_LINKS.app}>Launch app</a>
         <a
