@@ -107,7 +107,7 @@ Encrypted state update on a public chain
 
 Contract families include encrypted vaults and payments, business and creator workflows, commerce and escrow, exchange and offramp, handles and recovery, and privacy proofs.
 
-For a detailed system map, read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and the [code maps](docs/CODEMAPS).
+For the public product documentation, start with the [docs index](docs/README.md).
 
 ## Testnet Deployments
 
@@ -139,8 +139,7 @@ blank/
 |-- packages/
 |   |-- app/                 React application, API routes and live QA flows
 |   `-- contracts/           Solidity contracts, deployments and tests
-|-- docs/                    Architecture, paper and product documentation
-|-- CLAUDE.md                Engineering and release rules
+|-- docs/                    Product documentation and launch scope
 `-- README.md
 ```
 
@@ -216,7 +215,7 @@ Security issues should be reported according to [SECURITY.md](SECURITY.md).
 | [Proof deck](https://www.myblank.app/proof-deck) | Public testnet evidence and supporting material |
 | [Brand kit](https://brand.myblank.app) | Identity system and public assets |
 | [Blog](https://blog.myblank.app/blog) | Technical and product writing |
-| [Architecture](docs/ARCHITECTURE.md) | Engineering reference |
+| [Docs index](docs/README.md) | Public repository documentation |
 | [Launch readiness](docs/LAUNCH_READINESS.md) | Testnet scope and release boundaries |
 
 ## Contributing

@@ -32,11 +32,20 @@ Thumbs.db
 references/
 design-assets/
 docs/*
+# keep the public docs that are safe for GitHub visitors
+!docs/README.md
+!docs/Blank-Whitepaper.pdf
+!docs/CLAIM_LINKS.md
+!docs/CROWDFUND.md
+!docs/ENCRYPTED_ESCROW.md
+!docs/LAUNCH_READINESS.md
+!docs/SLIDE_DECK.md
+!docs/STOREFRONT.md
+!docs/WHITEPAPER.html
+!docs/WHITEPAPER.md
 # but keep screenshots — the README references them
 !docs/screenshots/
 !docs/screenshots/**
-# and the judge-replay coverage audit (tracked by design)
-!docs/JUDGE_REPLAY_AUDIT.md
 
 # Dev artifacts
 memory/

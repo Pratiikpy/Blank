@@ -71,14 +71,14 @@ Multi-chain (Eth Sepolia + Base Sepolia), ERC-4337 v0.8 + WebAuthn passkeys, ded
 
 ### Things that exist in code and ship working
 
-Twelve sixteen surfaces total: Send, Request, Invoice, Payroll, Escrow, Group Split, Gifts, Inheritance, P2P Exchange, Creator Tips, Income Proof, AI Agent Payments, Claim Links, Storefront, Crowdfund, Stealth Payments. Plus the gas wallet, plus the public verification URL pattern (`/verify/:proofId`), plus the income-proof viral artifact (`/v/:proofId`).
+Sixteen product surfaces total: Send, Request, Invoice, Payroll, Escrow, Group Split, Gifts, Inheritance, P2P Exchange, Creator Tips, Income Proof, AI Agent Payments, Claim Links, Storefront, Crowdfund, Stealth Payments. Plus the gas wallet, plus the public verification URL pattern (`/verify/:proofId`), plus the income-proof viral artifact (`/v/:proofId`).
 
 ### Honest about deferred
 
 - B1 (wire `useEncryptedEscrow` into BusinessTools): hook is complete, UI integration deferred to a focused session because it requires reconciling the legacy plaintext BusinessHub escrow with the new encrypted path under one UX.
 - B3/B4 (sender-side "Your sent links / listings / campaigns" management tabs): the hooks expose `refundLink` / `deactivateListing` etc; the management UI is deferred.
 - G8 (`addSelfToGroup` unauthenticated): Supabase RLS migration deferred; current behavior is testnet-acceptable (anyone who knows a group ID can join, adds spam expense rows, no fund-loss).
-- Wave 4 docs refresh: this submission doc + per-feature READMEs are current; full `docs/ARCHITECTURE.md` regen + `docs/CODEMAPS/*` regen pending.
+- Wave 4 docs refresh: this submission doc and per-feature docs are current. Public docs are indexed in [`docs/README.md`](README.md).
 
 ### Live links
 
