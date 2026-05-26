@@ -1,0 +1,46 @@
+name: Feature request
+description: Propose a scoped product or engineering enhancement.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Surface
+      options:
+        - Payments
+        - Commerce
+        - Exchange/Offramp
+        - Recovery/Safety
+        - Public site/docs
+        - DevEx/tooling
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem statement
+      description: What user or operator problem does this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope and non-goals
+      description: Define boundaries to keep delivery crisp.
+    validations:
+      required: true
+  - type: textarea
+    id: proof
+    attributes:
+      label: Success evidence
+      description: How will we verify this is done? Include expected tx/state/screens.
+      placeholder: "tx hash, new route, success banner, updated card, etc."
+    validations:
+      required: true

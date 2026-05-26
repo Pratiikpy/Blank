@@ -1,0 +1,14 @@
+# Default ownership
+* @Pratiikpy
+
+# App and public product surfaces
+/packages/app/ @Pratiikpy
+
+# Contracts and deployments
+/packages/contracts/ @Pratiikpy
+
+# Public docs and launch messaging
+/README.md @Pratiikpy
+/SECURITY.md @Pratiikpy
+/CONTRIBUTING.md @Pratiikpy
+/docs/ @Pratiikpy

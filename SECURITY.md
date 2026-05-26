@@ -13,9 +13,6 @@ If you find a vulnerability, **do not open a public GitHub issue**.
 Primary channel:
 - GitHub Security Advisory (private): `Security` tab in this repository
 
-Optional email channel:
-- `security@myblank.app` (if unavailable, use GitHub Security Advisory)
-
 Include:
 - Affected component (contract address + function, API route + verb,
   hook + method, screen + flow).

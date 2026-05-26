@@ -11,6 +11,7 @@ Sender and receiver remain public. Payment amounts stay encrypted.
 [![Fhenix CoFHE](https://img.shields.io/badge/Fhenix-CoFHE-101010?style=flat-square)](https://www.fhenix.io/)
 [![Base Sepolia](https://img.shields.io/badge/Base-Sepolia-0052FF?style=flat-square)](https://sepolia.basescan.org/)
 [![Ethereum Sepolia](https://img.shields.io/badge/Ethereum-Sepolia-627EEA?style=flat-square)](https://sepolia.etherscan.io/)
+[![CI](https://github.com/Pratiikpy/Blank/actions/workflows/ci.yml/badge.svg)](https://github.com/Pratiikpy/Blank/actions/workflows/ci.yml)
 
 [Launch app](https://app.myblank.app) | [Whitepaper](https://docs.myblank.app) | [Proof deck](https://www.myblank.app/proof-deck) | [Status](https://www.myblank.app/status) | [Brand kit](https://brand.myblank.app) | [Blog](https://blog.myblank.app/blog)
 
@@ -221,6 +222,7 @@ Security issues should be reported according to [SECURITY.md](SECURITY.md).
 
 Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
 Security reports must go through private channels described in [SECURITY.md](SECURITY.md), not public issues.
+Behavior expectations are documented in [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 
 ## License
 
