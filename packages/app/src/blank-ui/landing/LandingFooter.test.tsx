@@ -131,7 +131,7 @@ describe("LandingFooter — internal links (§15.x)", () => {
   it("Blog link points to blog.myblank.app", () => {
     renderFooter();
     const link = screen.getByRole("link", { name: "Blog" });
-    expect((link as HTMLAnchorElement).getAttribute("href")).toBe("https://blog.myblank.app");
+    expect((link as HTMLAnchorElement).getAttribute("href")).toBe("https://blog.myblank.app/blog");
   });
 
   it("Manifesto link points to /manifesto", () => {

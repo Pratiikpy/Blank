@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from "react";
 import { useLocation } from "react-router-dom";
 import { ArrowRight, Github, ChevronDown, Menu, X } from "lucide-react";
 import { BlankLogo } from "./BlankLogo";
-import { canonicalPublicHref, PUBLIC_LINKS } from "./publicLinks";
+import { canonicalPublicHref, PUBLIC_BLOG_INDEX, PUBLIC_LINKS } from "./publicLinks";
 
 // Shared nav used on every landing-level page (/, /features, /live, /manifesto).
 //
@@ -97,7 +97,7 @@ export function LandingNav() {
           Roadmap
         </a>
         <a
-          href={PUBLIC_LINKS.blog}
+          href={PUBLIC_BLOG_INDEX}
           className={location.pathname === "/blog" || location.pathname.startsWith("/blog/") ? "active" : ""}
         >
           Blog
@@ -130,7 +130,7 @@ export function LandingNav() {
               <a href={canonicalPublicHref("/how-it-works")}>How it works</a>
               <a href={canonicalPublicHref("/pricing")}>Pricing</a>
               <a href={canonicalPublicHref("/roadmap")}>Roadmap</a>
-              <a href={PUBLIC_LINKS.blog}>Blog</a>
+              <a href={PUBLIC_BLOG_INDEX}>Blog</a>
               <a href={canonicalPublicHref("/live")}>Live</a>
               <a href={canonicalPublicHref("/manifesto")}>Manifesto</a>
               <a href={canonicalPublicHref("/for/individuals")}>For individuals</a>

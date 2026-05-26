@@ -47,7 +47,7 @@ describe("BlogPost — not-found branch (§15.x)", () => {
     const blogLink = Array.from(container.querySelectorAll("a")).find((a) =>
       a.textContent?.includes("blog index"),
     );
-    expect(blogLink?.getAttribute("href")).toBe("https://blog.myblank.app");
+    expect(blogLink?.getAttribute("href")).toBe("https://blog.myblank.app/blog");
   });
 
   it("does NOT render the back-arrow 'All posts' link on the not-found branch (no article)", () => {
@@ -90,7 +90,7 @@ describe("BlogPost — found branch (§15.x)", () => {
     const back = Array.from(container.querySelectorAll("a")).find((a) =>
       a.textContent?.includes("All posts"),
     );
-    expect(back?.getAttribute("href")).toBe("https://blog.myblank.app");
+    expect(back?.getAttribute("href")).toBe("https://blog.myblank.app/blog");
   });
 
   it("renders the post body inside an <article> with .ll-blog-prose container", () => {

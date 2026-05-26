@@ -503,7 +503,7 @@ footer { margin-top: 96px; padding-top: 24px; border-top: 1px solid var(--border
   <div class="tx">
     <h3>FHE invariant (mock-Reclaim signer = on-chain operator on both chains)</h3>
     <ul>
-      <li><span class="label">Server signer:</span> 0xb860513A3C5348C46cF52a573Fd743bA03c2c53F (from <a href="https://www.myblank.app/api/relay" target="_blank">/api/relay kind=mock-reclaim-sign</a>)</li>
+      <li><span class="label">Server signer:</span> 0xb860513A3C5348C46cF52a573Fd743bA03c2c53F (source: <code>/api/relay</code> kind=<code>mock-reclaim-sign</code>)</li>
       <li><span class="label">Eth on-chain:</span> <code>MockReclaimVerifier(0xdfc2606B…).operator()</code> = same address</li>
       <li><span class="label">Base on-chain:</span> <code>MockReclaimVerifier(0xB36441E8…).operator()</code> = same address</li>
       <li><span class="label">Verify:</span> <code>verifyAndConsume(sig, …)</code> returns <code>(true, 0x301f8c…)</code> on both</li>

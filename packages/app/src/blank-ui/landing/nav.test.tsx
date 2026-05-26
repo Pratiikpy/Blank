@@ -33,7 +33,7 @@ describe("LandingFooter (§15.x)", () => {
     const hrefs = Array.from(container.querySelectorAll("a")).map((a) => a.getAttribute("href"));
     expect(hrefs).toContain("https://docs.myblank.app");
     expect(hrefs).toContain("https://brand.myblank.app");
-    expect(hrefs).toContain("https://blog.myblank.app");
+    expect(hrefs).toContain("https://blog.myblank.app/blog");
     expect(hrefs).toContain("https://app.myblank.app");
   });
 
@@ -82,7 +82,7 @@ describe("LandingNav — rendering (§15.x)", () => {
     expect(linkHrefs).toContain("https://www.myblank.app/how-it-works");
     expect(linkHrefs).toContain("https://www.myblank.app/pricing");
     expect(linkHrefs).toContain("https://www.myblank.app/roadmap");
-    expect(linkHrefs).toContain("https://blog.myblank.app");
+    expect(linkHrefs).toContain("https://blog.myblank.app/blog");
     expect(linkHrefs).toContain("https://www.myblank.app/live");
     expect(linkHrefs).toContain("https://www.myblank.app/manifesto");
   });

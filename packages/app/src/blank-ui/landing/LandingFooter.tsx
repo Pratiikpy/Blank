@@ -1,4 +1,4 @@
-import { canonicalPublicHref, PUBLIC_LINKS } from "./publicLinks";
+import { canonicalPublicHref, PUBLIC_BLOG_INDEX, PUBLIC_LINKS } from "./publicLinks";
 
 // Shared footer across all landing-level pages.
 export function LandingFooter() {
@@ -13,7 +13,7 @@ export function LandingFooter() {
         <a href={canonicalPublicHref("/live")}>Live</a>
         <a href={PUBLIC_LINKS.docs}>Docs</a>
         <a href={PUBLIC_LINKS.brand}>Brand Kit</a>
-        <a href={PUBLIC_LINKS.blog}>Blog</a>
+        <a href={PUBLIC_BLOG_INDEX}>Blog</a>
         <a href={canonicalPublicHref("/manifesto")}>Manifesto</a>
         <a href={canonicalPublicHref("/proof-deck")}>Proof deck</a>
         <a href={PUBLIC_LINKS.app}>Launch app</a>

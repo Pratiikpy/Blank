@@ -283,7 +283,7 @@ FHE.allowSender(balance);`}
       <h2>For other builders</h2>
       <p>
         If you're choosing an FHE stack right now: the decision rule
-        we'd offer is the same as in our <a href="https://blog.myblank.app/fhe-vs-zk">FHE-vs-ZK
+        we'd offer is the same as in our <a href="https://blog.myblank.app/blog/fhe-vs-zk">FHE-vs-ZK
         post</a>. Start from your problem.
       </p>
       <ul>

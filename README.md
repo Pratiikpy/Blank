@@ -12,7 +12,7 @@ Sender and receiver remain public. Payment amounts stay encrypted.
 [![Base Sepolia](https://img.shields.io/badge/Base-Sepolia-0052FF?style=flat-square)](https://sepolia.basescan.org/)
 [![Ethereum Sepolia](https://img.shields.io/badge/Ethereum-Sepolia-627EEA?style=flat-square)](https://sepolia.etherscan.io/)
 
-[Launch app](https://app.myblank.app) | [Whitepaper](https://docs.myblank.app) | [Proof deck](https://www.myblank.app/proof-deck) | [Status](https://www.myblank.app/status) | [Brand kit](https://brand.myblank.app) | [Blog](https://blog.myblank.app)
+[Launch app](https://app.myblank.app) | [Whitepaper](https://docs.myblank.app) | [Proof deck](https://www.myblank.app/proof-deck) | [Status](https://www.myblank.app/status) | [Brand kit](https://brand.myblank.app) | [Blog](https://blog.myblank.app/blog)
 
 </div>
 
@@ -67,7 +67,7 @@ Public surfaces:
 | Application | [app.myblank.app](https://app.myblank.app) |
 | Technical paper | [docs.myblank.app](https://docs.myblank.app) |
 | Brand system | [brand.myblank.app](https://brand.myblank.app) |
-| Writing | [blog.myblank.app](https://blog.myblank.app) |
+| Writing | [blog.myblank.app/blog](https://blog.myblank.app/blog) |
 | Network status | [www.myblank.app/status](https://www.myblank.app/status) |
 
 The current public testnet scope supports standard EVM wallets across both Sepolia networks. Smart-account and sponsored transaction surfaces exist in the product, with operational readiness dependent on funded paymasters and dedicated qualification.
@@ -213,9 +213,14 @@ Security issues should be reported according to [SECURITY.md](SECURITY.md).
 | [Whitepaper](https://docs.myblank.app) | Privacy model, architecture and security boundary |
 | [Proof deck](https://www.myblank.app/proof-deck) | Product presentation and supporting material |
 | [Brand kit](https://brand.myblank.app) | Identity system and public assets |
-| [Blog](https://blog.myblank.app) | Technical and product writing |
+| [Blog](https://blog.myblank.app/blog) | Technical and product writing |
 | [Architecture](docs/ARCHITECTURE.md) | Engineering reference |
 | [Launch readiness](docs/LAUNCH_READINESS.md) | Testnet scope and release boundaries |
+
+## Contributing
+
+Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
+Security reports must go through private channels described in [SECURITY.md](SECURITY.md), not public issues.
 
 ## License
 

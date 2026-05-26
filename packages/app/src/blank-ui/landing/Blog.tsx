@@ -1,7 +1,7 @@
 import { LandingNav } from "./LandingNav";
 import { LandingFooter } from "./LandingFooter";
 import { POSTS } from "./blog/posts";
-import { PUBLIC_LINKS } from "./publicLinks";
+import { canonicalBlogPostHref } from "./publicLinks";
 import "./landing.css";
 
 // ══════════════════════════════════════════════════════════════════
@@ -72,7 +72,7 @@ export default function Blog() {
             {POSTS.map((p) => (
               <a
                 key={p.slug}
-                href={`${PUBLIC_LINKS.blog}/${p.slug}`}
+                href={canonicalBlogPostHref(p.slug)}
                 className="ll-step"
                 style={{
                   textDecoration: "none",

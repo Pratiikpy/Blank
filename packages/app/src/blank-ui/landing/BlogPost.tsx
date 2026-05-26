@@ -3,7 +3,7 @@ import { ArrowLeft } from "lucide-react";
 import { LandingNav } from "./LandingNav";
 import { LandingFooter } from "./LandingFooter";
 import { POSTS_BY_SLUG } from "./blog/posts";
-import { PUBLIC_LINKS } from "./publicLinks";
+import { PUBLIC_BLOG_INDEX } from "./publicLinks";
 import "./landing.css";
 import "./blog.css";
 
@@ -29,7 +29,7 @@ export default function BlogPost() {
             <h1 className="ll-hero-h1">Post not found</h1>
             <p className="ll-subline">
               We don't have anything at that URL. Try the{" "}
-              <a href={PUBLIC_LINKS.blog} style={{ textDecoration: "underline" }}>
+              <a href={PUBLIC_BLOG_INDEX} style={{ textDecoration: "underline" }}>
                 blog index
               </a>
               .
@@ -53,7 +53,7 @@ export default function BlogPost() {
           }}
         >
           <a
-            href={PUBLIC_LINKS.blog}
+            href={PUBLIC_BLOG_INDEX}
             style={{
               display: "inline-flex",
               alignItems: "center",
@@ -87,7 +87,7 @@ export default function BlogPost() {
               fontWeight: 700,
               letterSpacing: "-0.02em",
               marginBottom: "1rem",
-              color: "var(--ll-ink-1)",
+              color: "var(--ll-ink)",
             }}
           >
             {post.title}

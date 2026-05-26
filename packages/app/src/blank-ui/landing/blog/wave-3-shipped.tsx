@@ -133,7 +133,7 @@ const post: BlogPost = {
       <ul>
         <li>
           <strong>No token.</strong> Discussed{" "}
-          <a href="https://blog.myblank.app/why-no-token-ever">at length</a>.
+          <a href="https://blog.myblank.app/blog/why-no-token-ever">at length</a>.
         </li>
         <li>
           <strong>No mainnet.</strong> Gated on Fhenix CoFHE

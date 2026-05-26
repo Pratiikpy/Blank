@@ -1,6 +1,13 @@
-# Wave 4 — build tracker
+# Wave 4 — build tracker (archived engineering log)
 
-Short lines. One per thing. So we don't lose track in the long build.
+This file is a historical implementation log for Wave 4.
+It is kept for engineering traceability, not as current product
+positioning or launch scope documentation.
+
+For current public scope, refer to:
+- `README.md`
+- `docs/LAUNCH_READINESS.md`
+- `docs/ARCHITECTURE.md`
 
 Format: `[status] task — short note`
 Status: `✅` done · `🟡` in-progress · `⏳` pending · `❌` blocked

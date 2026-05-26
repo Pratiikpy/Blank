@@ -10,9 +10,11 @@ threat assumptions; this document covers the project as a whole.
 
 If you find a vulnerability, **do not open a public GitHub issue**.
 
-Email: `security@blank.invalid` (replace with the real channel once the
-team email is provisioned; until then, file a private security advisory
-on GitHub instead of an issue).
+Primary channel:
+- GitHub Security Advisory (private): `Security` tab in this repository
+
+Optional email channel:
+- `security@myblank.app` (if unavailable, use GitHub Security Advisory)
 
 Include:
 - Affected component (contract address + function, API route + verb,

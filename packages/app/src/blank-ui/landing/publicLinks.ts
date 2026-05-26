@@ -6,9 +6,15 @@ export const PUBLIC_LINKS = {
   blog: "https://blog.myblank.app",
 } as const;
 
+export const PUBLIC_BLOG_INDEX = `${PUBLIC_LINKS.blog}/blog`;
+
 export function canonicalPublicHref(path: string) {
   if (path === "/app") return PUBLIC_LINKS.app;
   if (path.startsWith("/app/")) return `${PUBLIC_LINKS.app}${path.slice(4)}`;
   if (path === "/") return PUBLIC_LINKS.site;
   return `${PUBLIC_LINKS.site}${path}`;
+}
+
+export function canonicalBlogPostHref(slug: string) {
+  return `${PUBLIC_BLOG_INDEX}/${slug}`;
 }

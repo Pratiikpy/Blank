@@ -90,7 +90,7 @@ describe("LandingNav — top-level links (§15.x)", () => {
   it("Blog link points to blog.myblank.app", () => {
     renderAt("/");
     const blog = screen.getByRole("link", { name: /^Blog$/ });
-    expect((blog as HTMLAnchorElement).getAttribute("href")).toBe("https://blog.myblank.app");
+    expect((blog as HTMLAnchorElement).getAttribute("href")).toBe("https://blog.myblank.app/blog");
   });
 
   it("nav has aria-label='Primary' (landmark navigation)", () => {
@@ -257,7 +257,7 @@ describe("LandingNav — compact navigation (§15.x)", () => {
     expect(screen.getByRole("button", { name: "Close navigation" })).toBeInTheDocument();
     const menu = screen.getByLabelText("Site navigation");
     expect(menu.querySelector('a[href="https://www.myblank.app/roadmap"]')).not.toBeNull();
-    expect(menu.querySelector('a[href="https://blog.myblank.app"]')).not.toBeNull();
+    expect(menu.querySelector('a[href="https://blog.myblank.app/blog"]')).not.toBeNull();
   });
 
   it("closes the compact menu on Escape", () => {
