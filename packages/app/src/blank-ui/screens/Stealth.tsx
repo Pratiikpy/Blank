@@ -1111,11 +1111,13 @@ export default function Stealth() {
                   <Lock size={20} className="text-emerald-600 mt-0.5" />
                   <div>
                     <p className="text-sm font-medium text-emerald-900">
-                      FHE Encrypted
+                      FHE-gated claim
                     </p>
                     <p className="text-xs text-emerald-700 mt-1">
-                      All amounts are encrypted with Fully Homomorphic
-                      Encryption. The recipient is hidden on-chain.
+                      The recipient stays hidden on-chain via a stealth
+                      address. The claim is gated by Fully Homomorphic
+                      Encryption, so only the intended recipient can
+                      collect the funds.
                     </p>
                   </div>
                 </div>

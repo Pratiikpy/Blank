@@ -39,7 +39,7 @@ export default function Manifesto() {
           <p>
             When we started Blank, on-chain privacy looked like a nice-to-have.
             Something enterprise might care about eventually. Then we looked at
-            what transparency had actually cost in 2023 alone:
+            what fully public money had already cost:
           </p>
 
           <ul>
@@ -97,7 +97,9 @@ export default function Manifesto() {
             Blank ships twenty-one surfaces: P2P send, requests, group bills,
             creator tips, invoicing, batch payroll, escrow with arbiter,
             claim-code transfers, gift envelopes, inheritance, P2P exchange,
-            encrypted proofs, claim links, storefront, crowdfund, and bridge.
+            encrypted proofs, claim links, storefront, crowdfund, bridge,
+            encrypted offramp to fiat, stealth payments, proof-of-balance,
+            social recovery, and scheduled sends.
           </p>
 
           <p>
