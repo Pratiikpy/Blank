@@ -627,6 +627,12 @@ async function main(): Promise<void> {
   await dismissRabbyWhatsNew(rabbyPage);
   const known = new Set<Page>(ctx.pages());
   const page = await ctx.newPage();
+  // MOBILE=1 drives the app at a phone viewport (375x812) to prove the mobile
+  // layout works functionally with a real wallet, not just on render.
+  if (process.env.MOBILE === "1") {
+    await page.setViewportSize({ width: 375, height: 812 });
+    console.log("MOBILE viewport 375x812 enabled");
+  }
   const setupHashes: Partial<Record<Persona, Hash[]>> = {};
   const walletProofs: string[] = [];
 
