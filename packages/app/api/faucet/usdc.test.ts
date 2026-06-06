@@ -20,6 +20,7 @@ vi.mock("../_lib/addresses.js", () => ({
   getContracts: getContractsMock,
   ETH_SEPOLIA_ID: 11155111,
   BASE_SEPOLIA_ID: 84532,
+  ARB_SEPOLIA_ID: 421614,
 }));
 
 import handler from "./usdc.js";
@@ -99,9 +100,9 @@ describe("/api/faucet/usdc — input validation (§15.x)", () => {
     expect((res.captured.body?.error as string)).toContain("not supported");
   });
 
-  it("accepts both ETH Sepolia + Base Sepolia past chainId check", async () => {
-    // No RELAYER_PRIVATE_KEY -> 503 on both, proving we passed chainId.
-    for (const chainId of [11155111, 84532]) {
+  it("accepts ETH Sepolia + Base Sepolia + Arb Sepolia past chainId check", async () => {
+    // No RELAYER_PRIVATE_KEY -> 503 on all three, proving we passed chainId.
+    for (const chainId of [11155111, 84532, 421614]) {
       const res = makeRes();
       await handler(makeReq({ body: { address: VALID_ADDR, chainId } }), res);
       expect(res.captured.status).toBe(503);

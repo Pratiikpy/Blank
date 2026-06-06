@@ -96,15 +96,15 @@ describe("cron-scheduled-sends-tick — auth gate (§15.x)", () => {
 });
 
 describe("cron-scheduled-sends-tick — happy-path shape (§15.x)", () => {
-  it("returns 200 with status='ok' + snapshots array covering both supported chains", async () => {
+  it("returns 200 with status='ok' + snapshots array covering all supported chains", async () => {
     const res = makeRes();
     await handler(makeReq(), res);
     expect(res.captured.status).toBe(200);
     expect(res.captured.body?.status).toBe("ok");
 
     const snapshots = res.captured.body?.snapshots as Array<{ chainId: number }>;
-    expect(snapshots).toHaveLength(2);
-    expect(snapshots.map((s) => s.chainId).sort()).toEqual([11155111, 84532]);
+    expect(snapshots).toHaveLength(3);
+    expect(snapshots.map((s) => s.chainId).sort((a, b) => a - b)).toEqual([84532, 421614, 11155111].sort((a, b) => a - b));
   });
 
   it("scanned=0 and no errors when no active keys for either chain", async () => {
@@ -260,7 +260,7 @@ describe("cron-scheduled-sends-tick — snapshot defaults + array init", () => {
     }
   });
 
-  it("snapshots array is in canonical chain-id order (11155111 then 84532)", async () => {
+  it("snapshots array is in canonical chain-id order (11155111 then 84532 then 421614)", async () => {
     // The source iterates SUPPORTED_CHAINS in declared order; pin it
     // so a JSON consumer can rely on the position-based indexing.
     const res = makeRes();
@@ -268,6 +268,7 @@ describe("cron-scheduled-sends-tick — snapshot defaults + array init", () => {
     const snapshots = res.captured.body?.snapshots as Array<{ chainId: number }>;
     expect(snapshots[0]!.chainId).toBe(11155111);
     expect(snapshots[1]!.chainId).toBe(84532);
+    expect(snapshots[2]!.chainId).toBe(421614);
   });
 });
 
@@ -315,12 +316,14 @@ describe("cron-scheduled-sends-tick — per-chain isolation", () => {
     const res = makeRes();
     await handler(makeReq(), res);
     const snapshots = res.captured.body?.snapshots as Array<{ chainId: number; errors: string[] }>;
-    // Both snapshots exist; ETH has the error, BASE is clean.
-    expect(snapshots).toHaveLength(2);
+    // All snapshots exist; ETH has the error, BASE + ARB are clean.
+    expect(snapshots).toHaveLength(3);
     const eth = snapshots.find((s) => s.chainId === 11155111)!;
     const base = snapshots.find((s) => s.chainId === 84532)!;
+    const arb = snapshots.find((s) => s.chainId === 421614)!;
     expect(eth.errors.length).toBeGreaterThan(0);
     expect(base.errors).toEqual([]);
+    expect(arb.errors).toEqual([]);
   });
 
   it("handler returns 200 even when EVERY chain hit the list-rejection path (overall status is 'ok')", async () => {
