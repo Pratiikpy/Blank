@@ -133,3 +133,16 @@ Vercel indexer" claim was WRONG and is retracted: every Supabase-backed view is
 anon-readable locally; the failures were render races, interfering clicks, a
 missing encrypted-amount field, and a missing card-select — all harness bugs,
 all fixed. ZERO product flaws on Arb across both wallet paths.
+
+## Negative / edge cases (does it FAIL CORRECTLY?) — GREEN via Rabby
+- Bogus claim-link id (/claim/421614/0xdead...): honest "Missing secret" error
+  page ("This link is missing its secret part (the # at the end)..."), not a crash.
+- Malformed claim-link id (/claim/421614/notavalidlinkid): same honest "Missing
+  secret" error, no crash/white-screen.
+- Empty gift: "Send Gift Envelope" is gated (no amount/recipient/theme) — no
+  wallet prompt fires on empty input.
+Product fails correctly across these. (Other negatives already proven elsewhere:
+request-pay Pay-Now disabled until amount entered; offramp attest fails-closed
+with an honest error; claim-link replay/already-claimed reject; 46/46 contract
+sweep covers self-pay, same-token, empty-batch, gift-replay, wrong-secret,
+non-member, anti-overdraw, winner-refund, etc.)
