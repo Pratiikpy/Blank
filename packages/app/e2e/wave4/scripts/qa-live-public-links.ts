@@ -890,9 +890,13 @@ async function main(): Promise<void> {
     await ensureDappAccount(page, ctx, extId, known, "Dave");
     await ensureShielded(page, ctx, extId, known, "Dave", "2");
     await page.goto(`${VERCEL_URL}/app/business`, { waitUntil: "domcontentloaded", timeout: 60_000 });
-    await page.waitForTimeout(2_500);
-    await page.getByRole("button", { name: /^Escrow$/i }).first().click().catch(() => undefined);
-    await page.waitForTimeout(1_500);
+    await page.locator("h1", { hasText: /Business Tools/i }).first().waitFor({ state: "visible", timeout: 30_000 }).catch(() => undefined);
+    // The Escrow tab is a <button role="tab" aria-label="Escrow"> — match the
+    // tab role, not button (and it is NOT the default tab, so the click is required).
+    await page.getByRole("tab", { name: /^Escrow$/i }).first().click({ timeout: 30_000 }).catch(async () => {
+      await page.getByRole("button", { name: /^Escrow$/i }).first().click({ timeout: 5_000 }).catch(() => undefined);
+    });
+    await page.waitForTimeout(2_000);
     const newEscrow = page.locator("main button:visible:not([disabled])").filter({ hasText: /New Escrow|Create your first escrow/i }).first();
     await newEscrow.waitFor({ state: "visible", timeout: 30_000 });
     await newEscrow.click();
