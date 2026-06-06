@@ -166,6 +166,13 @@ export default defineConfig({
   },
   server: {
     port: 3000,
+    // Local QA only: when VITE_API_PROXY is set (e.g. to a running `vercel dev`),
+    // forward /api to it so the serverless functions (relay, faucet, oracle)
+    // work while vite still serves /src modules for the passkey test hook.
+    // Unset in normal dev, so this is a no-op there.
+    ...(process.env.VITE_API_PROXY
+      ? { proxy: { "/api": { target: process.env.VITE_API_PROXY, changeOrigin: true } } }
+      : {}),
     fs: {
       // Allow access to the monorepo root (one level above packages/app)
       // AND the user's home node_modules where pnpm symlinks live.
