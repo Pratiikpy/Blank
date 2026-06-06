@@ -10,7 +10,7 @@ Blank is ready for a public testnet launch in this scope:
 
 - Desktop browser app
 - Standard EVM wallet path, proven with Rabby EOA
-- Base Sepolia and Ethereum Sepolia
+- Base Sepolia, Ethereum Sepolia, and Arbitrum Sepolia
 - Amount-private payment flows backed by real testnet transactions
 - Public marketing pages, whitepaper, brand kit, manifesto, live page, and link previews
 
@@ -96,7 +96,9 @@ Current public positioning is aligned around:
 The product has two proof layers:
 
 1. Live UI proof with Rabby on Vercel.
-2. Contract and multi-wallet proof with real transactions on both chains.
+2. Contract and multi-wallet proof with real transactions on Base Sepolia and
+   Ethereum Sepolia. Arbitrum Sepolia is deployed with an on-chain shield proof;
+   its multi-flow sweep is pending (see the Arbitrum Sepolia deployment section).
 
 ### Live UI proof
 
@@ -133,8 +135,9 @@ Latest contract sweep result:
 | --- | --- |
 | Base Sepolia | 40+ pass, 0 fail, 4 intentional skips |
 | Ethereum Sepolia | 40+ pass, 0 fail, 4 intentional skips |
+| Arbitrum Sepolia | Same 30-contract set deployed. Encrypted-vault FHE path proven by a real on-chain shield tx. Full multi-flow sweep pending. |
 
-The sweep used four wallets:
+The Base Sepolia and Ethereum Sepolia sweeps used four wallets:
 
 - Alice
 - Bob
@@ -175,6 +178,34 @@ Negative checks confirmed expected rejects for:
 - Gift replay
 - Gift wrong recipient
 
+### Arbitrum Sepolia deployment
+
+Arbitrum Sepolia (chainId 421614) is a third live testnet. The same
+30-contract core set is deployed. CoFHE runs on the shared coprocessor, so the
+FHE endpoints match the other two testnets. Full addresses:
+`packages/contracts/deployments/arb-sepolia.json`. Explorer base:
+`https://sepolia.arbiscan.io`.
+
+| Contract | Address |
+| --- | --- |
+| EventHub | [`0xBA620E742F1AbBCcEf8a2b1A50108d7Dc3f0c128`](https://sepolia.arbiscan.io/address/0xBA620E742F1AbBCcEf8a2b1A50108d7Dc3f0c128) |
+| TestUSDC | [`0x9558E2D3157c986591F325a6e76cA2fdFDB0b7AD`](https://sepolia.arbiscan.io/address/0x9558E2D3157c986591F325a6e76cA2fdFDB0b7AD) |
+| FHERC20Vault_USDC | [`0x22c543F1303Ba25A52694C89D8d09D26FBb7569E`](https://sepolia.arbiscan.io/address/0x22c543F1303Ba25A52694C89D8d09D26FBb7569E) |
+| PaymentHub | [`0x899f22B60A856Ec6FCb7C888c43f1A9891E9d6C5`](https://sepolia.arbiscan.io/address/0x899f22B60A856Ec6FCb7C888c43f1A9891E9d6C5) |
+| BusinessHub | [`0x79A544EfA82fc1567FfF008ACb8BD90FE6f853BF`](https://sepolia.arbiscan.io/address/0x79A544EfA82fc1567FfF008ACb8BD90FE6f853BF) |
+| P2POfframp | [`0x653e71e5F02a0fEAAFfCab5391DF0AE99b89961f`](https://sepolia.arbiscan.io/address/0x653e71e5F02a0fEAAFfCab5391DF0AE99b89961f) |
+| BlankPaymaster | [`0x9C295E5A130a5776b287dcC77b41d4b55165C8Be`](https://sepolia.arbiscan.io/address/0x9C295E5A130a5776b287dcC77b41d4b55165C8Be) |
+
+Encrypted-vault FHE proof on Arbitrum Sepolia: a real shield tx, status 1, no
+`InvalidSigner`:
+[`0xc623277ed8a44895b149d7b29e8854da5a967e131f463c91e4dca5bb3aa09585`](https://sepolia.arbiscan.io/tx/0xc623277ed8a44895b149d7b29e8854da5a967e131f463c91e4dca5bb3aa09585).
+
+What is NOT yet done on Arbitrum Sepolia: the full multi-flow UI sweep. The
+30-route desktop and mobile sweeps plus the four-wallet contract sweep above
+were run on Base Sepolia and Ethereum Sepolia. Arbitrum Sepolia has the
+deployment and the on-chain shield proof; per-flow UI screenshots on Arbitrum
+are a follow-up, not a claim made here.
+
 ## Known Limits To State Honestly
 
 These are not blockers for the current testnet launch, but they should not be
@@ -183,6 +214,7 @@ hidden.
 | Area | Current truth |
 | --- | --- |
 | Mainnet | Not supported until external audit and Fhenix mainnet readiness. |
+| Arbitrum Sepolia | Full 30-contract set is deployed and the encrypted-vault shield path is proven on-chain. The multi-flow UI sweep (30-route desktop and mobile, four-wallet contract sweep) is still pending here, run so far on Base Sepolia and Ethereum Sepolia. |
 | Mobile | Route and layout baseline is green. Full mobile transaction matrix is next. |
 | Storefront delivery | Payment and purchase are proven. Digital file delivery is seller-handled today, with buyer and seller handoff copy in the UI. It is not an automatic Gumroad-style file system. |
 | Crowdfund close, release, refund | Covered by contract tests and sweep logic where timing allows. Full live UI close waits on real testnet duration. |
@@ -204,8 +236,8 @@ Before announcing widely:
   test logs out of public launch material.
 - Keep `www.myblank.app` as the public domain in site metadata, README,
   whitepaper, PDF, and footer links.
-- Keep the supported scope clear: public testnet, Base Sepolia and Ethereum
-  Sepolia, standard EVM wallet path, desktop-first.
+- Keep the supported scope clear: public testnet, Base Sepolia, Ethereum
+  Sepolia, and Arbitrum Sepolia, standard EVM wallet path, desktop-first.
 - Do not claim mainnet readiness before audit.
 - Do not claim automatic digital file delivery for storefront until that
   product exists.

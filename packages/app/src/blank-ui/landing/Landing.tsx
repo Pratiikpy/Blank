@@ -56,7 +56,7 @@ function ProofOfProduct() {
     {
       num: "Live",
       label:
-        "Deployed on Base Sepolia and Ethereum Sepolia. Open source and testable today.",
+        "Deployed on Base Sepolia, Ethereum Sepolia, and Arbitrum Sepolia. Open source and testable today.",
     },
     {
       num: "21",
@@ -76,7 +76,7 @@ function ProofOfProduct() {
         Not a roadmap. Working software.
       </h2>
       <p className="ll-section-lead">
-        Two testnets live today. Twenty-one product surfaces shipped. Core
+        Three testnets live today. Twenty-one product surfaces shipped. Core
         desktop flows have real testnet receipts through the real UI.
         No waitlist.
       </p>

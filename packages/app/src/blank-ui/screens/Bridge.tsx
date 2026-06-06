@@ -188,10 +188,10 @@ export default function Bridge({ embedded = false }: { embedded?: boolean } = {}
   const isReadyToClaim = bridge.step === "readyToClaim";
   const isComplete = bridge.step === "complete";
 
-  // CCTP only runs on chains with a Circle domain. Arbitrum Sepolia has no
-  // CCTP config, so gate the screen honestly instead of rendering a form
-  // that can't submit. Domain 0 (Ethereum Sepolia) is valid, so test for
-  // undefined explicitly rather than falsiness.
+  // CCTP only runs on chains with a Circle domain. All three supported
+  // testnets (Ethereum, Base, Arbitrum Sepolia) have one; this gate is a
+  // defensive fallback for any other chain. Domain 0 (Ethereum Sepolia) is
+  // valid, so test for undefined explicitly rather than falsiness.
   if (CCTP_DOMAIN[activeChainId] === undefined) {
     return (
       <div className={embedded ? "" : "animate-in fade-in slide-in-from-bottom-4 duration-500"}>
@@ -204,8 +204,8 @@ export default function Bridge({ embedded = false }: { embedded?: boolean } = {}
               Bridge not available here
             </h2>
             <p className="text-base text-[var(--text-secondary)] leading-relaxed">
-              USDC bridging runs on Ethereum Sepolia and Base Sepolia. Switch
-              networks to bridge.
+              USDC bridging runs on Ethereum Sepolia, Base Sepolia, and
+              Arbitrum Sepolia. Switch networks to bridge.
             </p>
           </div>
         </div>
@@ -227,8 +227,9 @@ export default function Bridge({ embedded = false }: { embedded?: boolean } = {}
               Bridge USDC
             </h1>
             <p className="text-base text-[var(--text-secondary)] leading-relaxed">
-              Move native USDC between Ethereum Sepolia and Base Sepolia using
-              Circle CCTP V2 (burn-and-mint). The bridge takes ~15 seconds on
+              Move native USDC between Ethereum Sepolia, Base Sepolia, and
+              Arbitrum Sepolia using Circle CCTP V2 (burn-and-mint). The
+              bridge takes ~15 seconds on
               Fast, ~15 minutes on Finalized.
             </p>
           </div>

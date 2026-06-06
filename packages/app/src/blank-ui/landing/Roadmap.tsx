@@ -77,9 +77,9 @@ const SHIPPED: RoadmapItem[] = [
       "Heir claims after N days inactive. Encrypted beneficiary amounts. Capped at 20 vaults to prevent claim-lockout via gas-limit.",
   },
   {
-    title: "Dual-chain (Base + Eth Sepolia)",
+    title: "Tri-chain (Base + Eth + Arbitrum Sepolia)",
     detail:
-      "Same contracts deployed on both. Per-chain activity feeds + explorer links. Chain switch is a UI affordance, not a separate build.",
+      "Same contracts deployed on all three. Per-chain activity feeds + explorer links. Chain switch is a UI affordance, not a separate build.",
   },
   {
     title: "Encrypted P2P off-ramp",
@@ -163,9 +163,9 @@ const BLOCKED: BlockedItem[] = [
     ],
   },
   {
-    title: "More chains beyond Base + Eth Sepolia",
+    title: "More chains beyond the current three",
     detail:
-      "We pick two chains and ship them well rather than seven and ship them badly. Adding a third happens when one of the existing two hits product-market fit, not before.",
+      "We ship chains well rather than wide. Base, Ethereum, and Arbitrum Sepolia are live; adding a fourth happens when one of the existing three hits product-market fit, not before.",
     blockedBy: [
       "Sustained traction on at least one current chain",
       "Threshold-decrypt operator presence on the new chain",
@@ -341,10 +341,12 @@ export default function Roadmap() {
           <StatusBadge kind="shipped" />
           <h2 className="ll-section-title">Shipped. Live on testnet today.</h2>
           <p className="ll-section-lead">
-            Twenty-one product surfaces, one encrypted vault, two chains.
+            Twenty-one product surfaces, one encrypted vault, three chains.
             Core desktop flows have live testnet receipts on Base Sepolia
-            and Ethereum Sepolia. Long-duration close, release, and refund
-            paths are covered by contract tests.
+            and Ethereum Sepolia. The same contract set is deployed on
+            Arbitrum Sepolia, with the encrypted-vault shield path proven
+            on-chain there. Long-duration close, release, and refund paths
+            are covered by contract tests.
           </p>
           <div style={{ marginTop: "2rem" }}>
             <ItemList items={SHIPPED} />

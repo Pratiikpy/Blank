@@ -434,7 +434,7 @@
           bids, contributions, and payment values do not.
         </p>
         <div class="cover-grid">
-          <div class="cover-card"><strong>2</strong><span>Supported testnets</span></div>
+          <div class="cover-card"><strong>3</strong><span>Supported testnets</span></div>
           <div class="cover-card"><strong>3</strong><span>Wallet personas tested</span></div>
           <div class="cover-card"><strong>16</strong><span>Product surfaces</span></div>
         </div>
@@ -478,9 +478,9 @@
         <div class="status-box">
           <h3>Current testnet status</h3>
           <p class="muted">
-            Live on Base Sepolia and Ethereum Sepolia, with standard EVM
-            wallet connections and Blank passkey smart accounts when
-            sponsorship is available.
+            Live on Base Sepolia, Ethereum Sepolia, and Arbitrum Sepolia,
+            with standard EVM wallet connections and Blank passkey smart
+            accounts when sponsorship is available.
           </p>
         </div>
         <div class="card">
@@ -718,7 +718,7 @@
     <div class="content">
       <div class="topline"><span><img src="../packages/app/public/logo-circle.svg" alt="" />Testnet status and roadmap</span><span>08</span></div>
       <span class="section-number">7</span>
-      <h2>Live on Base Sepolia and Ethereum Sepolia.</h2>
+      <h2>Live on Base Sepolia, Ethereum Sepolia, and Arbitrum Sepolia.</h2>
       <p class="lead">
         Blank is available on public testnets for builders, partners, and
         early users to evaluate private amount payment flows.
@@ -727,7 +727,7 @@
         <div class="status-box">
           <h3>Live URL</h3>
           <p>www.myblank.app</p>
-          <p class="muted">Supported testnets: Base Sepolia and Ethereum Sepolia.</p>
+          <p class="muted">Supported testnets: Base Sepolia, Ethereum Sepolia, and Arbitrum Sepolia.</p>
         </div>
         <div class="card">
           <strong>Wallets</strong>
@@ -737,6 +737,7 @@
       <div class="proof-list">
         <span>Base Sepolia</span>
         <span>Ethereum Sepolia</span>
+        <span>Arbitrum Sepolia</span>
         <span>Standard EVM wallets</span>
         <span>Passkey smart accounts</span>
         <span>Bridge and Swap</span>
@@ -745,9 +746,25 @@
         <span>Public-link surfaces</span>
         <span>Mobile route-map UI</span>
       </div>
+      <h3>Arbitrum Sepolia deployment</h3>
+      <p class="small muted">
+        The same contract set is deployed on all three testnets. The
+        encrypted-vault FHE path is proven on Arbitrum Sepolia by a real
+        <a href="https://sepolia.arbiscan.io/tx/0xc623277ed8a44895b149d7b29e8854da5a967e131f463c91e4dca5bb3aa09585">shield transaction</a>
+        (status 1, no InvalidSigner). A full per-flow UI sweep on Arbitrum
+        Sepolia is still pending.
+      </p>
+      <table>
+        <tbody>
+          <tr><td>EventHub</td><td class="mono"><a href="https://sepolia.arbiscan.io/address/0xBA620E742F1AbBCcEf8a2b1A50108d7Dc3f0c128">0xBA620E742F1AbBCcEf8a2b1A50108d7Dc3f0c128</a></td></tr>
+          <tr><td>FHERC20Vault (USDC)</td><td class="mono"><a href="https://sepolia.arbiscan.io/address/0x22c543F1303Ba25A52694C89D8d09D26FBb7569E">0x22c543F1303Ba25A52694C89D8d09D26FBb7569E</a></td></tr>
+          <tr><td>PaymentHub</td><td class="mono"><a href="https://sepolia.arbiscan.io/address/0x899f22B60A856Ec6FCb7C888c43f1A9891E9d6C5">0x899f22B60A856Ec6FCb7C888c43f1A9891E9d6C5</a></td></tr>
+          <tr><td>BusinessHub</td><td class="mono"><a href="https://sepolia.arbiscan.io/address/0x79A544EfA82fc1567FfF008ACb8BD90FE6f853BF">0x79A544EfA82fc1567FfF008ACb8BD90FE6f853BF</a></td></tr>
+        </tbody>
+      </table>
       <h3>Roadmap</h3>
       <ul>
-        <li>Keep standard EVM wallet flows stable on both supported testnets.</li>
+        <li>Keep standard EVM wallet flows stable on all three supported testnets.</li>
         <li>Expand mobile transaction coverage beyond route sweeps.</li>
         <li>Improve account switch and realtime recovery behavior.</li>
         <li>Continue hardening public links, storefront, crowdfund, and escrow.</li>

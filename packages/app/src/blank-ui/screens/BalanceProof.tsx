@@ -59,7 +59,7 @@ export default function BalanceProof() {
         <div className="rounded-2xl border border-amber-200 bg-amber-50 p-6">
           <p className="text-amber-900 font-medium">Not deployed on this chain</p>
           <p className="text-amber-700 text-sm mt-2">
-            Switch to Ethereum Sepolia or Base Sepolia to use balance proofs.
+            Switch to Ethereum Sepolia, Base Sepolia, or Arbitrum Sepolia to use balance proofs.
           </p>
         </div>
       </div>

@@ -34,8 +34,8 @@ the result.
 Blank is not a mixer. It does not hide counterparties. It is amount privacy
 for normal payments.
 
-The current public testnet deployment runs on Base Sepolia and Ethereum
-Sepolia. It supports standard EVM wallet connections and Blank passkey smart
+The current public testnet deployment runs on Base Sepolia, Ethereum
+Sepolia, and Arbitrum Sepolia. It supports standard EVM wallet connections and Blank passkey smart
 accounts, with product surfaces for sends, invoices, payroll, public links,
 seller-handled commerce, crowdfunding, escrow, Swap, and Bridge.
 
@@ -369,10 +369,31 @@ Supported public testnets:
 
 - Base Sepolia, chain ID 84532.
 - Ethereum Sepolia, chain ID 11155111.
+- Arbitrum Sepolia, chain ID 421614.
+
+The same contract set is deployed on all three testnets. On Arbitrum
+Sepolia the core stack is live at:
+
+| Contract | Address |
+| --- | --- |
+| EventHub | [0xBA620E742F1AbBCcEf8a2b1A50108d7Dc3f0c128](https://sepolia.arbiscan.io/address/0xBA620E742F1AbBCcEf8a2b1A50108d7Dc3f0c128) |
+| TestUSDC | [0x9558E2D3157c986591F325a6e76cA2fdFDB0b7AD](https://sepolia.arbiscan.io/address/0x9558E2D3157c986591F325a6e76cA2fdFDB0b7AD) |
+| FHERC20Vault (USDC) | [0x22c543F1303Ba25A52694C89D8d09D26FBb7569E](https://sepolia.arbiscan.io/address/0x22c543F1303Ba25A52694C89D8d09D26FBb7569E) |
+| PaymentHub | [0x899f22B60A856Ec6FCb7C888c43f1A9891E9d6C5](https://sepolia.arbiscan.io/address/0x899f22B60A856Ec6FCb7C888c43f1A9891E9d6C5) |
+| BusinessHub | [0x79A544EfA82fc1567FfF008ACb8BD90FE6f853BF](https://sepolia.arbiscan.io/address/0x79A544EfA82fc1567FfF008ACb8BD90FE6f853BF) |
+| P2POfframp | [0x653e71e5F02a0fEAAFfCab5391DF0AE99b89961f](https://sepolia.arbiscan.io/address/0x653e71e5F02a0fEAAFfCab5391DF0AE99b89961f) |
+| BlankPaymaster | [0x9C295E5A130a5776b287dcC77b41d4b55165C8Be](https://sepolia.arbiscan.io/address/0x9C295E5A130a5776b287dcC77b41d4b55165C8Be) |
+
+The encrypted-vault FHE path is proven on Arbitrum Sepolia by a real
+shield transaction (status 1, no InvalidSigner):
+[0xc623277ed8a44895b149d7b29e8854da5a967e131f463c91e4dca5bb3aa09585](https://sepolia.arbiscan.io/tx/0xc623277ed8a44895b149d7b29e8854da5a967e131f463c91e4dca5bb3aa09585).
+CoFHE runs on the shared coprocessor, with the same endpoints on all
+three testnets. A full per-flow UI sweep on Arbitrum Sepolia is still
+pending.
 
 Public testnet support includes:
 
-- Standard EVM wallet connections on both supported chains.
+- Standard EVM wallet connections on all supported chains.
 - Passkey smart accounts for no-extension onboarding when sponsorship is available.
 - Private amount sends, invoices, requests, payroll, gifts, groups, proofs,
   claim links, storefront, crowdfund, escrow, Swap, Bridge, and P2P exchange.
@@ -388,7 +409,7 @@ Blank's roadmap is gated by proof, not dates.
 
 ### Near-term
 
-- Keep standard EVM wallet flows stable on Base Sepolia and Ethereum Sepolia.
+- Keep standard EVM wallet flows stable on Base Sepolia, Ethereum Sepolia, and Arbitrum Sepolia.
 - Expand mobile transaction coverage beyond route sweeps.
 - Improve account switch and realtime recovery behavior.
 - Continue hardening public links, storefront, crowdfund, and escrow.
