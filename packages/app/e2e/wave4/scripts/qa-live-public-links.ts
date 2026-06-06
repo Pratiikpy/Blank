@@ -974,11 +974,14 @@ async function main(): Promise<void> {
     if (!(await payBtn.isVisible({ timeout: 25_000 }).catch(() => false))) {
       return { name: "Request pay (Bob)", status: "red", url: `${VERCEL_URL}/app/requests`, hashes: [], note: "no incoming request for Bob — see request-pay-before.png", screenshot: resolve(OUT, "request-pay-before.png") };
     }
+    // Dismiss the PWA install toast so it can't overlay the row's Pay button.
+    await page.locator('button[aria-label*="install" i], button[aria-label*="dismiss" i], button[aria-label="Close"]').first().click().catch(() => undefined);
     await payBtn.scrollIntoViewIfNeeded().catch(() => undefined);
-    await payBtn.click({ force: true });
-    // A confirm/Send may follow the Pay click in a modal.
-    await page.waitForTimeout(1_500);
-    await page.locator("main button:visible:not([disabled])").filter({ hasText: /Confirm.*Pay|^Pay|Send|Confirm/i }).last().click({ force: true }).catch(() => undefined);
+    await payBtn.click(); // real click so the row's onClick fires (opens the pay modal)
+    await page.waitForTimeout(2_500);
+    // If a confirm modal opened, click its confirm — scoped to the dialog, NOT
+    // the list (a list-Pay match here was closing the modal before signing).
+    await page.locator('[role="dialog"] button, [class*="modal" i] button, [class*="sheet" i] button').filter({ hasText: /Confirm|Pay|Send|Approve/i }).last().click().catch(() => undefined);
     const payClicks = await drainRabbyPopups(ctx, extId, known, "request-pay", 14);
     await page.waitForTimeout(4_000);
     await snap(page, "request-pay-after");
