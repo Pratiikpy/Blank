@@ -166,7 +166,7 @@ test.describe("Phase 2 — P2P encrypted payments", () => {
     const url = baseURL ?? "http://localhost:3000";
     const alice = PERSONAS.Alice;
     const bob = PERSONAS.Bob;
-    const chainSlug = chain.chainKey === "ETH_SEPOLIA" ? "eth-sepolia" : "base-sepolia";
+    const chainSlug = chain.chainKey === "ETH_SEPOLIA" ? "eth-sepolia" : chain.chainKey === "ARB_SEPOLIA" ? "arb-sepolia" : "base-sepolia";
 
     // — Bob spawns first so we can capture his address before Alice
     //   needs to type it into the recipient input.
@@ -319,7 +319,7 @@ test.describe("Phase 2 — P2P encrypted payments", () => {
     const url = baseURL ?? "http://localhost:3000";
     const alice = PERSONAS.Alice;
     const bob = PERSONAS.Bob;
-    const chainSlug = chain.chainKey === "ETH_SEPOLIA" ? "eth-sepolia" : "base-sepolia";
+    const chainSlug = chain.chainKey === "ETH_SEPOLIA" ? "eth-sepolia" : chain.chainKey === "ARB_SEPOLIA" ? "arb-sepolia" : "base-sepolia";
 
     // Reuse the happy-path context state when possible — but for true
     // isolation per CLAUDE.md §G, spawn fresh contexts.

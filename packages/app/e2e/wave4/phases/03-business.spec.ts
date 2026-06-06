@@ -76,7 +76,7 @@ test.describe("Phase 3 — business tools", () => {
   }) => {
     const chain = chainContextFromProject();
     const url = baseURL ?? "http://localhost:3000";
-    const chainSlug = chain.chainKey === "ETH_SEPOLIA" ? "eth-sepolia" : "base-sepolia";
+    const chainSlug = chain.chainKey === "ETH_SEPOLIA" ? "eth-sepolia" : chain.chainKey === "ARB_SEPOLIA" ? "arb-sepolia" : "base-sepolia";
 
     // Bob spawns first to capture his address.
     const bob = await bringUpWallet(browser, PERSONAS.Bob, chain.chainId, url);
@@ -264,7 +264,7 @@ test.describe("Phase 3 — business tools", () => {
   }) => {
     const chain = chainContextFromProject();
     const url = baseURL ?? "http://localhost:3000";
-    const chainSlug = chain.chainKey === "ETH_SEPOLIA" ? "eth-sepolia" : "base-sepolia";
+    const chainSlug = chain.chainKey === "ETH_SEPOLIA" ? "eth-sepolia" : chain.chainKey === "ARB_SEPOLIA" ? "arb-sepolia" : "base-sepolia";
 
     const bob = await bringUpWallet(browser, PERSONAS.Bob, chain.chainId, url);
     const carol = await bringUpWallet(browser, PERSONAS.Carol, chain.chainId, url);

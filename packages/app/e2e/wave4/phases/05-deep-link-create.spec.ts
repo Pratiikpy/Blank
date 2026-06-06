@@ -145,7 +145,7 @@ test.describe("Phase 5 — public deep-link create", () => {
   }) => {
     const chain = chainContextFromProject();
     const url = baseURL ?? "http://localhost:3000";
-    const chainSlug = chain.chainKey === "ETH_SEPOLIA" ? "eth-sepolia" : "base-sepolia";
+    const chainSlug = chain.chainKey === "ETH_SEPOLIA" ? "eth-sepolia" : chain.chainKey === "ARB_SEPOLIA" ? "arb-sepolia" : "base-sepolia";
     const alice = await bringUpAlice(browser, chain.chainId, url);
     const shot = { phase: "05-deep-link-create", persona: "alice", chain: chainSlug, viewport: chain.viewport };
     resetCounter(shot);
@@ -239,7 +239,7 @@ test.describe("Phase 5 — public deep-link create", () => {
   test("Alice creates a sealed-bid auction listing", async ({ browser, baseURL }) => {
     const chain = chainContextFromProject();
     const url = baseURL ?? "http://localhost:3000";
-    const chainSlug = chain.chainKey === "ETH_SEPOLIA" ? "eth-sepolia" : "base-sepolia";
+    const chainSlug = chain.chainKey === "ETH_SEPOLIA" ? "eth-sepolia" : chain.chainKey === "ARB_SEPOLIA" ? "arb-sepolia" : "base-sepolia";
     const alice = await bringUpAlice(browser, chain.chainId, url);
     const shot = { phase: "05-deep-link-create", persona: "alice", chain: chainSlug, viewport: chain.viewport };
     resetCounter(shot);
@@ -292,7 +292,7 @@ test.describe("Phase 5 — public deep-link create", () => {
   test("Alice creates a crowdfund campaign (positive encGoal)", async ({ browser, baseURL }) => {
     const chain = chainContextFromProject();
     const url = baseURL ?? "http://localhost:3000";
-    const chainSlug = chain.chainKey === "ETH_SEPOLIA" ? "eth-sepolia" : "base-sepolia";
+    const chainSlug = chain.chainKey === "ETH_SEPOLIA" ? "eth-sepolia" : chain.chainKey === "ARB_SEPOLIA" ? "arb-sepolia" : "base-sepolia";
     const alice = await bringUpAlice(browser, chain.chainId, url);
     const shot = { phase: "05-deep-link-create", persona: "alice", chain: chainSlug, viewport: chain.viewport };
     resetCounter(shot);

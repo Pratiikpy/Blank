@@ -82,7 +82,7 @@ test.describe("Phase 18 — Burners (local create + chain-backup gap)", () => {
   }) => {
     const chain = chainContextFromProject();
     const url = baseURL ?? "http://localhost:3000";
-    const chainSlug = chain.chainKey === "ETH_SEPOLIA" ? "eth-sepolia" : "base-sepolia";
+    const chainSlug = chain.chainKey === "ETH_SEPOLIA" ? "eth-sepolia" : chain.chainKey === "ARB_SEPOLIA" ? "arb-sepolia" : "base-sepolia";
 
     const alice = await bringUp(browser, PERSONAS.Alice, chain.chainId, url);
     const shot = { phase: "18-burners", persona: "alice", chain: chainSlug, viewport: chain.viewport };

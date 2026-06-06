@@ -119,7 +119,7 @@ test.describe("Phase 12 — mobile sweep", () => {
   test("Mobile BottomNav + More sheet render and respond to taps", async ({ browser, baseURL }) => {
     const chain = chainContextFromProject();
     const url = baseURL ?? "http://localhost:3000";
-    const chainSlug = chain.chainKey === "ETH_SEPOLIA" ? "eth-sepolia" : "base-sepolia";
+    const chainSlug = chain.chainKey === "ETH_SEPOLIA" ? "eth-sepolia" : chain.chainKey === "ARB_SEPOLIA" ? "arb-sepolia" : "base-sepolia";
 
     const alice = await bringUpMobile(browser, PERSONAS.Alice, chain.chainId, url);
     const shot = { phase: "12-mobile", persona: "alice", chain: chainSlug, viewport: chain.viewport };
@@ -179,7 +179,7 @@ test.describe("Phase 12 — mobile sweep", () => {
   }) => {
     const chain = chainContextFromProject();
     const url = baseURL ?? "http://localhost:3000";
-    const chainSlug = chain.chainKey === "ETH_SEPOLIA" ? "eth-sepolia" : "base-sepolia";
+    const chainSlug = chain.chainKey === "ETH_SEPOLIA" ? "eth-sepolia" : chain.chainKey === "ARB_SEPOLIA" ? "arb-sepolia" : "base-sepolia";
 
     const alice = await bringUpMobile(browser, PERSONAS.Alice, chain.chainId, url);
     const bob = await bringUpMobile(browser, PERSONAS.Bob, chain.chainId, url);
@@ -297,7 +297,7 @@ test.describe("Phase 12 — mobile sweep", () => {
   }) => {
     const chain = chainContextFromProject();
     const url = baseURL ?? "http://localhost:3000";
-    const chainSlug = chain.chainKey === "ETH_SEPOLIA" ? "eth-sepolia" : "base-sepolia";
+    const chainSlug = chain.chainKey === "ETH_SEPOLIA" ? "eth-sepolia" : chain.chainKey === "ARB_SEPOLIA" ? "arb-sepolia" : "base-sepolia";
 
     // Look for any phase-5 recorded URL on this chain. Prefer claim
     // PublicLink (the most viral surface) then fall back to fund.
