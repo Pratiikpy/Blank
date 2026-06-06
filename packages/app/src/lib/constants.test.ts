@@ -4,6 +4,7 @@ import {
   setActiveChainId,
   ETH_SEPOLIA_ID,
   BASE_SEPOLIA_ID,
+  ARB_SEPOLIA_ID,
   CHAINS,
   FAUCET_LINKS,
   CONTRACTS_BY_CHAIN,
@@ -80,20 +81,25 @@ describe("chain-id constants", () => {
     expect(BASE_SEPOLIA_ID).toBe(84532);
   });
 
-  it("the two chain ids are distinct (no collision)", () => {
-    expect(ETH_SEPOLIA_ID).not.toBe(BASE_SEPOLIA_ID);
+  it("ARB_SEPOLIA_ID = 421614 (canonical Arbitrum Sepolia chain id)", () => {
+    expect(ARB_SEPOLIA_ID).toBe(421614);
+  });
+
+  it("the three chain ids are distinct (no collision)", () => {
+    expect(new Set([ETH_SEPOLIA_ID, BASE_SEPOLIA_ID, ARB_SEPOLIA_ID]).size).toBe(3);
   });
 });
 
 describe("CHAINS registry shape", () => {
-  it("has exactly entries for both supported chain ids", () => {
-    expect(Object.keys(CHAINS).length).toBe(2);
+  it("has exactly entries for all supported chain ids", () => {
+    expect(Object.keys(CHAINS).length).toBe(3);
     expect(CHAINS[ETH_SEPOLIA_ID]).toBeDefined();
     expect(CHAINS[BASE_SEPOLIA_ID]).toBeDefined();
+    expect(CHAINS[ARB_SEPOLIA_ID]).toBeDefined();
   });
 
   it("every entry has all 8 required ChainInfo fields", () => {
-    for (const id of [ETH_SEPOLIA_ID, BASE_SEPOLIA_ID] as const) {
+    for (const id of [ETH_SEPOLIA_ID, BASE_SEPOLIA_ID, ARB_SEPOLIA_ID] as const) {
       const c = CHAINS[id];
       expect(c.id).toBe(id);
       expect(typeof c.name).toBe("string");
@@ -118,10 +124,11 @@ describe("FAUCET_LINKS shape", () => {
   it("has at least one faucet for each supported chain (don't leave a chain with no faucet hint)", () => {
     expect(FAUCET_LINKS[ETH_SEPOLIA_ID].length).toBeGreaterThan(0);
     expect(FAUCET_LINKS[BASE_SEPOLIA_ID].length).toBeGreaterThan(0);
+    expect(FAUCET_LINKS[ARB_SEPOLIA_ID].length).toBeGreaterThan(0);
   });
 
   it("every faucet entry has a label + a URL", () => {
-    for (const id of [ETH_SEPOLIA_ID, BASE_SEPOLIA_ID] as const) {
+    for (const id of [ETH_SEPOLIA_ID, BASE_SEPOLIA_ID, ARB_SEPOLIA_ID] as const) {
       for (const f of FAUCET_LINKS[id]) {
         expect(typeof f.label).toBe("string");
         expect(f.label.length).toBeGreaterThan(0);
@@ -131,7 +138,7 @@ describe("FAUCET_LINKS shape", () => {
   });
 
   it("URLs are unique within a chain (no duplicate suggestions)", () => {
-    for (const id of [ETH_SEPOLIA_ID, BASE_SEPOLIA_ID] as const) {
+    for (const id of [ETH_SEPOLIA_ID, BASE_SEPOLIA_ID, ARB_SEPOLIA_ID] as const) {
       const urls = FAUCET_LINKS[id].map((f) => f.url);
       expect(new Set(urls).size).toBe(urls.length);
     }
@@ -139,9 +146,10 @@ describe("FAUCET_LINKS shape", () => {
 });
 
 describe("CONTRACTS_BY_CHAIN shape", () => {
-  it("has entries for both supported chains", () => {
+  it("has entries for all supported chains", () => {
     expect(CONTRACTS_BY_CHAIN[ETH_SEPOLIA_ID]).toBeDefined();
     expect(CONTRACTS_BY_CHAIN[BASE_SEPOLIA_ID]).toBeDefined();
+    expect(CONTRACTS_BY_CHAIN[ARB_SEPOLIA_ID]).toBeDefined();
   });
 
   it("required ContractMap fields are populated as 0x-prefixed addresses on both chains", () => {
@@ -155,7 +163,7 @@ describe("CONTRACTS_BY_CHAIN shape", () => {
       "ERC5564Announcer", "ERC6538Registry",
       "ClaimLinks", "Storefront",
     ];
-    for (const chainId of [ETH_SEPOLIA_ID, BASE_SEPOLIA_ID] as const) {
+    for (const chainId of [ETH_SEPOLIA_ID, BASE_SEPOLIA_ID, ARB_SEPOLIA_ID] as const) {
       const m = CONTRACTS_BY_CHAIN[chainId] as Record<string, unknown>;
       for (const key of required) {
         expect(m[key], `${key} on chain ${chainId}`).toMatch(/^0x[0-9a-fA-F]{40}$/);

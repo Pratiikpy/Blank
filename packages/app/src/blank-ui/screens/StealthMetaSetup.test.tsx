@@ -367,14 +367,24 @@ describe("StealthMetaSetup — published state actions (§15.x)", () => {
     expect(container.innerHTML).toBeDefined();
   });
 
-  it("Base Sepolia (84532) explorer link: sepolia.basescan.org/tx/<hash>", () => {
+  it("Base Sepolia (84532) explorer link: sepolia-explorer.base.org/tx/<hash>", () => {
     useChainMock.mockReturnValue({
       activeChainId: 84532,
       contracts: { ERC6538Registry: REGISTRY },
     });
     const { getByText } = render(<StealthMetaSetup />);
     const link = getByText("View tx").closest("a") as HTMLAnchorElement;
-    expect(link.getAttribute("href")).toBe(`https://sepolia.basescan.org/tx/${PUBLISH_TX}`);
+    expect(link.getAttribute("href")).toBe(`https://sepolia-explorer.base.org/tx/${PUBLISH_TX}`);
+  });
+
+  it("Arbitrum Sepolia (421614) explorer link: sepolia.arbiscan.io/tx/<hash>", () => {
+    useChainMock.mockReturnValue({
+      activeChainId: 421614,
+      contracts: { ERC6538Registry: REGISTRY },
+    });
+    const { getByText } = render(<StealthMetaSetup />);
+    const link = getByText("View tx").closest("a") as HTMLAnchorElement;
+    expect(link.getAttribute("href")).toBe(`https://sepolia.arbiscan.io/tx/${PUBLISH_TX}`);
   });
 
   it("CRITICAL unknown chain: explorer link HIDDEN (no broken URL)", () => {

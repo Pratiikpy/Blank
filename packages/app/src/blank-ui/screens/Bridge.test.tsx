@@ -54,9 +54,11 @@ vi.mock("@/lib/constants", () => ({
   CHAINS: {
     11155111: { name: "Ethereum Sepolia", explorerUrl: "https://sepolia.etherscan.io" },
     84532: { name: "Base Sepolia", explorerUrl: "https://sepolia.basescan.org" },
+    421614: { name: "Arbitrum Sepolia", explorerUrl: "https://sepolia.arbiscan.io" },
   },
   ETH_SEPOLIA_ID: 11155111,
   BASE_SEPOLIA_ID: 84532,
+  ARB_SEPOLIA_ID: 421614,
 }));
 vi.mock("react-hot-toast", () => ({
   default: { error: toastErrorMock, success: vi.fn() },
