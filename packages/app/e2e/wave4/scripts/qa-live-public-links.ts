@@ -962,10 +962,16 @@ async function main(): Promise<void> {
     await ensureShielded(page, ctx, extId, known, "Bob", "2");
     await page.goto(`${VERCEL_URL}/app/requests`, { waitUntil: "domcontentloaded", timeout: 60_000 });
     await page.locator("h1", { hasText: /Payment Requests/i }).waitFor({ state: "visible", timeout: 30_000 });
-    await page.waitForTimeout(2_000);
+    // The Incoming list is Supabase-backed and filters by the chain-synced
+    // _activeChainIdForSupabase. Reload once so the query fires AFTER the
+    // ChainProvider sets Arb, then wait for the row (not just a 2s skeleton).
+    await page.waitForTimeout(5_000);
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.locator("h1", { hasText: /Payment Requests/i }).waitFor({ state: "visible", timeout: 30_000 });
+    await page.waitForTimeout(8_000);
     await snap(page, "request-pay-before");
     const payBtn = page.locator("button").filter({ hasText: /^Pay$/i }).first();
-    if (!(await payBtn.isVisible({ timeout: 10_000 }).catch(() => false))) {
+    if (!(await payBtn.isVisible({ timeout: 25_000 }).catch(() => false))) {
       return { name: "Request pay (Bob)", status: "red", url: `${VERCEL_URL}/app/requests`, hashes: [], note: "no incoming request for Bob — see request-pay-before.png", screenshot: resolve(OUT, "request-pay-before.png") };
     }
     await payBtn.scrollIntoViewIfNeeded().catch(() => undefined);
