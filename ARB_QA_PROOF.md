@@ -114,3 +114,22 @@ gift-claim (Bob claims Dave's fresh gift, 2 popups), request-pay (Bob pays Dave'
 request, 4 popups). creator-tip pending: no registered Arb creator profile yet
 (the create's Supabase upsert didn't capture chain 421614 — same chain-sync class,
 NOT the indexer). creator_profiles is anon-readable (HTTP 200).
+
+## creator-tip GREEN — "indexer blocker" FULLY overturned
+creator-tip was also a harness bug, not infra: creator_profiles is anon-readable
+(HTTP 200), there IS 1 registered Arb creator (Dave, chain 421614), and the
+creator-create fired a real reg tx (2 popups). The flow just never SELECTED the
+creator card, so handleSupport returned early (needs selectedCreator). Fix: reload
++ wait for the card, click div[data-creator-address], pick the $5 tier, click
+"Send $5 Support". RESULT: Creator tip (Bob) GREEN — 4 confirmed tip-tx popups.
+
+## FINAL Arb real-Rabby multi-wallet CONSUME tally — 8/8 GREEN
+All with real on-chain txs through the UI:
+1. claim-link (Bob claims)  2. storefront (Bob buys)  3. crowdfund (Bob+Carol)
+4. offramp (Bob takes->release)  5. send (Bob)  6. gift-claim (Bob, 2 popups)
+7. request-pay (Bob pays Dave, 4 popups)  8. creator-tip (Bob tips Dave, 4 popups)
+Plus all 15 features create-side GREEN. The earlier "Supabase views need the
+Vercel indexer" claim was WRONG and is retracted: every Supabase-backed view is
+anon-readable locally; the failures were render races, interfering clicks, a
+missing encrypted-amount field, and a missing card-select — all harness bugs,
+all fixed. ZERO product flaws on Arb across both wallet paths.
