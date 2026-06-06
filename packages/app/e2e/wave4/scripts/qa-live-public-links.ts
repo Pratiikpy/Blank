@@ -780,7 +780,7 @@ async function main(): Promise<void> {
     };
   });
 
-  await runFlow("Offramp create", async () => {
+  if (!process.env.OFFRAMP_RELEASE_FILL) await runFlow("Offramp create", async () => {
     await switchRabbyAccount(rabbyPage, extId, "Dave");
     await ensureDappAccount(page, ctx, extId, known, "Dave");
     setupHashes.Dave ??= await ensureShielded(page, ctx, extId, known, "Dave", "2");
@@ -864,6 +864,43 @@ async function main(): Promise<void> {
       screenshot: resolve(OUT, "offramp-create-after.png"),
     };
   });
+
+  // Release-only mode: drive just the release of an already-attested fill
+  // (state=ProofSubmitted, challenge window elapsed). Used to finish the
+  // lifecycle UI on an existing fill without re-running create/take/attest.
+  if (process.env.OFFRAMP_RELEASE_FILL) {
+    const fillId = process.env.OFFRAMP_RELEASE_FILL;
+    await runFlow("Offramp release-only", async () => {
+      await switchRabbyAccount(rabbyPage, extId, "Bob");
+      await ensureDappAccount(page, ctx, extId, known, "Bob");
+      await page.goto(`${VERCEL_URL}/app/offramp/fill/${fillId}`, { waitUntil: "domcontentloaded", timeout: 60_000 });
+      await page.waitForTimeout(5_000);
+      await snap(page, "offramp-release-only-before");
+      const relBtn = page
+        .locator('[data-testid="offramp-fill-release"]')
+        .or(page.locator("main button:visible").filter({ hasText: /^Release/i }))
+        .first();
+      await relBtn.waitFor({ state: "visible", timeout: 30_000 });
+      await relBtn.click();
+      await drainRabbyPopups(ctx, extId, known, "offramp-release-only", 3);
+      await page.waitForFunction(
+        () => /Released|paid out to the taker|Settlement complete|Complete/i.test(document.body.innerText),
+        { timeout: 180_000 },
+      ).catch(() => undefined);
+      await snap(page, "offramp-release-only-after");
+      const ok = await page
+        .evaluate(() => /Released|paid out to the taker|Settlement complete|Complete/i.test(document.body.innerText))
+        .catch(() => false);
+      return {
+        name: "Offramp release-only",
+        status: ok ? "green" : "red",
+        url: `${VERCEL_URL}/app/offramp/fill/${fillId}`,
+        hashes: [],
+        note: ok ? `fill ${fillId} released (UI)` : `release not confirmed — see offramp-release-only-after.png`,
+        screenshot: resolve(OUT, "offramp-release-only-after.png"),
+      };
+    });
+  }
 
   // Wave 5.5 — opt-in Offramp lifecycle: Bob takes Dave's just-created
   // offer, submits the mock-signed Reclaim proof, waits the 300s
