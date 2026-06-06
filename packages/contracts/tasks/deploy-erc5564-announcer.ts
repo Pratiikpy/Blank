@@ -47,10 +47,12 @@ task(
       ? "base-sepolia.json"
       : networkName === "eth-sepolia"
         ? "eth-sepolia.json"
-        : null;
+        : networkName === "arb-sepolia"
+          ? "arb-sepolia.json"
+          : null;
   if (!deploymentFile) {
     throw new Error(
-      `deploy-erc5564-announcer: unsupported network ${networkName} (expected eth-sepolia | base-sepolia)`,
+      `deploy-erc5564-announcer: unsupported network ${networkName} (expected eth-sepolia | base-sepolia | arb-sepolia)`,
     );
   }
   const deploymentPath = resolve(__dirname, "..", "deployments", deploymentFile);

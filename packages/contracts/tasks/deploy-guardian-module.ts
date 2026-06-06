@@ -21,8 +21,9 @@ task("deploy-guardian-module", "Deploy GuardianModule UUPS proxy")
     const networkName = hre.network.name;
     const file =
       networkName === "base-sepolia" ? "base-sepolia.json" :
-      networkName === "eth-sepolia" ? "eth-sepolia.json" : null;
-    if (!file) throw new Error(`deploy-guardian-module: unsupported ${networkName}`);
+      networkName === "eth-sepolia" ? "eth-sepolia.json" :
+      networkName === "arb-sepolia" ? "arb-sepolia.json" : null;
+    if (!file) throw new Error(`deploy-guardian-module: unsupported ${networkName} (use base-sepolia, eth-sepolia, or arb-sepolia)`);
     const path = resolve(__dirname, "..", "deployments", file);
 
     let existing: Record<string, string> = {};

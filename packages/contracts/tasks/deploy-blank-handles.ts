@@ -20,7 +20,8 @@ task("deploy-blank-handles", "Deploy BlankHandles UUPS proxy")
     const networkName = hre.network.name;
     const file =
       networkName === "base-sepolia" ? "base-sepolia.json" :
-      networkName === "eth-sepolia" ? "eth-sepolia.json" : null;
+      networkName === "eth-sepolia" ? "eth-sepolia.json" :
+      networkName === "arb-sepolia" ? "arb-sepolia.json" : null;
     if (!file) throw new Error(`deploy-blank-handles: unsupported ${networkName}`);
     const path = resolve(__dirname, "..", "deployments", file);
 
