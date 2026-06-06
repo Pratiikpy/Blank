@@ -146,3 +146,19 @@ request-pay Pay-Now disabled until amount entered; offramp attest fails-closed
 with an honest error; claim-link replay/already-claimed reject; 46/46 contract
 sweep covers self-pay, same-token, empty-batch, gift-replay, wrong-secret,
 non-member, anti-overdraw, winner-refund, etc.)
+
+## Mobile (375x812) Rabby audit — real finding: bottom-nav crowds modal buttons
+Drove request-pay at a phone viewport (MOBILE=1 sets 375x812). The "Pay Request"
+modal renders correctly at mobile (proper bottom-sheet, amount field fills to
+"$ 1", Pay button enabled), BUT the fixed BottomNav sits at the bottom-sheet edge
+and is NOT dimmed by the modal backdrop — the harness Pay-Now tap didn't register
+(landed on/near the nav). A real mobile user would find Pay-Now crowded by the nav.
+- Root cause: BottomNav and the modal are in different stacking contexts (the
+  nav uses a -translate-x transform + lives in the app shell), so the modal's
+  z-50 backdrop does not paint over the nav. A plain z-index swap (tried
+  BottomNav z-50->z-40) does NOT reorder across stacking contexts.
+- Robust fix (follow-up): portal the modal to document.body, or hide the
+  BottomNav while any modal/bottom-sheet is open. Low risk, mobile-only polish.
+- NOT a product-logic flaw: the modal + amount-fill + enabled button all render
+  correctly; the feature is GREEN on desktop (request-pay 4 tx popups). This is a
+  mobile z-stacking polish item surfaced by the deepest viewport audit.
