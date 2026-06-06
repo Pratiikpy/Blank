@@ -866,10 +866,9 @@ async function main(): Promise<void> {
     await page.locator("button").filter({ hasText: /^Set Up Inheritance Plan/i }).first().click();
     await page.waitForTimeout(2_000);
     await page.locator('input[placeholder="0x..."]').first().fill(accountByPersona.Bob).catch(() => undefined);
-    const amtI = page.locator('input[placeholder="0.00"]').first();
-    if (await amtI.isVisible({ timeout: 3_000 }).catch(() => false)) await amtI.fill("1").catch(() => undefined);
+    await page.locator("select").first().selectOption("30").catch(() => undefined);
     await snap(page, "inheritance-filled");
-    await page.locator("main button:visible:not([disabled])").filter({ hasText: /Set Up|Create|Save|Confirm|Activate/i }).last().click().catch(() => undefined);
+    await page.locator("main button:visible:not([disabled])").filter({ hasText: /^Set Heir/i }).first().click().catch(() => undefined);
     await drainRabbyPopups(ctx, extId, known, "inheritance", 14);
     await page.waitForTimeout(4_000);
     await snap(page, "inheritance-created");
@@ -891,6 +890,7 @@ async function main(): Promise<void> {
     await newEscrow.click();
     await page.locator('input[placeholder="0x..."]').first().fill(accountByPersona.Bob).catch(() => undefined);
     await page.locator('input[placeholder="0.00"]').first().fill("1").catch(() => undefined);
+    await page.locator('input[placeholder="Project milestone"]').fill("Arb Rabby QA escrow").catch(() => undefined);
     await snap(page, "escrow-filled");
     await page.locator("main button:visible:not([disabled])").filter({ hasText: /^Create Escrow/i }).first().click().catch(() => undefined);
     await drainRabbyPopups(ctx, extId, known, "escrow", 14);
@@ -908,8 +908,8 @@ async function main(): Promise<void> {
     await page.goto(`${VERCEL_URL}/app/proofs`, { waitUntil: "domcontentloaded", timeout: 60_000 });
     await page.waitForTimeout(3_000);
     await snap(page, "proofs-landing");
-    const amtP = page.locator('input[placeholder="0.00"]').first();
-    if (await amtP.isVisible({ timeout: 5_000 }).catch(() => false)) await amtP.fill("1").catch(() => undefined);
+    const amtP = page.locator('input[placeholder*="50,000" i], input[placeholder*="Threshold" i], input[inputmode="decimal"]').first();
+    if (await amtP.isVisible({ timeout: 5_000 }).catch(() => false)) await amtP.fill("50").catch(() => undefined);
     await page.locator("button").filter({ hasText: /^Create proof/i }).first().click().catch(() => undefined);
     await drainRabbyPopups(ctx, extId, known, "proofs", 14);
     await page.waitForTimeout(4_000);
