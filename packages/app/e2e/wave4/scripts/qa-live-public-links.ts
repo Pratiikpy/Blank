@@ -815,7 +815,9 @@ async function main(): Promise<void> {
     // Walk receipts (newest first) and extract the offerId from the
     // OfferCreated event topic[1] for handoff to the lifecycle flow.
     // P2POfframp addresses: Eth 0x5981C437…, Base 0xd717E7AF….
-    const offrampAddr = (IS_ETH
+    const offrampAddr = (CHAIN_ID === 421614
+      ? "0x653e71e5F02a0fEAAFfCab5391DF0AE99b89961f"
+      : IS_ETH
       ? "0x5981C437032Da38844AE9a3aa382F993b1B8444a"
       : "0xd717E7AFE5eB627c9913bc682003d6E83b9032f9").toLowerCase();
     for (const h of [...hashes].reverse()) {
@@ -833,6 +835,22 @@ async function main(): Promise<void> {
           } catch { /* not the indexed offerId we want */ }
         }
         if (lastOfframpOfferId !== null) break;
+      } catch { /* skip */ }
+    }
+    // Fallback: the EOA path's tx-hash scrape can miss the receipt, leaving
+    // the offerId uncaptured. Read nextOfferId straight from the contract —
+    // the offer Dave just created is nextOfferId - 1.
+    if (lastOfframpOfferId === null) {
+      try {
+        const next = (await publicClient.readContract({
+          address: offrampAddr as `0x${string}`,
+          abi: [{ name: "nextOfferId", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "uint64" }] }],
+          functionName: "nextOfferId",
+        })) as bigint;
+        if (typeof next === "bigint" && next > 0n) {
+          lastOfframpOfferId = next - 1n;
+          lastOfframpMakerHandle = makerHandle;
+        }
       } catch { /* skip */ }
     }
     return {
