@@ -999,16 +999,26 @@ async function main(): Promise<void> {
     await ensureShielded(page, ctx, extId, known, "Bob", "2");
     await page.goto(`${VERCEL_URL}/app/creators`, { waitUntil: "domcontentloaded", timeout: 60_000 });
     await page.locator("h1", { hasText: /Creator Support/i }).waitFor({ state: "visible", timeout: 30_000 });
-    await page.waitForTimeout(2_500);
+    // The creators grid is Supabase-backed (chain-synced); reload + wait so the
+    // registered Arb creator card renders before we try to select it.
+    await page.waitForTimeout(4_000);
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.locator("h1", { hasText: /Creator Support/i }).waitFor({ state: "visible", timeout: 30_000 });
+    await page.waitForTimeout(8_000);
     await snap(page, "creator-tip-before");
-    await page.locator("text=/\\$5\\b/").first().click().catch(() => undefined);
-    await page.waitForTimeout(1_000);
-    const tipBtn = page.locator("main button:visible:not([disabled])").filter({ hasText: /Send.*Support|^Support|Tip/i }).last();
-    if (!(await tipBtn.isVisible({ timeout: 8_000 }).catch(() => false))) {
-      return { name: "Creator tip (Bob)", status: "red", url: `${VERCEL_URL}/app/creators`, hashes: [], note: "no tip CTA (no registered creator) — see creator-tip-before.png", screenshot: resolve(OUT, "creator-tip-before.png") };
+    // Select a creator card — handleSupport returns early unless selectedCreator is set.
+    const card = page.locator("div[data-creator-address]").first();
+    if (!(await card.isVisible({ timeout: 25_000 }).catch(() => false))) {
+      return { name: "Creator tip (Bob)", status: "red", url: `${VERCEL_URL}/app/creators`, hashes: [], note: "no registered Arb creator card rendered — see creator-tip-before.png", screenshot: resolve(OUT, "creator-tip-before.png") };
     }
-    await tipBtn.scrollIntoViewIfNeeded().catch(() => undefined);
-    await tipBtn.click({ force: true });
+    await card.scrollIntoViewIfNeeded().catch(() => undefined);
+    await card.click();
+    await page.waitForTimeout(1_000);
+    // Select the $5 tier, which mounts the "Send $5 Support" button.
+    await page.locator("button").filter({ hasText: /\$5\b/ }).first().click().catch(() => undefined);
+    await page.waitForTimeout(800);
+    await snap(page, "creator-tip-tier");
+    await page.locator("button:visible:not([disabled])").filter({ hasText: /Send \$\d+ Support/i }).last().click().catch(() => undefined);
     const tipClicks = await drainRabbyPopups(ctx, extId, known, "creator-tip", 14);
     await page.waitForTimeout(4_000);
     await snap(page, "creator-tip-after");
