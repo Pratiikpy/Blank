@@ -21,7 +21,10 @@ export function BottomNav() {
   return (
     <nav
       className={cn(
-        "fixed bottom-[max(1.5rem,env(safe-area-inset-bottom,0px))] left-1/2 -translate-x-1/2 z-50",
+        // z-40 (matches the desktop sidebar) keeps the nav above page content
+        // but BELOW modals/bottom-sheets (z-50), so a modal's action buttons are
+        // not overlapped/intercepted by the fixed nav on mobile.
+        "fixed bottom-[max(1.5rem,env(safe-area-inset-bottom,0px))] left-1/2 -translate-x-1/2 z-40",
         "w-[90%] max-w-sm",
         "bg-apple-gray6/80 backdrop-blur-2xl",
         "border border-white/[0.08] rounded-[2rem]",
