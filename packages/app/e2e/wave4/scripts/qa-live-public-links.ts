@@ -951,7 +951,7 @@ async function main(): Promise<void> {
     await snap(page, "gift-claim-after");
     // Real signal: a claim tx popup was confirmed (claimClicks > 0). "received"
     // alone is unreliable — it matches the "Received Gifts" section title.
-    const ok = claimClicks > 0 || (await page.evaluate(() => /Gift claimed|Claimed!|claimed successfully|added to your vault/i.test(document.body.innerText)).catch(() => false));
+    const ok = claimClicks > 0; // strict: only a confirmed claim-tx popup counts
     return { name: "Gift claim (Bob)", status: ok ? "green" : "red", url: `${VERCEL_URL}/app/gifts`, hashes: [], note: ok ? "Bob claimed Dave's gift envelope" : "claim not confirmed — see gift-claim-after.png", screenshot: resolve(OUT, "gift-claim-after.png") };
   });
 
@@ -976,7 +976,7 @@ async function main(): Promise<void> {
     const payClicks = await drainRabbyPopups(ctx, extId, known, "request-pay", 14);
     await page.waitForTimeout(4_000);
     await snap(page, "request-pay-after");
-    const ok = payClicks > 0 || (await page.evaluate(() => /Payment Sent|Paid!|paid successfully|Settled/i.test(document.body.innerText)).catch(() => false));
+    const ok = payClicks > 0; // strict: only a confirmed pay-tx popup counts
     return { name: "Request pay (Bob)", status: ok ? "green" : "red", url: `${VERCEL_URL}/app/requests`, hashes: [], note: ok ? "Bob paid Dave's request" : "pay not confirmed — see request-pay-after.png", screenshot: resolve(OUT, "request-pay-after.png") };
   });
 
@@ -1000,7 +1000,7 @@ async function main(): Promise<void> {
     const tipClicks = await drainRabbyPopups(ctx, extId, known, "creator-tip", 14);
     await page.waitForTimeout(4_000);
     await snap(page, "creator-tip-after");
-    const ok = tipClicks > 0 || (await page.evaluate(() => /Thank you|Tip sent|support sent|supported/i.test(document.body.innerText)).catch(() => false));
+    const ok = tipClicks > 0; // strict: only a confirmed tip-tx popup counts
     return { name: "Creator tip (Bob)", status: ok ? "green" : "red", url: `${VERCEL_URL}/app/creators`, hashes: [], note: ok ? "Bob tipped a creator" : "tip not confirmed — see creator-tip-after.png", screenshot: resolve(OUT, "creator-tip-after.png") };
   });
 
