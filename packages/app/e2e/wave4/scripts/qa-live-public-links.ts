@@ -930,6 +930,72 @@ async function main(): Promise<void> {
     return { name: "Proof of balance", status: ok ? "green" : "red", url: `${VERCEL_URL}/app/proofs`, hashes: [], note: ok ? "Dave created an encrypted proof" : "proof not confirmed — see proofs-created.png", screenshot: resolve(OUT, "proofs-created.png") };
   });
 
+  // ── Multi-wallet CONSUME side: Bob consumes what Dave created ──
+  // Gift claim — Bob opens Dave's gift envelope.
+  if (FEATURES.includes("gift-claim")) await runFlow("Gift claim (Bob)", async () => {
+    await switchRabbyAccount(rabbyPage, extId, "Bob");
+    await ensureDappAccount(page, ctx, extId, known, "Bob");
+    await page.goto(`${VERCEL_URL}/app/gifts`, { waitUntil: "domcontentloaded", timeout: 60_000 });
+    await page.locator("h1", { hasText: /Gift Envelopes/i }).waitFor({ state: "visible", timeout: 30_000 });
+    await page.locator('button[aria-label="Received gifts"]').click().catch(() => undefined);
+    await page.waitForTimeout(2_000);
+    await snap(page, "gift-claim-before");
+    const claimBtn = page.locator("button").filter({ hasText: /^Claim$/i }).first();
+    if (!(await claimBtn.isVisible({ timeout: 10_000 }).catch(() => false))) {
+      return { name: "Gift claim (Bob)", status: "red", url: `${VERCEL_URL}/app/gifts`, hashes: [], note: "no claimable gift for Bob — see gift-claim-before.png", screenshot: resolve(OUT, "gift-claim-before.png") };
+    }
+    await claimBtn.click();
+    await drainRabbyPopups(ctx, extId, known, "gift-claim", 14);
+    await page.waitForTimeout(4_000);
+    await snap(page, "gift-claim-after");
+    const ok = await page.evaluate(() => /Claimed|claimed|received|Opened|added to your/i.test(document.body.innerText)).catch(() => false);
+    return { name: "Gift claim (Bob)", status: ok ? "green" : "red", url: `${VERCEL_URL}/app/gifts`, hashes: [], note: ok ? "Bob claimed Dave's gift envelope" : "claim not confirmed — see gift-claim-after.png", screenshot: resolve(OUT, "gift-claim-after.png") };
+  });
+
+  // Request pay — Bob pays Dave's incoming payment request.
+  if (FEATURES.includes("request-pay")) await runFlow("Request pay (Bob)", async () => {
+    await switchRabbyAccount(rabbyPage, extId, "Bob");
+    await ensureDappAccount(page, ctx, extId, known, "Bob");
+    await ensureShielded(page, ctx, extId, known, "Bob", "2");
+    await page.goto(`${VERCEL_URL}/app/requests`, { waitUntil: "domcontentloaded", timeout: 60_000 });
+    await page.locator("h1", { hasText: /Payment Requests/i }).waitFor({ state: "visible", timeout: 30_000 });
+    await page.waitForTimeout(2_000);
+    await snap(page, "request-pay-before");
+    const payBtn = page.locator("button").filter({ hasText: /^Pay$/i }).first();
+    if (!(await payBtn.isVisible({ timeout: 10_000 }).catch(() => false))) {
+      return { name: "Request pay (Bob)", status: "red", url: `${VERCEL_URL}/app/requests`, hashes: [], note: "no incoming request for Bob — see request-pay-before.png", screenshot: resolve(OUT, "request-pay-before.png") };
+    }
+    await payBtn.click();
+    await drainRabbyPopups(ctx, extId, known, "request-pay", 14);
+    await page.waitForTimeout(4_000);
+    await snap(page, "request-pay-after");
+    const ok = await page.evaluate(() => /Paid|paid|sent|completed|Settled/i.test(document.body.innerText)).catch(() => false);
+    return { name: "Request pay (Bob)", status: ok ? "green" : "red", url: `${VERCEL_URL}/app/requests`, hashes: [], note: ok ? "Bob paid Dave's request" : "pay not confirmed — see request-pay-after.png", screenshot: resolve(OUT, "request-pay-after.png") };
+  });
+
+  // Creator tip — Bob sends an encrypted tip to a registered creator.
+  if (FEATURES.includes("creator-tip")) await runFlow("Creator tip (Bob)", async () => {
+    await switchRabbyAccount(rabbyPage, extId, "Bob");
+    await ensureDappAccount(page, ctx, extId, known, "Bob");
+    await ensureShielded(page, ctx, extId, known, "Bob", "2");
+    await page.goto(`${VERCEL_URL}/app/creators`, { waitUntil: "domcontentloaded", timeout: 60_000 });
+    await page.locator("h1", { hasText: /Creator Support/i }).waitFor({ state: "visible", timeout: 30_000 });
+    await page.waitForTimeout(2_500);
+    await snap(page, "creator-tip-before");
+    await page.locator("text=/\\$5\\b/").first().click().catch(() => undefined);
+    await page.waitForTimeout(1_000);
+    const tipBtn = page.locator("main button:visible:not([disabled])").filter({ hasText: /Send.*Support|^Support|Tip/i }).last();
+    if (!(await tipBtn.isVisible({ timeout: 8_000 }).catch(() => false))) {
+      return { name: "Creator tip (Bob)", status: "red", url: `${VERCEL_URL}/app/creators`, hashes: [], note: "no tip CTA (no registered creator) — see creator-tip-before.png", screenshot: resolve(OUT, "creator-tip-before.png") };
+    }
+    await tipBtn.click();
+    await drainRabbyPopups(ctx, extId, known, "creator-tip", 14);
+    await page.waitForTimeout(4_000);
+    await snap(page, "creator-tip-after");
+    const ok = await page.evaluate(() => /Thank|sent|supported|Tip sent|support sent/i.test(document.body.innerText)).catch(() => false);
+    return { name: "Creator tip (Bob)", status: ok ? "green" : "red", url: `${VERCEL_URL}/app/creators`, hashes: [], note: ok ? "Bob tipped a creator" : "tip not confirmed — see creator-tip-after.png", screenshot: resolve(OUT, "creator-tip-after.png") };
+  });
+
   if (!offrampOnly) await runFlow("Claim Link recipient", async () => {
     await switchRabbyAccount(rabbyPage, extId, "Dave");
     await ensureDappAccount(page, ctx, extId, known, "Dave");
