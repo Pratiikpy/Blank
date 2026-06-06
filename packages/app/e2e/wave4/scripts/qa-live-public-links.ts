@@ -232,6 +232,17 @@ async function switchRabbyAccount(rabbyPage: Page, extId: string, persona: Perso
   await rabbyPage.waitForTimeout(1_500);
   await dismissRabbyWhatsNew(rabbyPage);
 
+  // A leftover "N transactions need to sign" batch modal (unsigned CoFHE
+  // permits from a prior persona's shield) sits on top of the home and blocks
+  // the account-switch menu. Reject the queue so the menu is reachable.
+  for (let i = 0; i < 3; i++) {
+    const rejectAll = rabbyPage.getByText(/^Reject All$/i).first();
+    if (await rejectAll.isVisible({ timeout: 1_500 }).catch(() => false)) {
+      await rejectAll.click({ force: true }).catch(() => {});
+      await rabbyPage.waitForTimeout(1_200);
+    } else break;
+  }
+
   const body = ((await rabbyPage.locator("body").textContent().catch(() => "")) ?? "").toLowerCase();
   if (body.includes(expected.slice(0, 8)) || body.includes(expected.slice(0, 6))) {
     return;
@@ -348,7 +359,10 @@ async function ensureShielded(
   const button = depositSection.locator("button:visible:not([disabled])").filter({ hasText: /^Deposit/i }).first();
   await button.waitFor({ state: "visible", timeout: 10_000 });
   await button.click();
-  await drainRabbyPopups(ctx, extId, known, `shield-${persona.toLowerCase()}`, 4);
+  // EOA shield on CoFHE requests several PermissionedV2IssuerSelf ACL permit
+  // signatures (the AA path batches these into one userOp; EOA must sign each).
+  // Drain generously — drainRabbyPopups breaks early once no popup remains.
+  await drainRabbyPopups(ctx, extId, known, `shield-${persona.toLowerCase()}`, 14);
   await page.locator("text=/Shielding completed|Shielded|Recent Activity|Private balance/i").first().waitFor({ state: "visible", timeout: 180_000 }).catch(() => undefined);
   await snap(page, `shield-${persona.toLowerCase()}-final`);
   return await txHashesFrom(accountByPersona[persona], before);
