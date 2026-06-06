@@ -162,3 +162,18 @@ and is NOT dimmed by the modal backdrop — the harness Pay-Now tap didn't regis
 - NOT a product-logic flaw: the modal + amount-fill + enabled button all render
   correctly; the feature is GREEN on desktop (request-pay 4 tx popups). This is a
   mobile z-stacking polish item surfaced by the deepest viewport audit.
+
+## Mobile nav-vs-modal — PRECISE root cause (after 2 fix attempts)
+z-index alone cannot fix it. The Pay Request modal is rendered NESTED inside
+<main> (the scrollable content area), while the BottomNav is a sibling of <main>
+at the app-shell level. The modal's z-50 is scoped to <main>'s stacking context,
+so it cannot paint above the shell-level BottomNav by z-index. Tried: BottomNav
+z-50->z-40 (no effect, different contexts); removed the -translate-x-1/2 transform
+that centered the nav (no effect — the nesting, not the nav's own context, is the
+issue). CORRECT fix (follow-up, low risk but a small refactor): portal the modal
+to document.body via createPortal so it becomes a root-level sibling (z-50 >
+nav z-40), OR hide the BottomNav while any modal is open (body.modal-open class).
+This is mobile-only polish on bottom-sheet modals; the modal renders correctly,
+amount-fill works, and the feature is GREEN on desktop (request-pay 4 tx popups).
+The z-40 + transform-free centering changes are kept (directionally correct
+prerequisites; BottomNav test 16/16 pass) and become effective once modals portal.
