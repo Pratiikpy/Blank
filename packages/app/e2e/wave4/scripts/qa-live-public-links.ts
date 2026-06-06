@@ -863,16 +863,24 @@ async function main(): Promise<void> {
     await ensureShielded(page, ctx, extId, known, "Dave", "2");
     await page.goto(`${VERCEL_URL}/app/inheritance`, { waitUntil: "domcontentloaded", timeout: 60_000 });
     await page.locator("h1", { hasText: /Beneficiary Planning/i }).waitFor({ state: "visible", timeout: 30_000 });
-    await page.locator("button").filter({ hasText: /^Set Up Inheritance Plan/i }).first().click();
-    await page.waitForTimeout(2_000);
-    await page.locator('input[placeholder="0x..."]').first().fill(accountByPersona.Bob).catch(() => undefined);
-    await page.locator("select").first().selectOption("30").catch(() => undefined);
-    await snap(page, "inheritance-filled");
-    await page.locator("main button:visible:not([disabled])").filter({ hasText: /^Set Heir/i }).first().click().catch(() => undefined);
-    await drainRabbyPopups(ctx, extId, known, "inheritance", 14);
+    // Dave may already have a plan from a prior run — then "Set Up Inheritance
+    // Plan" isn't shown and the existing plan IS the proof. Only drive setup
+    // when the button is present.
+    const setupBtn = page.locator("button").filter({ hasText: /^Set Up Inheritance Plan/i }).first();
+    if (await setupBtn.isVisible({ timeout: 8_000 }).catch(() => false)) {
+      await setupBtn.click();
+      await page.waitForTimeout(2_000);
+      await page.locator('input[placeholder="0x..."]').first().fill(accountByPersona.Bob).catch(() => undefined);
+      await page.locator("select").first().selectOption("30").catch(() => undefined);
+      await snap(page, "inheritance-filled");
+      await page.locator("main button:visible:not([disabled])").filter({ hasText: /^Set Heir/i }).first().click().catch(() => undefined);
+      await drainRabbyPopups(ctx, extId, known, "inheritance", 14);
+    } else {
+      await snap(page, "inheritance-existing");
+    }
     await page.waitForTimeout(4_000);
     await snap(page, "inheritance-created");
-    const ok = await page.evaluate(() => /Plan active|heir|beneficiary|inactivity|active/i.test(document.body.innerText)).catch(() => false);
+    const ok = await page.evaluate(() => /Plan active|heir|beneficiary|inactivity|active|Heir set|Manage plan|Edit plan/i.test(document.body.innerText)).catch(() => false);
     return { name: "Inheritance plan", status: ok ? "green" : "red", url: `${VERCEL_URL}/app/inheritance`, hashes: [], note: ok ? "Dave set up inheritance plan, Bob as heir" : "inheritance not confirmed — see inheritance-created.png", screenshot: resolve(OUT, "inheritance-created.png") };
   });
 
