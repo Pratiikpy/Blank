@@ -104,6 +104,12 @@ export default async function handler(req: any, res: any) {
       feature: "Base Sepolia RPC (private)",
     },
     {
+      envVar: "ARB_SEPOLIA_RPC_URL",
+      set: !!process.env.ARB_SEPOLIA_RPC_URL,
+      required: false,
+      feature: "Arbitrum Sepolia RPC (private)",
+    },
+    {
       envVar: "RESEND_API_KEY",
       set: !!process.env.RESEND_API_KEY,
       required: false,
@@ -247,6 +253,11 @@ async function relayerImpl(_req: any, res: any) {
       rpcUrl: process.env.BASE_SEPOLIA_RPC_URL || "https://sepolia.base.org",
       lowEthThreshold: ethers.parseEther("0.5"),
     },
+    421614: {
+      name: "Arbitrum Sepolia",
+      rpcUrl: process.env.ARB_SEPOLIA_RPC_URL || "https://sepolia-rollup.arbitrum.io/rpc",
+      lowEthThreshold: ethers.parseEther("0.5"),
+    },
   };
 
   let relayerAddress: string;
@@ -308,7 +319,7 @@ async function relayerImpl(_req: any, res: any) {
 async function handleStatus(_req: any, res: any) {
   try {
     const ethers = await import("ethers");
-    const { getContracts, RPC_URLS, ETH_SEPOLIA_ID, BASE_SEPOLIA_ID } = await import(
+    const { getContracts, RPC_URLS, ETH_SEPOLIA_ID, BASE_SEPOLIA_ID, ARB_SEPOLIA_ID } = await import(
       "./_lib/addresses.js"
     );
 
@@ -326,12 +337,17 @@ async function handleStatus(_req: any, res: any) {
       // relayer not configured; chain-side balance probes report null
     }
 
-    const chains = [ETH_SEPOLIA_ID, BASE_SEPOLIA_ID] as const;
+    const chains = [ETH_SEPOLIA_ID, BASE_SEPOLIA_ID, ARB_SEPOLIA_ID] as const;
     const chainSnapshots = await Promise.all(
       chains.map(async (chainId) => {
         const contracts = getContracts(chainId);
         const rpcUrl = RPC_URLS[chainId];
-        const label = chainId === ETH_SEPOLIA_ID ? "Ethereum Sepolia" : "Base Sepolia";
+        const label =
+          chainId === ETH_SEPOLIA_ID
+            ? "Ethereum Sepolia"
+            : chainId === BASE_SEPOLIA_ID
+              ? "Base Sepolia"
+              : "Arbitrum Sepolia";
 
         if (!contracts || !rpcUrl) {
           return {

@@ -21,6 +21,7 @@ import {
   RPC_URLS,
   ETH_SEPOLIA_ID,
   BASE_SEPOLIA_ID,
+  ARB_SEPOLIA_ID,
 } from "../addresses.js";
 import { sendEmail, emailEnabled } from "../resend.js";
 import { getSupabaseAdmin } from "../supabase-admin.js";
@@ -34,6 +35,7 @@ const DEFAULT_REFILL_DAILY_CAP_WEI = 500_000_000_000_000_000n;  // 0.5 ETH
 const CHAIN_LABEL: Record<number, string> = {
   [ETH_SEPOLIA_ID]: "Ethereum Sepolia",
   [BASE_SEPOLIA_ID]: "Base Sepolia",
+  [ARB_SEPOLIA_ID]: "Arbitrum Sepolia",
 };
 
 function readBigEnv(name: string, fallback: bigint): bigint {
@@ -242,7 +244,7 @@ export default async function handler(req: any, res: any) {
   const supabase = getSupabaseAdmin();
   const utcDay = new Date().toISOString().slice(0, 10);
 
-  const chainIds = [ETH_SEPOLIA_ID, BASE_SEPOLIA_ID];
+  const chainIds = [ETH_SEPOLIA_ID, BASE_SEPOLIA_ID, ARB_SEPOLIA_ID];
   const snapshots = await Promise.all(
     chainIds.map((id) =>
       refillChain(id, relayerAddress, topupSigner, thresholdWei, refillAmountWei, dailyCapWei, utcDay, supabase),

@@ -12,7 +12,7 @@
 
 import { getSupabaseAdmin } from "../supabase-admin.js";
 
-const SUPPORTED_CHAIN_IDS = [11155111, 84532];
+const SUPPORTED_CHAIN_IDS = [11155111, 84532, 421614];
 const ACTIVE_WINDOW_HOURS = 24;
 const MAX_ADDRESSES_PER_TICK = 50;
 

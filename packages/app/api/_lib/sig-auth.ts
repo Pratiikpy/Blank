@@ -22,9 +22,9 @@
  * captured by an attacker after the window expires cannot be replayed.
  */
 import { createPublicClient, http, type Address, type Hex, type PublicClient } from "viem";
-import { sepolia, baseSepolia } from "viem/chains";
+import { sepolia, baseSepolia, arbitrumSepolia } from "viem/chains";
 
-import { ETH_SEPOLIA_ID, BASE_SEPOLIA_ID } from "./addresses.js";
+import { ETH_SEPOLIA_ID, BASE_SEPOLIA_ID, ARB_SEPOLIA_ID } from "./addresses.js";
 
 /** Max age (seconds) of a signature timestamp before we reject it.
  *
@@ -54,6 +54,12 @@ function getPublicClient(chainId: number): PublicClient | null {
     const rpc = process.env.BASE_SEPOLIA_RPC_URL;
     client = createPublicClient({
       chain: baseSepolia,
+      transport: rpc ? http(rpc) : http(),
+    }) as unknown as PublicClient;
+  } else if (chainId === ARB_SEPOLIA_ID) {
+    const rpc = process.env.ARB_SEPOLIA_RPC_URL;
+    client = createPublicClient({
+      chain: arbitrumSepolia,
       transport: rpc ? http(rpc) : http(),
     }) as unknown as PublicClient;
   }

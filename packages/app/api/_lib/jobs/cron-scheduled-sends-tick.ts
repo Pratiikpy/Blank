@@ -24,12 +24,13 @@
 import { ethers } from "ethers";
 
 const ENTRYPOINT_V08 = "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108";
-const SUPPORTED_CHAINS = [11155111, 84532] as const;
+const SUPPORTED_CHAINS = [11155111, 84532, 421614] as const;
 type SupportedChain = (typeof SUPPORTED_CHAINS)[number];
 
 const RPC_URLS: Record<SupportedChain, string> = {
   11155111: process.env.SEPOLIA_RPC_URL || "https://ethereum-sepolia.publicnode.com",
   84532: process.env.BASE_SEPOLIA_RPC_URL || "https://sepolia.base.org",
+  421614: process.env.ARB_SEPOLIA_RPC_URL || "https://sepolia-rollup.arbitrum.io/rpc",
 };
 
 /** Per-tick fire cap. Each fire costs ~1 `getScope` read + ~1 UserOp

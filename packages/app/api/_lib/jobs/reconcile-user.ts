@@ -33,6 +33,7 @@ import { getSupabaseAdmin } from "../supabase-admin.js";
 import {
   ETH_SEPOLIA_ID,
   BASE_SEPOLIA_ID,
+  ARB_SEPOLIA_ID,
   CONTRACTS_BY_CHAIN,
   RPC_URLS,
 } from "../addresses.js";
@@ -52,6 +53,10 @@ const SUPPORTED_CHAINS: Record<number, { rpcUrl: string; contracts: (typeof CONT
   [BASE_SEPOLIA_ID]: {
     rpcUrl: RPC_URLS[BASE_SEPOLIA_ID],
     contracts: CONTRACTS_BY_CHAIN[BASE_SEPOLIA_ID],
+  },
+  [ARB_SEPOLIA_ID]: {
+    rpcUrl: RPC_URLS[ARB_SEPOLIA_ID],
+    contracts: CONTRACTS_BY_CHAIN[ARB_SEPOLIA_ID],
   },
 };
 
