@@ -652,6 +652,46 @@ async function main(): Promise<void> {
     };
   });
 
+  // Core feature: direct encrypted send. Dave shields, then sends 1 USDC
+  // encrypted to Bob through /app/send. Gated on SEND_FLOW=1 so it can run
+  // focused (preflight + send) without the public-link flows.
+  if (process.env.SEND_FLOW === "1") await runFlow("Send P2P (encrypted)", async () => {
+    await switchRabbyAccount(rabbyPage, extId, "Dave");
+    await ensureDappAccount(page, ctx, extId, known, "Dave");
+    await ensureShielded(page, ctx, extId, known, "Dave", "2");
+    await page.goto(`${VERCEL_URL}/app/send`, { waitUntil: "domcontentloaded", timeout: 60_000 });
+    await page.waitForTimeout(3_000);
+    await snap(page, "send-screen");
+    const recip = page
+      .locator('input[placeholder*="0x"]')
+      .or(page.locator('input[placeholder*="Wallet address"]'))
+      .first();
+    await recip.waitFor({ state: "visible", timeout: 30_000 });
+    await recip.fill(accountByPersona.Bob);
+    await page.locator("button").filter({ hasText: /^(Continue|Next)/i }).first().click();
+    await page.waitForTimeout(2_500);
+    const amt = page.locator('input[placeholder="0.00"]').first();
+    if (await amt.isVisible({ timeout: 5_000 }).catch(() => false)) await amt.fill("1");
+    else { const k = page.locator('button[aria-label="1"]:visible').first(); await k.waitFor({ state: "visible", timeout: 10_000 }); await k.click(); }
+    await page.locator("main button:visible:not([disabled])").filter({ hasText: /^(Continue|Review|Next|Send)/i }).last().click();
+    await page.waitForURL(/\/app\/send\/confirm/, { timeout: 30_000 }).catch(() => undefined);
+    await snap(page, "send-confirm");
+    await page.locator("main button:visible:not([disabled])").filter({ hasText: /Confirm.*Send|^Send/i }).last().click();
+    await drainRabbyPopups(ctx, extId, known, "send-p2p", 14);
+    await page.waitForFunction(() => /Payment Sent|Sent!|sent successfully/i.test(document.body.innerText), { timeout: 180_000 }).catch(() => undefined);
+    await page.waitForTimeout(3_000);
+    await snap(page, "send-success");
+    const ok = await page.evaluate(() => /Payment Sent|Sent!|sent successfully/i.test(document.body.innerText)).catch(() => false);
+    return {
+      name: "Send P2P (encrypted)",
+      status: ok ? "green" : "red",
+      url: `${VERCEL_URL}/app/send`,
+      hashes: [],
+      note: ok ? `Dave sent 1 USDC encrypted to Bob ${accountByPersona.Bob}` : "send did not reach success — see send-success.png",
+      screenshot: resolve(OUT, "send-success.png"),
+    };
+  });
+
   if (!offrampOnly) await runFlow("Claim Link recipient", async () => {
     await switchRabbyAccount(rabbyPage, extId, "Dave");
     await ensureDappAccount(page, ctx, extId, known, "Dave");
@@ -780,7 +820,7 @@ async function main(): Promise<void> {
     };
   });
 
-  if (!process.env.OFFRAMP_RELEASE_FILL) await runFlow("Offramp create", async () => {
+  if (!process.env.OFFRAMP_RELEASE_FILL && process.env.SEND_FLOW !== "1") await runFlow("Offramp create", async () => {
     await switchRabbyAccount(rabbyPage, extId, "Dave");
     await ensureDappAccount(page, ctx, extId, known, "Dave");
     setupHashes.Dave ??= await ensureShielded(page, ctx, extId, known, "Dave", "2");
