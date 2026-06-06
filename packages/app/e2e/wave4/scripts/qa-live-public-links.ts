@@ -944,7 +944,8 @@ async function main(): Promise<void> {
     if (!(await claimBtn.isVisible({ timeout: 10_000 }).catch(() => false))) {
       return { name: "Gift claim (Bob)", status: "red", url: `${VERCEL_URL}/app/gifts`, hashes: [], note: "no claimable gift for Bob — see gift-claim-before.png", screenshot: resolve(OUT, "gift-claim-before.png") };
     }
-    await claimBtn.click();
+    await claimBtn.scrollIntoViewIfNeeded().catch(() => undefined);
+    await claimBtn.click({ force: true });
     await drainRabbyPopups(ctx, extId, known, "gift-claim", 14);
     await page.waitForTimeout(4_000);
     await snap(page, "gift-claim-after");
@@ -965,11 +966,15 @@ async function main(): Promise<void> {
     if (!(await payBtn.isVisible({ timeout: 10_000 }).catch(() => false))) {
       return { name: "Request pay (Bob)", status: "red", url: `${VERCEL_URL}/app/requests`, hashes: [], note: "no incoming request for Bob — see request-pay-before.png", screenshot: resolve(OUT, "request-pay-before.png") };
     }
-    await payBtn.click();
+    await payBtn.scrollIntoViewIfNeeded().catch(() => undefined);
+    await payBtn.click({ force: true });
+    // A confirm/Send may follow the Pay click in a modal.
+    await page.waitForTimeout(1_500);
+    await page.locator("main button:visible:not([disabled])").filter({ hasText: /Confirm.*Pay|^Pay|Send|Confirm/i }).last().click({ force: true }).catch(() => undefined);
     await drainRabbyPopups(ctx, extId, known, "request-pay", 14);
     await page.waitForTimeout(4_000);
     await snap(page, "request-pay-after");
-    const ok = await page.evaluate(() => /Paid|paid|sent|completed|Settled/i.test(document.body.innerText)).catch(() => false);
+    const ok = await page.evaluate(() => /Paid|paid|sent|completed|Settled|Payment Sent/i.test(document.body.innerText)).catch(() => false);
     return { name: "Request pay (Bob)", status: ok ? "green" : "red", url: `${VERCEL_URL}/app/requests`, hashes: [], note: ok ? "Bob paid Dave's request" : "pay not confirmed — see request-pay-after.png", screenshot: resolve(OUT, "request-pay-after.png") };
   });
 
@@ -988,7 +993,8 @@ async function main(): Promise<void> {
     if (!(await tipBtn.isVisible({ timeout: 8_000 }).catch(() => false))) {
       return { name: "Creator tip (Bob)", status: "red", url: `${VERCEL_URL}/app/creators`, hashes: [], note: "no tip CTA (no registered creator) — see creator-tip-before.png", screenshot: resolve(OUT, "creator-tip-before.png") };
     }
-    await tipBtn.click();
+    await tipBtn.scrollIntoViewIfNeeded().catch(() => undefined);
+    await tipBtn.click({ force: true });
     await drainRabbyPopups(ctx, extId, known, "creator-tip", 14);
     await page.waitForTimeout(4_000);
     await snap(page, "creator-tip-after");
