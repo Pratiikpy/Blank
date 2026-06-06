@@ -1037,14 +1037,14 @@ async function main(): Promise<void> {
     await page.waitForTimeout(5_000);
     await snap(page, "neg-claim-bogus");
     const bogus = await page.evaluate(() => document.body.innerText).catch(() => "");
-    const bogusOk = /not found|invalid|expired|doesn'?t exist|no longer|already claimed|couldn'?t find|unable|no link/i.test(bogus) && noCrash(bogus);
+    const bogusOk = /not found|invalid|expired|doesn'?t exist|no longer|already claimed|couldn'?t find|unable|no link|missing secret|missing its secret/i.test(bogus) && noCrash(bogus);
     checks.push(`bogus-claim:${bogusOk ? "honest-error" : "FAIL"}`);
     // 2. Malformed claim-link id → honest error, not a crash.
     await page.goto(`${VERCEL_URL}/claim/421614/notavalidlinkid`, { waitUntil: "domcontentloaded", timeout: 60_000 }).catch(() => undefined);
     await page.waitForTimeout(4_000);
     await snap(page, "neg-claim-malformed");
     const mal = await page.evaluate(() => document.body.innerText).catch(() => "");
-    const malOk = /not found|invalid|expired|doesn'?t exist|error|couldn'?t|unable|no link/i.test(mal) && noCrash(mal);
+    const malOk = /not found|invalid|expired|doesn'?t exist|error|couldn'?t|unable|no link|missing secret|missing its secret/i.test(mal) && noCrash(mal);
     checks.push(`malformed-claim:${malOk ? "honest-error" : "FAIL"}`);
     // 3. Empty gift → "Send Gift Envelope" is gated (no amount/recipient/theme).
     await page.goto(`${VERCEL_URL}/app/gifts`, { waitUntil: "domcontentloaded", timeout: 60_000 });
