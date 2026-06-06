@@ -788,6 +788,66 @@ async function main(): Promise<void> {
     };
   });
 
+  // Payment request. Dave requests 7 USDC from Bob (no shield needed).
+  if (FEATURES.includes("requests")) await runFlow("Payment request", async () => {
+    await switchRabbyAccount(rabbyPage, extId, "Dave");
+    await ensureDappAccount(page, ctx, extId, known, "Dave");
+    await page.goto(`${VERCEL_URL}/app/requests`, { waitUntil: "domcontentloaded", timeout: 60_000 });
+    await page.locator("h1", { hasText: /Payment Requests/i }).waitFor({ state: "visible", timeout: 30_000 });
+    await page.locator("button").filter({ hasText: /^Request$/i }).first().click();
+    await page.locator('input[placeholder="0x... (who should pay)"]').fill(accountByPersona.Bob);
+    await page.locator('input[placeholder="0.00"]').fill("7");
+    await page.locator('textarea[placeholder="Dinner split, rent, etc."]').fill("Arb Rabby QA request").catch(() => undefined);
+    await snap(page, "request-filled");
+    await page.locator("button").filter({ hasText: /^Send Request/i }).click();
+    await drainRabbyPopups(ctx, extId, known, "request", 14);
+    await page.waitForFunction(() => /Request sent|Request created|Payment Requests/i.test(document.body.innerText), { timeout: 120_000 }).catch(() => undefined);
+    await page.waitForTimeout(2_500);
+    await snap(page, "request-created");
+    const ok = await page.evaluate(() => /Request sent|Request created|7\b/i.test(document.body.innerText)).catch(() => false);
+    return { name: "Payment request", status: ok ? "green" : "red", url: `${VERCEL_URL}/app/requests`, hashes: [], note: ok ? "Dave requested 7 USDC from Bob" : "request not confirmed — see request-created.png", screenshot: resolve(OUT, "request-created.png") };
+  });
+
+  // Group expense. Dave creates an encrypted group.
+  if (FEATURES.includes("groups")) await runFlow("Group create", async () => {
+    await switchRabbyAccount(rabbyPage, extId, "Dave");
+    await ensureDappAccount(page, ctx, extId, known, "Dave");
+    await page.goto(`${VERCEL_URL}/app/groups`, { waitUntil: "domcontentloaded", timeout: 60_000 });
+    await page.locator("h1", { hasText: /Group Expenses/i }).waitFor({ state: "visible", timeout: 30_000 });
+    await page.locator("button").filter({ hasText: /^Create/i }).first().click();
+    await page.locator('input[placeholder="Weekend getaway"]').fill("Arb Rabby QA group").catch(() => undefined);
+    const memberInput = page.locator('input[placeholder*="0x"]').first();
+    if (await memberInput.isVisible({ timeout: 3_000 }).catch(() => false)) await memberInput.fill(accountByPersona.Bob).catch(() => undefined);
+    await snap(page, "group-filled");
+    await page.locator("main button:visible:not([disabled])").filter({ hasText: /^(Create Group|Create|Save)/i }).last().click().catch(() => undefined);
+    await drainRabbyPopups(ctx, extId, known, "group", 14);
+    await page.waitForTimeout(4_000);
+    await snap(page, "group-created");
+    const ok = await page.evaluate(() => /Arb Rabby QA group|Group created|created/i.test(document.body.innerText)).catch(() => false);
+    return { name: "Group create", status: ok ? "green" : "red", url: `${VERCEL_URL}/app/groups`, hashes: [], note: ok ? "Dave created encrypted group" : "group not confirmed — see group-created.png", screenshot: resolve(OUT, "group-created.png") };
+  });
+
+  // Creator profile. Dave sets up a creator support profile.
+  if (FEATURES.includes("creator")) await runFlow("Creator profile", async () => {
+    await switchRabbyAccount(rabbyPage, extId, "Dave");
+    await ensureDappAccount(page, ctx, extId, known, "Dave");
+    await page.goto(`${VERCEL_URL}/app/creators`, { waitUntil: "domcontentloaded", timeout: 60_000 });
+    await page.locator("h1", { hasText: /Creator Support/i }).waitFor({ state: "visible", timeout: 30_000 });
+    const setup = page.locator("button").filter({ hasText: /^Set Up Profile/i }).first();
+    await setup.waitFor({ state: "visible", timeout: 15_000 });
+    await setup.click();
+    await page.waitForTimeout(2_000);
+    const nameInput = page.locator('input[type="text"]:visible').first();
+    if (await nameInput.isVisible({ timeout: 5_000 }).catch(() => false)) await nameInput.fill("Arb Rabby Creator").catch(() => undefined);
+    await snap(page, "creator-filled");
+    await page.locator("main button:visible:not([disabled])").filter({ hasText: /Create|Save|Set Up|Publish/i }).last().click().catch(() => undefined);
+    await drainRabbyPopups(ctx, extId, known, "creator", 14);
+    await page.waitForTimeout(4_000);
+    await snap(page, "creator-created");
+    const ok = await page.evaluate(() => /Arb Rabby Creator|profile created|Your page|Share/i.test(document.body.innerText)).catch(() => false);
+    return { name: "Creator profile", status: ok ? "green" : "red", url: `${VERCEL_URL}/app/creators`, hashes: [], note: ok ? "Dave set up creator profile" : "creator not confirmed — see creator-created.png", screenshot: resolve(OUT, "creator-created.png") };
+  });
+
   if (!offrampOnly) await runFlow("Claim Link recipient", async () => {
     await switchRabbyAccount(rabbyPage, extId, "Dave");
     await ensureDappAccount(page, ctx, extId, known, "Dave");
