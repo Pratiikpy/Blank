@@ -977,11 +977,14 @@ async function main(): Promise<void> {
     // Dismiss the PWA install toast so it can't overlay the row's Pay button.
     await page.locator('button[aria-label*="install" i], button[aria-label*="dismiss" i], button[aria-label="Close"]').first().click().catch(() => undefined);
     await payBtn.scrollIntoViewIfNeeded().catch(() => undefined);
-    await payBtn.click(); // real click so the row's onClick fires (opens the pay modal)
+    await payBtn.click(); // opens the "Pay Request" modal
     await page.waitForTimeout(2_500);
-    // If a confirm modal opened, click its confirm — scoped to the dialog, NOT
-    // the list (a list-Pay match here was closing the modal before signing).
-    await page.locator('[role="dialog"] button, [class*="modal" i] button, [class*="sheet" i] button').filter({ hasText: /Confirm|Pay|Send|Approve/i }).last().click().catch(() => undefined);
+    await snap(page, "request-pay-modal");
+    // The request amount is FHE-encrypted, so the payer enters the agreed
+    // amount; "Pay Now" stays disabled until the amount field is filled.
+    await page.locator('input[placeholder="0.00"]:visible').last().fill("1").catch(() => undefined);
+    await page.waitForTimeout(700);
+    await page.locator("button:visible:not([disabled])").filter({ hasText: /Pay Now/i }).last().click().catch(() => undefined);
     const payClicks = await drainRabbyPopups(ctx, extId, known, "request-pay", 14);
     await page.waitForTimeout(4_000);
     await snap(page, "request-pay-after");
