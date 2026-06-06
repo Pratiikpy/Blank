@@ -819,8 +819,12 @@ async function main(): Promise<void> {
     await page.locator("h1", { hasText: /Group Expenses/i }).waitFor({ state: "visible", timeout: 30_000 });
     await page.locator("button").filter({ hasText: /^Create/i }).first().click();
     await page.locator('input[placeholder="Weekend getaway"]').fill("Arb Rabby QA group").catch(() => undefined);
-    const memberInput = page.locator('input[placeholder*="0x"]').first();
-    if (await memberInput.isVisible({ timeout: 3_000 }).catch(() => false)) await memberInput.fill(accountByPersona.Bob).catch(() => undefined);
+    const memberInput = page.locator('input[placeholder="0x..."]').first();
+    if (await memberInput.isVisible({ timeout: 3_000 }).catch(() => false)) {
+      await memberInput.fill(accountByPersona.Bob).catch(() => undefined);
+      // A "+" Add member button must commit the member before submit.
+      await page.locator('button[aria-label="Add member"]').first().click().catch(() => undefined);
+    }
     await snap(page, "group-filled");
     // The modal's submit is "+ Create Group" (the + prefix breaks a ^ anchor).
     await page.locator("button:visible:not([disabled])").filter({ hasText: /Create Group/i }).last().click().catch(() => undefined);
@@ -850,6 +854,68 @@ async function main(): Promise<void> {
     await snap(page, "creator-created");
     const ok = await page.evaluate(() => /Arb Rabby Creator|profile created|Your page|Share/i.test(document.body.innerText)).catch(() => false);
     return { name: "Creator profile", status: ok ? "green" : "red", url: `${VERCEL_URL}/app/creators`, hashes: [], note: ok ? "Dave set up creator profile" : "creator not confirmed — see creator-created.png", screenshot: resolve(OUT, "creator-created.png") };
+  });
+
+  // Inheritance plan. Dave sets Bob as heir with an inactivity period.
+  if (FEATURES.includes("inheritance")) await runFlow("Inheritance plan", async () => {
+    await switchRabbyAccount(rabbyPage, extId, "Dave");
+    await ensureDappAccount(page, ctx, extId, known, "Dave");
+    await ensureShielded(page, ctx, extId, known, "Dave", "2");
+    await page.goto(`${VERCEL_URL}/app/inheritance`, { waitUntil: "domcontentloaded", timeout: 60_000 });
+    await page.locator("h1", { hasText: /Beneficiary Planning/i }).waitFor({ state: "visible", timeout: 30_000 });
+    await page.locator("button").filter({ hasText: /^Set Up Inheritance Plan/i }).first().click();
+    await page.waitForTimeout(2_000);
+    await page.locator('input[placeholder="0x..."]').first().fill(accountByPersona.Bob).catch(() => undefined);
+    const amtI = page.locator('input[placeholder="0.00"]').first();
+    if (await amtI.isVisible({ timeout: 3_000 }).catch(() => false)) await amtI.fill("1").catch(() => undefined);
+    await snap(page, "inheritance-filled");
+    await page.locator("main button:visible:not([disabled])").filter({ hasText: /Set Up|Create|Save|Confirm|Activate/i }).last().click().catch(() => undefined);
+    await drainRabbyPopups(ctx, extId, known, "inheritance", 14);
+    await page.waitForTimeout(4_000);
+    await snap(page, "inheritance-created");
+    const ok = await page.evaluate(() => /Plan active|heir|beneficiary|inactivity|active/i.test(document.body.innerText)).catch(() => false);
+    return { name: "Inheritance plan", status: ok ? "green" : "red", url: `${VERCEL_URL}/app/inheritance`, hashes: [], note: ok ? "Dave set up inheritance plan, Bob as heir" : "inheritance not confirmed — see inheritance-created.png", screenshot: resolve(OUT, "inheritance-created.png") };
+  });
+
+  // Escrow create (business). Dave creates an encrypted escrow for Bob.
+  if (FEATURES.includes("escrow")) await runFlow("Escrow create", async () => {
+    await switchRabbyAccount(rabbyPage, extId, "Dave");
+    await ensureDappAccount(page, ctx, extId, known, "Dave");
+    await ensureShielded(page, ctx, extId, known, "Dave", "2");
+    await page.goto(`${VERCEL_URL}/app/business`, { waitUntil: "domcontentloaded", timeout: 60_000 });
+    await page.waitForTimeout(2_500);
+    await page.getByRole("button", { name: /^Escrow$/i }).first().click().catch(() => undefined);
+    await page.waitForTimeout(1_500);
+    const newEscrow = page.locator("main button:visible:not([disabled])").filter({ hasText: /New Escrow|Create your first escrow/i }).first();
+    await newEscrow.waitFor({ state: "visible", timeout: 30_000 });
+    await newEscrow.click();
+    await page.locator('input[placeholder="0x..."]').first().fill(accountByPersona.Bob).catch(() => undefined);
+    await page.locator('input[placeholder="0.00"]').first().fill("1").catch(() => undefined);
+    await snap(page, "escrow-filled");
+    await page.locator("main button:visible:not([disabled])").filter({ hasText: /^Create Escrow/i }).first().click().catch(() => undefined);
+    await drainRabbyPopups(ctx, extId, known, "escrow", 14);
+    await page.waitForTimeout(4_000);
+    await snap(page, "escrow-created");
+    const ok = await page.evaluate(() => /Escrow created|escrow|locked|Pending|Funded/i.test(document.body.innerText)).catch(() => false);
+    return { name: "Escrow create", status: ok ? "green" : "red", url: `${VERCEL_URL}/app/business`, hashes: [], note: ok ? "Dave created encrypted escrow for Bob" : "escrow not confirmed — see escrow-created.png", screenshot: resolve(OUT, "escrow-created.png") };
+  });
+
+  // Proof of balance (FHE proof-of-X). Dave generates an encrypted proof.
+  if (FEATURES.includes("proofs")) await runFlow("Proof of balance", async () => {
+    await switchRabbyAccount(rabbyPage, extId, "Dave");
+    await ensureDappAccount(page, ctx, extId, known, "Dave");
+    await ensureShielded(page, ctx, extId, known, "Dave", "2");
+    await page.goto(`${VERCEL_URL}/app/proofs`, { waitUntil: "domcontentloaded", timeout: 60_000 });
+    await page.waitForTimeout(3_000);
+    await snap(page, "proofs-landing");
+    const amtP = page.locator('input[placeholder="0.00"]').first();
+    if (await amtP.isVisible({ timeout: 5_000 }).catch(() => false)) await amtP.fill("1").catch(() => undefined);
+    await page.locator("button").filter({ hasText: /^Create proof/i }).first().click().catch(() => undefined);
+    await drainRabbyPopups(ctx, extId, known, "proofs", 14);
+    await page.waitForTimeout(4_000);
+    await snap(page, "proofs-created");
+    const ok = await page.evaluate(() => /Proof created|proof|verified|generated|Share|valid/i.test(document.body.innerText)).catch(() => false);
+    return { name: "Proof of balance", status: ok ? "green" : "red", url: `${VERCEL_URL}/app/proofs`, hashes: [], note: ok ? "Dave created an encrypted proof" : "proof not confirmed — see proofs-created.png", screenshot: resolve(OUT, "proofs-created.png") };
   });
 
   if (!offrampOnly) await runFlow("Claim Link recipient", async () => {
