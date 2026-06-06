@@ -26,7 +26,9 @@ export function BottomNav() {
         // instead of -translate-x-1/2: the transform created its own stacking
         // context, which let the nav paint over a z-50 modal on mobile regardless
         // of z-index. Removing the transform lets z-40 < z-50 actually apply.
-        "fixed bottom-[max(1.5rem,env(safe-area-inset-bottom,0px))] inset-x-0 mx-auto z-40",
+        // blank-bottom-nav: global hook so `body.blank-modal-open` can hide the
+        // nav while a modal/bottom-sheet is open (see index.css).
+        "blank-bottom-nav fixed bottom-[max(1.5rem,env(safe-area-inset-bottom,0px))] inset-x-0 mx-auto z-40",
         "w-[90%] max-w-sm",
         "bg-apple-gray6/80 backdrop-blur-2xl",
         "border border-white/[0.08] rounded-[2rem]",

@@ -386,6 +386,14 @@ export default function Requests() {
   // Modal state
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [fulfillTarget, setFulfillTarget] = useState<PaymentRequestRow | null>(null);
+  // Hide the mobile BottomNav while a modal is open: the modal is a bottom-sheet
+  // nested in <main>, so its z-50 can't lift above the shell-level fixed nav by
+  // z-index alone — the nav would overlap the modal's Pay/Cancel buttons at 375px.
+  const anyModalOpen = showCreateModal || fulfillTarget !== null;
+  useEffect(() => {
+    document.body.classList.toggle("blank-modal-open", anyModalOpen);
+    return () => document.body.classList.remove("blank-modal-open");
+  }, [anyModalOpen]);
   const [cancellingId, setCancellingId] = useState<number | null>(null);
 
   const loadRequests = useCallback(() => {
