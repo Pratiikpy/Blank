@@ -3,7 +3,7 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { createPublicClient, erc20Abi, formatUnits, http, type Address, type Hash } from "viem";
-import { baseSepolia, sepolia } from "viem/chains";
+import { arbitrumSepolia, baseSepolia, sepolia } from "viem/chains";
 
 import {
   unlockRabby,
@@ -25,27 +25,33 @@ const OUT = resolve(REPO, "packages/app/test-results/qa-live-external-assets");
 const DAVE = "0x7eF99105308230eab5B8E4765842bc2BF7B1D175" as Address;
 const ETH_ID = 11155111;
 const BASE_ID = 84532;
+const ARB_ID = 421614;
 
 const CIRCLE_USDC: Record<number, Address> = {
   [ETH_ID]: "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
   [BASE_ID]: "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+  [ARB_ID]: "0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d",
 };
 const WETH: Record<number, Address> = {
   [ETH_ID]: "0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14",
   [BASE_ID]: "0x4200000000000000000000000000000000000006",
+  [ARB_ID]: "0x980B62Da83eFf3D4576C647993b0c1D7faf17c73",
 };
 const RPC: Record<number, string> = {
   [ETH_ID]: "https://ethereum-sepolia.publicnode.com",
   [BASE_ID]: "https://base-sepolia-rpc.publicnode.com",
+  [ARB_ID]: "https://sepolia-rollup.arbitrum.io/rpc",
 };
 const EXPLORER: Record<number, string> = {
   [ETH_ID]: "https://sepolia.etherscan.io",
   [BASE_ID]: "https://sepolia.basescan.org",
+  [ARB_ID]: "https://sepolia.arbiscan.io",
 };
 
 const ethClient = createPublicClient({ chain: sepolia, transport: http(RPC[ETH_ID]) });
 const baseClient = createPublicClient({ chain: baseSepolia, transport: http(RPC[BASE_ID]) });
-const clientByChain = { [ETH_ID]: ethClient, [BASE_ID]: baseClient };
+const arbClient = createPublicClient({ chain: arbitrumSepolia, transport: http(RPC[ARB_ID]) });
+const clientByChain = { [ETH_ID]: ethClient, [BASE_ID]: baseClient, [ARB_ID]: arbClient };
 
 type ProofResult = {
   name: string;
@@ -135,7 +141,7 @@ async function ensureDappAccount(
   if (await card.isVisible({ timeout: 2_000 }).catch(() => false)) {
     await card.locator("button").filter({ hasText: /Rabby/i }).first().click({ force: true });
     await waitAndConfirmRabbyPopup(ctx, extId, known, OUT, "connect-dave", 45_000, {
-      chainName: chainId === ETH_ID ? "Ethereum Sepolia" : "Base Sepolia",
+      chainName: chainId === ETH_ID ? "Ethereum Sepolia" : chainId === BASE_ID ? "Base Sepolia" : "Arbitrum Sepolia",
     });
     await waitAndConfirmRabbyPopup(ctx, extId, known, OUT, "siwe-dave", 25_000);
   }

@@ -10,6 +10,7 @@ reverts is the bug class this script catches.
 Usage:
     python audit-sweep.py truly-final-base-sepolia-40-pass.log base
     python audit-sweep.py truly-final-eth-sepolia-40-pass.log eth
+    python audit-sweep.py truly-final-arb-sepolia-40-pass.log arb
 """
 import re, json, urllib.request, time, sys
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
@@ -25,11 +26,16 @@ RPCS = {
         "https://1rpc.io/sepolia",
         "https://rpc.sepolia.org",
     ],
+    "arb": [
+        "https://sepolia-rollup.arbitrum.io/rpc",
+        "https://arbitrum-sepolia-rpc.publicnode.com",
+        "https://arbitrum-sepolia.gateway.tenderly.co",
+    ],
 }
 
 def main():
     if len(sys.argv) != 3 or sys.argv[2] not in RPCS:
-        print(f"Usage: python {sys.argv[0]} <sweep-log.txt> <base|eth>")
+        print(f"Usage: python {sys.argv[0]} <sweep-log.txt> <base|eth|arb>")
         sys.exit(2)
     log_path = sys.argv[1]
     chain = sys.argv[2]

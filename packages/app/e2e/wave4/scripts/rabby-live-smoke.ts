@@ -129,6 +129,13 @@ const CHAINS: Record<number, ChainConfig> = {
     testUsdcAddress: process.env.TEST_USDC_BASE ?? "0x6377eF23B3464019EcF35528be6Eb6d6D57d0b1a",
     name: "Base Sepolia",
   },
+  421614: {
+    rpcUrl: "https://sepolia-rollup.arbitrum.io/rpc",
+    explorerUrl: "https://sepolia.arbiscan.io",
+    // TestUSDC on Arbitrum Sepolia (deployments/arb-sepolia.json).
+    testUsdcAddress: process.env.TEST_USDC_ARB ?? "0x9558E2D3157c986591F325a6e76cA2fdFDB0b7AD",
+    name: "Arbitrum Sepolia",
+  },
 };
 
 const TEST_USDC_ABI = [
@@ -311,8 +318,13 @@ async function selectRabbyChain(popup: Page, chainName: string): Promise<boolean
   }
 
   // Step 4: pick the first row that contains "Sepolia". For Eth Sepolia
-  // Rabby lists it as "Sepolia"; for Base Sepolia as "Base Sepolia".
-  const target = chainName.includes("Base") ? "Base Sepolia" : "Sepolia";
+  // Rabby lists it as "Sepolia"; Base Sepolia as "Base Sepolia"; Arbitrum
+  // Sepolia as "Arbitrum Sepolia".
+  const target = chainName.includes("Base")
+    ? "Base Sepolia"
+    : chainName.includes("Arbitrum")
+      ? "Arbitrum Sepolia"
+      : "Sepolia";
   const targetLoc = popup.getByText(target, { exact: false }).first();
   if (await targetLoc.isVisible({ timeout: 3_000 }).catch(() => false)) {
     const bb = await targetLoc.boundingBox({ timeout: 2_000 }).catch(() => null);

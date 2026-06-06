@@ -72,6 +72,12 @@ const CHAINS = {
     testUsdcAddress: "0x6377eF23B3464019EcF35528be6Eb6d6D57d0b1a",
     name: "Base Sepolia",
   },
+  421614: {
+    rpcUrl: "https://sepolia-rollup.arbitrum.io/rpc",
+    explorerUrl: "https://sepolia.arbiscan.io",
+    testUsdcAddress: "0x9558E2D3157c986591F325a6e76cA2fdFDB0b7AD",
+    name: "Arbitrum Sepolia",
+  },
 } as const;
 
 const CHAIN_ID = Number(process.env.CHAIN_ID ?? 11155111) as keyof typeof CHAINS;

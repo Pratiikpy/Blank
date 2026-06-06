@@ -19,7 +19,7 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { createPublicClient, http, type Address, type Hash } from "viem";
-import { baseSepolia, sepolia } from "viem/chains";
+import { arbitrumSepolia, baseSepolia, sepolia } from "viem/chains";
 import {
   unlockRabby,
   dismissRabbyWhatsNew,
@@ -36,20 +36,38 @@ const RABBY_PROFILE_DIR =
   process.env.RABBY_PROFILE_DIR ?? resolve(REPO, ".rabby-profile-blank");
 const RABBY_PASSWORD = process.env.RABBY_PASSWORD ?? "RabbyPass123!QA";
 const CHAIN_ID = Number(process.env.CHAIN_ID ?? 84532);
-if (CHAIN_ID !== 84532 && CHAIN_ID !== 11155111) throw new Error(`Unsupported CHAIN_ID ${CHAIN_ID}`);
-const IS_ETH = CHAIN_ID === 11155111;
-const CHAIN_NAME = IS_ETH ? "Ethereum Sepolia" : "Base Sepolia";
-const OUT = resolve(REPO, `packages/app/test-results/qa-live-deposit-${IS_ETH ? "eth" : "base"}`);
-const RPC_URL = IS_ETH ? "https://ethereum-sepolia.publicnode.com" : "https://sepolia.base.org";
-const EXPLORER_URL = IS_ETH ? "https://sepolia.etherscan.io" : "https://sepolia.basescan.org";
-const BLOCKSCOUT_URL = IS_ETH ? "https://eth-sepolia.blockscout.com" : "https://base-sepolia.blockscout.com";
+if (CHAIN_ID !== 84532 && CHAIN_ID !== 11155111 && CHAIN_ID !== 421614)
+  throw new Error(`Unsupported CHAIN_ID ${CHAIN_ID}`);
+const CHAIN_SLUG = CHAIN_ID === 11155111 ? "eth" : CHAIN_ID === 84532 ? "base" : "arb";
+const CHAIN_NAME =
+  CHAIN_ID === 11155111 ? "Ethereum Sepolia" : CHAIN_ID === 84532 ? "Base Sepolia" : "Arbitrum Sepolia";
+const VIEM_CHAIN = CHAIN_ID === 11155111 ? sepolia : CHAIN_ID === 84532 ? baseSepolia : arbitrumSepolia;
+const OUT = resolve(REPO, `packages/app/test-results/qa-live-deposit-${CHAIN_SLUG}`);
+const RPC_URL =
+  CHAIN_ID === 11155111
+    ? "https://ethereum-sepolia.publicnode.com"
+    : CHAIN_ID === 84532
+      ? "https://sepolia.base.org"
+      : "https://sepolia-rollup.arbitrum.io/rpc";
+const EXPLORER_URL =
+  CHAIN_ID === 11155111
+    ? "https://sepolia.etherscan.io"
+    : CHAIN_ID === 84532
+      ? "https://sepolia.basescan.org"
+      : "https://sepolia.arbiscan.io";
+const BLOCKSCOUT_URL =
+  CHAIN_ID === 11155111
+    ? "https://eth-sepolia.blockscout.com"
+    : CHAIN_ID === 84532
+      ? "https://base-sepolia.blockscout.com"
+      : "https://sepolia-explorer.arbitrum.io";
 const DAVE = "0x7eF99105308230eab5B8E4765842bc2BF7B1D175" as Address;
 const DAVE_LABEL = "Private Key 1";
 
 const AMOUNT = process.env.DEPOSIT_AMOUNT ?? "1";
 
 const publicClient = createPublicClient({
-  chain: IS_ETH ? sepolia : baseSepolia,
+  chain: VIEM_CHAIN,
   transport: http(RPC_URL),
 });
 
