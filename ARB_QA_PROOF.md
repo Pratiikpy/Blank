@@ -177,3 +177,18 @@ This is mobile-only polish on bottom-sheet modals; the modal renders correctly,
 amount-fill works, and the feature is GREEN on desktop (request-pay 4 tx popups).
 The z-40 + transform-free centering changes are kept (directionally correct
 prerequisites; BottomNav test 16/16 pass) and become effective once modals portal.
+
+## Mobile nav/modal bug — FIXED + VERIFIED via UI at 375px
+Full journey (no-compromise): found the bottom-nav overlapping the Pay modal's
+buttons at phone width -> tried z-40 (insufficient: stacking context) -> removed
+the nav's transform (insufficient: the modal is nested in <main>, can't escape via
+z-index) -> implemented the correct fix: the screen toggles body.blank-modal-open
+while a modal is open + CSS hides the nav. First attempt targeted the wrong nav
+(components/layout/BottomNav, Home/Send/Receive/Groups/More) - the RENDERED mobile
+nav is <nav class="bottom-nav"> in BlankApp (Dashboard/Send&Receive/History/
+Explore/More). Corrected the CSS to target .bottom-nav.
+VERIFIED: mobile request-pay (Bob, MOBILE=1 375x812) GREEN with a real pay-tx
+popup — the nav now hides when the modal opens, Pay Now is tappable. Real mobile
+multi-wallet consume proven through the UI. Files: Requests.tsx (toggle),
+index.css (.bottom-nav hide rule), BottomNav.tsx (z-40 + transform-free centering,
+harmless hardening on the other nav). Typecheck clean; BottomNav test 16/16.
