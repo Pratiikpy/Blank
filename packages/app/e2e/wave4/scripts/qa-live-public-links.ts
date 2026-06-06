@@ -760,6 +760,34 @@ async function main(): Promise<void> {
     };
   });
 
+  // Stealth payment (privacy headline). Dave shields then sends a stealth
+  // payment to Bob's address; an on-chain announcement + one-time address.
+  if (FEATURES.includes("stealth")) await runFlow("Stealth payment (encrypted)", async () => {
+    await switchRabbyAccount(rabbyPage, extId, "Dave");
+    await ensureDappAccount(page, ctx, extId, known, "Dave");
+    await ensureShielded(page, ctx, extId, known, "Dave", "2");
+    await page.goto(`${VERCEL_URL}/app/stealth`, { waitUntil: "domcontentloaded", timeout: 60_000 });
+    await page.waitForTimeout(3_000);
+    await snap(page, "stealth-landing");
+    await page.locator('input[placeholder="0x..."]').first().fill(accountByPersona.Bob);
+    await page.locator('input[inputmode="decimal"], input[placeholder*="0.00"]').first().fill("1");
+    await snap(page, "stealth-filled");
+    await page.locator("main button:visible:not([disabled])").filter({ hasText: /^Send Stealth Payment/i }).first().click();
+    await drainRabbyPopups(ctx, extId, known, "stealth", 14);
+    await page.waitForFunction(() => /Stealth payment sent|Payment sent|Sent!|announcement/i.test(document.body.innerText), { timeout: 180_000 }).catch(() => undefined);
+    await page.waitForTimeout(3_000);
+    await snap(page, "stealth-sent");
+    const ok = await page.evaluate(() => /Stealth payment sent|Payment sent|Sent!|announcement|Recent Activity/i.test(document.body.innerText)).catch(() => false);
+    return {
+      name: "Stealth payment (encrypted)",
+      status: ok ? "green" : "red",
+      url: `${VERCEL_URL}/app/stealth`,
+      hashes: [],
+      note: ok ? "Dave sent stealth payment to Bob" : "stealth did not reach success — see stealth-sent.png",
+      screenshot: resolve(OUT, "stealth-sent.png"),
+    };
+  });
+
   if (!offrampOnly) await runFlow("Claim Link recipient", async () => {
     await switchRabbyAccount(rabbyPage, extId, "Dave");
     await ensureDappAccount(page, ctx, extId, known, "Dave");
