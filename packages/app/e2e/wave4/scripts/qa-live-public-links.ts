@@ -801,10 +801,13 @@ async function main(): Promise<void> {
     await snap(page, "request-filled");
     await page.locator("button").filter({ hasText: /^Send Request/i }).click();
     await drainRabbyPopups(ctx, extId, known, "request", 14);
-    await page.waitForFunction(() => /Request sent|Request created|Payment Requests/i.test(document.body.innerText), { timeout: 120_000 }).catch(() => undefined);
+    await page.waitForTimeout(4_000);
+    // Dave's request is OUTGOING (he requests Bob to pay); the default
+    // Incoming tab is empty for him, so switch to Outgoing to verify.
+    await page.locator("button").filter({ hasText: /^Outgoing$/i }).first().click().catch(() => undefined);
     await page.waitForTimeout(2_500);
     await snap(page, "request-created");
-    const ok = await page.evaluate(() => /Request sent|Request created|7\b/i.test(document.body.innerText)).catch(() => false);
+    const ok = await page.evaluate(() => /\$?7(\.00)?\b|Arb Rabby QA request|requested|Request sent/i.test(document.body.innerText)).catch(() => false);
     return { name: "Payment request", status: ok ? "green" : "red", url: `${VERCEL_URL}/app/requests`, hashes: [], note: ok ? "Dave requested 7 USDC from Bob" : "request not confirmed — see request-created.png", screenshot: resolve(OUT, "request-created.png") };
   });
 
@@ -819,7 +822,8 @@ async function main(): Promise<void> {
     const memberInput = page.locator('input[placeholder*="0x"]').first();
     if (await memberInput.isVisible({ timeout: 3_000 }).catch(() => false)) await memberInput.fill(accountByPersona.Bob).catch(() => undefined);
     await snap(page, "group-filled");
-    await page.locator("main button:visible:not([disabled])").filter({ hasText: /^(Create Group|Create|Save)/i }).last().click().catch(() => undefined);
+    // The modal's submit is "+ Create Group" (the + prefix breaks a ^ anchor).
+    await page.locator("button:visible:not([disabled])").filter({ hasText: /Create Group/i }).last().click().catch(() => undefined);
     await drainRabbyPopups(ctx, extId, known, "group", 14);
     await page.waitForTimeout(4_000);
     await snap(page, "group-created");
@@ -837,10 +841,10 @@ async function main(): Promise<void> {
     await setup.waitFor({ state: "visible", timeout: 15_000 });
     await setup.click();
     await page.waitForTimeout(2_000);
-    const nameInput = page.locator('input[type="text"]:visible').first();
+    const nameInput = page.locator('input[placeholder="Your name"]').first();
     if (await nameInput.isVisible({ timeout: 5_000 }).catch(() => false)) await nameInput.fill("Arb Rabby Creator").catch(() => undefined);
     await snap(page, "creator-filled");
-    await page.locator("main button:visible:not([disabled])").filter({ hasText: /Create|Save|Set Up|Publish/i }).last().click().catch(() => undefined);
+    await page.locator("main button:visible:not([disabled])").filter({ hasText: /Create Profile/i }).last().click().catch(() => undefined);
     await drainRabbyPopups(ctx, extId, known, "creator", 14);
     await page.waitForTimeout(4_000);
     await snap(page, "creator-created");
