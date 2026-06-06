@@ -158,17 +158,41 @@ async function ensureWalletChain(
     return await eth.request({ method: "eth_chainId" }).catch(() => null);
   });
   if (current?.toLowerCase() === targetHex.toLowerCase()) return;
+  const readChain = async () =>
+    await page.evaluate(async () => {
+      const eth = (window as unknown as { ethereum?: { request(args: { method: string; params?: unknown[] }): Promise<string> } }).ethereum;
+      if (!eth) return null;
+      return await eth.request({ method: "eth_chainId" }).catch(() => null);
+    });
+  // 1. Try a plain switch.
   await page.evaluate(async (chainIdHex) => {
     const eth = (window as unknown as { ethereum?: { request(args: { method: string; params?: unknown[] }): Promise<unknown> } }).ethereum;
     if (!eth) throw new Error("window.ethereum missing");
     await eth.request({ method: "wallet_switchEthereumChain", params: [{ chainId: chainIdHex }] });
   }, targetHex).catch(() => undefined);
   await drainRabbyPopups(ctx, extId, known, `switch-chain-${persona.toLowerCase()}`, 2);
-  const after = await page.evaluate(async () => {
-    const eth = (window as unknown as { ethereum?: { request(args: { method: string; params?: unknown[] }): Promise<string> } }).ethereum;
-    if (!eth) return null;
-    return await eth.request({ method: "eth_chainId" }).catch(() => null);
-  });
+  let after = await readChain();
+  // 2. If still wrong, the chain is likely unknown to this Rabby profile
+  //    (it was seeded for eth/base). Add it, then switch again.
+  if (after?.toLowerCase() !== targetHex.toLowerCase()) {
+    await page.evaluate(async (p) => {
+      const eth = (window as unknown as { ethereum?: { request(args: { method: string; params?: unknown[] }): Promise<unknown> } }).ethereum;
+      await eth?.request({ method: "wallet_addEthereumChain", params: [p] }).catch(() => undefined);
+    }, {
+      chainId: targetHex,
+      chainName: CHAIN_NAME,
+      rpcUrls: ["https://sepolia-rollup.arbitrum.io/rpc"],
+      nativeCurrency: { name: "Ethereum", symbol: "ETH", decimals: 18 },
+      blockExplorerUrls: ["https://sepolia.arbiscan.io"],
+    });
+    await drainRabbyPopups(ctx, extId, known, `add-chain-${persona.toLowerCase()}`, 3);
+    await page.evaluate(async (chainIdHex) => {
+      const eth = (window as unknown as { ethereum?: { request(args: { method: string; params?: unknown[] }): Promise<unknown> } }).ethereum;
+      await eth?.request({ method: "wallet_switchEthereumChain", params: [{ chainId: chainIdHex }] }).catch(() => undefined);
+    }, targetHex);
+    await drainRabbyPopups(ctx, extId, known, `switch-chain-2-${persona.toLowerCase()}`, 2);
+    after = await readChain();
+  }
   if (after?.toLowerCase() !== targetHex.toLowerCase()) {
     throw new Error(`${persona} Rabby chain mismatch: expected ${targetHex}, got ${after ?? "null"}`);
   }
@@ -192,7 +216,10 @@ async function verifyWalletState(page: Page, rabbyPage: Page, extId: string, per
   const expectedChain = `0x${CHAIN_ID.toString(16)}`;
   if (!hasAccount) throw new Error(`${persona} not active in dApp accounts: ${accounts.accounts.join(", ")}`);
   if (accounts.chainId.toLowerCase() !== expectedChain.toLowerCase()) {
-    throw new Error(`${persona} wrong chain: ${accounts.chainId}, expected ${expectedChain}`);
+    // Rabby may still be on the profile's last chain (e.g. Base) at preflight
+    // time. The connect flow's ensureWalletChain switches it to the target
+    // chain right after, so warn rather than abort the whole sweep here.
+    console.warn(`${persona} preflight chain ${accounts.chainId} != ${expectedChain}; ensureWalletChain will switch during connect.`);
   }
   await snap(page, `wallet-verified-${persona.toLowerCase()}`);
   return `${persona} ${accountByPersona[persona]} on ${CHAIN_NAME}`;
