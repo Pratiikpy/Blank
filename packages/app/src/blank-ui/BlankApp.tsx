@@ -294,7 +294,7 @@ const hideNavRoutes = ["/app/send/amount", "/app/send/confirm", "/app/send/succe
 // Chains the app can actually talk to. Must match the set in
 // src/lib/constants.ts CHAINS — duplicated here to keep BlankApp from
 // importing the whole map just for a membership check.
-const SUPPORTED_WALLET_CHAINS = new Set<number>([11155111, 84532]);
+const SUPPORTED_WALLET_CHAINS = new Set<number>([11155111, 84532, 421614]);
 
 // ─── Main app shell ────────────────────────────────────────────────
 export function BlankApp() {
@@ -398,8 +398,9 @@ export function BlankApp() {
           </div>
           <h2 className="text-2xl font-heading font-semibold mb-3">Unsupported Network</h2>
           <p className="text-[var(--text-secondary)] mb-6">
-            Blank Pay runs on Ethereum Sepolia or Base Sepolia. Add one of
-            these networks to your wallet and switch to it to continue.
+            Blank Pay runs on Ethereum Sepolia, Base Sepolia, or Arbitrum
+            Sepolia. Add one of these networks to your wallet and switch to it
+            to continue.
           </p>
           <button
             onClick={() => switchChain?.({ chainId: activeChainId })}

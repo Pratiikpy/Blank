@@ -19,26 +19,33 @@ import { type Address } from "viem";
 import {
   ETH_SEPOLIA_ID,
   BASE_SEPOLIA_ID,
+  ARB_SEPOLIA_ID,
   type SupportedChainId,
 } from "./constants";
 
 // ─── Deployments ─────────────────────────────────────────────────────
 
-export const UNISWAP_QUOTER_V2: Record<SupportedChainId, Address> = {
+export const UNISWAP_QUOTER_V2: Partial<Record<SupportedChainId, Address>> = {
   [ETH_SEPOLIA_ID]: "0xEd1f6473345F45b75F8179591dd5bA1888cf2FB3",
   [BASE_SEPOLIA_ID]: "0xC5290058841028F1614F3A6F0F5816cAd0df5E27",
+  // Arb Sepolia QuoterV2 (Uniswap v3 deployments doc, chainId 421614).
+  [ARB_SEPOLIA_ID]: "0x2779a0CC1c3e0E44D2542EC3e79e3864Ae93Ef0B",
 };
 
-export const UNISWAP_SWAP_ROUTER_02: Record<SupportedChainId, Address> = {
+export const UNISWAP_SWAP_ROUTER_02: Partial<Record<SupportedChainId, Address>> = {
   [ETH_SEPOLIA_ID]: "0x3bFA4769FB09eefC5a80d6E87c3B9C650f7Ae48E",
   [BASE_SEPOLIA_ID]: "0x94cC0AaC535CCDB3C01d6787D6413C739ae12bc4",
+  // Arb Sepolia SwapRouter02 (Uniswap v3 deployments doc, chainId 421614).
+  [ARB_SEPOLIA_ID]: "0x101F443B4d1b059569D643917553c771E1b9663E",
 };
 
 /** Canonical wrapped-ETH on each chain — useful as a swap target/source. */
-export const WETH9: Record<SupportedChainId, Address> = {
+export const WETH9: Partial<Record<SupportedChainId, Address>> = {
   // Sepolia WETH9: deployed by Uniswap, listed on the v3 deploy table.
   [ETH_SEPOLIA_ID]: "0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14",
   [BASE_SEPOLIA_ID]: "0x4200000000000000000000000000000000000006",
+  // Arb Sepolia WETH9 (Uniswap v3 deployments doc, chainId 421614).
+  [ARB_SEPOLIA_ID]: "0x980B62Da83eFf3D4576C647993b0c1D7faf17c73",
 };
 
 // ─── KNOWN_TOKENS (Phase 5.2) ─────────────────────────────────────────
@@ -66,7 +73,7 @@ export interface TokenInfo {
   decimals: number;
 }
 
-export const KNOWN_TOKENS: Record<SupportedChainId, TokenInfo[]> = {
+export const KNOWN_TOKENS: Partial<Record<SupportedChainId, TokenInfo[]>> = {
   [ETH_SEPOLIA_ID]: [
     {
       symbol: "WETH",
@@ -92,6 +99,21 @@ export const KNOWN_TOKENS: Record<SupportedChainId, TokenInfo[]> = {
       symbol: "USDC",
       name: "USD Coin",
       address: "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+      decimals: 6,
+    },
+  ],
+  [ARB_SEPOLIA_ID]: [
+    {
+      symbol: "WETH",
+      name: "Wrapped Ether",
+      address: "0x980B62Da83eFf3D4576C647993b0c1D7faf17c73",
+      decimals: 18,
+    },
+    {
+      // Circle native USDC on Arb Sepolia — has live v3 pool depth vs WETH.
+      symbol: "USDC",
+      name: "USD Coin",
+      address: "0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d",
       decimals: 6,
     },
   ],
@@ -299,9 +321,11 @@ import { encodeAbiParameters, getCreate2Address, keccak256 } from "viem";
 
 /** Uniswap v3 factory address per chain — verified against the v3-deployments
  *  doc 2026-04-26. Used by `computePoolAddress` for deterministic CREATE2. */
-export const UNISWAP_V3_FACTORY: Record<SupportedChainId, Address> = {
+export const UNISWAP_V3_FACTORY: Partial<Record<SupportedChainId, Address>> = {
   [ETH_SEPOLIA_ID]: "0x0227628f3F023bb0B980b67D528571c95c6DaC1c",
   [BASE_SEPOLIA_ID]: "0x4752ba5DBc23f44D87826276BF6Fd6b1C372aD24",
+  // Arb Sepolia UniswapV3Factory (Uniswap v3 deployments doc, chainId 421614).
+  [ARB_SEPOLIA_ID]: "0x248AB79Bbb9bC29bB72f7Cd42F17e054Fc40188e",
 };
 
 /** Universal across every v3 deployment (the pool contract bytecode hash).

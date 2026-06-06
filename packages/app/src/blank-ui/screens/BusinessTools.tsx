@@ -130,6 +130,9 @@ export default function BusinessTools() {
   // Backwards-compat shim — keep legacy `payAltMode` boolean alive for
   // any downstream code paths that haven't been migrated yet.
   const payAltMode = payMode === "swap";
+  // Swap-pay needs a Uniswap quoter on this chain. Networks without one
+  // (e.g. Arbitrum Sepolia) hide the swap option entirely.
+  const swapPaySupported = UNISWAP_QUOTER_V2[activeChainId] !== undefined;
   const [confirmCancelInvoiceId, setConfirmCancelInvoiceId] = useState<number | null>(null);
   const [confirmArbiterEscrow, setConfirmArbiterEscrow] = useState<{ id: number; release: boolean } | null>(null);
   const [confirmClaimExpiredId, setConfirmClaimExpiredId] = useState<number | null>(null);
@@ -425,6 +428,11 @@ export default function BusinessTools() {
       toast.error("Wait for the quote to load");
       return;
     }
+    const swapRouter = UNISWAP_SWAP_ROUTER_02[activeChainId];
+    if (!swapRouter) {
+      toastMappedError(new Error("Token swap is not available on this network"));
+      return;
+    }
     try {
       // Apply slippage budget to the quote so the contract has room to
       // succeed under thin testnet pool depth. The contract refunds any
@@ -436,7 +444,7 @@ export default function BusinessTools() {
         payAmountInMax: slippageBuffered,
         amount: payInvoiceAmount,
         fee: POOL_FEE.MEDIUM,
-        swapRouter: UNISWAP_SWAP_ROUTER_02[activeChainId],
+        swapRouter,
       });
       setPayInvoiceId(null);
       setPayInvoiceAmount("");
@@ -460,6 +468,8 @@ export default function BusinessTools() {
       return;
     }
     if (!publicClient) return;
+    const quoter = UNISWAP_QUOTER_V2[activeChainId];
+    if (!quoter) return;
     // The on-chain swap targets `vault.underlyingToken()` which is
     // `contracts.TestUSDC` on testnet. NB: TestUSDC has NO Uniswap v3
     // liquidity on testnet — every quote will revert with "no pool" and
@@ -474,7 +484,7 @@ export default function BusinessTools() {
         setPayAltQuoteLoading(true);
         const amountOut = parseUnits(payInvoiceAmount, 6);
         const result = (await publicClient.simulateContract({
-          address: UNISWAP_QUOTER_V2[activeChainId],
+          address: quoter,
           abi: QuoterV2Abi,
           functionName: "quoteExactOutputSingle",
           args: [
@@ -1389,7 +1399,10 @@ export default function BusinessTools() {
               <div
                 role="tablist"
                 aria-label="Pay method"
-                className="grid grid-cols-3 gap-1 p-1 rounded-2xl bg-black/5 dark:bg-white/5"
+                className={cn(
+                  "grid gap-1 p-1 rounded-2xl bg-black/5 dark:bg-white/5",
+                  swapPaySupported ? "grid-cols-3" : "grid-cols-2",
+                )}
               >
                 <button
                   type="button"
@@ -1406,22 +1419,24 @@ export default function BusinessTools() {
                 >
                   Standard
                 </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={payMode === "swap"}
-                  data-testid="pay-mode-swap"
-                  onClick={() => setPayMode("swap")}
-                  className={cn(
-                    "h-10 rounded-xl text-xs font-medium transition-all flex items-center justify-center gap-1.5",
-                    payMode === "swap"
-                      ? "bg-white dark:bg-white/10 text-[var(--text-primary)] shadow-sm"
-                      : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]",
-                  )}
-                >
-                  <Repeat size={12} />
-                  Swap
-                </button>
+                {swapPaySupported && (
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={payMode === "swap"}
+                    data-testid="pay-mode-swap"
+                    onClick={() => setPayMode("swap")}
+                    className={cn(
+                      "h-10 rounded-xl text-xs font-medium transition-all flex items-center justify-center gap-1.5",
+                      payMode === "swap"
+                        ? "bg-white dark:bg-white/10 text-[var(--text-primary)] shadow-sm"
+                        : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]",
+                    )}
+                  >
+                    <Repeat size={12} />
+                    Swap
+                  </button>
+                )}
                 <button
                   type="button"
                   role="tab"

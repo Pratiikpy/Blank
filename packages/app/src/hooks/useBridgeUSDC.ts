@@ -42,6 +42,7 @@ import {
 import {
   ETH_SEPOLIA_ID,
   BASE_SEPOLIA_ID,
+  ARB_SEPOLIA_ID,
   type SupportedChainId,
 } from "@/lib/constants";
 
@@ -138,6 +139,7 @@ const MAX_ALLOWANCE = (1n << 256n) - 1n;
 const CCTP_DOMAIN_TO_CHAIN: Record<number, SupportedChainId> = {
   0: ETH_SEPOLIA_ID,
   6: BASE_SEPOLIA_ID,
+  3: ARB_SEPOLIA_ID,
 };
 
 async function switchInjectedWalletChain(chainId: SupportedChainId): Promise<void> {
@@ -310,8 +312,12 @@ export function useBridgeUSDC(): UseBridgeUSDCReturn {
         const controller = new AbortController();
         abortRef.current = controller;
         setStep("polling");
+        const sourceDomain = CCTP_DOMAIN[args.sourceChain];
+        if (sourceDomain === undefined) {
+          throw new Error(`Bridge is not available on chain ${args.sourceChain}`);
+        }
         const result = await pollAttestation({
-          sourceDomain: CCTP_DOMAIN[args.sourceChain],
+          sourceDomain,
           txHash: burnTxHash,
           signal: controller.signal,
           onProgress: setAttestationStatus,
@@ -395,8 +401,14 @@ export function useBridgeUSDC(): UseBridgeUSDCReturn {
     abortRef.current = controller;
     setStep("polling");
     try {
+      const sourceDomain = CCTP_DOMAIN[resumable.sourceChainId];
+      if (sourceDomain === undefined) {
+        throw new Error(
+          `Bridge is not available on chain ${resumable.sourceChainId}`,
+        );
+      }
       const result = await pollAttestation({
-        sourceDomain: CCTP_DOMAIN[resumable.sourceChainId],
+        sourceDomain,
         txHash: resumable.burnTxHash,
         signal: controller.signal,
         onProgress: setAttestationStatus,

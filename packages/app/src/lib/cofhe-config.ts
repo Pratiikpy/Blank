@@ -1,5 +1,5 @@
 import { createCofheConfig } from "@/lib/cofhe-shim";
-import { sepolia } from "@cofhe/sdk/chains";
+import { sepolia, arbSepolia } from "@cofhe/sdk/chains";
 
 // createCofheConfig now delegates to @cofhe/sdk/web's real config builder.
 // The Vite alias routes "@cofhe/react" to our cofhe-shim.ts which uses the
@@ -12,6 +12,6 @@ import { sepolia } from "@cofhe/sdk/chains";
 // the decrypt path has nothing synchronous to do and doesn't stall the main
 // thread right after shield.
 export const cofheConfig = createCofheConfig({
-  supportedChains: [sepolia],
+  supportedChains: [sepolia, arbSepolia],
   react: { autogeneratePermits: true },
 });

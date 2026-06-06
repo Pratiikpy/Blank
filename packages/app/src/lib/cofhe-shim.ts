@@ -37,6 +37,7 @@ import {
   SUPPORTED_CHAIN_ID,
   BASE_SEPOLIA_ID,
   ETH_SEPOLIA_ID,
+  ARB_SEPOLIA_ID,
   type SupportedChainId,
 } from "./constants";
 import { log } from "./log";
@@ -157,12 +158,19 @@ async function loadSdk(): Promise<boolean> {
       ]);
 
       // Pick the cofhe SDK chain that matches the session's active chain.
-      // The SDK exports `sepolia` and `baseSepolia` (and more) — each carries
-      // the correct CoFHE verifier/TN endpoints for that network. We read the
-      // module-level `_activeChainIdForShim` which is synced by `CofheProvider`
-      // on every chain change (before `_resetSdkForChainChange` fires).
+      // The SDK exports `sepolia`, `baseSepolia`, and `arbSepolia` — each
+      // carries the correct CoFHE verifier/TN endpoints for that network. We
+      // read the module-level `_activeChainIdForShim` which is synced by
+      // `CofheProvider` on every chain change (before `_resetSdkForChainChange`
+      // fires). This MUST stay an exhaustive map: a wrong chain here makes the
+      // SDK build proofs against another network's context and the on-chain
+      // FHE.asEuintX rejects them with InvalidSigner.
       const activeChain =
-        _activeChainIdForShim === BASE_SEPOLIA_ID ? sdkChains.baseSepolia : sdkChains.sepolia;
+        _activeChainIdForShim === BASE_SEPOLIA_ID
+          ? sdkChains.baseSepolia
+          : _activeChainIdForShim === ARB_SEPOLIA_ID
+            ? sdkChains.arbSepolia
+            : sdkChains.sepolia;
 
       _sdkModules = {
         FheTypes: sdkCore.FheTypes,
@@ -210,7 +218,9 @@ export function useCofheConnection() {
     !!chain &&
     !!publicClient &&
     !!walletClient &&
-    (chain.id === ETH_SEPOLIA_ID || chain.id === BASE_SEPOLIA_ID);
+    (chain.id === ETH_SEPOLIA_ID ||
+      chain.id === BASE_SEPOLIA_ID ||
+      chain.id === ARB_SEPOLIA_ID);
 
   useEffect(() => {
     if (!walletReady || !publicClient || !walletClient) return;

@@ -55,6 +55,7 @@ import {
   type StealthKeyRecord,
 } from "@/lib/stealth-keystore";
 import { copyToClipboard } from "@/lib/clipboard";
+import { CHAINS } from "@/lib/constants";
 import { cn } from "@/lib/cn";
 import toast from "react-hot-toast";
 
@@ -270,9 +271,8 @@ export default function StealthMetaSetup() {
   };
 
   const explorerBase = useMemo(() => {
-    if (activeChainId === 11155111) return "https://sepolia.etherscan.io/tx/";
-    if (activeChainId === 84532) return "https://sepolia.basescan.org/tx/";
-    return null;
+    const explorerUrl = CHAINS[activeChainId]?.explorerUrl;
+    return explorerUrl ? `${explorerUrl}/tx/` : null;
   }, [activeChainId]);
 
   return (

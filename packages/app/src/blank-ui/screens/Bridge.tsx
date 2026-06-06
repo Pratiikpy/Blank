@@ -26,6 +26,7 @@ import {
   CHAINS,
   ETH_SEPOLIA_ID,
   BASE_SEPOLIA_ID,
+  ARB_SEPOLIA_ID,
   type SupportedChainId,
 } from "@/lib/constants";
 import { cn } from "@/lib/cn";
@@ -89,12 +90,29 @@ export default function Bridge({ embedded = false }: { embedded?: boolean } = {}
   const { activeChainId } = useChain();
   const bridge = useBridgeUSDC();
 
+  // CCTP-supported chains, in display order. USDC bridges burn-and-mint
+  // across all three via Circle's attestation service.
+  const cctpChains = useMemo<SupportedChainId[]>(
+    () => [ETH_SEPOLIA_ID, BASE_SEPOLIA_ID, ARB_SEPOLIA_ID],
+    [],
+  );
   // Default the source chain to whatever the user is currently on.
   const [sourceChain, setSourceChain] = useState<SupportedChainId>(activeChainId);
-  const destChain = useMemo<SupportedChainId>(
-    () => (sourceChain === ETH_SEPOLIA_ID ? BASE_SEPOLIA_ID : ETH_SEPOLIA_ID),
-    [sourceChain],
+  // Destination is its own state, picked from the CCTP chains that aren't
+  // the source. With three chains the old "the other one" toggle no longer
+  // works, so dest is kept valid as the source changes.
+  const destOptions = useMemo<SupportedChainId[]>(
+    () => cctpChains.filter((c) => c !== sourceChain),
+    [cctpChains, sourceChain],
   );
+  const [destChain, setDestChain] = useState<SupportedChainId>(
+    cctpChains.find((c) => c !== activeChainId) ?? BASE_SEPOLIA_ID,
+  );
+  useEffect(() => {
+    if (!destOptions.includes(destChain)) {
+      setDestChain(destOptions[0]);
+    }
+  }, [destOptions, destChain]);
   const [amountInput, setAmountInput] = useState("");
   const [speed, setSpeed] = useState<"fast" | "finalized">("fast");
 
@@ -170,6 +188,31 @@ export default function Bridge({ embedded = false }: { embedded?: boolean } = {}
   const isReadyToClaim = bridge.step === "readyToClaim";
   const isComplete = bridge.step === "complete";
 
+  // CCTP only runs on chains with a Circle domain. Arbitrum Sepolia has no
+  // CCTP config, so gate the screen honestly instead of rendering a form
+  // that can't submit. Domain 0 (Ethereum Sepolia) is valid, so test for
+  // undefined explicitly rather than falsiness.
+  if (CCTP_DOMAIN[activeChainId] === undefined) {
+    return (
+      <div className={embedded ? "" : "animate-in fade-in slide-in-from-bottom-4 duration-500"}>
+        <div className={embedded ? "" : "max-w-xl mx-auto"}>
+          <div className="rounded-[2rem] glass-card-static p-6 sm:p-8 text-center">
+            <h2
+              className="text-2xl font-medium tracking-tight text-[var(--text-primary)] mb-2"
+              style={{ fontFamily: "'Outfit', 'Inter', sans-serif" }}
+            >
+              Bridge not available here
+            </h2>
+            <p className="text-base text-[var(--text-secondary)] leading-relaxed">
+              USDC bridging runs on Ethereum Sepolia and Base Sepolia. Switch
+              networks to bridge.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={embedded ? "" : "animate-in fade-in slide-in-from-bottom-4 duration-500"}>
       <div className={embedded ? "" : "max-w-xl mx-auto"}>
@@ -242,9 +285,10 @@ export default function Bridge({ embedded = false }: { embedded?: boolean } = {}
                 type="button"
                 disabled={inProgress}
                 onClick={() =>
-                  setSourceChain((c) =>
-                    c === ETH_SEPOLIA_ID ? BASE_SEPOLIA_ID : ETH_SEPOLIA_ID,
-                  )
+                  setSourceChain((c) => {
+                    const i = cctpChains.indexOf(c);
+                    return cctpChains[(i + 1) % cctpChains.length];
+                  })
                 }
                 className="h-14 w-full rounded-2xl bg-white/60 dark:bg-white/5 border border-black/5 dark:border-white/10 px-5 text-left font-medium text-[var(--text-primary)] disabled:opacity-50"
               >
@@ -258,9 +302,19 @@ export default function Bridge({ embedded = false }: { embedded?: boolean } = {}
               <label className="text-xs font-semibold tracking-widest uppercase text-[var(--text-secondary)] mb-2 block">
                 To
               </label>
-              <div className="h-14 w-full rounded-2xl bg-white/60 dark:bg-white/5 border border-black/5 dark:border-white/10 px-5 flex items-center font-medium text-[var(--text-primary)]">
+              <button
+                type="button"
+                disabled={inProgress || destOptions.length < 2}
+                onClick={() =>
+                  setDestChain((d) => {
+                    const i = destOptions.indexOf(d);
+                    return destOptions[(i + 1) % destOptions.length];
+                  })
+                }
+                className="h-14 w-full rounded-2xl bg-white/60 dark:bg-white/5 border border-black/5 dark:border-white/10 px-5 text-left flex items-center font-medium text-[var(--text-primary)] disabled:opacity-50"
+              >
                 {chainName(destChain)}
-              </div>
+              </button>
             </div>
           </div>
 

@@ -14,7 +14,7 @@
 // URL here if the provider supports domain allowlisting (Alchemy, QuickNode,
 // Infura). Otherwise stick with the public fallbacks.
 
-import { ETH_SEPOLIA_ID, BASE_SEPOLIA_ID, type SupportedChainId } from "./constants";
+import { ETH_SEPOLIA_ID, BASE_SEPOLIA_ID, ARB_SEPOLIA_ID, type SupportedChainId } from "./constants";
 
 // Curated public RPCs for each supported chain. Ordered roughly by observed
 // stability on testnet (publicnode first, Tenderly second, official public
@@ -56,6 +56,10 @@ const PUBLIC_RPCS: Record<SupportedChainId, string[]> = {
     // wider pool. Keep tenderly despite the known eth_call-lag on
     // post-upgrade contracts — it's a viable secondary for reads.
   ],
+  [ARB_SEPOLIA_ID]: [
+    "https://arbitrum-sepolia-rpc.publicnode.com",
+    "https://sepolia-rollup.arbitrum.io/rpc",
+  ],
 };
 
 function envRpc(chainId: SupportedChainId): string | undefined {
@@ -63,6 +67,8 @@ function envRpc(chainId: SupportedChainId): string | undefined {
   const env = import.meta.env as Record<string, string | undefined>;
   const raw = chainId === ETH_SEPOLIA_ID
     ? env.VITE_SEPOLIA_RPC_URL
+    : chainId === ARB_SEPOLIA_ID
+    ? env.VITE_ARB_SEPOLIA_RPC_URL
     : env.VITE_BASE_SEPOLIA_RPC_URL;
   const trimmed = raw?.trim();
   if (!trimmed || trimmed.length === 0) return undefined;

@@ -1,8 +1,9 @@
 import { createConfig } from "wagmi";
 import { fallback, http } from "viem";
-import { sepolia, baseSepolia } from "wagmi/chains";
+import { sepolia, baseSepolia, arbitrumSepolia } from "wagmi/chains";
 import { injected, walletConnect } from "wagmi/connectors";
-import { ETH_SEPOLIA_ID, BASE_SEPOLIA_ID } from "./constants";
+import { ETH_SEPOLIA_ID, BASE_SEPOLIA_ID, ARB_SEPOLIA_ID } from "./constants";
+import type { SupportedChainId } from "./constants";
 import { getRpcUrls } from "./rpc";
 
 const projectId = import.meta.env.VITE_WALLETCONNECT_PROJECT_ID || "";
@@ -15,7 +16,7 @@ const projectId = import.meta.env.VITE_WALLETCONNECT_PROJECT_ID || "";
 // Per-request HTTP timeout is tight (10s) so a slow RPC doesn't block the UI
 // waiting for a response that will never come; rank-based routing then demotes
 // it. Two retries per URL catches transient network blips without cascading.
-function makeTransport(chainId: typeof ETH_SEPOLIA_ID | typeof BASE_SEPOLIA_ID) {
+function makeTransport(chainId: SupportedChainId) {
   const urls = getRpcUrls(chainId);
   return fallback(
     urls.map((url) => http(url, { timeout: 10_000, retryCount: 2, retryDelay: 150 })),
@@ -28,7 +29,7 @@ function makeTransport(chainId: typeof ETH_SEPOLIA_ID | typeof BASE_SEPOLIA_ID) 
 // but wallets can switch between them via the chain selector without having
 // to reconnect.
 export const wagmiConfig = createConfig({
-  chains: [sepolia, baseSepolia],
+  chains: [sepolia, baseSepolia, arbitrumSepolia],
   connectors: [
     // Only `injected` (MetaMask etc.) + WalletConnect. Coinbase Wallet
     // connector removed because the SDK emits COOP warnings on every page
@@ -41,5 +42,6 @@ export const wagmiConfig = createConfig({
   transports: {
     [sepolia.id]: makeTransport(ETH_SEPOLIA_ID),
     [baseSepolia.id]: makeTransport(BASE_SEPOLIA_ID),
+    [arbitrumSepolia.id]: makeTransport(ARB_SEPOLIA_ID),
   },
 });

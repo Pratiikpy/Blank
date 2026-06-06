@@ -14,9 +14,9 @@
 
 import { keccak256, toUtf8Bytes, hexlify, solidityPacked } from "ethers";
 
-import { ETH_SEPOLIA_ID, BASE_SEPOLIA_ID } from "./constants";
+import { ETH_SEPOLIA_ID, BASE_SEPOLIA_ID, ARB_SEPOLIA_ID } from "./constants";
 
-const SUPPORTED: ReadonlySet<number> = new Set([ETH_SEPOLIA_ID, BASE_SEPOLIA_ID]);
+const SUPPORTED: ReadonlySet<number> = new Set([ETH_SEPOLIA_ID, BASE_SEPOLIA_ID, ARB_SEPOLIA_ID]);
 
 export const DOMAIN = keccak256(toUtf8Bytes("BLANK_CLAIM_v1"));
 

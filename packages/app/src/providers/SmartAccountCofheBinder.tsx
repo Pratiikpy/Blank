@@ -1,12 +1,12 @@
 import { useMemo } from "react";
 import { usePublicClient, useAccount } from "wagmi";
-import { sepolia, baseSepolia } from "wagmi/chains";
 import { useSmartAccount } from "@/hooks/useSmartAccount";
 import { usePassphrasePrompt } from "@/components/PassphrasePrompt";
 import { useChain } from "./ChainProvider";
 import { useCofheSmartWalletBinding } from "@/lib/cofhe-shim";
 import { buildBlankSmartAccountClient } from "@/lib/smart-account-cofhe-bridge";
 import type { CofheSmartAccountClient } from "@/lib/smart-account-cofhe-bridge";
+import { chainIdToViemChain } from "@/lib/viem-chains";
 import { log } from "@/lib/log";
 
 // R5-D: wire-up provider. Mounts once under CofheProvider +
@@ -47,7 +47,7 @@ export function SmartAccountCofheBinder() {
     // is connected (passkey-only mode).
     const chain =
       wagmiChain ??
-      (activeChainId === baseSepolia.id ? baseSepolia : sepolia);
+      chainIdToViemChain(activeChainId);
 
     return buildBlankSmartAccountClient({
       account,

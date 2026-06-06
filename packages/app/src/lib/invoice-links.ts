@@ -4,9 +4,9 @@
 // Pure helpers — no React, no DOM. Reused by the InvoicePage route, the
 // "copy link" button, and (later) the email integration.
 
-import { ETH_SEPOLIA_ID, BASE_SEPOLIA_ID } from "./constants";
+import { ETH_SEPOLIA_ID, BASE_SEPOLIA_ID, ARB_SEPOLIA_ID } from "./constants";
 
-const SUPPORTED: ReadonlySet<number> = new Set([ETH_SEPOLIA_ID, BASE_SEPOLIA_ID]);
+const SUPPORTED: ReadonlySet<number> = new Set([ETH_SEPOLIA_ID, BASE_SEPOLIA_ID, ARB_SEPOLIA_ID]);
 
 /** Returns `https://<host>/app/invoice/<chainId>/<invoiceId>`. */
 export function buildInvoiceLink(
