@@ -296,7 +296,10 @@ export async function waitForRabbyPopup(
 }
 
 /** Rabby's primary-CTA labels in the order we should try them. */
-const RABBY_PRIMARY_CTAS = ["Sign", "Confirm", "Approve", "Connect", "Allow", "Switch network"];
+// "Add" is the confirm button on Rabby's wallet_addEthereumChain popup
+// (buttons are ["Cancel","Add"]) — needed to add a chain the profile was not
+// seeded with (e.g. Arbitrum Sepolia on a profile set up for eth/base).
+const RABBY_PRIMARY_CTAS = ["Sign", "Confirm", "Approve", "Connect", "Allow", "Switch network", "Add"];
 
 /**
  * On Rabby's Connect popup the chain chip defaults to Ethereum mainnet.
