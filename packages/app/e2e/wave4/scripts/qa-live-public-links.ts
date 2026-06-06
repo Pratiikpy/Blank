@@ -1026,6 +1026,38 @@ async function main(): Promise<void> {
     return { name: "Creator tip (Bob)", status: ok ? "green" : "red", url: `${VERCEL_URL}/app/creators`, hashes: [], note: ok ? "Bob tipped a creator" : "tip not confirmed — see creator-tip-after.png", screenshot: resolve(OUT, "creator-tip-after.png") };
   });
 
+  // ── Negative / edge cases: does the product FAIL CORRECTLY? (no tx, quick) ──
+  if (FEATURES.includes("negatives")) await runFlow("Negative cases", async () => {
+    await switchRabbyAccount(rabbyPage, extId, "Dave");
+    await ensureDappAccount(page, ctx, extId, known, "Dave");
+    const checks: string[] = [];
+    const noCrash = (t: string) => !/Application error|TypeError|is not a function|undefined is not|ChunkLoadError|white screen/i.test(t);
+    // 1. Bogus claim-link id → honest error, not a crash.
+    await page.goto(`${VERCEL_URL}/claim/421614/0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef`, { waitUntil: "domcontentloaded", timeout: 60_000 }).catch(() => undefined);
+    await page.waitForTimeout(5_000);
+    await snap(page, "neg-claim-bogus");
+    const bogus = await page.evaluate(() => document.body.innerText).catch(() => "");
+    const bogusOk = /not found|invalid|expired|doesn'?t exist|no longer|already claimed|couldn'?t find|unable|no link/i.test(bogus) && noCrash(bogus);
+    checks.push(`bogus-claim:${bogusOk ? "honest-error" : "FAIL"}`);
+    // 2. Malformed claim-link id → honest error, not a crash.
+    await page.goto(`${VERCEL_URL}/claim/421614/notavalidlinkid`, { waitUntil: "domcontentloaded", timeout: 60_000 }).catch(() => undefined);
+    await page.waitForTimeout(4_000);
+    await snap(page, "neg-claim-malformed");
+    const mal = await page.evaluate(() => document.body.innerText).catch(() => "");
+    const malOk = /not found|invalid|expired|doesn'?t exist|error|couldn'?t|unable|no link/i.test(mal) && noCrash(mal);
+    checks.push(`malformed-claim:${malOk ? "honest-error" : "FAIL"}`);
+    // 3. Empty gift → "Send Gift Envelope" is gated (no amount/recipient/theme).
+    await page.goto(`${VERCEL_URL}/app/gifts`, { waitUntil: "domcontentloaded", timeout: 60_000 });
+    await page.locator("h1", { hasText: /Gift Envelopes/i }).waitFor({ state: "visible", timeout: 30_000 });
+    await page.waitForTimeout(2_000);
+    await snap(page, "neg-empty-gift");
+    const giftBtn = page.locator("button").filter({ hasText: /Send Gift Envelope/i }).first();
+    const giftGated = !(await giftBtn.isVisible({ timeout: 3_000 }).catch(() => false)) || (await giftBtn.isDisabled().catch(() => true));
+    checks.push(`empty-gift-gated:${giftGated}`);
+    const allGood = bogusOk && malOk && giftGated;
+    return { name: "Negative cases", status: allGood ? "green" : "red", url: `${VERCEL_URL}/claim/...`, hashes: [], note: checks.join(" | "), screenshot: resolve(OUT, "neg-claim-bogus.png") };
+  });
+
   if (!offrampOnly) await runFlow("Claim Link recipient", async () => {
     await switchRabbyAccount(rabbyPage, extId, "Dave");
     await ensureDappAccount(page, ctx, extId, known, "Dave");
