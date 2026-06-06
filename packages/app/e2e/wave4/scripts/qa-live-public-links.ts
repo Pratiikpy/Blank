@@ -633,6 +633,9 @@ async function main(): Promise<void> {
   // Wave 5.5 — OFFRAMP_ONLY=1 skips earlier flows when re-running just
   // to validate the Offramp lifecycle. Saves ~25 min per chain.
   const offrampOnly = process.env.OFFRAMP_ONLY === "1";
+  // FEATURES=gift,stealth,invoice runs just those focused feature flows
+  // (plus the preflight), skipping the public-link + offramp create flows.
+  const FEATURES = (process.env.FEATURES ?? "").split(",").map((s) => s.trim()).filter(Boolean);
 
   await runFlow("Wallet identity preflight", async () => {
     for (const persona of ["Dave", "Bob", "Carol"] as const) {
@@ -655,7 +658,7 @@ async function main(): Promise<void> {
   // Core feature: direct encrypted send. Dave shields, then sends 1 USDC
   // encrypted to Bob through /app/send. Gated on SEND_FLOW=1 so it can run
   // focused (preflight + send) without the public-link flows.
-  if (process.env.SEND_FLOW === "1") await runFlow("Send P2P (encrypted)", async () => {
+  if (FEATURES.includes("send")) await runFlow("Send P2P (encrypted)", async () => {
     await switchRabbyAccount(rabbyPage, extId, "Dave");
     await ensureDappAccount(page, ctx, extId, known, "Dave");
     await ensureShielded(page, ctx, extId, known, "Dave", "2");
@@ -689,6 +692,71 @@ async function main(): Promise<void> {
       hashes: [],
       note: ok ? `Dave sent 1 USDC encrypted to Bob ${accountByPersona.Bob}` : "send did not reach success — see send-success.png",
       screenshot: resolve(OUT, "send-success.png"),
+    };
+  });
+
+  // Gift envelope (encrypted). Dave shields then sends an encrypted gift to Bob.
+  if (FEATURES.includes("gift")) await runFlow("Gift envelope (encrypted)", async () => {
+    await switchRabbyAccount(rabbyPage, extId, "Dave");
+    await ensureDappAccount(page, ctx, extId, known, "Dave");
+    await ensureShielded(page, ctx, extId, known, "Dave", "2");
+    await page.goto(`${VERCEL_URL}/app/gifts`, { waitUntil: "domcontentloaded", timeout: 60_000 });
+    await page.locator("h1", { hasText: /Gift Envelopes/i }).waitFor({ state: "visible", timeout: 30_000 });
+    await snap(page, "gift-landing");
+    await page.locator('input[placeholder="0.00"]').first().fill("1");
+    await page.locator('input[placeholder="0x... (address)"]').fill(accountByPersona.Bob);
+    await page.locator('textarea[placeholder="Write a heartfelt message..."]').fill("Arb Rabby QA gift").catch(() => undefined);
+    await page.getByRole("button", { name: /Select Birthday theme/i }).click({ timeout: 15_000 });
+    await snap(page, "gift-filled");
+    const sendGiftBtn = page.locator("main button:visible:not([disabled])").filter({ hasText: /Send Gift Envelope/i }).first();
+    await sendGiftBtn.scrollIntoViewIfNeeded({ timeout: 10_000 }).catch(() => undefined);
+    await sendGiftBtn.click({ timeout: 30_000 });
+    await drainRabbyPopups(ctx, extId, known, "gift", 14);
+    await page.getByRole("heading", { name: /Gift Sent!/i }).waitFor({ state: "visible", timeout: 120_000 }).catch(() => undefined);
+    await snap(page, "gift-sent");
+    const ok = await page.evaluate(() => /Gift Sent/i.test(document.body.innerText)).catch(() => false);
+    return {
+      name: "Gift envelope (encrypted)",
+      status: ok ? "green" : "red",
+      url: `${VERCEL_URL}/app/gifts`,
+      hashes: [],
+      note: ok ? "Dave sent encrypted gift envelope to Bob" : "gift did not reach Gift Sent — see gift-sent.png",
+      screenshot: resolve(OUT, "gift-sent.png"),
+    };
+  });
+
+  // Invoice (business). Dave creates an encrypted invoice for Bob.
+  if (FEATURES.includes("invoice")) await runFlow("Invoice create (business)", async () => {
+    await switchRabbyAccount(rabbyPage, extId, "Dave");
+    await ensureDappAccount(page, ctx, extId, known, "Dave");
+    await page.goto(`${VERCEL_URL}/app/business`, { waitUntil: "domcontentloaded", timeout: 60_000 });
+    await page.waitForTimeout(2_500);
+    await page.getByRole("button", { name: /^Invoices$/i }).first().click().catch(() => undefined);
+    await page.waitForTimeout(1_500);
+    const newInvoiceBtn = page.locator("main button:visible:not([disabled])").filter({ hasText: /New Invoice|Create your first invoice/i }).first();
+    await newInvoiceBtn.waitFor({ state: "visible", timeout: 30_000 });
+    await newInvoiceBtn.click();
+    const clientAddr = page.locator('input[placeholder="0x..."]').first();
+    await clientAddr.waitFor({ state: "visible", timeout: 30_000 });
+    await clientAddr.fill(accountByPersona.Bob);
+    await page.locator('input[placeholder="client@company.com"]').fill("bob+arb-rabby@blank.test").catch(() => undefined);
+    await page.locator('input[placeholder="0.00"]').first().fill("25");
+    await page.locator('input[placeholder="Services rendered"]').fill("Arb Rabby QA invoice").catch(() => undefined);
+    await snap(page, "invoice-filled");
+    await page.locator("main button:visible:not([disabled])").filter({ hasText: /^Create Invoice/i }).first().click();
+    await drainRabbyPopups(ctx, extId, known, "invoice", 14);
+    await page.waitForFunction(() => /Invoice sent|Invoice created|invoice-preview/i.test(document.body.innerHTML), { timeout: 120_000 }).catch(() => undefined);
+    await page.waitForTimeout(2_500);
+    await snap(page, "invoice-created");
+    const ok = (await page.locator('[data-testid^="invoice-preview-"]').count().catch(() => 0)) > 0
+      || (await page.evaluate(() => /Invoice sent|Invoice created/i.test(document.body.innerText)).catch(() => false));
+    return {
+      name: "Invoice create (business)",
+      status: ok ? "green" : "red",
+      url: `${VERCEL_URL}/app/business`,
+      hashes: [],
+      note: ok ? "Dave created encrypted invoice for Bob" : "invoice not confirmed — see invoice-created.png",
+      screenshot: resolve(OUT, "invoice-created.png"),
     };
   });
 
@@ -820,7 +888,7 @@ async function main(): Promise<void> {
     };
   });
 
-  if (!process.env.OFFRAMP_RELEASE_FILL && process.env.SEND_FLOW !== "1") await runFlow("Offramp create", async () => {
+  if (!process.env.OFFRAMP_RELEASE_FILL && FEATURES.length === 0) await runFlow("Offramp create", async () => {
     await switchRabbyAccount(rabbyPage, extId, "Dave");
     await ensureDappAccount(page, ctx, extId, known, "Dave");
     setupHashes.Dave ??= await ensureShielded(page, ctx, extId, known, "Dave", "2");
