@@ -55,14 +55,23 @@ function timeAgo(iso: string, now: number): string {
 
 // Single row
 function Row({ a, now }: { a: LiveActivity; now: number }) {
+  // Self-to-self rows (shield / mint / self-request) are correct by protocol
+  // but render as "X -> X", which reads like padded data under the "nothing
+  // to fake here" headline. Drop the arrow and the duplicate address so a
+  // single-party action reads honestly as one address + its type.
+  const isSelfToSelf = a.user_from.toLowerCase() === a.user_to.toLowerCase();
   return (
     <div className={`ll-live-row${a.isNew ? " new" : ""}`}>
       <div className="ll-live-time">{timeAgo(a.created_at, now)}</div>
       <div>
         <div className="ll-live-route">
           <span className="ll-live-addr">{shortAddr(a.user_from)}</span>
-          <span className="ll-live-arrow">→</span>
-          <span className="ll-live-addr">{shortAddr(a.user_to)}</span>
+          {!isSelfToSelf && (
+            <>
+              <span className="ll-live-arrow">→</span>
+              <span className="ll-live-addr">{shortAddr(a.user_to)}</span>
+            </>
+          )}
           <span className="ll-live-type">{humanType(a.activity_type)}</span>
           <span className="ll-live-amount">████.██</span>
         </div>

@@ -438,6 +438,23 @@
   color: var(--ll-muted);
   line-height: 1.4;
 }
+.ll-stat-link {
+  color: var(--ll-accent-dark);
+  text-decoration: none;
+  font-weight: 500;
+  transition: color 0.18s ease;
+}
+.ll-stat-link:hover {
+  color: var(--ll-accent);
+}
+.ll-hero-trust {
+  font-size: 1rem;
+  color: var(--ll-muted);
+  max-width: 620px;
+  margin: 0 auto 1.75rem;
+  line-height: 1.5;
+  font-weight: 500;
+}
 
 /* ─── How it works ────────────────────────────────────────────── */
 .ll-steps {

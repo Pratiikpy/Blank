@@ -26,6 +26,7 @@ function Hero() {
       <h1 className="ll-hero-h1">
         Send a private invoice.<br />Get paid privately.
       </h1>
+      <p className="ll-hero-trust">The amount stays private. The sender stays public.</p>
       <DecodeWord />
       <p className="ll-subline">
         Encrypted invoices. On-chain escrow with automatic refund-on-mismatch.
@@ -55,8 +56,15 @@ function ProofOfProduct() {
   const stats = [
     {
       num: "Live",
-      label:
-        "Deployed on Base Sepolia, Ethereum Sepolia, and Arbitrum Sepolia. Open source and testable today.",
+      label: (
+        <>
+          Deployed on Base Sepolia, Ethereum Sepolia, and Arbitrum Sepolia. Open source and testable today.
+          <br />
+          <a href="https://sepolia.arbiscan.io/tx/0xc623277ed8a44895b149d7b29e8854da5a967e131f463c91e4dca5bb3aa09585" target="_blank" rel="noopener noreferrer" className="ll-stat-link">
+            Real shield tx on Arbitrum Sepolia
+          </a>
+        </>
+      ),
     },
     {
       num: "21",

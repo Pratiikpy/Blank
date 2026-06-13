@@ -263,7 +263,7 @@ const FEATURES: Feature[] = [
   {
     tag: "17. Cash out",
     name: "Off-ramp",
-    pitch: "List your encrypted USDC balance for fiat at a rate you pick. A taker locks the offer and submits settlement evidence. Testnet verification is operator-signed; a live proof provider is required before production use.",
+    pitch: "List your encrypted USDC balance for fiat at a rate you pick. A taker locks the offer and submits settlement evidence. (Testnet: operator-signed verification; production requires a live proof provider.)",
     scenario: "Maya, a freelancer in Bangalore, off-ramps her client's USDC payment to her UPI account without publishing the amount on a public DEX.",
     route: "/app/offramp",
     preview: {
