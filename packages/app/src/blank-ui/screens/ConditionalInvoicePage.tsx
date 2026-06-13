@@ -238,12 +238,9 @@ export default function ConditionalInvoicePage() {
 
               <div className="rounded-xl bg-[#F9FAFB] border border-black/5 divide-y divide-black/5 text-sm">
                 <Row label="Amount">
-                  <div className="space-y-1">
-                    <span className="inline-flex items-center gap-1.5 text-[var(--text-primary)]/80">
-                      <Lock size={13} /> Encrypted
-                    </span>
-                    <p className="text-xs text-[var(--text-primary)]/50">Only the payer and recipient can decrypt this. Stored as ciphertext on-chain.</p>
-                  </div>
+                  <span className="inline-flex items-center gap-1.5 text-[var(--text-primary)]/80">
+                    <Lock size={13} /> Encrypted
+                  </span>
                 </Row>
                 <Row label="Payer">
                   <a href={getAddressExplorerUrl(escrow.depositor, linkChainId)} target="_blank" rel="noopener noreferrer" className="text-[var(--text-primary)] hover:underline inline-flex items-center gap-1">
@@ -258,16 +255,10 @@ export default function ConditionalInvoicePage() {
                   </a>
                 </Row>
                 <Row label="Auto-release">
-                  <div className="space-y-1">
-                    <span className="inline-flex items-center gap-1.5">
-                      <Calendar size={13} />
-                      {new Date(Number(condition.autoReleaseDeadline) * 1000).toLocaleDateString()}
-                    </span>
-                    <a href={`${getExplorerBase(linkChainId)}/address/${CONTRACTS_BY_CHAIN[linkChainId as SupportedChainId].EncryptedEscrow}`} target="_blank" rel="noopener noreferrer" className="text-xs text-[var(--text-primary)]/50 hover:text-[var(--text-primary)]/70 inline-flex items-center gap-0.5">
-                      View escrow contract
-                      <ExternalLink size={10} />
-                    </a>
-                  </div>
+                  <span className="inline-flex items-center gap-1.5">
+                    <Calendar size={13} />
+                    {new Date(Number(condition.autoReleaseDeadline) * 1000).toLocaleDateString()}
+                  </span>
                 </Row>
                 <Row label="Approved">
                   {condition.isApproved ? (
@@ -282,6 +273,22 @@ export default function ConditionalInvoicePage() {
                     <span className="text-[var(--text-primary)]/50">Pending</span>
                   )}
                 </Row>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <div className="flex items-start gap-1.5 text-xs text-[var(--text-primary)]/50">
+                  <Lock size={12} className="mt-0.5 shrink-0" />
+                  <span>Only the payer and recipient can decrypt the amount. It stays ciphertext on-chain.</span>
+                </div>
+                <a
+                  href={`${getExplorerBase(linkChainId)}/address/${CONTRACTS_BY_CHAIN[linkChainId as SupportedChainId].EncryptedEscrow}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-xs text-[var(--text-primary)]/60 hover:text-[var(--text-primary)]"
+                >
+                  View escrow contract on the explorer
+                  <ExternalLink size={11} />
+                </a>
               </div>
 
               {!onArb && (
