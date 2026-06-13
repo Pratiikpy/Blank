@@ -17,7 +17,7 @@ const WORDS: Word[] = [
 ];
 
 const SCRAMBLE_CHARS = "!<>-_\\/[]{}—=+*^?#abcdefghijklmnopqrstuvwxyz";
-const SPEED_MS = 45;
+const SPEED_MS = 85;
 const HOLD_MS = 2200;
 
 function randScrambleChar(): string {
@@ -78,7 +78,7 @@ export function DecodeWord() {
 
     const isSmall = window.innerWidth < 768;
     let wordIdx = 0;
-    let revealPos = 0;
+    let revealPos = WORDS[0].text.length;
     let isPaused = false;
     let hoveredIdx: number | null = null;
     let hoverInterval: ReturnType<typeof setInterval> | null = null;

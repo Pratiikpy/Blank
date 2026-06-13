@@ -53,7 +53,7 @@ const ROWS: Row[] = [
   {
     feature: "Encrypted off-ramp",
     without: "Public order book shows your selling rate and quantity. Front-runners pick you off, takers grief by re-locking at worse prices.",
-    with: "Ciphertext order book. Rate is public and quantity stays encrypted. Testnet uses operator-signed settlement evidence; a live proof provider is required for production use.",
+    with: "Ciphertext order book. Rate is public and quantity stays encrypted. (Testnet: operator-signed; production requires a live proof provider.)",
   },
   {
     feature: "Encrypted analytics",

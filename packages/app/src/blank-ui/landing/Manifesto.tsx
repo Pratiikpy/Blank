@@ -94,12 +94,11 @@ export default function Manifesto() {
           <h2>Private payments aren't a feature</h2>
 
           <p>
-            Blank ships twenty-one surfaces: P2P send, requests, group bills,
-            creator tips, invoicing, batch payroll, escrow with arbiter,
-            claim-code transfers, gift envelopes, inheritance, P2P exchange,
-            encrypted proofs, claim links, storefront, crowdfund, bridge,
-            encrypted offramp to fiat, stealth payments, proof-of-balance,
-            social recovery, and scheduled sends.
+            Blank ships twenty-one surfaces: send, requests, group split,
+            creator tips, invoicing, batch payroll, escrow, stealth payments,
+            gift envelopes, inheritance, P2P exchange, encrypted proofs,
+            claim links, storefront, crowdfund, bridge, off-ramp, handles,
+            guardian recovery, encrypted analytics, and balance proof.
           </p>
 
           <p>

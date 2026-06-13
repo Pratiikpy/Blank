@@ -38,6 +38,7 @@ import {
   ETH_SEPOLIA_ID,
   BASE_SEPOLIA_ID,
   type SupportedChainId,
+  CHAINS,
 } from "@/lib/constants";
 import { truncateAddress } from "@/lib/address";
 
@@ -55,6 +56,15 @@ const STEP_LABEL: Record<string, string> = {
   encrypting: "Encrypting amount…",
   sending: "Submitting…",
 };
+
+function getExplorerBase(chainId: number): string {
+  const chain = CHAINS[chainId as SupportedChainId];
+  return chain?.explorerUrl || "https://sepolia.etherscan.io";
+}
+
+function getAddressExplorerUrl(address: string, chainId: number): string {
+  return `${getExplorerBase(chainId)}/address/${address}`;
+}
 
 function statusLabel(status: number): { label: string; tone: string } {
   switch (status) {
@@ -228,17 +238,36 @@ export default function ConditionalInvoicePage() {
 
               <div className="rounded-xl bg-[#F9FAFB] border border-black/5 divide-y divide-black/5 text-sm">
                 <Row label="Amount">
-                  <span className="inline-flex items-center gap-1.5 text-[var(--text-primary)]/80">
-                    <Lock size={13} /> Encrypted
-                  </span>
+                  <div className="space-y-1">
+                    <span className="inline-flex items-center gap-1.5 text-[var(--text-primary)]/80">
+                      <Lock size={13} /> Encrypted
+                    </span>
+                    <p className="text-xs text-[var(--text-primary)]/50">Only the payer and recipient can decrypt this. Stored as ciphertext on-chain.</p>
+                  </div>
                 </Row>
-                <Row label="Payer">{truncateAddress(escrow.depositor)}</Row>
-                <Row label="Recipient">{truncateAddress(escrow.beneficiary)}</Row>
+                <Row label="Payer">
+                  <a href={getAddressExplorerUrl(escrow.depositor, linkChainId)} target="_blank" rel="noopener noreferrer" className="text-[var(--text-primary)] hover:underline inline-flex items-center gap-1">
+                    {truncateAddress(escrow.depositor)}
+                    <ExternalLink size={11} className="text-[var(--text-primary)]/50" />
+                  </a>
+                </Row>
+                <Row label="Recipient">
+                  <a href={getAddressExplorerUrl(escrow.beneficiary, linkChainId)} target="_blank" rel="noopener noreferrer" className="text-[var(--text-primary)] hover:underline inline-flex items-center gap-1">
+                    {truncateAddress(escrow.beneficiary)}
+                    <ExternalLink size={11} className="text-[var(--text-primary)]/50" />
+                  </a>
+                </Row>
                 <Row label="Auto-release">
-                  <span className="inline-flex items-center gap-1.5">
-                    <Calendar size={13} />
-                    {new Date(Number(condition.autoReleaseDeadline) * 1000).toLocaleDateString()}
-                  </span>
+                  <div className="space-y-1">
+                    <span className="inline-flex items-center gap-1.5">
+                      <Calendar size={13} />
+                      {new Date(Number(condition.autoReleaseDeadline) * 1000).toLocaleDateString()}
+                    </span>
+                    <a href={`${getExplorerBase(linkChainId)}/address/${CONTRACTS_BY_CHAIN[linkChainId as SupportedChainId].EncryptedEscrow}`} target="_blank" rel="noopener noreferrer" className="text-xs text-[var(--text-primary)]/50 hover:text-[var(--text-primary)]/70 inline-flex items-center gap-0.5">
+                      View escrow contract
+                      <ExternalLink size={10} />
+                    </a>
+                  </div>
                 </Row>
                 <Row label="Approved">
                   {condition.isApproved ? (

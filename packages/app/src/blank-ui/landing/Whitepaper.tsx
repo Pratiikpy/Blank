@@ -58,7 +58,7 @@ export default function Whitepaper() {
               },
               {
                 title: "Product surface",
-                body: "Send, invoices, conditional invoices, requests, payroll, gifts, groups, proofs, claim links, storefront, crowdfund, escrow, swap, bridge, P2P exchange, and P2P offramp.",
+                body: "Send, requests, group split, creator tips, invoicing, batch payroll, escrow, stealth payments, gift envelopes, inheritance, P2P exchange, encrypted proofs, claim links, storefront, crowdfund, bridge, off-ramp, handles, guardian recovery, encrypted analytics, and balance proof (21 total).",
               },
             ].map((item) => (
               <div key={item.title} className="ll-stat" style={{ textAlign: "left" }}>
