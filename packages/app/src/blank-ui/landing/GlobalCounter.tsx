@@ -162,7 +162,7 @@ export function GlobalCounter() {
           <div className="gc-stat-label">Receipts issued on {activeChain.name}</div>
           <div className="gc-stat-value">
             {!isConnected ? (
-              <span className="gc-hint">Connect to view live counter</span>
+              <span className="gc-dash">—</span>
             ) : chainMismatch ? (
               <span className="gc-hint">Switch wallet to {activeChain.name}</span>
             ) : loading && txCount === null ? (

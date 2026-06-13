@@ -184,7 +184,7 @@ export default function ConditionalInvoicePage() {
   }, []);
 
   return (
-    <div className="min-h-dvh bg-[#F9FAFB] px-4 py-8 flex justify-center">
+    <main className="min-h-dvh bg-[#F9FAFB] px-4 py-8 flex justify-center">
       <div className="w-full max-w-lg space-y-4">
         <button
           onClick={() => navigate("/app")}
@@ -197,9 +197,9 @@ export default function ConditionalInvoicePage() {
           <div className="flex items-center justify-between">
             <div className="inline-flex items-center gap-2">
               <ShieldCheck size={18} className="text-emerald-600" />
-              <span className="font-semibold text-[var(--text-primary)]" style={{ fontFamily: "'Outfit', sans-serif" }}>
+              <h1 className="font-semibold text-[var(--text-primary)] text-[15px] leading-none m-0" style={{ fontFamily: "'Outfit', sans-serif" }}>
                 Conditional invoice
-              </span>
+              </h1>
             </div>
             {escrow && (
               <span className={`text-xs font-medium px-2.5 py-1 rounded-full border ${statusLabel(escrow.status).tone}`}>
@@ -321,7 +321,7 @@ export default function ConditionalInvoicePage() {
           )}
         </div>
       </div>
-    </div>
+    </main>
   );
 }
 

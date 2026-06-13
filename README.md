@@ -40,7 +40,7 @@ Blank encrypts amounts in the browser and settles encrypted state through Fhenix
 
 | Area | Available capabilities |
 | --- | --- |
-| Payments | Encrypted sends, payment requests, invoices and batch payments |
+| Payments | Encrypted sends, payment requests, invoices, conditional invoices and batch payments |
 | Shared money | Groups, gifts, claim links, inheritance planning |
 | Commerce | Storefront purchases, crowdfund campaigns, encrypted escrow |
 | Exchange | Private token exchange, cross-chain bridge interface, P2P offramp flow |
@@ -49,6 +49,7 @@ Blank encrypts amounts in the browser and settles encrypted state through Fhenix
 
 ### Important Product Boundaries
 
+- Conditional invoices (encrypted escrow that releases on payer approval or after a deadline, built on Reineira's open `IConditionResolver` settlement standard) are live on Arbitrum Sepolia only.
 - Storefront records payment and purchase state. Digital-item delivery is seller-handled today.
 - Offramp contracts and UI are available on testnet; the proof path uses the declared testnet verification setup until production provider and arbitration controls are activated.
 - Scheduled-send authorization surfaces are present; automated execution is not yet a supported testnet capability.
@@ -113,7 +114,7 @@ For the public product documentation, start with the [docs index](docs/README.md
 
 ## Testnet Deployments
 
-The same contract set is deployed on all three supported testnets.
+The core contract set is deployed on all three supported testnets. The conditional-invoice resolver (`InvoiceApprovalResolver`) is on Arbitrum Sepolia only.
 
 | Contract | Base Sepolia | Ethereum Sepolia | Arbitrum Sepolia |
 | --- | --- | --- | --- |
@@ -128,6 +129,7 @@ The same contract set is deployed on all three supported testnets.
 | `P2POfframp` | [`0xd717...32f9`](https://sepolia.basescan.org/address/0xd717E7AFE5eB627c9913bc682003d6E83b9032f9) | [`0x5981...444a`](https://sepolia.etherscan.io/address/0x5981C437032Da38844AE9a3aa382F993b1B8444a) | [`0x653e...961f`](https://sepolia.arbiscan.io/address/0x653e71e5F02a0fEAAFfCab5391DF0AE99b89961f) |
 | `ProofOfBalance` | [`0x25e7...36Ff`](https://sepolia.basescan.org/address/0x25e7383Bd5602a07928629e9Ec6eaec9535536Ff) | [`0xff0F...1856`](https://sepolia.etherscan.io/address/0xff0Fa776116a17b6fbD62E48CA14F48b31E31856) | [`0x23f0...AD7c`](https://sepolia.arbiscan.io/address/0x23f0530e107cCF940093c238bbc97EbdAD6fAD7c) |
 | `GuardianModule` | [`0x4fa2...5B46`](https://sepolia.basescan.org/address/0x4fa2152A940651404F2722c0192624d0662e5B46) | [`0xdBE8...0c3E`](https://sepolia.etherscan.io/address/0xdBE8252D1e089759b56E742843303f0b18700c3E) | [`0x4e9d...C37A`](https://sepolia.arbiscan.io/address/0x4e9d93739b6F3543017C46d844F2021B6f5dC37A) |
+| `InvoiceApprovalResolver` | not deployed | not deployed | [`0x489D...5cc1`](https://sepolia.arbiscan.io/address/0x489D08059d578dF5f3A003B4A1acdF1243F55cc1) |
 
 The encrypted-vault FHE path is proven on Arbitrum Sepolia by a real shield transaction: [`0xc623...9585`](https://sepolia.arbiscan.io/tx/0xc623277ed8a44895b149d7b29e8854da5a967e131f463c91e4dca5bb3aa09585). The feature set has since been driven through the UI on Arbitrum Sepolia with a real browser wallet, including multi-wallet send and consume flows, each with an on-chain transaction.
 

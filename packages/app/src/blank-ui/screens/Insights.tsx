@@ -129,7 +129,7 @@ export default function Insights() {
           className="rounded-2xl border border-blue-500/20 bg-blue-500/5 px-4 py-3 mb-6 text-sm text-[var(--text-primary)]/80"
         >
           <strong className="font-medium text-blue-700">Encrypted by design.</strong>{" "}
-          Wave 5 v1 aggregates by event count, not by amount. Amounts
+          Insights v1 aggregates by event count, not by amount. Amounts
           live on-chain encrypted, decrypted only by your passkey-bound
           permit. Per-row amount decrypt + FHE-aggregated totals ship
           in a later wave.

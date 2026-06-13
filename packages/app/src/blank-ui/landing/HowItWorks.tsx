@@ -33,7 +33,7 @@ const ROWS: Row[] = [
   {
     feature: "Salary / balance proof",
     without: "Reveal your full statement to rent a flat.",
-    with: "Return an ebool ('income ≥ $X') without revealing $X.",
+    with: "Return an encrypted yes/no (an ebool) for 'income ≥ $X' without revealing $X.",
   },
   {
     feature: "Group expense splits",

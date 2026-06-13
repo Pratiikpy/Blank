@@ -108,8 +108,8 @@ html, body { margin: 0; padding: 0; background: var(--bg); color: var(--fg); fon
 .tx h3 { font-size: 15px; margin: 0 0 8px; color: var(--accent); }
 .tx ul { margin: 0; padding-left: 0; list-style: none; }
 .tx li { padding: 6px 0; font-family: var(--mono); font-size: 13px; }
-.tx li a { color: var(--link); text-decoration: none; }
-.tx li a:hover { text-decoration: underline; }
+.tx li a { color: var(--link); text-decoration: underline; text-underline-offset: 2px; }
+.tx li a:hover { color: var(--accent); }
 .tx li .label { font-family: inherit; color: var(--muted); margin-right: 8px; }
 .chain { display: inline-block; padding: 2px 10px; border-radius: 4px; font: 600 11px/1.5 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; margin-right: 6px; }
 .chain.base { background: #dbeafe; color: #1e40af; }
@@ -161,7 +161,7 @@ footer { margin-top: 96px; padding-top: 24px; border-top: 1px solid var(--border
 <body>
 <div class="page">
 
-<div class="topline"><span>blank. / product proof</span><span>Live testnet receipts · 2026-05-25</span></div>
+<div class="topline"><span>blank. / product proof</span><span>Testnet receipts · snapshot 2026-05-25</span></div>
 <header class="hero">
   <div class="eyebrow">Confidential payments and commerce</div>
   <h1>Amounts stay private.<br><span>Outcomes stay verifiable.</span></h1>
@@ -179,6 +179,7 @@ footer { margin-top: 96px; padding-top: 24px; border-top: 1px solid var(--border
   </div>
 </header>
 
+<main>
 <section class="section" id="problem">
   <div class="eyebrow">01 / Problem and boundary</div>
   <h2>Public money reveals private business.</h2>
@@ -280,7 +281,7 @@ footer { margin-top: 96px; padding-top: 24px; border-top: 1px solid var(--border
 
 <section class="section" id="coverage">
   <h2>Recorded desktop coverage</h2>
-  <p class="lede">The visual sections focus on shareable and Wave 5 headline journeys. The matrix below states the Rabby EOA outcomes recorded during live QA on both Sepolia chains.</p>
+  <p class="lede">The visual sections focus on shareable and offramp headline journeys. The matrix below states the Rabby EOA outcomes recorded during live QA on both Sepolia chains.</p>
   <table class="matrix" aria-label="Desktop Rabby testnet feature coverage">
     <thead>
       <tr><th>Outcome verified</th><th>Base Sepolia</th><th>Ethereum Sepolia</th></tr>
@@ -460,7 +461,7 @@ footer { margin-top: 96px; padding-top: 24px; border-top: 1px solid var(--border
     </figure>
   </div>
   <div class="tx">
-    <h3>Fresh create + fill proof · 2026-05-25</h3>
+    <h3>Create + fill proof · 2026-05-25</h3>
     <ul>
       <li><span class="label"><span class="chain eth">Eth</span> Create:</span><a href="https://sepolia.etherscan.io/tx/0x662348514cd319057148cbba765ebe814e511ef21a645736f9cd286d0f1b8142" target="_blank" rel="noopener">0x66234851…</a> · <span class="label">Fill sequence:</span><a href="https://sepolia.etherscan.io/tx/0x7665f3be096e0ed14771f3de6292fbf210090e2f8228f8d6a2fe9879b7d53ffa" target="_blank" rel="noopener">0x7665f3be…</a></li>
       <li><span class="label"><span class="chain base">Base</span> Create:</span><a href="https://sepolia.basescan.org/tx/0x728e9ebe23cffc2ae4d75243c54c465020860960b97e2a675e2eac2760f2877a" target="_blank" rel="noopener">0x728e9ebe…</a> · <span class="label">Fill sequence:</span><a href="https://sepolia.basescan.org/tx/0xc01b152cf73b82e7ca41d95dc5f5a1dc9e2e7f181af613b43906987fc952c0c2" target="_blank" rel="noopener">0xc01b152c…</a></li>
@@ -470,7 +471,7 @@ footer { margin-top: 96px; padding-top: 24px; border-top: 1px solid var(--border
 
 <section class="section" id="offramp-create">
   <h2>6. P2P Offramp · create (headline)</h2>
-  <p class="lede">Wave 5 headline build. Dave creates an encrypted offramp offer: 1 USDC for $1 PhonePe UPI. The USDC amount is committed encrypted; the fiat rail + price are public so takers can find it. Offer appears in the public book.</p>
+  <p class="lede">Encrypted offramp headline build. Dave creates an encrypted offramp offer: 1 USDC for $1 PhonePe UPI. The USDC amount is committed encrypted; the fiat rail + price are public so takers can find it. Offer appears in the public book.</p>
   <div class="shot-grid">
     <figure class="shot">
       <img src="/proof-images/base-offramp-create-after.png" alt="Offramp create after">
@@ -561,6 +562,7 @@ footer { margin-top: 96px; padding-top: 24px; border-top: 1px solid var(--border
     </ul>
   </div>
 </section>
+</main>
 
 <footer>
   Generated 2026-05-25 · screenshots from live QA evidence directories · desktop Rabby testnet scope executed through <code>https://app.myblank.app</code>. Mainnet, full mobile transaction coverage, and sponsored/passkey readiness are not claimed here.

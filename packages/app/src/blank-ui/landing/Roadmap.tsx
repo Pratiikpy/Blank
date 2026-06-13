@@ -54,7 +54,7 @@ const SHIPPED: RoadmapItem[] = [
   {
     title: "Group expenses + gift envelopes",
     detail:
-      "Splitwise-shape with encrypted shares. Quadratic voting on disputes. Gift envelopes with equal or random splits.",
+      "Splitwise-shape with encrypted shares. Quadratic voting on disputes, where each extra vote costs the square of its weight so no single member dominates. Gift envelopes with equal or random splits.",
   },
   {
     title: "Confidential payroll",
@@ -117,7 +117,7 @@ const NEXT: RoadmapItem[] = [
   {
     title: "Design system extraction",
     detail:
-      "Empty / error / loading state primitives shipped in Wave 5; the rest is tokens, buttons, modals, and form components in one extracted library so new screens stay consistent automatically.",
+      "Empty / error / loading state primitives are shipped; the rest is tokens, buttons, modals, and form components in one extracted library so new screens stay consistent automatically.",
   },
   {
     title: "Trust layer (security + audit)",

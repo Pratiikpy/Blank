@@ -119,7 +119,7 @@ export default function Live() {
           <div className="ll-live-status">
             <span className="ll-live-dot" />
             {supabaseConfigured
-              ? "Streaming from Base Sepolia & Ethereum Sepolia"
+              ? "Streaming from Base Sepolia, Ethereum Sepolia & Arbitrum Sepolia"
               : "Supabase not configured. Showing empty state"}
           </div>
 

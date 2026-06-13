@@ -156,7 +156,7 @@ function Section({
 
 function RedactedLine() {
   return (
-    <span className="bk-redacted-line" aria-label="redacted text">
+    <span className="bk-redacted-line" aria-hidden="true">
       <span />
       <span className="wide" />
       <span />
