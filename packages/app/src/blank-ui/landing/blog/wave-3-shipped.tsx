@@ -51,6 +51,19 @@ const post: BlogPost = {
           link to the settlement tx.
         </li>
       </ol>
+
+      <figure className="ll-blog-figure">
+        <img
+          src="/proof-images/eth-storefront-create-success.png"
+          alt="Blank app showing a created listing with a public payment link and a Copy link button, captioned: buyers don't need a wallet to view, they create one when they pay."
+          loading="lazy"
+        />
+        <figcaption>
+          The link the payer opens. No account needed: they create a
+          wallet the moment they pay.
+        </figcaption>
+      </figure>
+
       <p>
         The thing that actually took the longest wasn't the contract
        , it was the cross-contract input verification primitive,{" "}
@@ -90,6 +103,18 @@ const post: BlogPost = {
         a skeptical buyer wondering if the invoice cleared, and
         it's verifiable without trusting Blank.
       </p>
+
+      <figure className="ll-blog-figure">
+        <img
+          src="/proof-images/eth-offramp-proof-after.png"
+          alt="Blank settlement card reading $1.00, proof submitted, challenge window open, with a release countdown button."
+          loading="lazy"
+        />
+        <figcaption>
+          A real settlement card: proof submitted, challenge window still
+          open, release pending. The chain is the receipt, not our database.
+        </figcaption>
+      </figure>
 
       <h2>Smaller things worth mentioning</h2>
       <ul>

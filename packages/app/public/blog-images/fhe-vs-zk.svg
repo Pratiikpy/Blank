@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 360" role="img" aria-labelledby="title desc">
+  <title id="title">Zero-knowledge vs fully homomorphic encryption</title>
+  <desc id="desc">Two side-by-side diagrams. On the left, zero-knowledge as a communication primitive: a hidden input produces a proof that a verifier checks, seeing the proof and output but never the input. On the right, fully homomorphic encryption as a computation primitive: ciphertext goes in, an operation transforms it to ciphertext out, and only a key-holder decrypts the result.</desc>
+
+  <defs>
+    <style>
+      .frame { fill: none; stroke: #1d1d1f; stroke-width: 1.5; }
+      .chip { fill: #f5f6f4; stroke: #1d1d1f; stroke-width: 1.2; }
+      .chip-dark { fill: #1d1d1f; stroke: #1d1d1f; stroke-width: 1.2; }
+      .title { font: 600 16px/1 "Outfit", system-ui, sans-serif; fill: #1d1d1f; }
+      .label { font: 500 13px/1.3 "Outfit", system-ui, sans-serif; fill: #1d1d1f; }
+      .label-light { font: 500 13px/1.3 "Outfit", system-ui, sans-serif; fill: #ffffff; }
+      .caption { font: 500 11px/1.2 "JetBrains Mono", ui-monospace, monospace; fill: #6b7280; letter-spacing: 0.06em; text-transform: uppercase; }
+      .arrow { fill: none; stroke: #1d1d1f; stroke-width: 1.5; }
+      .accent { fill: #047857; }
+    </style>
+    <marker id="arrowhead" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#1d1d1f"/>
+    </marker>
+  </defs>
+
+  <!-- LEFT PANEL: Zero-knowledge -->
+  <text x="20" y="32" class="caption">Proves about hidden data</text>
+  <text x="20" y="58" class="title">Zero-knowledge (ZK)</text>
+  <rect x="20" y="80" width="340" height="240" rx="8" class="frame"/>
+
+  <rect x="120" y="100" width="140" height="48" rx="6" class="chip-dark"/>
+  <text x="190" y="122" text-anchor="middle" class="label-light">Hidden input X</text>
+  <text x="190" y="139" text-anchor="middle" class="label-light" font-size="11" opacity="0.7">the secret</text>
+
+  <line x1="190" y1="150" x2="190" y2="168" class="arrow" marker-end="url(#arrowhead)"/>
+  <text x="205" y="163" class="label" font-size="10" opacity="0.7">prove</text>
+
+  <rect x="110" y="170" width="160" height="44" rx="6" class="chip"/>
+  <text x="190" y="191" text-anchor="middle" class="label">Proof &#960;</text>
+  <text x="190" y="207" text-anchor="middle" class="label" font-size="11" opacity="0.65">reveals nothing about X</text>
+
+  <line x1="190" y1="216" x2="190" y2="234" class="arrow" marker-end="url(#arrowhead)"/>
+  <text x="205" y="229" class="label" font-size="10" opacity="0.7">send</text>
+
+  <rect x="110" y="236" width="160" height="46" rx="6" class="chip"/>
+  <text x="190" y="258" text-anchor="middle" class="label">Verifier checks &#10003;</text>
+  <text x="190" y="274" text-anchor="middle" class="label" font-size="11" opacity="0.65">sees proof + output, not X</text>
+
+  <text x="40" y="302" class="label" font-size="11" opacity="0.7">+ tiny proof, verify in milliseconds</text>
+  <text x="40" y="316" class="label" font-size="11" opacity="0.7">- cannot compute new values on X</text>
+
+  <!-- RIGHT PANEL: Fully homomorphic encryption -->
+  <text x="440" y="32" class="caption">Computes on hidden data</text>
+  <text x="440" y="58" class="title">Fully homomorphic (FHE) <tspan class="accent">· Blank uses this</tspan></text>
+  <rect x="440" y="80" width="340" height="240" rx="8" class="frame"/>
+
+  <rect x="540" y="100" width="140" height="48" rx="6" class="chip-dark"/>
+  <text x="610" y="122" text-anchor="middle" class="label-light">Ciphertext in</text>
+  <text x="610" y="139" text-anchor="middle" class="label-light" font-size="11" opacity="0.7">encrypted amount</text>
+
+  <line x1="610" y1="150" x2="610" y2="168" class="arrow" marker-end="url(#arrowhead)"/>
+  <text x="625" y="163" class="label" font-size="10" opacity="0.7">on-chain</text>
+
+  <rect x="500" y="170" width="220" height="44" rx="6" class="chip"/>
+  <text x="610" y="191" text-anchor="middle" class="label" font-size="12">FHE op: add &#183; compare &#183; select</text>
+  <text x="610" y="207" text-anchor="middle" class="label" font-size="11" opacity="0.65">ciphertext in &#8594; ciphertext out</text>
+
+  <line x1="610" y1="216" x2="610" y2="234" class="arrow" marker-end="url(#arrowhead)"/>
+  <text x="625" y="229" class="label" font-size="10" opacity="0.7">permit</text>
+
+  <rect x="525" y="236" width="170" height="46" rx="6" class="chip"/>
+  <text x="610" y="258" text-anchor="middle" class="label">Key-holder decrypts</text>
+  <text x="610" y="274" text-anchor="middle" class="label" font-size="11" opacity="0.65">only allowed addresses</text>
+
+  <text x="460" y="302" class="label" font-size="11" opacity="0.7">+ compute on values that stay hidden</text>
+  <text x="460" y="316" class="label" font-size="11" opacity="0.7">- slower, plus a threshold-trust step</text>
+</svg>

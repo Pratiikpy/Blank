@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 280" role="img" aria-labelledby="title desc">
+  <title id="title">The four jobs a token does, and why Blank needs none</title>
+  <desc id="desc">Four cards. Coordinate infrastructure: Blank is built on Fhenix and Ethereum. Align early users: Blank is an app, not a protocol. Bootstrap liquidity: payments settle in USDC. Speculation: skipped on purpose.</desc>
+
+  <defs>
+    <style>
+      .chip { fill: #f5f6f4; stroke: #1d1d1f; stroke-width: 1.2; }
+      .chip-dark { fill: #1d1d1f; stroke: #1d1d1f; stroke-width: 1.2; }
+      .title { font: 600 16px/1 "Outfit", system-ui, sans-serif; fill: #1d1d1f; }
+      .job { font: 600 15px/1.2 "Outfit", system-ui, sans-serif; fill: #1d1d1f; }
+      .num { font: 600 14px/1 "Outfit", system-ui, sans-serif; fill: #ffffff; }
+      .caption { font: 500 11px/1.2 "JetBrains Mono", ui-monospace, monospace; fill: #6b7280; letter-spacing: 0.06em; text-transform: uppercase; }
+      .verdict { font: 500 13px/1.3 "Outfit", system-ui, sans-serif; fill: #6b7280; }
+      .accent { fill: #047857; }
+      .divider { stroke: #1d1d1f; stroke-width: 1; opacity: 0.12; }
+    </style>
+  </defs>
+
+  <text x="20" y="30" class="caption">Why teams issue a token</text>
+  <text x="20" y="56" class="title">Four jobs a token does. Blank needs none.</text>
+
+  <!-- Card 1 -->
+  <rect x="20" y="80" width="179" height="172" rx="8" class="chip"/>
+  <rect x="36" y="98" width="28" height="28" rx="6" class="chip-dark"/>
+  <text x="50" y="118" text-anchor="middle" class="num">1</text>
+  <text x="36" y="162" class="job">Coordinate</text>
+  <text x="36" y="181" class="job">infrastructure</text>
+  <line x1="36" y1="198" x2="183" y2="198" class="divider"/>
+  <text x="36" y="218" class="caption">Blank</text>
+  <text x="36" y="237" class="verdict">Built on Fhenix + ETH</text>
+
+  <!-- Card 2 -->
+  <rect x="213" y="80" width="179" height="172" rx="8" class="chip"/>
+  <rect x="229" y="98" width="28" height="28" rx="6" class="chip-dark"/>
+  <text x="243" y="118" text-anchor="middle" class="num">2</text>
+  <text x="229" y="162" class="job">Align early</text>
+  <text x="229" y="181" class="job">users</text>
+  <line x1="229" y1="198" x2="376" y2="198" class="divider"/>
+  <text x="229" y="218" class="caption">Blank</text>
+  <text x="229" y="237" class="verdict">It's an app, not a protocol</text>
+
+  <!-- Card 3 -->
+  <rect x="406" y="80" width="179" height="172" rx="8" class="chip"/>
+  <rect x="422" y="98" width="28" height="28" rx="6" class="chip-dark"/>
+  <text x="436" y="118" text-anchor="middle" class="num">3</text>
+  <text x="422" y="162" class="job">Bootstrap</text>
+  <text x="422" y="181" class="job">liquidity</text>
+  <line x1="422" y1="198" x2="569" y2="198" class="divider"/>
+  <text x="422" y="218" class="caption">Blank</text>
+  <text x="422" y="237" class="verdict">USDC settles it</text>
+
+  <!-- Card 4 -->
+  <rect x="599" y="80" width="179" height="172" rx="8" class="chip"/>
+  <rect x="615" y="98" width="28" height="28" rx="6" class="chip-dark"/>
+  <text x="629" y="118" text-anchor="middle" class="num">4</text>
+  <text x="615" y="162" class="job">Speculation</text>
+  <line x1="615" y1="198" x2="762" y2="198" class="divider"/>
+  <text x="615" y="218" class="caption">Blank</text>
+  <text x="615" y="237" class="verdict accent">Skipped on purpose</text>
+</svg>
