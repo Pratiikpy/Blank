@@ -9,7 +9,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 // the og:image origin, the canonical/redirect targets, the cache header
 // and the HTML escaping so a regression can't silently break unfurls.
 
-import handler from "./link.js";
+import handler from "../_lib/share-link.js";
 
 interface MockRes {
   headers: Record<string, string>;

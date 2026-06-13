@@ -1,5 +1,7 @@
 /**
- * /api/share/link?type=<type>&chainId=<chainId>&id=<id>
+ * Resource-link OG handler — dispatched by api/share/[kind].ts for
+ * kind=link. Lives in _lib so it is NOT counted as its own serverless
+ * function (the project caps at 12; see #380).
  *
  * Crawler-friendly HTML wrapper for Blank's shareable resource links:
  * conditional invoices, payment links, claim links, storefronts and
@@ -13,26 +15,26 @@
  *   /fund/:chainId/:campaignId) are rendered client-side by React, so a
  *   crawler that doesn't run JS sees an empty index.html shell and
  *   unfurls the site-wide card. Per-resource previews need server-rendered
- *   meta tags whose values resolve without JS — that's this endpoint.
+ *   meta tags whose values resolve without JS — that's this handler.
  *
  * No redirect loop:
  *   vercel.json rewrites the real routes here ONLY when the `app` query
- *   param is absent. This endpoint bounces real browsers to the same
+ *   param is absent. This handler bounces real browsers to the same
  *   route with `?app=1`, which skips the rewrite and falls through to the
  *   SPA. Crawlers parse the meta tags and never follow the refresh.
  *
  * No chain read:
  *   v1 renders a per-resource-type card (distinct title + description per
  *   type), not per-instance detail. Amounts are encrypted anyway, so the
- *   card never claims a value. This keeps the endpoint dependency-free
- *   and failure-free: a previewer always gets a correct, on-brand card.
+ *   card never claims a value. This keeps the handler dependency-free and
+ *   failure-free: a previewer always gets a correct, on-brand card.
  *
- * Cache: 5 minutes public + 1 day SWR — same shape as /api/share/proof.
+ * Cache: 5 minutes public + 1 day SWR — same shape as the proof handler.
  */
 
 // Site URL for absolute meta-tag URLs. og:image must be absolute or
-// Twitter Cards rejects it. Mirrors /api/share/proof's resolution order:
-// VERCEL_URL (set on every Vercel deploy) → PUBLIC_APP_URL → inbound host
+// Twitter Cards rejects it. Mirrors the proof handler's resolution order:
+// VERCEL_URL (set on every Vercel deploy) -> PUBLIC_APP_URL -> inbound host
 // header. Fails loud rather than emit a broken og:image URL.
 function siteOrigin(req: { headers?: Record<string, string | undefined> }): string {
   if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
@@ -101,7 +103,7 @@ function resourcePath(type: string, chainId: string | null, id: string | null): 
   return `/${type}/${chainId}/${id}`;
 }
 
-export default async function handler(req: any, res: any) {
+export default async function linkHandler(req: any, res: any) {
   const url = new URL(req.url ?? "/", "http://x");
   const type = url.searchParams.get("type") ?? "";
   const chainId = url.searchParams.get("chainId");

@@ -34,7 +34,7 @@ vi.mock("../_lib/addresses.js", () => ({
   RPC_URLS: { 11155111: "https://sepolia", 84532: "https://base-sepolia" },
 }));
 
-import handler from "./proof.js";
+import handler from "../_lib/share-proof.js";
 
 interface MockRes {
   headers: Record<string, string>;
