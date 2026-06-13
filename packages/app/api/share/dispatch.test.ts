@@ -1,13 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
-// §15.x test for /api/share/[kind] — the single function that fans out
-// to the per-kind OG handlers in _lib (one function, two surfaces, to
-// stay under the 12-function deploy cap; see #380). The handlers
-// themselves are covered by share-proof/share-link suites; this pins the
-// dispatch: kind=link -> link card, default -> proof card, resolved from
-// either req.query.kind (Vercel) or the request path (fallback).
+// §15.x test for the api/share/proof dispatcher — one static function
+// that fans out to the per-kind OG handlers in _lib (one function, two
+// surfaces, to stay under the 12-function deploy cap; see #380). The
+// handlers themselves are covered by the share-proof/share-link suites;
+// this pins the dispatch: ?kind=link -> link card, default -> proof card.
 
-import handler from "./[kind].js";
+import handler from "./proof.js";
 
 interface MockRes {
   headers: Record<string, string>;
@@ -36,29 +35,29 @@ afterEach(() => {
   delete process.env.VERCEL_URL;
 });
 
-describe("share kind dispatch", () => {
-  it("kind=link via req.query routes to the link handler", async () => {
+describe("share dispatch", () => {
+  it("?kind=link via the query string routes to the link handler", async () => {
     const res = makeRes();
     await handler(
-      { url: "/api/share/link?type=conditional-invoice&chainId=421614&id=2", query: { kind: "link" }, headers: {} },
+      { url: "/api/share/proof?kind=link&type=conditional-invoice&chainId=421614&id=2", headers: {} },
       res,
     );
     expect(res.body).toContain("Conditional invoice on Blank");
   });
 
-  it("kind=link inferred from the path when query.kind is absent", async () => {
+  it("?kind=link via req.query (Vercel-injected) routes to the link handler", async () => {
     const res = makeRes();
     await handler(
-      { url: "/api/share/link?type=pay&id=alice", headers: {} },
+      { url: "/api/share/proof?type=pay&id=alice", query: { kind: "link", type: "pay", id: "alice" }, headers: {} },
       res,
     );
     expect(res.body).toContain("Get paid privately on Blank");
   });
 
-  it("default (proof) handler when kind is not link", async () => {
+  it("no kind -> proof handler (the /v/:proofId default)", async () => {
     const res = makeRes();
     // No proof id -> generic proof copy, no chain read needed.
-    await handler({ url: "/api/share/proof", query: { kind: "proof" }, headers: {} }, res);
+    await handler({ url: "/api/share/proof", headers: {} }, res);
     expect(res.body).toContain("Encrypted proof on Blank");
   });
 });

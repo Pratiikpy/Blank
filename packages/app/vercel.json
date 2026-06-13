@@ -30,11 +30,11 @@
     { "source": "/v/:proofId", "destination": "/api/share/proof?id=:proofId" },
     { "source": "/api/relayer-health", "destination": "/api/health?kind=relayer" },
     { "source": "/api/reconcile-user", "destination": "/api/cron/reconcile-user" },
-    { "source": "/conditional-invoice/:chainId/:escrowId", "missing": [{ "type": "query", "key": "app" }], "destination": "/api/share/link?type=conditional-invoice&chainId=:chainId&id=:escrowId" },
-    { "source": "/pay/:identifier", "missing": [{ "type": "query", "key": "app" }], "destination": "/api/share/link?type=pay&id=:identifier" },
-    { "source": "/claim/:chainId/:linkId", "missing": [{ "type": "query", "key": "app" }], "destination": "/api/share/link?type=claim&chainId=:chainId&id=:linkId" },
-    { "source": "/shop/:chainId/:listingId", "missing": [{ "type": "query", "key": "app" }], "destination": "/api/share/link?type=shop&chainId=:chainId&id=:listingId" },
-    { "source": "/fund/:chainId/:campaignId", "missing": [{ "type": "query", "key": "app" }], "destination": "/api/share/link?type=fund&chainId=:chainId&id=:campaignId" },
+    { "source": "/conditional-invoice/:chainId/:escrowId", "missing": [{ "type": "query", "key": "app" }], "destination": "/api/share/proof?kind=link&type=conditional-invoice&chainId=:chainId&id=:escrowId" },
+    { "source": "/pay/:identifier", "missing": [{ "type": "query", "key": "app" }], "destination": "/api/share/proof?kind=link&type=pay&id=:identifier" },
+    { "source": "/claim/:chainId/:linkId", "missing": [{ "type": "query", "key": "app" }], "destination": "/api/share/proof?kind=link&type=claim&chainId=:chainId&id=:linkId" },
+    { "source": "/shop/:chainId/:listingId", "missing": [{ "type": "query", "key": "app" }], "destination": "/api/share/proof?kind=link&type=shop&chainId=:chainId&id=:listingId" },
+    { "source": "/fund/:chainId/:campaignId", "missing": [{ "type": "query", "key": "app" }], "destination": "/api/share/proof?kind=link&type=fund&chainId=:chainId&id=:campaignId" },
     { "source": "/(.*)", "destination": "/index.html" }
   ],
   "headers": [
