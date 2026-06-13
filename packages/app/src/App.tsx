@@ -41,6 +41,8 @@ const ClaimLinkPage = lazy(() => import("@/blank-ui/screens/ClaimLinkPage"));
 const StorefrontPage = lazy(() => import("@/blank-ui/screens/StorefrontPage"));
 // Wave 4 — encrypted crowdfund: public contributor flow.
 const CrowdfundPage = lazy(() => import("@/blank-ui/screens/CrowdfundPage"));
+// Conditional invoice — public payer/recipient link (Arbitrum Sepolia).
+const ConditionalInvoicePage = lazy(() => import("@/blank-ui/screens/ConditionalInvoicePage"));
 
 // The app itself — separate bundle, wallet-gated internally
 const BlankApp  = lazy(() =>
@@ -159,6 +161,8 @@ export function App() {
           <Route path="/shop/:chainId/:listingId" element={<StorefrontPage />} />
           {/* Wave 4 — public crowdfund contributor page. */}
           <Route path="/fund/:chainId/:campaignId" element={<CrowdfundPage />} />
+          {/* Conditional invoice — public payer/recipient link. */}
+          <Route path="/conditional-invoice/:chainId/:escrowId" element={<ConditionalInvoicePage />} />
           {/*
             The product lives under /app/*. BlankApp has its own internal <Routes>
             with absolute paths prefixed /app (e.g., /app/send, /app/groups, etc.).

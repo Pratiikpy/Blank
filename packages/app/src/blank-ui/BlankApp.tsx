@@ -40,6 +40,9 @@ const Analytics = lazy(() => import("./screens/Analytics"));
 const Insights = lazy(() => import("./screens/Insights"));
 const BusinessTools = lazy(() => import("./screens/BusinessTools"));
 const InvoicePage = lazy(() => import("./screens/InvoicePage"));
+const ConditionalInvoiceCreate = lazy(() =>
+  import("./screens/ConditionalInvoicePage").then((m) => ({ default: m.ConditionalInvoiceCreate })),
+);
 const CreatorSupport = lazy(() => import("./screens/CreatorSupport"));
 const InheritancePlanning = lazy(() => import("./screens/InheritancePlanning"));
 const Requests = lazy(() => import("./screens/Requests"));
@@ -477,6 +480,7 @@ export function BlankApp() {
               {/* Wave 5 Block 4 — encrypted analytics screen. */}
               <Route path="insights" element={<Insights />} />
               <Route path="business" element={<BusinessTools />} />
+              <Route path="conditional-invoices" element={<ConditionalInvoiceCreate />} />
               {/* PR-C step 3: deep-link invoice escrow page. Not in nav
                   registry (it's a per-invoice URL, not a primary surface).
                   Direct links from "Copy invoice link" land here. */}

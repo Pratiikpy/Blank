@@ -4,7 +4,7 @@
 // continue to work via useBusinessHub for back-compat.
 
 import { useCallback, useState } from "react";
-import { parseUnits } from "viem";
+import { parseUnits, encodeAbiParameters } from "viem";
 import { usePublicClient } from "wagmi";
 import toast from "react-hot-toast";
 
@@ -13,7 +13,7 @@ import { useUnifiedWrite } from "./useUnifiedWrite";
 import { useFhePipeline } from "./useFhePipeline";
 import { useChain } from "@/providers/ChainProvider";
 import { useCofheEncrypt, useCofheConnection, Encryptable } from "@/lib/cofhe-shim";
-import { EncryptedEscrowAbi, FHERC20VaultAbi } from "@/lib/abis";
+import { EncryptedEscrowAbi, FHERC20VaultAbi, InvoiceApprovalResolverAbi } from "@/lib/abis";
 import { MAX_UINT64, type EncryptedInput, getExplorerTxUrl } from "@/lib/constants";
 import { isVaultApproved, markVaultApproved } from "@/lib/approval";
 import { extractEventId } from "@/lib/event-parser";
@@ -46,6 +46,7 @@ const FRIENDLY_LABEL: Record<string, string> = {
   disputeEscrow: "Dispute opened",
   claimExpiredEscrow: "Escrow refunded after deadline",
   arbiterDecide: "Arbiter decision recorded",
+  releaseIfConditionMet: "Funds released",
 };
 
 export function useEncryptedEscrow() {
@@ -200,6 +201,104 @@ export function useEncryptedEscrow() {
     [guardReady, pipeline, ensureVaultApproval, encryptInputsAsync, unifiedWriteAndWait, publicClient],
   );
 
+  // Conditional invoice: the depositor (payer) escrows an encrypted amount to
+  // the beneficiary (vendor) under the InvoiceApprovalResolver. Releases when
+  // the payer approves, or after the auto-release deadline. Arb Sepolia only.
+  const createConditionalInvoice = useCallback(
+    async (params: {
+      beneficiary: `0x${string}`;
+      vault: `0x${string}`;
+      amountTokens: string;
+      decimals: number;
+      description: string;
+      deadlineSeconds: number;
+    }) => {
+      const ready = guardReady();
+      if (!ready) return null;
+      const { ee } = ready;
+
+      const resolver = contracts.InvoiceApprovalResolver as `0x${string}`;
+      if (!resolver || resolver === ZERO_ADDRESS) {
+        toast.error("Conditional invoices are only available on Arbitrum Sepolia.");
+        return null;
+      }
+      const ZERO = "0x0000000000000000000000000000000000000000";
+      if (params.beneficiary === ZERO || params.beneficiary.toLowerCase() === address?.toLowerCase()) {
+        toast.error("Recipient must be a different address from yours.");
+        return null;
+      }
+      if (params.vault === ZERO) { toast.error("Vault address required."); return null; }
+      const minDeadline = Math.floor(Date.now() / 1000) + 86400;
+      if (params.deadlineSeconds < minDeadline) {
+        toast.error("Auto-release deadline must be at least 1 day from now.");
+        return null;
+      }
+      if (params.description.length > 512) {
+        toast.error("Description must be 512 characters or fewer.");
+        return null;
+      }
+
+      try {
+        pipeline.start();
+        setState({ ...initial, step: "approving", isProcessing: true });
+        await ensureVaultApproval(params.vault);
+
+        setState((s) => ({ ...s, step: "encrypting" }));
+        const amountUnits = parseUnits(params.amountTokens, params.decimals);
+        const [encAmount] = await encryptInputsAsync(
+          [Encryptable.uint64(amountUnits)],
+          pipeline.onEncryptStep,
+        );
+
+        // The approver is the depositor (the connected wallet).
+        const resolverData = encodeAbiParameters(
+          [{ type: "address" }, { type: "uint64" }],
+          [address as `0x${string}`, BigInt(params.deadlineSeconds)],
+        );
+
+        pipeline.markSubmitting();
+        setState((s) => ({ ...s, step: "sending" }));
+        const wr = await unifiedWriteAndWait({
+          address: ee,
+          abi: EncryptedEscrowAbi,
+          functionName: "createConditionalEscrow",
+          args: [
+            params.beneficiary,
+            params.vault,
+            encAmount as unknown as EncryptedInput,
+            params.description,
+            resolver,
+            resolverData,
+            BigInt(params.deadlineSeconds),
+          ],
+          gas: BigInt(6_000_000),
+        });
+
+        let logs: ReadonlyArray<{ address: `0x${string}`; topics: readonly `0x${string}`[]; data: `0x${string}` }>;
+        if (wr.receipt) logs = wr.receipt.logs as never;
+        else {
+          pipeline.markConfirming();
+          const r = await publicClient!.waitForTransactionReceipt({ hash: wr.hash, confirmations: 1 });
+          if (r.status === "reverted") throw new Error("createConditionalEscrow reverted");
+          logs = r.logs as never;
+        }
+        const id = extractEventId(logs, ee);
+        if (id === null) throw new Error("Tx mined but invoice id could not be read; check History tab.");
+        pipeline.markDone();
+        setState({ step: "success", isProcessing: false, error: null, txHash: wr.hash, lastEscrowId: id });
+        invalidateBalanceQueries();
+        return id;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        pipeline.markFailed(err);
+        setState((prev) => ({ ...prev, isProcessing: false, step: "error", error: msg }));
+        toast.error(msg);
+        return null;
+      }
+    },
+    [guardReady, contracts.InvoiceApprovalResolver, address, pipeline, ensureVaultApproval, encryptInputsAsync, unifiedWriteAndWait, publicClient],
+  );
+
   const callSimple = useCallback(
     async (
       functionName:
@@ -207,7 +306,8 @@ export function useEncryptedEscrow() {
         | "approveRelease"
         | "disputeEscrow"
         | "claimExpiredEscrow"
-        | "arbiterDecide",
+        | "arbiterDecide"
+        | "releaseIfConditionMet",
       args: readonly unknown[],
       gasLimit = 5_000_000,
     ) => {
@@ -252,6 +352,42 @@ export function useEncryptedEscrow() {
     [callSimple],
   );
 
+  // Conditional-invoice actions. approveInvoice writes to the resolver; the
+  // permissionless triggerRelease pokes the escrow once the rule is met.
+  const approveInvoice = useCallback(
+    async (escrowId: number) => {
+      const ready = guardWalletReady();
+      if (!ready) return false;
+      const resolver = contracts.InvoiceApprovalResolver as `0x${string}`;
+      if (!resolver || resolver === ZERO_ADDRESS) {
+        toast.error("Conditional invoices are only available on Arbitrum Sepolia.");
+        return false;
+      }
+      try {
+        setState((prev) => ({ ...prev, step: "sending", isProcessing: true, error: null }));
+        await unifiedWriteAndWait({
+          address: resolver,
+          abi: InvoiceApprovalResolverAbi,
+          functionName: "approve",
+          args: [BigInt(escrowId)],
+          gas: BigInt(300_000),
+        });
+        setState((prev) => ({ ...prev, step: "success", isProcessing: false }));
+        invalidateBalanceQueries();
+        toast.success("Release approved");
+        return true;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        setState((prev) => ({ ...prev, isProcessing: false, step: "error", error: msg }));
+        toast.error(msg);
+        return false;
+      }
+    },
+    [guardWalletReady, contracts.InvoiceApprovalResolver, unifiedWriteAndWait],
+  );
+
+  const triggerRelease = useCallback((id: number) => callSimple("releaseIfConditionMet", [BigInt(id)]), [callSimple]);
+
   const reset = useCallback(() => { setState(initial); pipeline.reset(); }, [pipeline]);
 
   // §3.12 of BEST_VERSION_FULL_PLAN: derived txExplorerUrl.
@@ -262,6 +398,9 @@ export function useEncryptedEscrow() {
     txExplorerUrl,
     pipeline: pipeline.state,
     createEscrow,
+    createConditionalInvoice,
+    approveInvoice,
+    triggerRelease,
     markDelivered,
     approveRelease,
     disputeEscrow,

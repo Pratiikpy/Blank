@@ -215,6 +215,9 @@ export type ContractMap = {
    *  escrow which stored amounts in plaintext. New contract holds funds in
    *  the encrypted vault balance — amount never observable on-chain. */
   EncryptedEscrow: `0x${string}`;
+  /** Conditional-invoice release rule (Reineira IConditionResolver). Arb
+   *  Sepolia only; address(0) elsewhere so the feature auto-gates. */
+  InvoiceApprovalResolver: `0x${string}`;
   /** Wave 5 Block 1 — encrypted P2P offramp. Maker posts encrypted USDC
    *  against plaintext fiat price + rail. Taker locks, pays off-chain via
    *  UPI/Wise/Venmo/PayPal, submits Reclaim proof, USDC releases after
@@ -296,6 +299,8 @@ export const CONTRACTS_BY_CHAIN: Record<SupportedChainId, ContractMap> = {
     EncryptedCrowdfund: "0x383B58973f7e8DC3E47D1C2f55393E2ac48b24e1",
     // Wave 4 — encrypted escrow (Eth Sepolia).
     EncryptedEscrow: "0x4253163CfCd0cf9885333E0a7B7476d61F010feC",
+    // Conditional invoices ship on Arbitrum Sepolia only.
+    InvoiceApprovalResolver: "0x0000000000000000000000000000000000000000",
     // Wave 5 Block 1 — encrypted P2P offramp (Eth Sepolia, mock-mode
     // ships testnet; live Reclaim provider IDs are Wave 5.5 work).
     // Arbiter currently set to deployer for v1 demo; rotate to a
@@ -356,6 +361,8 @@ export const CONTRACTS_BY_CHAIN: Record<SupportedChainId, ContractMap> = {
     EncryptedCrowdfund: "0x0F21705575e2CC83dC410AE2af6973B150a4183C",
     // Wave 4 — encrypted escrow (Base Sepolia).
     EncryptedEscrow: "0x6414742D2da28eCEf06D79b82F406B6b8ab3e421",
+    // Conditional invoices ship on Arbitrum Sepolia only.
+    InvoiceApprovalResolver: "0x0000000000000000000000000000000000000000",
     // Wave 5 Block 1 — P2P offramp. Same operator-pending state as
     // Eth Sepolia. Run deploy-p2p-offramp with --network base-sepolia.
     // Wave 5 Block 1 — encrypted P2P offramp (Base Sepolia).
@@ -412,6 +419,8 @@ export const CONTRACTS_BY_CHAIN: Record<SupportedChainId, ContractMap> = {
     Storefront: "0x6548466E91547af9F6698a7AF236f9ef8548d9c4",
     EncryptedCrowdfund: "0x4Face583A92f27b36f5098561CB731Aa1DbEe359",
     EncryptedEscrow: "0xfDd77d3b6489600466Da74f012bC7A7A342fdb6d",
+    // Conditional invoice release rule (deployed 2026-06-13).
+    InvoiceApprovalResolver: "0x489D08059d578dF5f3A003B4A1acdF1243F55cc1",
     P2POfframp: "0x653e71e5F02a0fEAAFfCab5391DF0AE99b89961f",
     ReclaimAdapter: "0x83C76cda5ABEe1510a244d1334802446014b0Fc1",
     MockReclaimVerifier: "0xe609e5b9528F3d6587e71A820DCc090AB57B1542",

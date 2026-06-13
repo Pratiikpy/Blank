@@ -5,6 +5,8 @@ import "@fhenixprotocol/cofhe-contracts/FHE.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "./utils/ReentrancyGuard.sol";
+import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
+import {IConditionResolver} from "./interfaces/IConditionResolver.sol";
 
 interface IFHERC20Vault {
     function transferFromVerified(address from, address to, euint64 amount) external returns (euint64);
@@ -58,6 +60,12 @@ contract EncryptedEscrow is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
     mapping(uint256 => Escrow) private _escrows;
     mapping(address => uint256[]) private _userEscrows;
 
+    /// @dev Optional per-escrow release-rule resolver (Reineira's
+    ///      IConditionResolver standard). address(0) for the original 2-of-2,
+    ///      arbiter, and expiry escrows. Appended after _userEscrows; __gap
+    ///      was reduced from 50 to 49 to keep total slots constant.
+    mapping(uint256 => address) private _escrowResolver;
+
     // ─── Events ───────────────────────────────────────────────────────
 
     event EscrowCreated(
@@ -73,6 +81,8 @@ contract EncryptedEscrow is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
     event EscrowDisputed(uint256 indexed escrowId, address indexed by);
     event EscrowArbiterDecided(uint256 indexed escrowId, address indexed arbiter, bool toBeneficiary);
     event EscrowExpiryClaimed(uint256 indexed escrowId, address indexed depositor);
+    /// @notice A conditional escrow registered a release-rule resolver.
+    event EscrowResolverSet(uint256 indexed escrowId, address indexed resolver);
 
     /// @notice §2.6 of BEST_VERSION_FULL_PLAN: emitted when paymentReceipts
     /// bump call reverts. kind is "user" or "global". Indexer detects + replays.
@@ -154,6 +164,73 @@ contract EncryptedEscrow is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
         try eventHub.emitActivity(msg.sender, beneficiary, "escrow_created", description, escrowId) {} catch {}
     }
 
+    // ─── Conditional create (Reineira IConditionResolver standard) ─────
+
+    /// @notice Open an encrypted escrow whose release is gated by a pluggable
+    ///         rule instead of the 2-of-2 / arbiter flow. The amount is pulled
+    ///         from the depositor's encrypted vault balance, same as
+    ///         createEscrow. The resolver is registered atomically and bound to
+    ///         this contract.
+    /// @param resolver     Release-rule contract; must support IConditionResolver.
+    /// @param resolverData ABI-encoded config the resolver understands.
+    /// @param deadline     Stored on the escrow for display; the operative
+    ///                     timeout lives inside resolverData. Refund-on-expiry
+    ///                     is disabled for resolver-gated escrows (release is
+    ///                     resolver-exclusive), so there is no refund race.
+    function createConditionalEscrow(
+        address beneficiary,
+        address vault,
+        InEuint64 calldata encAmount,
+        string calldata description,
+        address resolver,
+        bytes calldata resolverData,
+        uint256 deadline
+    ) external nonReentrant returns (uint256 escrowId) {
+        require(beneficiary != address(0) && beneficiary != msg.sender, "EncryptedEscrow: bad beneficiary");
+        require(vault != address(0), "EncryptedEscrow: zero vault");
+        require(resolver != address(0), "EncryptedEscrow: zero resolver");
+        require(
+            IERC165(resolver).supportsInterface(type(IConditionResolver).interfaceId),
+            "EncryptedEscrow: resolver !IConditionResolver"
+        );
+        require(deadline >= block.timestamp + 1 days, "EncryptedEscrow: deadline < 1 day out");
+        require(bytes(description).length <= 512, "EncryptedEscrow: description too long");
+
+        // Verify the encrypted input under depositor's signer, then pull funds.
+        euint64 verified = FHE.asEuint64(encAmount);
+        FHE.allowTransient(verified, vault);
+        euint64 locked = IFHERC20Vault(vault).transferFromVerified(msg.sender, address(this), verified);
+        FHE.allowThis(locked);
+        FHE.allowSender(locked);
+        FHE.allow(locked, beneficiary);
+
+        escrowId = nextEscrowId++;
+        _escrows[escrowId] = Escrow({
+            depositor: msg.sender,
+            beneficiary: beneficiary,
+            arbiter: address(0),
+            vault: vault,
+            encAmount: locked,
+            deadline: deadline,
+            depositorApproved: false,
+            beneficiaryMarkedDelivered: false,
+            status: EscrowStatus.Active,
+            description: description,
+            createdAt: block.timestamp
+        });
+        _userEscrows[msg.sender].push(escrowId);
+        _userEscrows[beneficiary].push(escrowId);
+        _escrowResolver[escrowId] = resolver;
+
+        // Effects done; now register the condition. nonReentrant blocks
+        // re-entry, and a reverting resolver only fails its own create.
+        IConditionResolver(resolver).onConditionSet(escrowId, resolverData);
+
+        emit EscrowCreated(escrowId, msg.sender, beneficiary, address(0), deadline);
+        emit EscrowResolverSet(escrowId, resolver);
+        try eventHub.emitActivity(msg.sender, beneficiary, "escrow_created", description, escrowId) {} catch {}
+    }
+
     // ─── Markers ──────────────────────────────────────────────────────
 
     function markDelivered(uint256 escrowId) external nonReentrant {
@@ -179,6 +256,24 @@ contract EncryptedEscrow is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
         e.depositorApproved = true;
         emit EscrowApproved(escrowId, msg.sender);
         if (e.beneficiaryMarkedDelivered) _release(escrowId);
+    }
+
+    // ─── Conditional release trigger ──────────────────────────────────
+
+    /// @notice Release a resolver-gated escrow once its rule says so.
+    ///         Permissionless: the resolver does the gating, so anyone may
+    ///         poke it (the vendor after the auto-release deadline, or right
+    ///         after the buyer approves). Reverts for non-conditional escrows.
+    function releaseIfConditionMet(uint256 escrowId) external nonReentrant {
+        Escrow storage e = _escrows[escrowId];
+        require(e.status == EscrowStatus.Active, "EncryptedEscrow: not active");
+        address resolver = _escrowResolver[escrowId];
+        require(resolver != address(0), "EncryptedEscrow: no resolver");
+        require(
+            IConditionResolver(resolver).isConditionMet(escrowId),
+            "EncryptedEscrow: condition not met"
+        );
+        _release(escrowId);
     }
 
     // ─── Disputes ─────────────────────────────────────────────────────
@@ -225,6 +320,9 @@ contract EncryptedEscrow is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
         require(e.status == EscrowStatus.Active, "EncryptedEscrow: not active");
         require(msg.sender == e.depositor, "EncryptedEscrow: not depositor");
         require(block.timestamp >= e.deadline, "EncryptedEscrow: not yet expired");
+        // Resolver-gated escrows release exclusively through
+        // releaseIfConditionMet, so the depositor cannot race a refund here.
+        require(_escrowResolver[escrowId] == address(0), "EncryptedEscrow: resolver-gated escrow");
 
         e.status = EscrowStatus.Refunded;
 
@@ -309,8 +407,8 @@ contract EncryptedEscrow is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
 
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 
-    /// @dev Append-only storage. Used: 6. Gap: 50.
-    /// Decrement gap by 1 when adding a new state variable; total slots
-    /// (used + gap) must stay constant across UUPS upgrades.
-    uint256[50] private __gap;
+    /// @dev Append-only storage. Used: 7 (added _escrowResolver in this rev).
+    /// Gap: 49. Decrement gap by 1 when adding a new state variable; total
+    /// slots (used + gap) must stay constant across UUPS upgrades.
+    uint256[49] private __gap;
 }

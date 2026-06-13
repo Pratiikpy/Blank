@@ -721,6 +721,16 @@ export const EncryptedEscrowAbi = [
   ], stateMutability: "view" },
   { type: "function", name: "getEncryptedAmount", inputs: [{ name: "escrowId", type: "uint256" }], outputs: [{ name: "", type: "uint256", internalType: "euint64" }], stateMutability: "view" },
   { type: "function", name: "getUserEscrows", inputs: [{ name: "user", type: "address" }], outputs: [{ name: "", type: "uint256[]" }], stateMutability: "view" },
+  { type: "function", name: "createConditionalEscrow", inputs: [
+    { name: "beneficiary", type: "address" },
+    { name: "vault", type: "address" },
+    { name: "encAmount", type: "tuple", internalType: "struct InEuint64", components: InEuint64Components },
+    { name: "description", type: "string" },
+    { name: "resolver", type: "address" },
+    { name: "resolverData", type: "bytes" },
+    { name: "deadline", type: "uint256" },
+  ], outputs: [{ name: "escrowId", type: "uint256" }], stateMutability: "nonpayable" },
+  { type: "function", name: "releaseIfConditionMet", inputs: [{ name: "escrowId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
   { type: "event", name: "EscrowCreated", inputs: [
     { name: "escrowId", type: "uint256", indexed: true },
     { name: "depositor", type: "address", indexed: true },
@@ -752,6 +762,36 @@ export const EncryptedEscrowAbi = [
   { type: "event", name: "EscrowExpiryClaimed", inputs: [
     { name: "escrowId", type: "uint256", indexed: true },
     { name: "depositor", type: "address", indexed: true },
+  ] },
+  { type: "event", name: "EscrowResolverSet", inputs: [
+    { name: "escrowId", type: "uint256", indexed: true },
+    { name: "resolver", type: "address", indexed: true },
+  ] },
+] as const;
+
+// ─── Conditional invoice — InvoiceApprovalResolver (Reineira standard) ──
+// Release rule for createConditionalEscrow: the escrow releases to the vendor
+// when the buyer (depositor) calls approve, or after autoReleaseDeadline.
+export const InvoiceApprovalResolverAbi = [
+  { type: "function", name: "approve", inputs: [{ name: "escrowId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "isConditionMet", inputs: [{ name: "escrowId", type: "uint256" }], outputs: [{ name: "", type: "bool" }], stateMutability: "view" },
+  { type: "function", name: "approved", inputs: [{ name: "escrowId", type: "uint256" }], outputs: [{ name: "", type: "bool" }], stateMutability: "view" },
+  { type: "function", name: "getCondition", inputs: [{ name: "escrowId", type: "uint256" }], outputs: [
+    { name: "buyer", type: "address" },
+    { name: "autoReleaseDeadline", type: "uint64" },
+    { name: "isApproved", type: "bool" },
+    { name: "deadlinePassed", type: "bool" },
+    { name: "set", type: "bool" },
+  ], stateMutability: "view" },
+  { type: "function", name: "boundEscrow", inputs: [{ name: "escrowId", type: "uint256" }], outputs: [{ name: "", type: "address" }], stateMutability: "view" },
+  { type: "event", name: "ConditionSet", inputs: [
+    { name: "escrowId", type: "uint256", indexed: true },
+    { name: "buyer", type: "address", indexed: true },
+    { name: "autoReleaseDeadline", type: "uint64", indexed: false },
+  ] },
+  { type: "event", name: "Approved", inputs: [
+    { name: "escrowId", type: "uint256", indexed: true },
+    { name: "buyer", type: "address", indexed: true },
   ] },
 ] as const;
 
