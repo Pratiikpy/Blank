@@ -16,9 +16,10 @@ task("shield-from-deployer", "Approve + shield N USDC from the deployer EOA")
     const deploymentFile =
       networkName === "base-sepolia" ? "base-sepolia.json" :
       networkName === "eth-sepolia" ? "eth-sepolia.json" :
+      networkName === "arb-sepolia" ? "arb-sepolia.json" :
       null;
     if (!deploymentFile) {
-      throw new Error(`Unknown network "${networkName}" — use eth-sepolia or base-sepolia.`);
+      throw new Error(`Unknown network "${networkName}" — use eth-sepolia, base-sepolia, or arb-sepolia.`);
     }
 
     const deployments = JSON.parse(
@@ -84,6 +85,10 @@ task("shield-from-deployer", "Approve + shield N USDC from the deployer EOA")
 
     const usdcBalAfter: bigint = await usdc.balanceOf(signer.address);
     console.log(`\nDone. Signer USDC now: ${hre.ethers.formatUnits(usdcBalAfter, 6)}`);
-    console.log(`Etherscan: https://sepolia.etherscan.io/tx/${shieldTx.hash}`);
+    const explorer =
+      networkName === "base-sepolia" ? "https://sepolia-explorer.base.org" :
+      networkName === "arb-sepolia" ? "https://sepolia.arbiscan.io" :
+      "https://sepolia.etherscan.io";
+    console.log(`Explorer: ${explorer}/tx/${shieldTx.hash}`);
     console.log(`\nBalance in vault is encrypted (ciphertext handle). To verify, open the Blank app with this EOA connected — it will prompt permit creation and decrypt the balance.`);
   });

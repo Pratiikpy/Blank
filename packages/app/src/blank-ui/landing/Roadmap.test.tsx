@@ -55,10 +55,10 @@ describe("Roadmap — Shipped block (§15.x)", () => {
     expect(container.textContent).toContain("Shipped. Live on testnet today");
   });
 
-  it("section lead claims 'Twenty-one product surfaces, one encrypted vault, two chains'", () => {
+  it("section lead claims 'Twenty-one product surfaces, one encrypted vault, three chains'", () => {
     const { container } = withRouter(<Roadmap />);
     expect(container.textContent).toContain("Twenty-one product surfaces");
-    expect(container.textContent).toContain("two chains");
+    expect(container.textContent).toContain("three chains");
   });
 
   it("renders all 10 shipped item titles", () => {
@@ -74,7 +74,7 @@ describe("Roadmap — Shipped block (§15.x)", () => {
       "Verifiable balance proofs",
       "Passkey smart wallets + paymaster",
       "Dead-man's-switch inheritance",
-      "Dual-chain (Base + Eth Sepolia)",
+      "Tri-chain (Base + Eth + Arbitrum Sepolia)",
     ];
     for (const item of shipped) {
       expect(text).toContain(item);
@@ -133,7 +133,7 @@ describe("Roadmap — Blocked block (§15.x)", () => {
     const { container } = withRouter(<Roadmap />);
     const text = container.textContent ?? "";
     expect(text).toContain("Mainnet");
-    expect(text).toContain("More chains beyond Base + Eth Sepolia");
+    expect(text).toContain("More chains beyond the current three");
     expect(text).toContain("Mobile app (native)");
   });
 

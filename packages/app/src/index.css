@@ -50,3 +50,12 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Hide the mobile bottom-nav while a modal/bottom-sheet is open so its action
+   buttons aren't overlapped by the fixed nav. The modal is nested in <main> and
+   can't escape that stacking context above the shell-level nav via z-index, so
+   each screen toggles body.blank-modal-open while a modal is open. */
+body.blank-modal-open .bottom-nav,
+body.blank-modal-open .blank-bottom-nav {
+  display: none !important;
+}

@@ -69,9 +69,10 @@ const ALLOWED_PAY_TOKENS: Array<{
   ratePpm: bigint;
   symbol: string;
 }> = [
-  // Sepolia + Base Sepolia: any of our test ERC-20s as 1:1 with USDC.
+  // Sepolia + Base Sepolia + Arb Sepolia: any of our test ERC-20s as 1:1 with USDC.
   { chainId: 11155111, address: "0x16369cd4b9533795dcdc0d67db3e4c621ef97d68", ratePpm: 1_000_000n, symbol: "TestUSDC" },
   { chainId: 84532, address: "0x6377ef23b3464019ecf35528be6eb6d6d57d0b1a", ratePpm: 1_000_000n, symbol: "TestUSDC" },
+  { chainId: 421614, address: "0x9558e2d3157c986591f325a6e76ca2fdfdb0b7ad", ratePpm: 1_000_000n, symbol: "TestUSDC" },
   // Add more as the operator deploys additional testnet ERC-20s. Mainnet
   // entries would replace ratePpm with a CoinGecko-fetched value.
 ];
@@ -117,8 +118,8 @@ export default async function handler(req: any, res: any) {
     return;
   }
   const chainId = Number(body.chainId);
-  if (!Number.isInteger(chainId) || (chainId !== 11155111 && chainId !== 84532)) {
-    res.status(400).json({ error: "chainId must be 11155111 or 84532" });
+  if (!Number.isInteger(chainId) || (chainId !== 11155111 && chainId !== 84532 && chainId !== 421614)) {
+    res.status(400).json({ error: "chainId must be 11155111, 84532, or 421614" });
     return;
   }
 

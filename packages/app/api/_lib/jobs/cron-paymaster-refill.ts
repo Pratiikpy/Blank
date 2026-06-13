@@ -29,6 +29,7 @@ import {
   RPC_URLS,
   ETH_SEPOLIA_ID,
   BASE_SEPOLIA_ID,
+  ARB_SEPOLIA_ID,
 } from "../addresses.js";
 import { sendEmail, emailEnabled } from "../resend.js";
 import { getSupabaseAdmin } from "../supabase-admin.js";
@@ -58,6 +59,7 @@ const DEFAULT_REFILL_DAILY_CAP_WEI = 2_000_000_000_000_000_000n;  // 2 ETH
 const CHAIN_LABEL: Record<number, string> = {
   [ETH_SEPOLIA_ID]: "Ethereum Sepolia",
   [BASE_SEPOLIA_ID]: "Base Sepolia",
+  [ARB_SEPOLIA_ID]: "Arbitrum Sepolia",
 };
 
 function readBigEnv(name: string, fallback: bigint): bigint {
@@ -270,8 +272,12 @@ function renderSummaryEmail(snapshots: RefillSnapshot[], reason: "refilled" | "c
         s.action === "capped" ? `<span style="color:#b91c1c;font-weight:600">CAPPED</span>` :
         s.action === "error" ? `<span style="color:#b91c1c">ERROR: ${s.error}</span>` :
         s.action;
+      const explorerBase =
+        s.chainId === ETH_SEPOLIA_ID ? "https://sepolia.etherscan.io/tx/" :
+        s.chainId === ARB_SEPOLIA_ID ? "https://sepolia.arbiscan.io/tx/" :
+        "https://sepolia.basescan.org/tx/";
       const txCell = s.txHash
-        ? `<a href="${s.chainId === ETH_SEPOLIA_ID ? "https://sepolia.etherscan.io/tx/" : "https://sepolia.basescan.org/tx/"}${s.txHash}" style="font-family:monospace;font-size:11px;color:#0369a1">${s.txHash.slice(0, 12)}…</a>`
+        ? `<a href="${explorerBase}${s.txHash}" style="font-family:monospace;font-size:11px;color:#0369a1">${s.txHash.slice(0, 12)}…</a>`
         : "—";
       return `
         <tr>
@@ -334,7 +340,7 @@ export default async function handler(req: any, res: any) {
   const supabase = getSupabaseAdmin();
   const utcDay = new Date().toISOString().slice(0, 10);
 
-  const chainIds = [ETH_SEPOLIA_ID, BASE_SEPOLIA_ID];
+  const chainIds = [ETH_SEPOLIA_ID, BASE_SEPOLIA_ID, ARB_SEPOLIA_ID];
   const snapshots = await Promise.all(
     chainIds.map((id) =>
       refillChain(id, signer, thresholdWei, refillAmountWei, dailyCapWei, utcDay, supabase),

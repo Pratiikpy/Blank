@@ -29,6 +29,7 @@ import {
   CONTRACTS_BY_CHAIN,
   ETH_SEPOLIA_ID,
   BASE_SEPOLIA_ID,
+  ARB_SEPOLIA_ID,
   type SupportedChainId,
   getExplorerTxUrl,
 } from "@/lib/constants";
@@ -58,7 +59,7 @@ export default function InvoicePage() {
   const linkChainId = useMemo(() => Number(params.chainId), [params.chainId]);
   const invoiceId = useMemo(() => Number(params.invoiceId), [params.invoiceId]);
   const isLinkChainSupported =
-    linkChainId === ETH_SEPOLIA_ID || linkChainId === BASE_SEPOLIA_ID;
+    linkChainId === ETH_SEPOLIA_ID || linkChainId === BASE_SEPOLIA_ID || linkChainId === ARB_SEPOLIA_ID;
   const onActiveChain = linkChainId === activeChainId;
 
   // Always use the link's chain when reading the invoice — even if the
@@ -271,7 +272,7 @@ export default function InvoicePage() {
             </p>
           </div>
           <button
-            onClick={() => setActiveChain(linkChainId as 11155111 | 84532)}
+            onClick={() => setActiveChain(linkChainId as SupportedChainId)}
             className="shrink-0 h-9 px-4 rounded-lg bg-amber-600 text-white text-sm font-medium hover:bg-amber-700"
           >
             Switch

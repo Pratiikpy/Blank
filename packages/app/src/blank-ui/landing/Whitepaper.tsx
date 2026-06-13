@@ -80,18 +80,21 @@ export default function Whitepaper() {
           <div className="ll-step" style={{ textAlign: "left", marginTop: "1rem" }}>
             <div className="ll-step-title">Public testnet scope</div>
             <div className="ll-step-body">
-              Live on Base Sepolia and Ethereum Sepolia. Standard EVM wallets
-              are supported on both chains; Blank passkey smart accounts are
-              available when sponsorship is available. Mobile UI is live across
-              the route map, with expanded mobile transaction coverage next.
+              Live on Base Sepolia, Ethereum Sepolia, and Arbitrum Sepolia. The
+              same contract set is deployed on all three; the encrypted-vault
+              shield path is proven on-chain on Arbitrum Sepolia. Standard EVM
+              wallets are supported on every chain; Blank passkey smart accounts
+              are available when sponsorship is available. Mobile UI is live
+              across the route map, with expanded mobile transaction coverage
+              next.
             </div>
           </div>
 
           <div className="ll-step" style={{ textAlign: "left", marginTop: "1rem" }}>
             <div className="ll-step-title">Testnet demo controls</div>
             <div className="ll-step-body">
-              Wave 5 P2P offramp and recovery contracts are live on both
-              testnets. Offramp disputes currently use a deployer-operated
+              Wave 5 P2P offramp and recovery contracts are live across all
+              three testnets. Offramp disputes currently use a deployer-operated
               arbiter and Reclaim proof checks use an operator-signed mock
               verifier so the demo can run while provider approvals are still
               pending. Those are testnet controls. Mainnet requires a 3-of-5

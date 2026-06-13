@@ -71,7 +71,7 @@ test.describe("Phase 17 — Payment Requests (Alice requests, Bob pays)", () => 
   }) => {
     const chain = chainContextFromProject();
     const url = baseURL ?? "http://localhost:3000";
-    const chainSlug = chain.chainKey === "ETH_SEPOLIA" ? "eth-sepolia" : "base-sepolia";
+    const chainSlug = chain.chainKey === "ETH_SEPOLIA" ? "eth-sepolia" : chain.chainKey === "ARB_SEPOLIA" ? "arb-sepolia" : "base-sepolia";
 
     const alice = await bringUp(browser, PERSONAS.Alice, chain.chainId, url);
     const bob = await bringUp(browser, PERSONAS.Bob, chain.chainId, url);

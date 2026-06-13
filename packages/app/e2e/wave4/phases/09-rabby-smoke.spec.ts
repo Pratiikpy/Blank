@@ -104,7 +104,7 @@ test.describe("Phase 9 — Rabby smoke (Dave EOA)", () => {
   }) => {
     const chain = chainContextFromProject();
     const url = baseURL ?? "http://localhost:3000";
-    const chainSlug = chain.chainKey === "ETH_SEPOLIA" ? "eth-sepolia" : "base-sepolia";
+    const chainSlug = chain.chainKey === "ETH_SEPOLIA" ? "eth-sepolia" : chain.chainKey === "ARB_SEPOLIA" ? "arb-sepolia" : "base-sepolia";
 
     const hasExt = fs.existsSync(RABBY_EXT_DIR);
     const hasProfile = fs.existsSync(RABBY_PROFILE_DIR) && fs.readdirSync(RABBY_PROFILE_DIR).length > 0;

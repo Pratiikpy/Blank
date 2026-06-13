@@ -11,7 +11,8 @@ task("deploy-encrypted-escrow", "Deploy EncryptedEscrow UUPS proxy")
   .setAction(async (_args, hre: HardhatRuntimeEnvironment) => {
     const networkName = hre.network.name;
     const file = networkName === "base-sepolia" ? "base-sepolia.json"
-      : networkName === "eth-sepolia" ? "eth-sepolia.json" : null;
+      : networkName === "eth-sepolia" ? "eth-sepolia.json"
+      : networkName === "arb-sepolia" ? "arb-sepolia.json" : null;
     if (!file) throw new Error(`unsupported ${networkName}`);
     const path = resolve(__dirname, "..", "deployments", file);
 

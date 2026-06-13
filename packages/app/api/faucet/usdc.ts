@@ -25,7 +25,7 @@
  */
 
 import { ethers } from "ethers";
-import { getContracts, ETH_SEPOLIA_ID, BASE_SEPOLIA_ID } from "../_lib/addresses.js";
+import { getContracts, ETH_SEPOLIA_ID, BASE_SEPOLIA_ID, ARB_SEPOLIA_ID } from "../_lib/addresses.js";
 import { checkRateLimit, writeRateLimitHeaders } from "../_lib/rate-limit.js";
 
 /** 100 USDC (6 decimals). Cheap enough for a one-time drip per AA. */
@@ -34,6 +34,7 @@ const FAUCET_AMOUNT_UNITS = 100_000_000n;
 const SUPPORTED_CHAIN_RPCS: Record<number, string> = {
   [ETH_SEPOLIA_ID]: process.env.SEPOLIA_RPC_URL || "https://ethereum-sepolia.publicnode.com",
   [BASE_SEPOLIA_ID]: process.env.BASE_SEPOLIA_RPC_URL || "https://sepolia.base.org",
+  [ARB_SEPOLIA_ID]: process.env.ARB_SEPOLIA_RPC_URL || "https://sepolia-rollup.arbitrum.io/rpc",
 };
 
 const TEST_USDC_ABI = [

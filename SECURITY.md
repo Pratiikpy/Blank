@@ -17,7 +17,8 @@ Include:
 - Affected component (contract address + function, API route + verb,
   hook + method, screen + flow).
 - Reproduction steps (one paragraph, code snippet, or test case).
-- Network (Ethereum Sepolia `11155111` or Base Sepolia `84532`).
+- Network (Ethereum Sepolia `11155111`, Base Sepolia `84532`, or
+  Arbitrum Sepolia `421614`).
 - Your assessment of impact (fund-loss path, privacy regression,
   DoS, info leak, etc.).
 
@@ -39,7 +40,7 @@ Out of scope:
 - Third-party packages (`@cofhe/sdk`, `@cofhe/react`, `viem`, `wagmi`,
   `ethers`, `react`). Report those upstream.
 - The Fhenix Threshold Network itself. Report to Fhenix.
-- The Ethereum / Base Sepolia testnets themselves.
+- The Ethereum / Base / Arbitrum Sepolia testnets themselves.
 - Browser extensions (MetaMask, etc.).
 - Phishing of users via lookalike domains (`blank.example` etc).
 - Denial of service that requires sustained spam at a cost greater
@@ -63,9 +64,10 @@ are still valid but rank lower than these.
   per the §15.x `sig-auth` audit. The window is asymmetric: past
   tolerance up to 90s, future tolerance only ~60s for clock skew.
 - **Per-chain isolation.** A contract at the same `address` on Ethereum
-  Sepolia and Base Sepolia is **not** the same contract. The frontend
-  + server registries (`lib/constants.ts`, `api/_lib/addresses.ts`)
-  must agree on the per-chain map.
+  Sepolia, Base Sepolia, and Arbitrum Sepolia is **not** the same
+  contract. The frontend + server registries (`lib/constants.ts`,
+  `api/_lib/addresses.ts`) must agree on the per-chain map across all
+  three testnets.
 - **EncryptedEscrow no-arbiter dispute.** `disputeEscrow` reverts when
   `arbiter == 0x0`. Without this, funds lock forever. Fixed in §1.2.
 - **ClaimLinks expiry cap.** `MAX_EXPIRY_SECONDS = 365 days` prevents
@@ -78,8 +80,8 @@ are still valid but rank lower than these.
    party that should not see it).
 3. Replay vulnerabilities (signature reuse, off-by-one in nonce, AA
    `getNonce` race).
-4. Cross-chain confusion (signing for Eth Sepolia, executing on Base
-   Sepolia, or vice versa).
+4. Cross-chain confusion (signing for one testnet, executing on
+   another, across Eth / Base / Arbitrum Sepolia).
 5. Smart-account permission escalation (session keys, paymaster
    abuse, factory hijack).
 

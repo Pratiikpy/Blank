@@ -3,7 +3,7 @@ import { readFileSync } from "fs";
 import { resolve } from "path";
 import { Encryptable } from "@cofhe/sdk";
 import { createCofheClient, createCofheConfig } from "@cofhe/sdk/node";
-import { sepolia as cofheSepolia, baseSepolia as cofheBaseSepolia } from "@cofhe/sdk/chains";
+import { sepolia as cofheSepolia, baseSepolia as cofheBaseSepolia, arbSepolia as cofheArbSepolia } from "@cofhe/sdk/chains";
 import {
   createPublicClient,
   createWalletClient,
@@ -16,7 +16,7 @@ import {
   type Hex,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { sepolia as viemSepolia, baseSepolia as viemBaseSepolia } from "viem/chains";
+import { sepolia as viemSepolia, baseSepolia as viemBaseSepolia, arbitrumSepolia as viemArbSepolia } from "viem/chains";
 
 // ──────────────────────────────────────────────────────────────────
 //  multi-wallet-feature-sweep — drive a real 4-wallet feature sweep
@@ -51,6 +51,7 @@ import { sepolia as viemSepolia, baseSepolia as viemBaseSepolia } from "viem/cha
 //  Usage:
 //   npx hardhat multi-wallet-feature-sweep --network eth-sepolia
 //   npx hardhat multi-wallet-feature-sweep --network base-sepolia
+//   npx hardhat multi-wallet-feature-sweep --network arb-sepolia
 // ──────────────────────────────────────────────────────────────────
 
 const FAUCET_AMOUNT = parseUnits("100", 6); // 100 USDC
@@ -78,11 +79,16 @@ task(
 ).setAction(async (_args, hre) => {
   const networkName = hre.network.name;
   const isBase = networkName === "base-sepolia";
-  if (networkName !== "eth-sepolia" && networkName !== "base-sepolia") {
-    throw new Error(`Unsupported network ${networkName}`);
+  const isArb = networkName === "arb-sepolia";
+  if (networkName !== "eth-sepolia" && networkName !== "base-sepolia" && networkName !== "arb-sepolia") {
+    throw new Error(`Unsupported network ${networkName} (expected eth-sepolia, base-sepolia, or arb-sepolia)`);
   }
 
-  const deploymentFile = isBase ? "base-sepolia.json" : "eth-sepolia.json";
+  const deploymentFile = isBase
+    ? "base-sepolia.json"
+    : isArb
+      ? "arb-sepolia.json"
+      : "eth-sepolia.json";
   const deployments = JSON.parse(
     readFileSync(resolve(__dirname, "..", "deployments", deploymentFile), "utf8"),
   ) as Record<string, string>;
@@ -104,10 +110,12 @@ task(
 
   const rpcUrl = isBase
     ? process.env.BASE_SEPOLIA_RPC_URL || "https://base-sepolia-rpc.publicnode.com"
-    : process.env.SEPOLIA_RPC_URL || "https://ethereum-sepolia.publicnode.com";
+    : isArb
+      ? process.env.ARBITRUM_SEPOLIA_RPC_URL || "https://sepolia-rollup.arbitrum.io/rpc"
+      : process.env.SEPOLIA_RPC_URL || "https://ethereum-sepolia.publicnode.com";
 
-  const chain = isBase ? viemBaseSepolia : viemSepolia;
-  const cofheChainCfg = isBase ? cofheBaseSepolia : cofheSepolia;
+  const chain = isBase ? viemBaseSepolia : isArb ? viemArbSepolia : viemSepolia;
+  const cofheChainCfg = isBase ? cofheBaseSepolia : isArb ? cofheArbSepolia : cofheSepolia;
 
   const publicClient = createPublicClient({ chain, transport: http(rpcUrl) });
   const deployerWallet = createWalletClient({

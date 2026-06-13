@@ -27,11 +27,18 @@ const RABBY_PROFILE_DIR =
   process.env.RABBY_PROFILE_DIR ?? resolve(REPO, ".rabby-profile-blank");
 const RABBY_PASSWORD = process.env.RABBY_PASSWORD ?? "RabbyPass123!QA";
 const CHAIN_ID = Number(process.env.CHAIN_ID ?? 84532);
-const IS_ETH = CHAIN_ID === 11155111;
-if (CHAIN_ID !== 84532 && CHAIN_ID !== 11155111) throw new Error(`Unsupported CHAIN_ID ${CHAIN_ID}`);
-const CHAIN_NAME = IS_ETH ? "Ethereum Sepolia" : "Base Sepolia";
-const EXPLORER_URL = IS_ETH ? "https://sepolia.etherscan.io" : "https://sepolia.basescan.org";
-const OUT = resolve(REPO, `packages/app/test-results/qa-live-batch-${IS_ETH ? "eth" : "base"}`);
+if (CHAIN_ID !== 84532 && CHAIN_ID !== 11155111 && CHAIN_ID !== 421614)
+  throw new Error(`Unsupported CHAIN_ID ${CHAIN_ID}`);
+const CHAIN_SLUG = CHAIN_ID === 11155111 ? "eth" : CHAIN_ID === 84532 ? "base" : "arb";
+const CHAIN_NAME =
+  CHAIN_ID === 11155111 ? "Ethereum Sepolia" : CHAIN_ID === 84532 ? "Base Sepolia" : "Arbitrum Sepolia";
+const EXPLORER_URL =
+  CHAIN_ID === 11155111
+    ? "https://sepolia.etherscan.io"
+    : CHAIN_ID === 84532
+      ? "https://sepolia.basescan.org"
+      : "https://sepolia.arbiscan.io";
+const OUT = resolve(REPO, `packages/app/test-results/qa-live-batch-${CHAIN_SLUG}`);
 const QA_COUNTERPARTY = process.env.QA_COUNTERPARTY ?? "0x000000000000000000000000000000000000beef";
 type Persona = "Dave" | "Bob" | "Carol";
 const QA_PERSONA = (process.env.QA_PERSONA ?? "Dave") as Persona;

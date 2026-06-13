@@ -7,8 +7,12 @@
 
 export const ETH_SEPOLIA_ID = 11155111;
 export const BASE_SEPOLIA_ID = 84532;
+export const ARB_SEPOLIA_ID = 421614;
 
-export type SupportedChainId = typeof ETH_SEPOLIA_ID | typeof BASE_SEPOLIA_ID;
+export type SupportedChainId =
+  | typeof ETH_SEPOLIA_ID
+  | typeof BASE_SEPOLIA_ID
+  | typeof ARB_SEPOLIA_ID;
 
 export interface ChainInfo {
   id: SupportedChainId;
@@ -54,6 +58,18 @@ export const CHAINS: Record<SupportedChainId, ChainInfo> = {
     verifierUrl: "https://testnet-cofhe-vrf.fhenix.zone",
     thresholdNetworkUrl: "https://testnet-cofhe-tn.fhenix.zone",
   },
+  [ARB_SEPOLIA_ID]: {
+    id: ARB_SEPOLIA_ID,
+    name: "Arbitrum Sepolia",
+    shortName: "Arb Sepolia",
+    network: "arb-sepolia",
+    rpcUrl: "https://sepolia-rollup.arbitrum.io/rpc",
+    explorerUrl: "https://sepolia.arbiscan.io",
+    // CoFHE endpoints are shared across all three testnets (same coprocessor).
+    coFheUrl: "https://testnet-cofhe.fhenix.zone",
+    verifierUrl: "https://testnet-cofhe-vrf.fhenix.zone",
+    thresholdNetworkUrl: "https://testnet-cofhe-tn.fhenix.zone",
+  },
 };
 
 /** Per-chain free testnet ETH faucets surfaced in `FundAccountModal` (Phase 7.6).
@@ -70,6 +86,11 @@ export const FAUCET_LINKS: Record<SupportedChainId, Array<{ label: string; url: 
     { label: "Coinbase Portal", url: "https://portal.cdp.coinbase.com/products/faucet" },
     { label: "QuickNode", url: "https://faucet.quicknode.com/base/sepolia" },
     { label: "Alchemy", url: "https://www.alchemy.com/faucets/base-sepolia" },
+  ],
+  [ARB_SEPOLIA_ID]: [
+    { label: "Alchemy", url: "https://www.alchemy.com/faucets/arbitrum-sepolia" },
+    { label: "QuickNode", url: "https://faucet.quicknode.com/arbitrum/sepolia" },
+    { label: "Chainlink", url: "https://faucets.chain.link/arbitrum-sepolia" },
   ],
 };
 
@@ -347,6 +368,56 @@ export const CONTRACTS_BY_CHAIN: Record<SupportedChainId, ContractMap> = {
     GuardianModule: "0x4fa2152A940651404F2722c0192624d0662e5B46",
     // Wave 5 Block 10 — encrypted balance threshold proof.
     ProofOfBalance: "0x25e7383Bd5602a07928629e9Ec6eaec9535536Ff",
+  },
+  [ARB_SEPOLIA_ID]: {
+    // Arbitrum Sepolia (421614). Full v0.1.3 stack, deployed fresh from the
+    // current contract sources (deployments/arb-sepolia.json). CoFHE runs on
+    // the shared coprocessor (TaskManager 0xeA30...848D9 is live on 421614).
+    // The three canonical singletons (EntryPoint, ERC5564, ERC6538) are
+    // identical on every chain and wired verbatim.
+    TestUSDC: "0x9558E2D3157c986591F325a6e76cA2fdFDB0b7AD",
+    TokenRegistry: "0x30329fAf6D44955D9Cd8074011D64174fF12F0D8",
+    EventHub: "0xBA620E742F1AbBCcEf8a2b1A50108d7Dc3f0c128",
+    FHERC20Vault_USDC: "0x22c543F1303Ba25A52694C89D8d09D26FBb7569E",
+    TestUSDT: "0x5dD868D61EA452a0105FcCe8A9feb2Fe7682eE04",
+    FHERC20Vault_USDT: "0x86b396c83CdDc8b2529e4c176b9d73ca9Cf8f295",
+    PaymentHub: "0x899f22B60A856Ec6FCb7C888c43f1A9891E9d6C5",
+    GroupManager: "0xA09180531Be353D136e35cD5c1667D6c014f5bb1",
+    CreatorHub: "0xdB6F2625e866c0D4F885C6425Ba76Ae2b544B73A",
+    BusinessHub: "0x79A544EfA82fc1567FfF008ACb8BD90FE6f853BF",
+    P2PExchange: "0x6Acfb8bA3E73511dc4e7DE63d5514D3bf9b6696E",
+    InheritanceManager: "0x961F292c48631726e86b8715C57b25Be57F0e560",
+    PaymentReceipts: "0x976b79128D1d4269942EA4500e89A18D8918DDB5",
+    EncryptedFlags: "0xB50843277e7530fba931E73592C11D0b33b049c2",
+    GiftMoney: "0x944360c5fD0eDCa2052aeC77530600c65171Dd27",
+    PrivacyRouter: "0x3048Df6de18355EB6ce2eF0bB923B55E75FB5717",
+    StealthPayments: "0x62FF5C540f9Fb9cDCb9B095dd50e77b502fFB4A1",
+    MockDEX: "0x4C3f37e645c9fbBCD8C082D3EB54ceD50bcC1C17",
+    // Canonical EntryPoint v0.8 — same address on every chain.
+    EntryPoint: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
+    BlankAccountFactory: "0x13cD6eBd92c0A944599558521b3C10f2bA6ceE5D",
+    BlankPaymaster: "0x9C295E5A130a5776b287dcC77b41d4b55165C8Be",
+    BurnerRegistry: "0x27B98576E7d1874915E5C698FB7Ce733c1E3534f",
+    // Dormant validator-dispatch upgrade path; address(0) on every chain.
+    BlankAccount_Impl_v041: "0x0000000000000000000000000000000000000000",
+    // Fresh Arb factory deploys the current (gas-wallet + validator) impl, so
+    // the GasWalletPanel upgrade prompt matches and stays dormant.
+    BlankAccount_Impl_gasWallet: "0x95119073430E55F1993bfc1Bf980d0f91Db92058",
+    SessionKeyValidator: "0x75FF37Bda28EC6A0D39db7E8Ea5CC6527febDA75",
+    // Canonical EIP-5564 singleton. Same on every chain.
+    ERC5564Announcer: "0x55649E01B5Df198D18D95b5cc5051630cfD45564",
+    // Canonical Umbra/Fluidkey ERC-6538 singleton. Same on every chain.
+    ERC6538Registry: "0x6538E6bf4B0eBd30A8Ea093027Ac2422ce5d6538",
+    ClaimLinks: "0xdf69Ba30369C0881fF5741Ffbf26138c1413c015",
+    Storefront: "0x6548466E91547af9F6698a7AF236f9ef8548d9c4",
+    EncryptedCrowdfund: "0x4Face583A92f27b36f5098561CB731Aa1DbEe359",
+    EncryptedEscrow: "0xfDd77d3b6489600466Da74f012bC7A7A342fdb6d",
+    P2POfframp: "0x653e71e5F02a0fEAAFfCab5391DF0AE99b89961f",
+    ReclaimAdapter: "0x83C76cda5ABEe1510a244d1334802446014b0Fc1",
+    MockReclaimVerifier: "0xe609e5b9528F3d6587e71A820DCc090AB57B1542",
+    BlankHandles: "0x4f729F66701e4ec7EC787dD1Adae7Fd6b5D1a961",
+    GuardianModule: "0x4e9d93739b6F3543017C46d844F2021B6f5dC37A",
+    ProofOfBalance: "0x23f0530e107cCF940093c238bbc97EbdAD6fAD7c",
   },
 };
 

@@ -334,8 +334,9 @@ Published assets:
 
 Supported public testnets:
 
-- Base Sepolia
 - Ethereum Sepolia
+- Base Sepolia
+- Arbitrum Sepolia
 
 ---
 

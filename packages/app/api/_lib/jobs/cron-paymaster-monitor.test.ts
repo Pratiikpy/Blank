@@ -18,8 +18,9 @@ vi.mock("../resend.js", () => ({
 vi.mock("../addresses.js", () => ({
   ETH_SEPOLIA_ID: 11155111,
   BASE_SEPOLIA_ID: 84532,
+  ARB_SEPOLIA_ID: 421614,
   getContracts: getContractsMock,
-  RPC_URLS: { 11155111: "https://sep", 84532: "https://base-sep" },
+  RPC_URLS: { 11155111: "https://sep", 84532: "https://base-sep", 421614: "https://arb-sep" },
 }));
 
 import handler from "./cron-paymaster-monitor.js";
@@ -145,14 +146,15 @@ describe("cron-paymaster-monitor — threshold env override (§15.x)", () => {
 });
 
 describe("cron-paymaster-monitor — per-chain probes (§15.x)", () => {
-  it("reports both Sepolia + Base Sepolia in the chains array", async () => {
+  it("reports Sepolia + Base Sepolia + Arbitrum Sepolia in the chains array", async () => {
     const res = makeRes();
     await handler(makeReq(), res);
     const chains = res.captured.body?.chains as Array<{ chainId: number; chainLabel: string }>;
-    expect(chains).toHaveLength(2);
-    expect(chains.map((c) => c.chainId)).toEqual([11155111, 84532]);
+    expect(chains).toHaveLength(3);
+    expect(chains.map((c) => c.chainId)).toEqual([11155111, 84532, 421614]);
     expect(chains.find((c) => c.chainId === 11155111)?.chainLabel).toBe("Ethereum Sepolia");
     expect(chains.find((c) => c.chainId === 84532)?.chainLabel).toBe("Base Sepolia");
+    expect(chains.find((c) => c.chainId === 421614)?.chainLabel).toBe("Arbitrum Sepolia");
   });
 
   it("surfaces error='no contracts configured' when getContracts returns null", async () => {
@@ -279,13 +281,13 @@ describe("cron-paymaster-monitor — chain-label exact strings", () => {
 
 describe("cron-paymaster-monitor — response shape edges", () => {
   it("error chains are counted in errored (not breached)", async () => {
-    // Default mock: getContracts returns null on both chains -> error
-    // path. Errored should be 2, breached 0 (error path explicitly
+    // Default mock: getContracts returns null on all three chains ->
+    // error path. Errored should be 3, breached 0 (error path explicitly
     // sets belowThreshold=false to prevent spurious email alerts on
     // misconfiguration).
     const res = makeRes();
     await handler(makeReq(), res);
-    expect(res.captured.body?.errored).toBe(2);
+    expect(res.captured.body?.errored).toBe(3);
     expect(res.captured.body?.breached).toBe(0);
   });
 
@@ -347,6 +349,7 @@ describe("cron-paymaster-monitor — RPC URL missing path", () => {
     vi.doMock("../addresses.js", () => ({
       ETH_SEPOLIA_ID: 11155111,
       BASE_SEPOLIA_ID: 84532,
+      ARB_SEPOLIA_ID: 421614,
       getContracts: () => ({
         BlankPaymaster: "0xPaymaster",
         EntryPoint: "0xEntryPoint",

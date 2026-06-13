@@ -131,7 +131,7 @@ export default function Status() {
         <header className="mb-8">
           <h1 className="text-3xl font-heading font-semibold mb-2">Blank status</h1>
           <p className="text-sm text-[var(--text-secondary)]">
-            Live testnet health for Ethereum Sepolia and Base Sepolia. Refreshes every 30 seconds.
+            Live testnet health for Ethereum Sepolia, Base Sepolia, and Arbitrum Sepolia. Refreshes every 30 seconds.
           </p>
         </header>
 

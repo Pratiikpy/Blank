@@ -5,6 +5,7 @@ import {
   RPC_URLS,
   ETH_SEPOLIA_ID,
   BASE_SEPOLIA_ID,
+  ARB_SEPOLIA_ID,
 } from "./addresses.js";
 
 // §15.x server-side test for the api/_lib contract registry. The
@@ -63,7 +64,11 @@ describe("getContracts", () => {
 describe("CONTRACTS_BY_CHAIN", () => {
   it("includes both supported chain ids", () => {
     expect(Object.keys(CONTRACTS_BY_CHAIN).sort()).toEqual(
-      [String(ETH_SEPOLIA_ID), String(BASE_SEPOLIA_ID)].sort(),
+      [
+        String(ETH_SEPOLIA_ID),
+        String(BASE_SEPOLIA_ID),
+        String(ARB_SEPOLIA_ID),
+      ].sort(),
     );
   });
 });
@@ -138,8 +143,8 @@ describe("ServerContractMap shape invariants", () => {
     }
   });
 
-  it("CONTRACTS_BY_CHAIN has exactly 2 chain entries (no orphan + no missing)", () => {
-    expect(Object.keys(CONTRACTS_BY_CHAIN).length).toBe(2);
+  it("CONTRACTS_BY_CHAIN has exactly 3 chain entries (no orphan + no missing)", () => {
+    expect(Object.keys(CONTRACTS_BY_CHAIN).length).toBe(3);
   });
 });
 

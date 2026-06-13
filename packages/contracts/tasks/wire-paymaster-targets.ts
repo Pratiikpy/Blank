@@ -68,10 +68,12 @@ task(
         ? "base-sepolia.json"
         : networkName === "eth-sepolia"
         ? "eth-sepolia.json"
+        : networkName === "arb-sepolia"
+        ? "arb-sepolia.json"
         : null;
     if (!deploymentFile) {
       throw new Error(
-        `Unknown network "${networkName}" — expected eth-sepolia or base-sepolia.`,
+        `Unknown network "${networkName}" — expected eth-sepolia, base-sepolia or arb-sepolia.`,
       );
     }
 

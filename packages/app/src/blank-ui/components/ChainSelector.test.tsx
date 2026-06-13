@@ -74,6 +74,7 @@ vi.mock("@/lib/cn", () => ({
 vi.mock("@/lib/constants", () => ({
   ETH_SEPOLIA_ID: 11155111,
   BASE_SEPOLIA_ID: 84532,
+  ARB_SEPOLIA_ID: 421614,
   CHAINS: {
     11155111: {
       id: 11155111,
@@ -84,6 +85,11 @@ vi.mock("@/lib/constants", () => ({
       id: 84532,
       name: "Base Sepolia",
       shortName: "Base",
+    },
+    421614: {
+      id: 421614,
+      name: "Arbitrum Sepolia",
+      shortName: "Arb Sepolia",
     },
   },
 }));
@@ -182,7 +188,7 @@ describe("ChainSelector — dropdown rendering (§15.x)", () => {
     render(<ChainSelector />);
     fireEvent.click(screen.getByRole("button"));
     const options = screen.getAllByRole("option");
-    expect(options).toHaveLength(2);
+    expect(options).toHaveLength(3);
     const sepolia = options.find((o) =>
       o.textContent?.includes("Ethereum Sepolia"),
     )!;
@@ -436,7 +442,7 @@ describe("ChainSelector — smart-account footer hint (§15.x)", () => {
     render(<ChainSelector />);
     fireEvent.click(screen.getByRole("button"));
     await waitFor(() => {
-      expect(screen.getAllByRole("option")).toHaveLength(2);
+      expect(screen.getAllByRole("option")).toHaveLength(3);
     });
     expect(screen.queryByText(/Passkeys are per-chain/)).toBeNull();
   });
@@ -450,7 +456,7 @@ describe("ChainSelector — smart-account footer hint (§15.x)", () => {
     render(<ChainSelector />);
     fireEvent.click(screen.getByRole("button"));
     await waitFor(() => {
-      expect(screen.getAllByRole("option")).toHaveLength(2);
+      expect(screen.getAllByRole("option")).toHaveLength(3);
     });
     expect(screen.queryByText(/Passkeys are per-chain/)).toBeNull();
   });

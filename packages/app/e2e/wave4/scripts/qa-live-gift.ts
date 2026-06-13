@@ -4,13 +4,14 @@
  * Examples:
  *   CHAIN_ID=84532    pnpm exec tsx e2e/wave4/scripts/qa-live-gift.ts
  *   CHAIN_ID=11155111 pnpm exec tsx e2e/wave4/scripts/qa-live-gift.ts
+ *   CHAIN_ID=421614   pnpm exec tsx e2e/wave4/scripts/qa-live-gift.ts
  */
 import { chromium, type Page } from "@playwright/test";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { createPublicClient, http, type Address, type Hash } from "viem";
-import { baseSepolia, sepolia } from "viem/chains";
+import { arbitrumSepolia, baseSepolia, sepolia } from "viem/chains";
 import {
   unlockRabby,
   dismissRabbyWhatsNew,
@@ -28,21 +29,38 @@ const RABBY_PROFILE_DIR =
   process.env.RABBY_PROFILE_DIR ?? resolve(REPO, ".rabby-profile-blank");
 const RABBY_PASSWORD = process.env.RABBY_PASSWORD ?? "RabbyPass123!QA";
 const CHAIN_ID = Number(process.env.CHAIN_ID ?? 84532);
-if (CHAIN_ID !== 84532 && CHAIN_ID !== 11155111) {
+if (CHAIN_ID !== 84532 && CHAIN_ID !== 11155111 && CHAIN_ID !== 421614) {
   throw new Error(`Unsupported CHAIN_ID ${CHAIN_ID}`);
 }
-const IS_ETH = CHAIN_ID === 11155111;
-const CHAIN_NAME = IS_ETH ? "Ethereum Sepolia" : "Base Sepolia";
-const RPC_URL = IS_ETH ? "https://ethereum-sepolia.publicnode.com" : "https://base-sepolia-rpc.publicnode.com";
-const EXPLORER_URL = IS_ETH ? "https://sepolia.etherscan.io" : "https://sepolia.basescan.org";
-const BLOCKSCOUT_URL = IS_ETH ? "https://eth-sepolia.blockscout.com" : "https://base-sepolia.blockscout.com";
-const OUT = resolve(REPO, `packages/app/test-results/qa-live-gift-${IS_ETH ? "eth" : "base"}`);
+const CHAIN_SLUG = CHAIN_ID === 11155111 ? "eth" : CHAIN_ID === 84532 ? "base" : "arb";
+const CHAIN_NAME =
+  CHAIN_ID === 11155111 ? "Ethereum Sepolia" : CHAIN_ID === 84532 ? "Base Sepolia" : "Arbitrum Sepolia";
+const VIEM_CHAIN = CHAIN_ID === 11155111 ? sepolia : CHAIN_ID === 84532 ? baseSepolia : arbitrumSepolia;
+const RPC_URL =
+  CHAIN_ID === 11155111
+    ? "https://ethereum-sepolia.publicnode.com"
+    : CHAIN_ID === 84532
+      ? "https://base-sepolia-rpc.publicnode.com"
+      : "https://sepolia-rollup.arbitrum.io/rpc";
+const EXPLORER_URL =
+  CHAIN_ID === 11155111
+    ? "https://sepolia.etherscan.io"
+    : CHAIN_ID === 84532
+      ? "https://sepolia.basescan.org"
+      : "https://sepolia.arbiscan.io";
+const BLOCKSCOUT_URL =
+  CHAIN_ID === 11155111
+    ? "https://eth-sepolia.blockscout.com"
+    : CHAIN_ID === 84532
+      ? "https://base-sepolia.blockscout.com"
+      : "https://sepolia-explorer.arbitrum.io";
+const OUT = resolve(REPO, `packages/app/test-results/qa-live-gift-${CHAIN_SLUG}`);
 
 const DAVE = "0x7eF99105308230eab5B8E4765842bc2BF7B1D175" as Address;
 const BOB = "0x0D1883c48E14d733D464478f53706D92b7648b9d" as Address;
 
 const publicClient = createPublicClient({
-  chain: IS_ETH ? sepolia : baseSepolia,
+  chain: VIEM_CHAIN,
   transport: http(RPC_URL),
 });
 

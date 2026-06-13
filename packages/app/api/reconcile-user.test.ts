@@ -26,6 +26,7 @@ vi.mock("./_lib/supabase-admin.js", () => ({
 vi.mock("./_lib/addresses.js", () => ({
   ETH_SEPOLIA_ID: 11155111,
   BASE_SEPOLIA_ID: 84532,
+  ARB_SEPOLIA_ID: 421614,
   CONTRACTS_BY_CHAIN: {
     11155111: {
       PaymentHub: "0x" + "11".repeat(20),
@@ -37,10 +38,16 @@ vi.mock("./_lib/addresses.js", () => ({
       GiftMoney: "0x" + "55".repeat(20),
       FHERC20Vault_USDC: "0x" + "66".repeat(20),
     },
+    421614: {
+      PaymentHub: "0x" + "77".repeat(20),
+      GiftMoney: "0x" + "88".repeat(20),
+      FHERC20Vault_USDC: "0x" + "99".repeat(20),
+    },
   },
   RPC_URLS: {
     11155111: "https://sepolia",
     84532: "https://base-sepolia",
+    421614: "https://arb-sepolia",
   },
 }));
 
@@ -202,6 +209,7 @@ describe("/api/reconcile-user — chainId validation (§15.x)", () => {
     expect(errMsg).toContain("unsupported chainId");
     expect(errMsg).toContain("11155111");
     expect(errMsg).toContain("84532");
+    expect(errMsg).toContain("421614");
   });
 });
 
@@ -217,13 +225,16 @@ describe("/api/reconcile-user — no-DB graceful degradation (§15.x)", () => {
     expect(res.captured.body?.events).toEqual([]);
   });
 
-  it("supports BOTH ETH Sepolia AND Base Sepolia (both reach no-db gracefully)", async () => {
+  it("supports ETH Sepolia, Base Sepolia AND Arb Sepolia (all reach no-db gracefully)", async () => {
     const r1 = makeRes();
     await handler(makeReq({ body: { address: VALID_ADDR, chainId: 11155111 } }), r1);
     const r2 = makeRes();
     await handler(makeReq({ body: { address: VALID_ADDR, chainId: 84532 } }), r2);
+    const r3 = makeRes();
+    await handler(makeReq({ body: { address: VALID_ADDR, chainId: 421614 } }), r3);
     expect(r1.captured.body?.status).toBe("no-db");
     expect(r2.captured.body?.status).toBe("no-db");
+    expect(r3.captured.body?.status).toBe("no-db");
   });
 });
 
@@ -297,6 +308,7 @@ describe("/api/reconcile-user — chainId validation edges", () => {
     const err = res.captured.body?.error as string;
     expect(err).toContain("11155111");
     expect(err).toContain("84532");
+    expect(err).toContain("421614");
     // Mainnet (1) MUST NOT appear in the suggestion list (we don't
     // support it and the operator-facing error shouldn't list it).
     expect(err.split(",").map((s) => s.trim())).not.toContain("1");

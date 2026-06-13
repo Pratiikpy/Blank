@@ -78,6 +78,7 @@ export const PERSONAS: Record<string, WalletPersona> = {
 export const CHAINS = {
   ETH_SEPOLIA: { id: 11155111, name: "Ethereum Sepolia", explorerUrl: "https://sepolia.etherscan.io" },
   BASE_SEPOLIA: { id: 84532, name: "Base Sepolia", explorerUrl: "https://sepolia.basescan.org" },
+  ARB_SEPOLIA: { id: 421614, name: "Arbitrum Sepolia", explorerUrl: "https://sepolia.arbiscan.io" },
 } as const;
 export type ChainKey = keyof typeof CHAINS;
 

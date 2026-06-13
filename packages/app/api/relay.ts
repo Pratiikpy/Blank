@@ -59,6 +59,15 @@ const SUPPORTED_CHAINS: Record<number, { rpcUrls: string[]; entryPoint: string }
     ].filter((u): u is string => typeof u === "string" && u.length > 0),
     entryPoint: ENTRYPOINT_V08,
   },
+  421614: {
+    rpcUrls: [
+      process.env.ARB_SEPOLIA_RPC_URL,
+      "https://sepolia-rollup.arbitrum.io/rpc",
+      "https://arbitrum-sepolia-rpc.publicnode.com",
+      "https://arbitrum-sepolia.drpc.org",
+    ].filter((u): u is string => typeof u === "string" && u.length > 0),
+    entryPoint: ENTRYPOINT_V08,
+  },
 };
 
 /** Build a single JsonRpcProvider, but capable of retrying SPECIFIC reads

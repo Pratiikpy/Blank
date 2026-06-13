@@ -19,9 +19,12 @@ const RABBY_EXT_DIR = resolve(REPO, "packages/app/e2e/fixtures/rabby/ext");
 const RABBY_PROFILE_DIR = process.env.RABBY_PROFILE_DIR ?? resolve(REPO, ".rabby-profile-blank");
 const RABBY_PASSWORD = process.env.RABBY_PASSWORD ?? "RabbyPass123!QA";
 const CHAIN_ID = Number(process.env.CHAIN_ID ?? 84532);
-if (CHAIN_ID !== 84532 && CHAIN_ID !== 11155111) throw new Error(`Unsupported CHAIN_ID ${CHAIN_ID}`);
-const CHAIN_NAME = CHAIN_ID === 11155111 ? "Ethereum Sepolia" : "Base Sepolia";
-const OUT = resolve(REPO, `packages/app/test-results/qa-live-mobile-sweep-${CHAIN_ID === 11155111 ? "eth" : "base"}`);
+if (CHAIN_ID !== 84532 && CHAIN_ID !== 11155111 && CHAIN_ID !== 421614)
+  throw new Error(`Unsupported CHAIN_ID ${CHAIN_ID}`);
+const CHAIN_SLUG = CHAIN_ID === 11155111 ? "eth" : CHAIN_ID === 84532 ? "base" : "arb";
+const CHAIN_NAME =
+  CHAIN_ID === 11155111 ? "Ethereum Sepolia" : CHAIN_ID === 84532 ? "Base Sepolia" : "Arbitrum Sepolia";
+const OUT = resolve(REPO, `packages/app/test-results/qa-live-mobile-sweep-${CHAIN_SLUG}`);
 const RUN_PROFILE = resolve(OUT, "profiles", `run-${Date.now()}`);
 
 const ROUTES: Array<{ path: string; label: string }> = [

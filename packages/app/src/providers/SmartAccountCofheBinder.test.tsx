@@ -70,6 +70,21 @@ vi.mock("wagmi", () => ({
 vi.mock("wagmi/chains", () => ({
   sepolia: { id: 11155111, name: "Sepolia" },
   baseSepolia: { id: 84532, name: "Base Sepolia" },
+  arbitrumSepolia: { id: 421614, name: "Arbitrum Sepolia" },
+}));
+vi.mock("@/lib/viem-chains", () => ({
+  chainIdToViemChain: (chainId: number) => {
+    switch (chainId) {
+      case 11155111:
+        return { id: 11155111, name: "Sepolia" };
+      case 84532:
+        return { id: 84532, name: "Base Sepolia" };
+      case 421614:
+        return { id: 421614, name: "Arbitrum Sepolia" };
+      default:
+        throw new Error(`viem-chains: unsupported chain id ${chainId}`);
+    }
+  },
 }));
 vi.mock("@/hooks/useSmartAccount", () => ({
   useSmartAccount: useSmartAccountMock,
@@ -259,17 +274,16 @@ describe("SmartAccountCofheBinder — chain fallback (§15.x)", () => {
     expect(chain).toEqual({ id: 84532, name: "Base Sepolia" });
   });
 
-  it("wagmiChain undefined + activeChainId=unknown -> falls back to sepolia (default)", () => {
+  it("wagmiChain undefined + activeChainId=421614 -> falls back to arbitrumSepolia canonical", () => {
     useAccountMock.mockReturnValue({ chain: undefined, address: undefined });
-    useChainMock.mockReturnValue({ activeChainId: 99999 });
+    useChainMock.mockReturnValue({ activeChainId: 421614 });
     useSmartAccountMock.mockReturnValue({
       status: "ready",
       account: { address: SA_ADDR, isDeployed: true },
     });
     render(<SmartAccountCofheBinder />);
     const chain = buildBlankSmartAccountClientMock.mock.calls[0][0].chain;
-    // Anything other than 84532 falls back to sepolia
-    expect(chain).toEqual({ id: 11155111, name: "Sepolia" });
+    expect(chain).toEqual({ id: 421614, name: "Arbitrum Sepolia" });
   });
 });
 

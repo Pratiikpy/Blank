@@ -63,7 +63,7 @@ async function bootstrapPersona(
   baseURL: string,
 ): Promise<{ aaAddress: string; faucetTxHash: string; finalScreenshot: string }> {
   const ctxName = `${persona.name.toLowerCase()}`;
-  const chainSlug = chain.chainKey === "ETH_SEPOLIA" ? "eth-sepolia" : "base-sepolia";
+  const chainSlug = chain.chainKey === "ETH_SEPOLIA" ? "eth-sepolia" : chain.chainKey === "ARB_SEPOLIA" ? "arb-sepolia" : "base-sepolia";
 
   // Fresh browser context = fresh IndexedDB. Multi-party isolation.
   const context = await browser.newContext({

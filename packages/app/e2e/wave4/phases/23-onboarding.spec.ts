@@ -59,7 +59,7 @@ test.describe("Phase 23 — Onboarding (real first-time passkey)", () => {
   }) => {
     const chain = chainContextFromProject();
     const url = baseURL ?? "http://localhost:3000";
-    const chainSlug = chain.chainKey === "ETH_SEPOLIA" ? "eth-sepolia" : "base-sepolia";
+    const chainSlug = chain.chainKey === "ETH_SEPOLIA" ? "eth-sepolia" : chain.chainKey === "ARB_SEPOLIA" ? "arb-sepolia" : "base-sepolia";
 
     // Fresh context — NO injectPasskey() call. This is the whole
     // point: a real first-time judge would arrive with nothing.

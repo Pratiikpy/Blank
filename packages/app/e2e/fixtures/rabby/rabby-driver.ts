@@ -105,11 +105,22 @@ export async function launchRabby(opts: {
  * press Enter. No-op when the profile is already unlocked or first-run.
  */
 export async function unlockRabby(rabbyPage: Page, password: string): Promise<boolean> {
-  const pw = rabbyPage.locator('input[type="password"]').first();
-  const visible = await pw.isVisible({ timeout: 3_000 }).catch(() => false);
-  if (!visible) return false;
-  await pw.click({ timeout: 3_000 });
-  await rabbyPage.keyboard.type(password, { delay: 50 });
+  // Rabby's unlock input is type=password (placeholder "Enter the Password
+  // to Unlock"). Wait up to 8s for it (the SW + React mount can lag a few
+  // seconds after launch) and use fill() — keyboard.type alone sometimes
+  // raced the field's focus and left it empty, so the sweep never unlocked.
+  const pw = rabbyPage
+    .locator('input[type="password"], input[placeholder*="assword"]')
+    .first();
+  try {
+    await pw.waitFor({ state: "visible", timeout: 8_000 });
+  } catch {
+    return false;
+  }
+  await pw.click({ timeout: 3_000 }).catch(() => {});
+  await pw.fill(password).catch(async () => {
+    await rabbyPage.keyboard.type(password, { delay: 40 });
+  });
   await rabbyPage.keyboard.press("Enter");
   await rabbyPage.waitForTimeout(3_500);
   return true;
@@ -285,7 +296,10 @@ export async function waitForRabbyPopup(
 }
 
 /** Rabby's primary-CTA labels in the order we should try them. */
-const RABBY_PRIMARY_CTAS = ["Sign", "Confirm", "Approve", "Connect", "Allow", "Switch network"];
+// "Add" is the confirm button on Rabby's wallet_addEthereumChain popup
+// (buttons are ["Cancel","Add"]) — needed to add a chain the profile was not
+// seeded with (e.g. Arbitrum Sepolia on a profile set up for eth/base).
+const RABBY_PRIMARY_CTAS = ["Sign", "Confirm", "Approve", "Connect", "Allow", "Switch network", "Add"];
 
 /**
  * On Rabby's Connect popup the chain chip defaults to Ethereum mainnet.
@@ -296,7 +310,7 @@ const RABBY_PRIMARY_CTAS = ["Sign", "Confirm", "Approve", "Connect", "Allow", "S
  * false if no switch was attempted (popup may already be on the right
  * chain or the dropdown widget wasn't found).
  *
- * @param chainName "Ethereum Sepolia" or "Base Sepolia"
+ * @param chainName "Ethereum Sepolia", "Base Sepolia", or "Arbitrum Sepolia"
  */
 export async function selectRabbyChain(popup: Page, chainName: string): Promise<boolean> {
   // Let the popup finish rendering its dApp metadata. Rabby fetches
@@ -345,16 +359,26 @@ export async function selectRabbyChain(popup: Page, chainName: string): Promise<
   if (await searchInput.isVisible({ timeout: 2_000 }).catch(() => false)) {
     // Use a more specific search term per chain so the list isn't
     // polluted with Sepolia L2 forks (Orderly Sepolia, Mantle Sepolia,
-    // etc.). For Base Sepolia search "Base", for Eth Sepolia "Ethereum
-    // Sepolia" which uniquely matches the canonical entry.
-    const searchTerm = chainName.includes("Base") ? "Base Sepolia" : "Ethereum Sepolia";
+    // etc.). For Base Sepolia search "Base Sepolia", for Arbitrum Sepolia
+    // "Arbitrum Sepolia", for Eth Sepolia "Ethereum Sepolia" which
+    // uniquely matches the canonical entry.
+    const searchTerm = chainName.includes("Base")
+      ? "Base Sepolia"
+      : chainName.includes("Arbitrum")
+        ? "Arbitrum Sepolia"
+        : "Ethereum Sepolia";
     await searchInput.fill(searchTerm).catch(() => {});
     await popup.waitForTimeout(1_200);
   }
 
-  // Step 4: pick the row. Rabby labels Eth Sepolia as "Sepolia" and
-  // Base Sepolia as "Base Sepolia".
-  const target = chainName.includes("Base") ? "Base Sepolia" : "Sepolia";
+  // Step 4: pick the row. Rabby labels Eth Sepolia as "Sepolia",
+  // Base Sepolia as "Base Sepolia", and Arbitrum Sepolia as
+  // "Arbitrum Sepolia".
+  const target = chainName.includes("Base")
+    ? "Base Sepolia"
+    : chainName.includes("Arbitrum")
+      ? "Arbitrum Sepolia"
+      : "Sepolia";
   const targetLoc = popup.getByText(target, { exact: false }).first();
   if (await targetLoc.isVisible({ timeout: 2_500 }).catch(() => false)) {
     const tb = await targetLoc.boundingBox({ timeout: 2_000 }).catch(() => null);

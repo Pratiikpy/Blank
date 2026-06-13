@@ -526,7 +526,7 @@ export default function Features() {
           <p className="ll-section-lead">
             One encrypted vault. Twenty-one product surfaces. The shipped
             surfaces run on real contracts, real FHE, and live deployments
-            on Ethereum Sepolia and Base Sepolia.
+            on Ethereum Sepolia, Base Sepolia, and Arbitrum Sepolia.
           </p>
         </section>
 

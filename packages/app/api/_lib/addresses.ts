@@ -13,6 +13,7 @@
 
 export const ETH_SEPOLIA_ID = 11155111;
 export const BASE_SEPOLIA_ID = 84532;
+export const ARB_SEPOLIA_ID = 421614;
 
 export interface ServerContractMap {
   PaymentHub: string;
@@ -63,11 +64,21 @@ const DEFAULTS: Record<number, ServerContractMap> = {
     BlankPaymaster: "0xB1CbBD59E63d7aB0BbF0406CCF1016c1Dd8e63de",
     PaymentReceipts: "0x23f0530e107cCF940093c238bbc97EbdAD6fAD7c",
   },
+  [ARB_SEPOLIA_ID]: {
+    PaymentHub: "0x899f22B60A856Ec6FCb7C888c43f1A9891E9d6C5",
+    GiftMoney: "0x944360c5fD0eDCa2052aeC77530600c65171Dd27",
+    FHERC20Vault_USDC: "0x22c543F1303Ba25A52694C89D8d09D26FBb7569E",
+    TestUSDC: "0x9558E2D3157c986591F325a6e76cA2fdFDB0b7AD",
+    EntryPoint: ENTRY_POINT_V08,
+    BlankPaymaster: "0x9C295E5A130a5776b287dcC77b41d4b55165C8Be",
+    PaymentReceipts: "0x976b79128D1d4269942EA4500e89A18D8918DDB5",
+  },
 };
 
 const ENV_PREFIX: Record<number, string> = {
   [ETH_SEPOLIA_ID]: "BLANK_ETH_SEPOLIA_",
   [BASE_SEPOLIA_ID]: "BLANK_BASE_SEPOLIA_",
+  [ARB_SEPOLIA_ID]: "BLANK_ARB_SEPOLIA_",
 };
 
 function buildMap(chainId: number): ServerContractMap {
@@ -87,6 +98,7 @@ function buildMap(chainId: number): ServerContractMap {
 export const CONTRACTS_BY_CHAIN: Record<number, ServerContractMap> = {
   [ETH_SEPOLIA_ID]: buildMap(ETH_SEPOLIA_ID),
   [BASE_SEPOLIA_ID]: buildMap(BASE_SEPOLIA_ID),
+  [ARB_SEPOLIA_ID]: buildMap(ARB_SEPOLIA_ID),
 };
 
 export function getContracts(chainId: number): ServerContractMap | null {
@@ -96,6 +108,7 @@ export function getContracts(chainId: number): ServerContractMap | null {
 export const RPC_URLS: Record<number, string> = {
   [ETH_SEPOLIA_ID]: process.env.SEPOLIA_RPC_URL || "https://ethereum-sepolia.publicnode.com",
   [BASE_SEPOLIA_ID]: process.env.BASE_SEPOLIA_RPC_URL || "https://sepolia.base.org",
+  [ARB_SEPOLIA_ID]: process.env.ARB_SEPOLIA_RPC_URL || "https://sepolia-rollup.arbitrum.io/rpc",
 };
 
 export type { ContractKey };

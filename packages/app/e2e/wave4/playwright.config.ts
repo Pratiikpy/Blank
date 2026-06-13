@@ -17,7 +17,7 @@ import { fileURLToPath } from "url";
 //   • Multi-party flows use distinct browser contexts per wallet.
 //   • Screenshots at every meaningful state transition.
 //   • Video on every phase.
-//   • Both chains (Eth Sepolia 11155111 + Base Sepolia 84532).
+//   • Both chains (Eth Sepolia 11155111 + Base Sepolia 84532 + Arbitrum Sepolia 421614).
 //   • Both viewports (1280x800 + 375x812) for user-facing screens.
 //   • Real tx hashes captured + written to WAVE4_TESTING_TODO.md.
 // ──────────────────────────────────────────────────────────────────
@@ -99,6 +99,24 @@ export default defineConfig({
         viewport: { width: 375, height: 812 },
       },
       metadata: { chainId: 84532, chainName: "Base Sepolia", viewport: "mobile" },
+      testMatch: ["**/features/*-mobile.spec.ts"],
+    },
+    {
+      name: "arb-sepolia-desktop",
+      use: {
+        ...devices["Desktop Chrome"],
+        viewport: { width: 1280, height: 800 },
+      },
+      metadata: { chainId: 421614, chainName: "Arbitrum Sepolia", viewport: "desktop" },
+      testIgnore: ["**/features/*-mobile.spec.ts"],
+    },
+    {
+      name: "arb-sepolia-mobile",
+      use: {
+        ...devices["iPhone 13"],
+        viewport: { width: 375, height: 812 },
+      },
+      metadata: { chainId: 421614, chainName: "Arbitrum Sepolia", viewport: "mobile" },
       testMatch: ["**/features/*-mobile.spec.ts"],
     },
   ],

@@ -21,9 +21,10 @@ task(
   const networkName = hre.network.name;
   const deploymentFile =
     networkName === "base-sepolia" ? "base-sepolia.json" :
-    networkName === "eth-sepolia" ? "eth-sepolia.json" : null;
+    networkName === "eth-sepolia" ? "eth-sepolia.json" :
+    networkName === "arb-sepolia" ? "arb-sepolia.json" : null;
   if (!deploymentFile) {
-    throw new Error(`deploy-storefront: unsupported network ${networkName}`);
+    throw new Error(`deploy-storefront: unsupported network ${networkName}. Supported: base-sepolia, eth-sepolia, arb-sepolia`);
   }
   const deploymentPath = resolve(__dirname, "..", "deployments", deploymentFile);
 

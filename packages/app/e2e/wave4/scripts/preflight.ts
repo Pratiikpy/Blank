@@ -65,6 +65,11 @@ const RPC_TARGETS: { chainId: number; envVar: string; fallback: string }[] = [
     envVar: "BASE_SEPOLIA_RPC_URL",
     fallback: "https://sepolia.base.org",
   },
+  {
+    chainId: 421614,
+    envVar: "ARB_SEPOLIA_RPC_URL",
+    fallback: "https://sepolia-rollup.arbitrum.io/rpc",
+  },
 ];
 
 async function checkRpc(chainId: number, envVar: string, fallback: string): Promise<void> {
@@ -160,6 +165,7 @@ async function main(): Promise<void> {
   await Promise.all(RPC_TARGETS.map((t) => checkRpc(t.chainId, t.envVar, t.fallback)));
   checkDeployments("Eth Sepolia", "eth-sepolia.json");
   checkDeployments("Base Sepolia", "base-sepolia.json");
+  checkDeployments("Arbitrum Sepolia", "arb-sepolia.json");
 
   // ─── Informational: Vite dev server reachability ────────────────
   try {

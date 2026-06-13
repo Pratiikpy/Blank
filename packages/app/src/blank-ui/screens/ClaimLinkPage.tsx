@@ -88,7 +88,7 @@ export default function ClaimLinkPage() {
       setLoadError({
         kind: "permanent",
         headline: "Unsupported chain",
-        hint: "Blank only supports Ethereum Sepolia and Base Sepolia for now.",
+        hint: "Blank only supports Ethereum Sepolia, Base Sepolia, and Arbitrum Sepolia for now.",
         rawCause: "",
       });
       return;

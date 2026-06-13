@@ -96,6 +96,7 @@ export function useUniswapSwap(): UseUniswapSwapReturn {
       }
       const fee = args.fee ?? POOL_FEE.MEDIUM;
       const quoter = UNISWAP_QUOTER_V2[args.chainId];
+      if (!quoter) throw new Error(`Token swap is not available on chain ${args.chainId}`);
       const { result } = await publicClient.simulateContract({
         address: quoter,
         abi: QuoterV2Abi,
@@ -142,6 +143,7 @@ export function useUniswapSwap(): UseUniswapSwapReturn {
       const slippageBps = args.slippageBps ?? DEFAULT_SLIPPAGE_BPS;
       const recipient = (args.recipient ?? effectiveAddress) as Address;
       const router = UNISWAP_SWAP_ROUTER_02[activeChainId];
+      if (!router) throw new Error(`Token swap is not available on chain ${activeChainId}`);
 
       try {
         // ── Step 1: quote so we can compute amountOutMinimum ─────────

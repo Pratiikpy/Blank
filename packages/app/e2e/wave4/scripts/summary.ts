@@ -79,7 +79,14 @@ function main(): void {
   console.log("");
   console.log("Tx hashes by chain:");
   for (const [chainId, count] of [...byChain.entries()].sort()) {
-    const name = chainId === 11155111 ? "Ethereum Sepolia" : chainId === 84532 ? "Base Sepolia" : `chain ${chainId}`;
+    const name =
+      chainId === 11155111
+        ? "Ethereum Sepolia"
+        : chainId === 84532
+          ? "Base Sepolia"
+          : chainId === 421614
+            ? "Arbitrum Sepolia"
+            : `chain ${chainId}`;
     console.log(`  ${chainId.toString().padEnd(10)} ${name.padEnd(20)} ${count} entr${count === 1 ? "y" : "ies"}`);
   }
   console.log("");

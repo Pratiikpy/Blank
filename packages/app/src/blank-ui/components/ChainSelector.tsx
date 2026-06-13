@@ -6,13 +6,14 @@ import {
   CHAINS,
   ETH_SEPOLIA_ID,
   BASE_SEPOLIA_ID,
+  ARB_SEPOLIA_ID,
   type SupportedChainId,
 } from "@/lib/constants";
 import { useChain } from "@/providers/ChainProvider";
 import { useEffectiveAddress } from "@/hooks/useEffectiveAddress";
 import { hasPasskey } from "@/lib/passkey";
 
-const CHAIN_ORDER: SupportedChainId[] = [ETH_SEPOLIA_ID, BASE_SEPOLIA_ID];
+const CHAIN_ORDER: SupportedChainId[] = [ETH_SEPOLIA_ID, BASE_SEPOLIA_ID, ARB_SEPOLIA_ID];
 
 export function ChainSelector() {
   const [open, setOpen] = useState(false);

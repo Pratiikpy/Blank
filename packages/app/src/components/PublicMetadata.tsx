@@ -61,7 +61,7 @@ function metadataForPath(pathname: string): PageMetadata {
   if (pathname === "/status") {
     return {
       title: "Blank Status | Testnet Health",
-      description: "Live health for Blank on Base Sepolia and Ethereum Sepolia.",
+      description: "Live health for Blank on Ethereum Sepolia, Base Sepolia, and Arbitrum Sepolia.",
       canonical: `${SITE}/status`,
     };
   }

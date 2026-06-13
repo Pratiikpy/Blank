@@ -34,6 +34,7 @@ import {
   RPC_URLS,
   ETH_SEPOLIA_ID,
   BASE_SEPOLIA_ID,
+  ARB_SEPOLIA_ID,
 } from "../addresses.js";
 import { sendEmail, emailEnabled } from "../resend.js";
 
@@ -49,6 +50,7 @@ const DEFAULT_ALERT_THRESHOLD_WEI = 100_000_000_000_000_000n;
 const CHAIN_LABEL: Record<number, string> = {
   [ETH_SEPOLIA_ID]: "Ethereum Sepolia",
   [BASE_SEPOLIA_ID]: "Base Sepolia",
+  [ARB_SEPOLIA_ID]: "Arbitrum Sepolia",
 };
 
 interface ChainSnapshot {
@@ -208,7 +210,7 @@ export default async function handler(req: any, res: any) {
   const thresholdWei = readThresholdWei();
   const thresholdEth = ethers.formatEther(thresholdWei);
 
-  const chainIds = [ETH_SEPOLIA_ID, BASE_SEPOLIA_ID];
+  const chainIds = [ETH_SEPOLIA_ID, BASE_SEPOLIA_ID, ARB_SEPOLIA_ID];
   const snapshots = await Promise.all(chainIds.map((id) => readDeposit(id, thresholdWei)));
 
   const breached = snapshots.filter((s) => s.belowThreshold);

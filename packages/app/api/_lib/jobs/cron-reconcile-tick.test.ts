@@ -124,8 +124,8 @@ describe("cron-reconcile-tick — address aggregation (§15.x)", () => {
     await handler(makeReq(), res);
 
     expect(res.captured.body?.addresses).toBe(2);
-    // 2 addresses × 2 chains = 4 fetch calls, NOT 4 + 2 (zero address skipped).
-    expect(fetchSpy).toHaveBeenCalledTimes(4);
+    // 2 addresses × 3 chains = 6 fetch calls, NOT 6 + 3 (zero address skipped).
+    expect(fetchSpy).toHaveBeenCalledTimes(6);
     // Verify no fetch carried the zero address.
     const calls = fetchSpy.mock.calls as unknown as Array<[RequestInfo | URL, RequestInit]>;
     const bodies = calls.map((c) => JSON.parse(c[1].body as string));
@@ -154,8 +154,8 @@ describe("cron-reconcile-tick — address aggregation (§15.x)", () => {
     await handler(makeReq(), res);
 
     expect(res.captured.body?.addresses).toBe(1);
-    // 1 address × 2 chains = 2 fetch calls.
-    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    // 1 address × 3 chains = 3 fetch calls.
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
   });
 
   it("caps the per-tick address set at MAX_ADDRESSES_PER_TICK (=50)", async () => {
@@ -176,7 +176,7 @@ describe("cron-reconcile-tick — address aggregation (§15.x)", () => {
     await handler(makeReq(), res);
 
     expect(res.captured.body?.addresses).toBe(50);
-    expect(fetchSpy).toHaveBeenCalledTimes(50 * 2);
+    expect(fetchSpy).toHaveBeenCalledTimes(50 * 3);
   });
 });
 
@@ -189,7 +189,7 @@ describe("cron-reconcile-tick — reconcile-user fanout (§15.x)", () => {
   });
 
   it("sums totalIndexed across all (address, chainId) reconcile-user calls", async () => {
-    // 1 address × 2 chains: each returns indexed=3 -> totalIndexed = 6.
+    // 1 address × 3 chains: each returns indexed=3 -> totalIndexed = 9.
     const fetchSpy = vi.fn(async () => ({
       ok: true,
       json: async () => ({ indexed: 3 }),
@@ -199,7 +199,7 @@ describe("cron-reconcile-tick — reconcile-user fanout (§15.x)", () => {
     const res = makeRes();
     await handler(makeReq(), res);
 
-    expect(res.captured.body?.totalIndexed).toBe(6);
+    expect(res.captured.body?.totalIndexed).toBe(9);
   });
 
   it("a failing reconcile-user call does NOT kill the tick (others still run)", async () => {
@@ -214,8 +214,8 @@ describe("cron-reconcile-tick — reconcile-user fanout (§15.x)", () => {
     const res = makeRes();
     await handler(makeReq(), res);
 
-    // First call rejected -> the second still runs and contributes 5.
-    expect(res.captured.body?.totalIndexed).toBe(5);
+    // First call rejected -> the remaining two still run and contribute 5 each.
+    expect(res.captured.body?.totalIndexed).toBe(10);
     expect(res.captured.status).toBe(200);
   });
 
@@ -232,7 +232,7 @@ describe("cron-reconcile-tick — reconcile-user fanout (§15.x)", () => {
     expect(res.captured.body?.totalIndexed).toBe(0);
   });
 
-  it("body shape: includes addresses + chainsPerAddress=2 + totalIndexed", async () => {
+  it("body shape: includes addresses + chainsPerAddress=3 + totalIndexed", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => ({ ok: true, json: async () => ({ indexed: 0 }) })) as unknown as typeof fetch,
@@ -244,7 +244,7 @@ describe("cron-reconcile-tick — reconcile-user fanout (§15.x)", () => {
     const body = res.captured.body!;
     expect(body.status).toBe("ok");
     expect(typeof body.addresses).toBe("number");
-    expect(body.chainsPerAddress).toBe(2);
+    expect(body.chainsPerAddress).toBe(3);
     expect(typeof body.totalIndexed).toBe("number");
   });
 

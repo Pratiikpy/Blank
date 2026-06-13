@@ -27,6 +27,7 @@ import { encodeAbiParameters, keccak256, type Address, type Hex } from "viem";
 import {
   ETH_SEPOLIA_ID,
   BASE_SEPOLIA_ID,
+  ARB_SEPOLIA_ID,
   type SupportedChainId,
 } from "./constants";
 
@@ -36,27 +37,35 @@ import {
 // Sepolia thanks to Circle's Create2-deterministic deployment. We still
 // expose them per-chain for forward-compat (V2.1 might break that).
 
-export const CCTP_TOKEN_MESSENGER_V2: Record<SupportedChainId, Address> = {
+export const CCTP_TOKEN_MESSENGER_V2: Partial<Record<SupportedChainId, Address>> = {
   [ETH_SEPOLIA_ID]: "0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA",
   [BASE_SEPOLIA_ID]: "0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA",
+  // Same Create2-deterministic address on Arb Sepolia (verified on-chain).
+  [ARB_SEPOLIA_ID]: "0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA",
 };
 
-export const CCTP_MESSAGE_TRANSMITTER_V2: Record<SupportedChainId, Address> = {
+export const CCTP_MESSAGE_TRANSMITTER_V2: Partial<Record<SupportedChainId, Address>> = {
   [ETH_SEPOLIA_ID]: "0xE737e5cEBEEBa77EFE34D4aa090756590b1CE275",
   [BASE_SEPOLIA_ID]: "0xE737e5cEBEEBa77EFE34D4aa090756590b1CE275",
+  // Same Create2-deterministic address on Arb Sepolia (verified on-chain).
+  [ARB_SEPOLIA_ID]: "0xE737e5cEBEEBa77EFE34D4aa090756590b1CE275",
 };
 
 /** Native USDC issued by Circle on each testnet — NOT the FHE-vault wrapper.
  *  CCTP only burns/mints native USDC; users must unshield first. */
-export const CCTP_USDC: Record<SupportedChainId, Address> = {
+export const CCTP_USDC: Partial<Record<SupportedChainId, Address>> = {
   [ETH_SEPOLIA_ID]: "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
   [BASE_SEPOLIA_ID]: "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+  // Circle native USDC on Arb Sepolia (verified on-chain).
+  [ARB_SEPOLIA_ID]: "0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d",
 };
 
 /** Circle CCTP domain IDs. Distinct from EVM chain IDs. */
-export const CCTP_DOMAIN: Record<SupportedChainId, number> = {
+export const CCTP_DOMAIN: Partial<Record<SupportedChainId, number>> = {
   [ETH_SEPOLIA_ID]: 0,
   [BASE_SEPOLIA_ID]: 6,
+  // Circle CCTP domain for Arbitrum Sepolia.
+  [ARB_SEPOLIA_ID]: 3,
 };
 
 /** Finality thresholds, V2-specific. Values below 1000 default to 1000;
@@ -311,6 +320,16 @@ export function planBridge(input: {
       ? 0n
       : input.maxFeeUnits ?? input.amountUnits / 200n;
 
+  const sourceTokenMessenger = CCTP_TOKEN_MESSENGER_V2[input.sourceChain];
+  const sourceUsdc = CCTP_USDC[input.sourceChain];
+  const destMessageTransmitter = CCTP_MESSAGE_TRANSMITTER_V2[input.destChain];
+  const destDomain = CCTP_DOMAIN[input.destChain];
+  if (!sourceTokenMessenger || !sourceUsdc || !destMessageTransmitter || destDomain === undefined) {
+    throw new Error(
+      `CCTP bridge is not supported between chains ${input.sourceChain} and ${input.destChain}`
+    );
+  }
+
   return {
     amountUnits: input.amountUnits,
     mintRecipient32: addressToBytes32(input.recipient),
@@ -318,9 +337,9 @@ export function planBridge(input: {
       "0x0000000000000000000000000000000000000000000000000000000000000000" as Hex,
     maxFee,
     minFinalityThreshold,
-    sourceTokenMessenger: CCTP_TOKEN_MESSENGER_V2[input.sourceChain],
-    sourceUsdc: CCTP_USDC[input.sourceChain],
-    destMessageTransmitter: CCTP_MESSAGE_TRANSMITTER_V2[input.destChain],
-    destDomain: CCTP_DOMAIN[input.destChain],
+    sourceTokenMessenger,
+    sourceUsdc,
+    destMessageTransmitter,
+    destDomain,
   };
 }

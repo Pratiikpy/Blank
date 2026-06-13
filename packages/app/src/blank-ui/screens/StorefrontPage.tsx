@@ -106,7 +106,7 @@ export default function StorefrontPage() {
       return;
     }
     if (!(chainId in CONTRACTS_BY_CHAIN)) {
-      setLoadError({ kind: "permanent", headline: "Unsupported chain", hint: "Blank only supports Ethereum Sepolia and Base Sepolia for now.", rawCause: "" });
+      setLoadError({ kind: "permanent", headline: "Unsupported chain", hint: "Blank only supports Ethereum Sepolia, Base Sepolia, and Arbitrum Sepolia for now.", rawCause: "" });
       return;
     }
     const contracts = CONTRACTS_BY_CHAIN[chainId as SupportedChainId];

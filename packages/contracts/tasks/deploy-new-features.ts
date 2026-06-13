@@ -110,19 +110,28 @@ task("deploy-new-features", "Deploy GiftMoney, StealthPayments, PrivacyRouter, M
     await tx.wait(2);
     console.log("     ✓ All whitelisted in EventHub");
 
-    // Set up MockDEX with a reasonable exchange rate
-    // 1 USDC (6 decimals) = 400000 "WETH" units (simulated)
-    // Rate: 400000 (scaled by 1e6 means 0.4 WETH per USDC at 1e6 precision)
-    console.log("\n     Setting MockDEX exchange rate...");
+    // Set up MockDEX exchange rate. The contract takes a bidirectional pair
+    // (tokenA, tokenB, forwardRate, reverseRate) and reverts on tokenA == tokenB,
+    // so a rate is only set when two distinct tokens exist. TestUSDT ships in
+    // deploy-second-vault (a later step), so on a fresh run only TestUSDC is
+    // present here and the same-token placeholder is skipped — the private-swap
+    // demo is wired separately on chains that enable a second-token swap.
     const mockDex = (await hre.ethers.getContractFactory("MockDEX")).attach(mockDexAddress);
-    // Set rate: TestUSDC -> TestUSDC at 1:1 (for testing same-token swaps)
-    const setRateTx = await mockDex.setRateBidirectional(
-      addresses.TestUSDC,
-      addresses.TestUSDC,
-      1000000 // 1:1 rate (1e6 = 100%)
-    );
-    await setRateTx.wait(2);
-    console.log("     ✓ Rate set: 1 USDC = 1 USDC (test)");
+    const rateTokenA = addresses.TestUSDC;
+    const rateTokenB = addresses.TestUSDT ?? addresses.TestUSDC;
+    if (rateTokenA && rateTokenB && rateTokenA.toLowerCase() !== rateTokenB.toLowerCase()) {
+      console.log("\n     Setting MockDEX exchange rate (USDC <-> USDT 1:1)...");
+      const setRateTx = await mockDex.setRateBidirectional(
+        rateTokenA,
+        rateTokenB,
+        1000000, // forward 1:1 (1e6 = 100%)
+        1000000, // reverse 1:1
+      );
+      await setRateTx.wait(2);
+      console.log("     ✓ Rate set: 1 USDC = 1 USDT (test)");
+    } else {
+      console.log("\n     Skipping MockDEX rate: only one token deployed (same-token rate is disallowed by the contract)");
+    }
 
     // Fund the MockDEX with test tokens for swaps
     console.log("\n     Funding MockDEX with test tokens...");
@@ -131,8 +140,13 @@ task("deploy-new-features", "Deploy GiftMoney, StealthPayments, PrivacyRouter, M
     await mintTx.wait(2);
     console.log("     ✓ Minted 100,000 TestUSDC to MockDEX");
 
-    // Fund PrivacyRouter with plaintext reserves
+    // Fund PrivacyRouter with plaintext reserves. fundReserves pulls the
+    // tokens from msg.sender, so the deployer must hold them first. On a
+    // fresh chain the deployer has no TestUSDC (the open mint above only
+    // funded MockDEX), so mint the reserve amount to the deployer here.
     console.log("\n     Funding PrivacyRouter reserves...");
+    const mintSelfTx = await testUsdc.mint(deployer.address, hre.ethers.parseUnits("50000", 6));
+    await mintSelfTx.wait(2);
     const approveTx = await testUsdc.approve(addresses.PrivacyRouter, hre.ethers.parseUnits("50000", 6));
     await approveTx.wait(2);
     const privacyRouter = (await hre.ethers.getContractFactory("PrivacyRouter")).attach(addresses.PrivacyRouter);

@@ -33,10 +33,12 @@ task(
       ? "base-sepolia.json"
       : networkName === "eth-sepolia"
         ? "eth-sepolia.json"
-        : null;
+        : networkName === "arb-sepolia"
+          ? "arb-sepolia.json"
+          : null;
   if (!deploymentFile) {
     throw new Error(
-      `deploy-claim-links: unsupported network ${networkName} (expected eth-sepolia | base-sepolia)`,
+      `deploy-claim-links: unsupported network ${networkName} (expected eth-sepolia | base-sepolia | arb-sepolia)`,
     );
   }
   const deploymentPath = resolve(__dirname, "..", "deployments", deploymentFile);
@@ -111,5 +113,5 @@ task(
   console.log(`       const cl = await ethers.getContractAt("ClaimLinks", "${proxyAddress}");`);
   console.log(`       await cl.setPaymentReceipts("${existing.PaymentReceipts ?? "0x...PaymentReceipts"}");`);
   console.log(`  3. Update packages/app/src/lib/constants.ts:`);
-  console.log(`       CONTRACTS_BY_CHAIN[${networkName === "eth-sepolia" ? "ETH_SEPOLIA_ID" : "BASE_SEPOLIA_ID"}].ClaimLinks = "${proxyAddress}";`);
+  console.log(`       CONTRACTS_BY_CHAIN[${networkName === "eth-sepolia" ? "ETH_SEPOLIA_ID" : networkName === "arb-sepolia" ? "ARB_SEPOLIA_ID" : "BASE_SEPOLIA_ID"}].ClaimLinks = "${proxyAddress}";`);
 });

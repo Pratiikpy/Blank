@@ -16,9 +16,9 @@
  * The `lib/check-imports.mjs` script enforces that `from "viem/chains"`
  * appears only in this file (plus `lib/rpc.ts` for RPC bootstrap).
  */
-import { sepolia, baseSepolia, mainnet } from "viem/chains";
+import { sepolia, baseSepolia, mainnet, arbitrumSepolia } from "viem/chains";
 import type { Chain } from "viem";
-import { ETH_SEPOLIA_ID, BASE_SEPOLIA_ID } from "./constants";
+import { ETH_SEPOLIA_ID, BASE_SEPOLIA_ID, ARB_SEPOLIA_ID } from "./constants";
 
 const MAINNET_ID = 1;
 
@@ -31,6 +31,8 @@ export function chainIdToViemChain(chainId: number): Chain {
       return sepolia;
     case BASE_SEPOLIA_ID:
       return baseSepolia;
+    case ARB_SEPOLIA_ID:
+      return arbitrumSepolia;
     case MAINNET_ID:
       return mainnet;
     default:

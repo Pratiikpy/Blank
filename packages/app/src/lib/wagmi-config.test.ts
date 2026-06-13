@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { wagmiConfig } from "./wagmi-config";
-import { ETH_SEPOLIA_ID, BASE_SEPOLIA_ID } from "./constants";
+import { ETH_SEPOLIA_ID, BASE_SEPOLIA_ID, ARB_SEPOLIA_ID } from "./constants";
 
 // §15.x lib test for the wagmi config singleton. Pins the chain
 // allowlist + transport-per-chain mapping so a refactor can't
@@ -8,14 +8,15 @@ import { ETH_SEPOLIA_ID, BASE_SEPOLIA_ID } from "./constants";
 // wrong transport.
 
 describe("wagmiConfig", () => {
-  it("exposes Eth Sepolia AND Base Sepolia (both Wave 3+ chains)", () => {
+  it("exposes Eth Sepolia AND Base Sepolia AND Arb Sepolia (all Wave 3+ chains)", () => {
     const ids = wagmiConfig.chains.map((c) => c.id);
     expect(ids).toContain(ETH_SEPOLIA_ID);
     expect(ids).toContain(BASE_SEPOLIA_ID);
+    expect(ids).toContain(ARB_SEPOLIA_ID);
   });
 
-  it("includes only the 2 supported chains (no mainnet leak)", () => {
-    expect(wagmiConfig.chains.length).toBe(2);
+  it("includes only the 3 supported chains (no mainnet leak)", () => {
+    expect(wagmiConfig.chains.length).toBe(3);
     const ids = wagmiConfig.chains.map((c) => c.id);
     expect(ids).not.toContain(1); // mainnet must NOT appear
   });

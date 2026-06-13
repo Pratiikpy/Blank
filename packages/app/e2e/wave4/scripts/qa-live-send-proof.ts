@@ -3,7 +3,7 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { createPublicClient, http, type Address, type Hash } from "viem";
-import { baseSepolia, sepolia } from "viem/chains";
+import { arbitrumSepolia, baseSepolia, sepolia } from "viem/chains";
 
 import {
   unlockRabby,
@@ -21,19 +21,32 @@ const RABBY_EXT_DIR = resolve(REPO, "packages/app/e2e/fixtures/rabby/ext");
 const RABBY_PROFILE_DIR = process.env.RABBY_PROFILE_DIR ?? resolve(REPO, ".rabby-profile-blank");
 const RABBY_PASSWORD = process.env.RABBY_PASSWORD ?? "RabbyPass123!QA";
 const CHAIN_ID = Number(process.env.CHAIN_ID ?? 84532);
-const IS_ETH = CHAIN_ID === 11155111;
-if (CHAIN_ID !== 84532 && CHAIN_ID !== 11155111) throw new Error(`Unsupported CHAIN_ID ${CHAIN_ID}`);
-const CHAIN_NAME = IS_ETH ? "Ethereum Sepolia" : "Base Sepolia";
-const RPC_URL = IS_ETH ? "https://ethereum-sepolia.publicnode.com" : "https://sepolia.base.org";
-const EXPLORER_URL = IS_ETH ? "https://sepolia.etherscan.io" : "https://sepolia.basescan.org";
-const OUT = resolve(REPO, `packages/app/test-results/qa-live-send-${IS_ETH ? "eth" : "base"}`);
+if (CHAIN_ID !== 84532 && CHAIN_ID !== 11155111 && CHAIN_ID !== 421614)
+  throw new Error(`Unsupported CHAIN_ID ${CHAIN_ID}`);
+const CHAIN_SLUG = CHAIN_ID === 11155111 ? "eth" : CHAIN_ID === 84532 ? "base" : "arb";
+const CHAIN_NAME =
+  CHAIN_ID === 11155111 ? "Ethereum Sepolia" : CHAIN_ID === 84532 ? "Base Sepolia" : "Arbitrum Sepolia";
+const VIEM_CHAIN = CHAIN_ID === 11155111 ? sepolia : CHAIN_ID === 84532 ? baseSepolia : arbitrumSepolia;
+const RPC_URL =
+  CHAIN_ID === 11155111
+    ? "https://ethereum-sepolia.publicnode.com"
+    : CHAIN_ID === 84532
+      ? "https://sepolia.base.org"
+      : "https://sepolia-rollup.arbitrum.io/rpc";
+const EXPLORER_URL =
+  CHAIN_ID === 11155111
+    ? "https://sepolia.etherscan.io"
+    : CHAIN_ID === 84532
+      ? "https://sepolia.basescan.org"
+      : "https://sepolia.arbiscan.io";
+const OUT = resolve(REPO, `packages/app/test-results/qa-live-send-${CHAIN_SLUG}`);
 const DAVE = "0x7eF99105308230eab5B8E4765842bc2BF7B1D175" as Address;
 const BOB = "0x0D1883c48E14d733D464478f53706D92b7648b9d" as Address;
 const SENDER = (process.env.SENDER ?? "Bob") as "Dave" | "Bob";
 const RECIPIENT = (SENDER === "Bob" ? DAVE : BOB) as Address;
 
 const publicClient = createPublicClient({
-  chain: IS_ETH ? sepolia : baseSepolia,
+  chain: VIEM_CHAIN,
   transport: http(RPC_URL),
 });
 

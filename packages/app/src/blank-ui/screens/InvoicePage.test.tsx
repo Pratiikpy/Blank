@@ -56,9 +56,11 @@ vi.mock("@/lib/constants", () => ({
   CONTRACTS_BY_CHAIN: {
     11155111: { BusinessHub: "0xbbbb1111111111111111111111111111111111bb" },
     84532: { BusinessHub: "0xbbbb2222222222222222222222222222222222bb" },
+    421614: { BusinessHub: "0xbbbb3333333333333333333333333333333333bb" },
   },
   ETH_SEPOLIA_ID: 11155111,
   BASE_SEPOLIA_ID: 84532,
+  ARB_SEPOLIA_ID: 421614,
   getExplorerTxUrl: getExplorerTxUrlMock,
 }));
 vi.mock("@/blank-ui/components/InvoiceStatusBadge", () => ({

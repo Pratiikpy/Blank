@@ -68,7 +68,7 @@ const CONTENT: Record<Audience, AudienceContent> = {
       "Tip amounts are encrypted on-chain. No public leaderboard of who paid you and how much.",
       "Tier badges (bronze / silver / gold) computed via FHE.gte. Supporters know they qualify without anyone seeing the numbers.",
       "Receipts are first-class: every tip generates an encrypted receipt only you and the supporter can unseal.",
-      "Multi-chain ready: same supporter base, Eth Sepolia or Base Sepolia.",
+      "Multi-chain ready: same supporter base, Eth Sepolia, Base Sepolia, or Arbitrum Sepolia.",
     ],
     proof: [
       { stat: "0", label: "Sponsors who can scrape your tip totals from chain data" },
@@ -118,7 +118,7 @@ const CONTENT: Record<Audience, AudienceContent> = {
     ],
     proof: [
       { stat: "FHE.allowGlobal", label: "How treasury totals stay public while individual payouts stay private" },
-      { stat: "16", label: "Encrypted contracts on Eth + Base Sepolia, all UUPS-upgradeable" },
+      { stat: "16", label: "Encrypted contracts on Eth, Base, and Arbitrum Sepolia, all UUPS-upgradeable" },
     ],
     primaryCta: { label: "Launch Blank", to: "/app" },
     secondaryCta: { label: "Read the manifesto", to: "/manifesto" },

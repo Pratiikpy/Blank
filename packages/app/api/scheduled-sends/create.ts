@@ -31,7 +31,7 @@ import { ethers } from "ethers";
 interface CreateScopeBody {
   /** Caller's main AA address. */
   account: string;
-  /** Active chain id — Sepolia (11155111) or Base Sepolia (84532). */
+  /** Active chain id — Sepolia (11155111), Base Sepolia (84532), or Arbitrum Sepolia (421614). */
   chainId: number;
   /** Recipient that the on-chain scope will lock the session key to.
    *  Mirrored into the row so the cron tick can build callData
@@ -88,8 +88,8 @@ export default async function handler(req: any, res: any) {
     return;
   }
   const chainId = Number(body.chainId);
-  if (!Number.isInteger(chainId) || (chainId !== 11155111 && chainId !== 84532)) {
-    res.status(400).json({ error: "chainId must be 11155111 (Sepolia) or 84532 (Base Sepolia)" });
+  if (!Number.isInteger(chainId) || (chainId !== 11155111 && chainId !== 84532 && chainId !== 421614)) {
+    res.status(400).json({ error: "chainId must be 11155111 (Sepolia), 84532 (Base Sepolia), or 421614 (Arbitrum Sepolia)" });
     return;
   }
 

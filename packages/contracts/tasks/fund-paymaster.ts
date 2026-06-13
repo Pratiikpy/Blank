@@ -27,9 +27,10 @@ task("fund-paymaster", "Deposit ETH into EntryPoint on behalf of BlankPaymaster"
     const deploymentFile =
       networkName === "base-sepolia" ? "base-sepolia.json" :
       networkName === "eth-sepolia" ? "eth-sepolia.json" :
+      networkName === "arb-sepolia" ? "arb-sepolia.json" :
       null;
     if (!deploymentFile) {
-      throw new Error(`Unknown network "${networkName}" — expected eth-sepolia or base-sepolia.`);
+      throw new Error(`Unknown network "${networkName}" — expected eth-sepolia, base-sepolia, or arb-sepolia.`);
     }
 
     const deployments = JSON.parse(
