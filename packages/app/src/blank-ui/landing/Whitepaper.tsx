@@ -58,7 +58,7 @@ export default function Whitepaper() {
               },
               {
                 title: "Product surface",
-                body: "Send, invoices, requests, payroll, gifts, groups, proofs, claim links, storefront, crowdfund, escrow, swap, bridge, P2P exchange, and P2P offramp.",
+                body: "Send, invoices, conditional invoices, requests, payroll, gifts, groups, proofs, claim links, storefront, crowdfund, escrow, swap, bridge, P2P exchange, and P2P offramp.",
               },
             ].map((item) => (
               <div key={item.title} className="ll-stat" style={{ textAlign: "left" }}>
@@ -81,8 +81,12 @@ export default function Whitepaper() {
             <div className="ll-step-title">Public testnet scope</div>
             <div className="ll-step-body">
               Live on Base Sepolia, Ethereum Sepolia, and Arbitrum Sepolia. The
-              same contract set is deployed on all three; the encrypted-vault
-              shield path is proven on-chain on Arbitrum Sepolia. Standard EVM
+              same core contract set is deployed on all three; the
+              encrypted-vault shield path is proven on-chain on Arbitrum Sepolia.
+              Arbitrum Sepolia additionally carries the conditional invoice: an
+              encrypted escrow that releases on payer approval or after a
+              deadline, built on Reineira's open IConditionResolver settlement
+              standard and proven end-to-end with a real wallet. Standard EVM
               wallets are supported on every chain; Blank passkey smart accounts
               are available when sponsorship is available. Mobile UI is live
               across the route map, with expanded mobile transaction coverage
