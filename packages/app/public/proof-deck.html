@@ -114,6 +114,7 @@ html, body { margin: 0; padding: 0; background: var(--bg); color: var(--fg); fon
 .chain { display: inline-block; padding: 2px 10px; border-radius: 4px; font: 600 11px/1.5 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; margin-right: 6px; }
 .chain.base { background: #dbeafe; color: #1e40af; }
 .chain.eth { background: #ede9fe; color: #5b21b6; }
+.chain.arb { background: #cffafe; color: #155e75; }
 .divider { height: 1px; background: var(--border); margin: 64px 0; }
 .summary { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 24px; margin-bottom: 32px; }
 .summary p { margin: 6px 0; font-size: 15px; }
@@ -258,13 +259,14 @@ footer { margin-top: 96px; padding-top: 24px; border-top: 1px solid var(--border
 <section class="section appendix-head" id="evidence">
   <div class="eyebrow">Evidence appendix</div>
   <h2>Receipts, screenshots and cross-user outcomes.</h2>
-  <p class="lede">This archive supports the product story above. It records desktop Rabby EOA flows driven on Ethereum Sepolia and Base Sepolia from the live application. Arbitrum Sepolia (chain 421614) is deployed as a third testnet running the same contract set, with the encrypted-vault flow proven on-chain (<a href="https://sepolia.arbiscan.io/tx/0xc623277ed8a44895b149d7b29e8854da5a967e131f463c91e4dca5bb3aa09585">shield tx</a>). Full per-flow UI capture on Arbitrum is not yet on this page. Mobile transaction coverage and sponsored/passkey readiness are not claimed on this page.</p>
+  <p class="lede">This archive supports the product story above. It records desktop Rabby EOA flows driven on Ethereum Sepolia and Base Sepolia from the live application. Arbitrum Sepolia (chain 421614) is deployed as a third testnet running the same contract set, with the encrypted-vault flow proven on-chain (<a href="https://sepolia.arbiscan.io/tx/0xc623277ed8a44895b149d7b29e8854da5a967e131f463c91e4dca5bb3aa09585">shield tx</a>). The Arbitrum real-wallet sweep is captured in the <a href="#arbitrum">Arbitrum Sepolia section</a> below. Mobile transaction coverage and sponsored/passkey readiness are not claimed on this page.</p>
 </section>
 
 <nav class="toc">
   <h3>Evidence index</h3>
   <ol>
     <li><a href="#coverage">Recorded desktop coverage</a></li>
+    <li><a href="#arbitrum">Arbitrum Sepolia sweep</a></li>
     <li><a href="#wallet">Wallet identity</a></li>
     <li><a href="#claim">Claim Link</a></li>
     <li><a href="#storefront">Storefront</a></li>
@@ -294,6 +296,54 @@ footer { margin-top: 96px; padding-top: 24px; border-top: 1px solid var(--border
       <tr><td>Cross-user refresh truth and failure handling</td><td class="green">Verified</td><td class="green">Verified</td></tr>
     </tbody>
   </table>
+</section>
+
+<section class="section" id="arbitrum">
+  <h2>Arbitrum Sepolia · real-wallet sweep</h2>
+  <p class="lede">Chain 421614 runs the same contract set as Base and Ethereum Sepolia. The feature set was driven through the live application with a real browser wallet (Rabby), multi-wallet (Dave, Bob, Carol), on Arbitrum Sepolia. Create flows for the full feature set, plus the second-party consume flows below, each with an on-chain transaction. The encrypted-vault shield is proven by <a href="https://sepolia.arbiscan.io/tx/0xc623277ed8a44895b149d7b29e8854da5a967e131f463c91e4dca5bb3aa09585">this shield transaction</a>.</p>
+  <table class="matrix" aria-label="Arbitrum Sepolia Rabby sweep outcomes">
+    <thead>
+      <tr><th>Outcome on Arbitrum Sepolia</th><th>Rabby sweep</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Wallet identity, Dave/Bob/Carol switched per step</td><td class="green">Verified</td></tr>
+      <tr><td>Encrypted send</td><td class="green">Verified</td></tr>
+      <tr><td>Claim link: created, claimed, used-state blocked</td><td class="green">Verified</td></tr>
+      <tr><td>Storefront purchase, crowdfund contributions</td><td class="green">Verified</td></tr>
+      <tr><td>Gift envelope: created and claimed</td><td class="green">Verified</td></tr>
+      <tr><td>Payment request: created and paid</td><td class="green">Verified</td></tr>
+      <tr><td>Stealth payment, creator tip</td><td class="green">Verified</td></tr>
+      <tr><td>Groups, inheritance, encrypted proof, invoice, escrow (created)</td><td class="green">Verified</td></tr>
+      <tr><td>P2P Offramp full lifecycle: create, take, proof, challenge window, release</td><td class="green">Verified</td></tr>
+      <tr><td>Negative cases: invalid claim link honest error, empty-input gating</td><td class="green">Verified</td></tr>
+    </tbody>
+  </table>
+  <div class="shot-grid">
+    <figure class="shot">
+      <img src="/proof-images/arb-wallet-verified-dave.png" alt="Dave verified on Arbitrum Sepolia">
+      <figcaption><span class="chain arb">Arb Sepolia</span> Dave verified · 0x7eF9…D175</figcaption>
+    </figure>
+    <figure class="shot">
+      <img src="/proof-images/arb-send-success.png" alt="Encrypted send on Arbitrum Sepolia">
+      <figcaption><span class="chain arb">Arb</span> Encrypted send</figcaption>
+    </figure>
+    <figure class="shot">
+      <img src="/proof-images/arb-gift-sent.png" alt="Gift envelope sent on Arbitrum Sepolia">
+      <figcaption><span class="chain arb">Arb</span> Gift envelope sent</figcaption>
+    </figure>
+    <figure class="shot">
+      <img src="/proof-images/arb-stealth-sent.png" alt="Stealth payment sent on Arbitrum Sepolia">
+      <figcaption><span class="chain arb">Arb</span> Stealth payment sent</figcaption>
+    </figure>
+    <figure class="shot">
+      <img src="/proof-images/arb-storefront-bob-success.png" alt="Storefront purchase on Arbitrum Sepolia">
+      <figcaption><span class="chain arb">Arb</span> Storefront purchase, Bob</figcaption>
+    </figure>
+    <figure class="shot">
+      <img src="/proof-images/arb-offramp-release.png" alt="P2P Offramp release on Arbitrum Sepolia">
+      <figcaption><span class="chain arb">Arb</span> P2P Offramp released to taker</figcaption>
+    </figure>
+  </div>
 </section>
 
 <section class="section" id="wallet">
