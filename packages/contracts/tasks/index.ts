@@ -57,3 +57,5 @@ import "./deploy-guardian-module";
 import "./deploy-proof-of-balance";
 import "./rotate-offramp-arbiter";
 import "./deploy-upgrade-wave5-recovery";
+import "./deploy-upgrade-conditional-escrow";
+import "./lifecycle-conditional-escrow";

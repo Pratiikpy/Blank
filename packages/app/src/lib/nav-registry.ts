@@ -113,6 +113,14 @@ export const NAV_REGISTRY: NavItem[] = [
     desktopPrimary: true,
   },
   {
+    path: "/app/conditional-invoices",
+    label: "Conditional Invoices",
+    icon: Lock,
+    category: "payments",
+    modes: ["business", "full"],
+    desktopPrimary: false,
+  },
+  {
     path: "/app/groups",
     label: "Group Expenses",
     icon: Users,

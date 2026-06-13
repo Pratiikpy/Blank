@@ -49,6 +49,18 @@ const post: BlogPost = {
         a statement about it", that's a communication problem.
       </p>
 
+      <figure className="ll-blog-figure">
+        <img
+          src="/blog-images/fhe-vs-zk.svg"
+          alt="Two diagrams. Left, zero-knowledge: a hidden input produces a proof a verifier checks, seeing the proof and output but never the input. Right, FHE: ciphertext goes in, an add, compare, or select operation returns ciphertext out, and only a key-holder decrypts."
+          loading="lazy"
+        />
+        <figcaption>
+          ZK proves a statement about hidden data. FHE computes on it.
+          Different verbs, different problems.
+        </figcaption>
+      </figure>
+
       <h2>The shape of our problem</h2>
       <p>
         Blank is a payment app. Concretely, the operations the chain

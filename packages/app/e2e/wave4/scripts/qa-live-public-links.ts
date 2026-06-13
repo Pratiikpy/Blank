@@ -661,6 +661,68 @@ async function main(): Promise<void> {
     };
   });
 
+  // Conditional invoice (Reineira IConditionResolver standard on Blank's own
+  // encrypted escrow). Dave (payer) creates an encrypted conditional escrow to
+  // Bob, approves early release, then releases. Arb Sepolia only.
+  if (FEATURES.includes("cinvoice")) await runFlow("Conditional invoice", async () => {
+    await switchRabbyAccount(rabbyPage, extId, "Dave");
+    await ensureDappAccount(page, ctx, extId, known, "Dave");
+    try {
+      await ensureShielded(page, ctx, extId, known, "Dave", "3");
+    } catch (e) {
+      console.warn(`ensureShielded skipped: ${(e as Error).message}`);
+    }
+
+    // 1. Create the conditional invoice.
+    await page.goto(`${VERCEL_URL}/app/conditional-invoices`, { waitUntil: "domcontentloaded", timeout: 60_000 });
+    await page.waitForTimeout(3_000);
+    await snap(page, "cinvoice-create-screen");
+    await safeFill(page.locator('input[placeholder^="0x"]').first(), BOB);
+    await safeFill(page.locator('input[placeholder="100"]').first(), "2");
+    await safeFill(page.locator('input[placeholder="What is this for?"]').first(), `QA conditional ${Date.now().toString().slice(-6)}`);
+    await snap(page, "cinvoice-create-filled");
+    const before = await getNonce(DAVE);
+    await page.locator("button:visible:not([disabled])").filter({ hasText: /Create conditional invoice/i }).first().click();
+    await drainRabbyPopups(ctx, extId, known, "cinvoice-create", 10);
+    // The hook navigates to /conditional-invoice/<chain>/<id> on success.
+    await page.waitForURL(/\/conditional-invoice\/\d+\/\d+/, { timeout: 180_000 }).catch(() => undefined);
+    await page.locator("text=/Conditional invoice/i").first().waitFor({ state: "visible", timeout: 60_000 });
+    await page.waitForTimeout(3_000);
+    await snap(page, "cinvoice-created");
+    const url = page.url();
+    const idm = url.match(/\/conditional-invoice\/\d+\/(\d+)/);
+    const escrowId = idm ? idm[1] : "?";
+
+    // 2. Approve (Dave is the payer/depositor).
+    const approveBtn = page.locator("button:visible:not([disabled])").filter({ hasText: /Approve release/i }).first();
+    await approveBtn.waitFor({ state: "visible", timeout: 30_000 });
+    await approveBtn.click();
+    await drainRabbyPopups(ctx, extId, known, "cinvoice-approve", 4);
+    await page.locator("text=/Released|Release funds/i").first().waitFor({ state: "visible", timeout: 60_000 }).catch(() => undefined);
+    await page.waitForTimeout(3_000);
+    await snap(page, "cinvoice-approved");
+
+    // 3. Release the funds to the recipient.
+    const releaseBtn = page.locator("button:visible:not([disabled])").filter({ hasText: /Release funds to recipient/i }).first();
+    if (await releaseBtn.isVisible({ timeout: 20_000 }).catch(() => false)) {
+      await releaseBtn.click();
+      await drainRabbyPopups(ctx, extId, known, "cinvoice-release", 4);
+    }
+    await page.locator("text=/Released to the recipient|Released/i").first().waitFor({ state: "visible", timeout: 120_000 });
+    await page.waitForTimeout(2_000);
+    await snap(page, "cinvoice-released");
+
+    const hashes = await txHashesFrom(DAVE, before);
+    return {
+      name: "Conditional invoice",
+      status: "green",
+      url,
+      hashes,
+      note: `escrowId ${escrowId}: create + approve + release on ${CHAIN_NAME}`,
+      screenshot: resolve(OUT, "cinvoice-released.png"),
+    };
+  });
+
   // Core feature: direct encrypted send. Dave shields, then sends 1 USDC
   // encrypted to Bob through /app/send. Gated on SEND_FLOW=1 so it can run
   // focused (preflight + send) without the public-link flows.

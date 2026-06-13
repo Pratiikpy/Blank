@@ -47,6 +47,20 @@ const post: BlogPost = {
           the reason most retail users actually show up.
         </li>
       </ol>
+
+      <figure className="ll-blog-figure">
+        <img
+          src="/blog-images/no-token.svg"
+          alt="Four cards for the four jobs a token does. Coordinate infrastructure: Blank is built on Fhenix and Ethereum. Align early users: Blank is an app. Bootstrap liquidity: USDC settles it. Speculation: skipped on purpose."
+          loading="lazy"
+        />
+        <figcaption>
+          The four reasons to issue a token. Blank runs on Fhenix and
+          Ethereum, so the first three don't apply, and the fourth we
+          skip on purpose.
+        </figcaption>
+      </figure>
+
       <p>
         Now look at Blank. We don't run infrastructure, we sit on top of
         Fhenix's threshold network and Ethereum. We don't need to align

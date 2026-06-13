@@ -45,6 +45,10 @@ async function deployFixture() {
   const escrow = await deployProxy("EncryptedEscrow", [await eventHub.getAddress()]);
   await eventHub.batchWhitelist([await escrow.getAddress()]);
 
+  const Resolver = await hre.ethers.getContractFactory("InvoiceApprovalResolver");
+  const resolver = await Resolver.deploy();
+  await resolver.waitForDeployment();
+
   for (const signer of [alice, bob, charlie]) {
     await testUSDC.mint(signer.address, usdc(10_000));
     await testUSDC.connect(signer).approve(await vault.getAddress(), usdc(10_000));
@@ -55,7 +59,7 @@ async function deployFixture() {
     await vault.connect(signer).approvePlaintext(await escrow.getAddress(), MAX);
   }
 
-  return { owner, alice, bob, charlie, client, vault, escrow };
+  return { owner, alice, bob, charlie, client, vault, escrow, resolver };
 }
 
 async function encUint64(client: any, signer: any, amount: bigint) {
@@ -403,6 +407,112 @@ describe("EncryptedEscrow", () => {
 
       await expect(
         ctx.escrow.connect(ctx.alice).setPaymentReceipts(fake),
+      ).to.be.reverted;
+    });
+  });
+
+  // Conditional escrow (Reineira IConditionResolver standard): release on
+  // buyer approval or after an auto-release deadline. Vendor-protective — the
+  // depositor (buyer) cannot refund a resolver-gated escrow.
+  describe("Conditional escrow (resolver-gated)", () => {
+    const abi = hre.ethers.AbiCoder.defaultAbiCoder();
+    const resolverData = (buyer: string, deadline: number) =>
+      abi.encode(["address", "uint64"], [buyer, deadline]);
+
+    it("releases to the vendor once the buyer approves", async () => {
+      const ctx = await loadFixture(deployFixture);
+      const enc = await encUint64(ctx.client, ctx.alice, usdc(60));
+      const deadline = (await time.latest()) + 7 * 86400;
+      const resolverAddr = await ctx.resolver.getAddress();
+
+      await ctx.escrow.connect(ctx.alice).createConditionalEscrow(
+        ctx.bob.address,
+        await ctx.vault.getAddress(),
+        enc,
+        "milestone job",
+        resolverAddr,
+        resolverData(ctx.alice.address, deadline),
+        deadline,
+      );
+
+      await expect(
+        ctx.escrow.connect(ctx.bob).releaseIfConditionMet(0),
+      ).to.be.revertedWith("EncryptedEscrow: condition not met");
+
+      await ctx.resolver.connect(ctx.alice).approve(0);
+      await ctx.escrow.connect(ctx.bob).releaseIfConditionMet(0);
+
+      const e = await ctx.escrow.getEscrow(0);
+      expect(e.status).to.equal(STATUS_RELEASED);
+      const bobBalance = await ctx.vault.balanceOf(ctx.bob.address);
+      await mock_expectPlaintext(ctx.bob.provider, bobBalance, usdc(1_060));
+    });
+
+    it("auto-releases to the vendor after the deadline with no approval", async () => {
+      const ctx = await loadFixture(deployFixture);
+      const enc = await encUint64(ctx.client, ctx.alice, usdc(40));
+      const deadline = (await time.latest()) + 2 * 86400;
+      const resolverAddr = await ctx.resolver.getAddress();
+
+      await ctx.escrow.connect(ctx.alice).createConditionalEscrow(
+        ctx.bob.address, await ctx.vault.getAddress(), enc,
+        "auto", resolverAddr, resolverData(ctx.alice.address, deadline), deadline,
+      );
+
+      await expect(
+        ctx.escrow.connect(ctx.bob).releaseIfConditionMet(0),
+      ).to.be.revertedWith("EncryptedEscrow: condition not met");
+
+      await time.increase(2 * 86400 + 1);
+      await ctx.escrow.connect(ctx.bob).releaseIfConditionMet(0);
+
+      const e = await ctx.escrow.getEscrow(0);
+      expect(e.status).to.equal(STATUS_RELEASED);
+      const bobBalance = await ctx.vault.balanceOf(ctx.bob.address);
+      await mock_expectPlaintext(ctx.bob.provider, bobBalance, usdc(1_040));
+    });
+
+    it("blocks the depositor from refunding a resolver-gated escrow", async () => {
+      const ctx = await loadFixture(deployFixture);
+      const enc = await encUint64(ctx.client, ctx.alice, usdc(25));
+      const deadline = (await time.latest()) + 2 * 86400;
+      const resolverAddr = await ctx.resolver.getAddress();
+
+      await ctx.escrow.connect(ctx.alice).createConditionalEscrow(
+        ctx.bob.address, await ctx.vault.getAddress(), enc,
+        "no refund", resolverAddr, resolverData(ctx.alice.address, deadline), deadline,
+      );
+
+      await time.increase(2 * 86400 + 1);
+      await expect(
+        ctx.escrow.connect(ctx.alice).claimExpiredEscrow(0),
+      ).to.be.revertedWith("EncryptedEscrow: resolver-gated escrow");
+    });
+
+    it("emits EscrowCreated + EscrowResolverSet on create", async () => {
+      const ctx = await loadFixture(deployFixture);
+      const enc = await encUint64(ctx.client, ctx.alice, usdc(10));
+      const deadline = (await time.latest()) + 7 * 86400;
+      const resolverAddr = await ctx.resolver.getAddress();
+
+      const tx = ctx.escrow.connect(ctx.alice).createConditionalEscrow(
+        ctx.bob.address, await ctx.vault.getAddress(), enc,
+        "evented", resolverAddr, resolverData(ctx.alice.address, deadline), deadline,
+      );
+      await expect(tx).to.emit(ctx.escrow, "EscrowCreated");
+      await expect(tx).to.emit(ctx.escrow, "EscrowResolverSet").withArgs(0, resolverAddr);
+    });
+
+    it("rejects a resolver that does not implement IConditionResolver", async () => {
+      const ctx = await loadFixture(deployFixture);
+      const enc = await encUint64(ctx.client, ctx.alice, usdc(10));
+      const deadline = (await time.latest()) + 7 * 86400;
+
+      await expect(
+        ctx.escrow.connect(ctx.alice).createConditionalEscrow(
+          ctx.bob.address, await ctx.vault.getAddress(), enc,
+          "bad resolver", ctx.bob.address, resolverData(ctx.alice.address, deadline), deadline,
+        ),
       ).to.be.reverted;
     });
   });
