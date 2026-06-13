@@ -91,7 +91,7 @@ export default function Onboarding() {
   const isLast = step === steps.length - 1;
 
   return (
-    <div className="blank-app min-h-dvh flex items-center justify-center px-4">
+    <main className="blank-app min-h-dvh flex items-center justify-center px-4">
       {/* Subtle background gradient wash */}
       <div
         className="fixed inset-0 pointer-events-none"
@@ -138,9 +138,9 @@ export default function Onboarding() {
               transition={{ duration: 0.3, delay: 0.15 }}
               className="text-center"
             >
-              <h2 className="text-2xl sm:text-3xl font-semibold text-gray-900 mb-4 tracking-tight" style={{ fontFamily: "'Outfit', 'Inter', sans-serif" }}>
+              <h1 className="text-2xl sm:text-3xl font-semibold text-gray-900 mb-4 tracking-tight" style={{ fontFamily: "'Outfit', 'Inter', sans-serif" }}>
                 {current.heading}
-              </h2>
+              </h1>
               <p className="text-base sm:text-lg text-gray-500 leading-relaxed max-w-sm mx-auto">
                 {current.subtitle}
               </p>
@@ -223,6 +223,6 @@ export default function Onboarding() {
           setTimeout(() => setPasskeyModalOpen(false), 1200);
         }}
       />
-    </div>
+    </main>
   );
 }

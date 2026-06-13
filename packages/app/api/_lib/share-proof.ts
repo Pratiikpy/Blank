@@ -1,21 +1,15 @@
 /**
- * /api/share/proof?id=<proofId>&chain=<chainId>
+ * Proof-share OG handler — dispatched by api/share/[kind].ts for the
+ * default (kind=proof) case. Lives in _lib so it is NOT counted as its
+ * own serverless function (the project caps at 12; see #380).
  *
  * Crawler-friendly HTML wrapper for /verify/:proofId. Returns a small
  * HTML document with og:/twitter: meta tags pointing at /api/og/proof
  * for the per-proof preview image, plus a meta-refresh + JS redirect
  * that bounces real browsers to /verify/:proofId.
  *
- * Why two endpoints (og + share)?
- *   The SPA route /verify/:proofId is rendered client-side by React,
- *   so Twitter / Slack / Discord crawlers (which don't run JS) see an
- *   empty index.html shell and unfurl the generic site card. Per-proof
- *   previews need a server-rendered HTML page whose meta tags resolve
- *   without JS — that's this endpoint. /api/og/proof produces the PNG;
- *   this endpoint stitches it into HTML that crawlers can parse.
- *
  * Crawler vs. browser:
- *   - Crawlers parse the HTML, never follow the meta-refresh → they see
+ *   - Crawlers parse the HTML, never follow the meta-refresh -> they see
  *     the per-proof title + description + og:image and never touch the
  *     SPA.
  *   - Browsers parse the meta-refresh / inline JS and immediately
@@ -23,7 +17,7 @@
  *
  * URL shape:
  *   Pretty share form is /v/:proofId?chain=:chainId (rewritten by
- *   vercel.json to this endpoint). The Twitter/Slack share buttons
+ *   vercel.json to /api/share/proof). The Twitter/Slack share buttons
  *   build the /v/:id form.
  *
  * Cache: 5 minutes public + 1 day SWR — same as the OG image. Published
@@ -36,16 +30,12 @@ import {
   parseProofIdParam,
   parseChainIdParam,
   type ProofState,
-} from "../_lib/proof-reader.js";
+} from "./proof-reader.js";
 
 // Site URL for absolute meta-tag URLs. og:image must be absolute or
 // Twitter Cards rejects it. VERCEL_URL is set on every deploy; fall
-// back to PUBLIC_APP_URL for non-Vercel hosts, then to the inbound
-// request's headers (preview deploys, local dev). The function should
-// never reach the last branch in any sane environment — Vercel always
-// sets VERCEL_URL on serverless functions and local dev sets the host
-// header. If it does, we'd rather fail loud than silently emit a
-// broken og:image pointing at a nonexistent domain.
+// back to PUBLIC_APP_URL, then the inbound request's headers. Fails loud
+// rather than emit a broken og:image pointing at a nonexistent domain.
 function siteOrigin(req: { headers?: Record<string, string | undefined> }): string {
   if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
   if (process.env.PUBLIC_APP_URL) return process.env.PUBLIC_APP_URL;
@@ -96,7 +86,7 @@ function buildCopy(proof: ProofState | null): Copy {
   };
 }
 
-export default async function handler(req: any, res: any) {
+export default async function proofHandler(req: any, res: any) {
   const url = new URL(req.url ?? "/", "http://x");
   const proofId = parseProofIdParam(url.searchParams.get("id"));
   const chainId = parseChainIdParam(url.searchParams.get("chain"));

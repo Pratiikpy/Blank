@@ -97,7 +97,7 @@ export default function Whitepaper() {
           <div className="ll-step" style={{ textAlign: "left", marginTop: "1rem" }}>
             <div className="ll-step-title">Testnet demo controls</div>
             <div className="ll-step-body">
-              Wave 5 P2P offramp and recovery contracts are live across all
+              The P2P offramp and recovery contracts are live across all
               three testnets. Offramp disputes currently use a deployer-operated
               arbiter and Reclaim proof checks use an operator-signed mock
               verifier so the demo can run while provider approvals are still

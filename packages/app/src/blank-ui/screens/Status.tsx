@@ -50,7 +50,29 @@ function levelIcon(level: "ok" | "warn" | "page" | undefined, size = 16) {
   return <CheckCircle size={size} className="text-emerald-600" />;
 }
 
-function overallBanner(s: StatusResponse["status"]) {
+// Core services = RPC reads + the CoFHE network. These are what actually
+// gate whether a payment can settle. Gasless sponsorship (paymaster /
+// relayer balances) is a separate, EOA-unaffected concern, so a low
+// sponsorship balance should not read like a settlement outage.
+function coreServicesOk(data: StatusResponse): boolean {
+  const rpcOk = data.chains.every((c) => c.rpc.ok);
+  const fhenixOk =
+    data.fhenix.cofhe.ok && data.fhenix.verifier.ok && data.fhenix.thresholdNetwork.ok;
+  return rpcOk && fhenixOk;
+}
+
+function overallBanner(data: StatusResponse) {
+  const s = data.status;
+  // Sponsorship-only degradation: overall is page/warn but core settlement
+  // (RPC + CoFHE) is healthy. Reserve the red "outage" banner for a real
+  // core failure; surface the sponsorship state honestly instead.
+  if ((s === "page" || s === "warn") && coreServicesOk(data)) {
+    return {
+      icon: <AlertTriangle size={20} className="text-amber-600" />,
+      label: "Core services normal. Gasless sponsorship running low",
+      tone: "border-amber-500/30 bg-amber-500/5 text-amber-700",
+    };
+  }
   if (s === "page") {
     return {
       icon: <AlertOctagon size={20} className="text-rose-600" />,
@@ -123,10 +145,10 @@ export default function Status() {
     );
   }
 
-  const banner = overallBanner(data.status);
+  const banner = overallBanner(data);
 
   return (
-    <div className="min-h-screen bg-[#F9FAFB] py-12 px-4">
+    <main className="min-h-screen bg-[#F9FAFB] py-12 px-4">
       <div className="max-w-3xl mx-auto">
         <header className="mb-8">
           <h1 className="text-3xl font-heading font-semibold mb-2">Blank status</h1>
@@ -291,6 +313,6 @@ export default function Status() {
           Live data from <code>/api/health?kind=status</code>.
         </footer>
       </div>
-    </div>
+    </main>
   );
 }

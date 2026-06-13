@@ -95,9 +95,11 @@ describe("Live — hero (§15.x)", () => {
 });
 
 describe("Live — status banner (§15.x)", () => {
-  it("shows 'Streaming from Base Sepolia & Ethereum Sepolia' when supabaseConfigured", () => {
+  it("names all three live chains when supabaseConfigured", () => {
     const { container } = withRouter(<Live />);
-    expect(container.textContent).toContain("Streaming from Base Sepolia & Ethereum Sepolia");
+    expect(container.textContent).toContain(
+      "Streaming from Base Sepolia, Ethereum Sepolia & Arbitrum Sepolia",
+    );
   });
 
   it("shows empty-state fallback when Supabase not configured", () => {

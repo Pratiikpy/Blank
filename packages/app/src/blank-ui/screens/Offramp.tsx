@@ -63,8 +63,8 @@ export default function Offramp() {
               </div>
               <div className="text-[var(--text-primary)]/70 mt-0.5">
                 The offramp contracts are not yet deployed on this chain.
-                Wave 5 Block 1 ships the contracts (verified locally with 11/11
-                tests); the on-chain deploy is the next operator step.
+                They are verified locally with 11/11 tests; the on-chain
+                deploy is the next operator step.
               </div>
             </div>
           </div>

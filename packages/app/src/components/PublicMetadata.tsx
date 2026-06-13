@@ -130,6 +130,13 @@ function metadataForPath(pathname: string): PageMetadata {
       canonical: `${SITE}/how-it-works`,
     };
   }
+  if (pathname.startsWith("/conditional-invoice/")) {
+    return {
+      title: "Conditional Invoice | Blank",
+      description: "An encrypted-amount invoice held in escrow that releases on payer approval or after a deadline.",
+      canonical: `${SITE}${pathname}`,
+    };
+  }
   if (pathname.startsWith("/app")) {
     const suffix = pathname === "/app" ? "" : pathname.slice(4);
     return {
