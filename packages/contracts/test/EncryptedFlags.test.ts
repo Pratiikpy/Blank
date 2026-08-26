@@ -54,16 +54,14 @@ async function deployProxy(contractName: string, initArgs: unknown[]) {
   return Factory.attach(await proxy.getAddress()) as any;
 }
 
-async function encryptUint8For(client: any, signer: any, value: bigint) {
+async function encryptUint8For(client: any, signer: any, value: bigint, consuming: string) {
   await hre.cofhe.connectWithHardhatSigner(client, signer);
-  const [enc] = await client.encryptInputs([Encryptable.uint8(value)]).execute();
-  return enc;
+  return await client.encryptInputs([Encryptable.uint8(value)]).setConsumingContract(consuming).execute();
 }
 
-async function encryptUint64For(client: any, signer: any, value: bigint) {
+async function encryptUint64For(client: any, signer: any, value: bigint, consuming: string) {
   await hre.cofhe.connectWithHardhatSigner(client, signer);
-  const [enc] = await client.encryptInputs([Encryptable.uint64(value)]).execute();
-  return enc;
+  return await client.encryptInputs([Encryptable.uint64(value)]).setConsumingContract(consuming).execute();
 }
 
 const BASE_FEE_RATE = 100n; // 1% in basis points (scaled by 1e4)
@@ -232,8 +230,8 @@ describe("EncryptedFlags — invertVerification (FHE.not)", () => {
 describe("EncryptedFlags — calculateFee + calculateMerchantFee", () => {
   it("calculateFee emits FeeCalculated with msg.sender + timestamp", async () => {
     const ctx = await loadFixture(deployFixture);
-    const enc = await encryptUint64For(ctx.client, ctx.alice, 1000n);
-    await expect(ctx.flags.connect(ctx.alice).calculateFee(enc))
+    const enc = await encryptUint64For(ctx.client, ctx.alice, 1000n, await ctx.flags.getAddress());
+    await expect(ctx.flags.connect(ctx.alice).calculateFee(...enc))
       .to.emit(ctx.flags, "FeeCalculated")
       .withArgs(ctx.alice.address, (_t: bigint) => true);
   });
@@ -241,22 +239,22 @@ describe("EncryptedFlags — calculateFee + calculateMerchantFee", () => {
   it("calculateMerchantFee succeeds for non-merchant (full fee, no discount path)", async () => {
     const ctx = await loadFixture(deployFixture);
     await ctx.flags.setMerchant(ctx.alice.address, false);
-    const enc = await encryptUint64For(ctx.client, ctx.alice, 1000n);
+    const enc = await encryptUint64For(ctx.client, ctx.alice, 1000n, await ctx.flags.getAddress());
     // The FHE.select branch resolves to the non-discounted baseFee. We
     // can't trivially decrypt the (fee, netAmount) return tuple from a
     // non-view tx, but the call must NOT revert and must process the
     // mock task chain end-to-end.
     await expect(
-      ctx.flags.connect(ctx.alice).calculateMerchantFee(enc, ctx.alice.address),
+      ctx.flags.connect(ctx.alice).calculateMerchantFee(...enc, ctx.alice.address),
     ).to.not.be.reverted;
   });
 
   it("calculateMerchantFee succeeds for merchant (discount-applied path)", async () => {
     const ctx = await loadFixture(deployFixture);
     await ctx.flags.setMerchant(ctx.alice.address, true);
-    const enc = await encryptUint64For(ctx.client, ctx.alice, 1000n);
+    const enc = await encryptUint64For(ctx.client, ctx.alice, 1000n, await ctx.flags.getAddress());
     await expect(
-      ctx.flags.connect(ctx.alice).calculateMerchantFee(enc, ctx.alice.address),
+      ctx.flags.connect(ctx.alice).calculateMerchantFee(...enc, ctx.alice.address),
     ).to.not.be.reverted;
   });
 });
@@ -265,9 +263,9 @@ describe("EncryptedFlags — audit scope (encrypted bitmask)", () => {
   it("setAuditScope stores the bitmask + emits AuditScopeSet + getAuditScope returns it", async () => {
     const ctx = await loadFixture(deployFixture);
     const scope = 0b0000_0111; // bits 0,1,2 = amounts + parties + timestamps
-    const enc = await encryptUint8For(ctx.client, ctx.alice, BigInt(scope));
+    const enc = await encryptUint8For(ctx.client, ctx.alice, BigInt(scope), await ctx.flags.getAddress());
     await expect(
-      ctx.flags.connect(ctx.alice).setAuditScope(ctx.auditor.address, enc),
+      ctx.flags.connect(ctx.alice).setAuditScope(ctx.auditor.address, ...enc),
     )
       .to.emit(ctx.flags, "AuditScopeSet")
       .withArgs(ctx.alice.address, ctx.auditor.address, (_t: bigint) => true);
@@ -280,7 +278,7 @@ describe("EncryptedFlags — audit scope (encrypted bitmask)", () => {
     const scope = 0b0000_0010; // only bit 1 (parties)
     await ctx.flags.connect(ctx.alice).setAuditScope(
       ctx.auditor.address,
-      await encryptUint8For(ctx.client, ctx.alice, BigInt(scope)),
+      ...(await encryptUint8For(ctx.client, ctx.alice, BigInt(scope), await ctx.flags.getAddress())),
     );
     // Mask asks for bit 1 -> AND = 0b10 != 0 -> hasAccess=true.
     const mask = 0b0000_0010;
@@ -288,7 +286,7 @@ describe("EncryptedFlags — audit scope (encrypted bitmask)", () => {
       ctx.flags.connect(ctx.auditor).checkAuditScope(
         ctx.alice.address,
         ctx.auditor.address,
-        await encryptUint8For(ctx.client, ctx.auditor, BigInt(mask)),
+        ...(await encryptUint8For(ctx.client, ctx.auditor, BigInt(mask), await ctx.flags.getAddress())),
       ),
     ).to.not.be.reverted;
   });
@@ -298,7 +296,7 @@ describe("EncryptedFlags — audit scope (encrypted bitmask)", () => {
     const scope = 0b0000_0010; // only bit 1
     await ctx.flags.connect(ctx.alice).setAuditScope(
       ctx.auditor.address,
-      await encryptUint8For(ctx.client, ctx.alice, BigInt(scope)),
+      ...(await encryptUint8For(ctx.client, ctx.alice, BigInt(scope), await ctx.flags.getAddress())),
     );
     // Mask asks for bit 4 -> AND = 0 -> hasAccess=false.
     const mask = 0b0001_0000;
@@ -306,7 +304,7 @@ describe("EncryptedFlags — audit scope (encrypted bitmask)", () => {
       ctx.flags.connect(ctx.auditor).checkAuditScope(
         ctx.alice.address,
         ctx.auditor.address,
-        await encryptUint8For(ctx.client, ctx.auditor, BigInt(mask)),
+        ...(await encryptUint8For(ctx.client, ctx.auditor, BigInt(mask), await ctx.flags.getAddress())),
       ),
     ).to.not.be.reverted;
   });

@@ -6,7 +6,7 @@ import { parseUnits } from "viem";
 import { useCofheEncrypt, useCofheConnection } from "@/lib/cofhe-shim";
 import { Encryptable } from "@/lib/cofhe-shim";
 import toast from "react-hot-toast";
-import { MAX_UINT64, type EncryptedInput } from "@/lib/constants";
+import { MAX_UINT64 } from "@/lib/constants";
 import { useChain } from "@/providers/ChainProvider";
 import { GiftMoneyAbi, FHERC20VaultAbi } from "@/lib/abis";
 import { insertActivity } from "@/lib/supabase";
@@ -215,7 +215,8 @@ export function useGiftMoney() {
 
         const encryptedShares = await encryptInputsAsync(
           shares.map((s) => Encryptable.uint64(parseUnits(s, 6)))
-        );
+        ,
+        contracts.GiftMoney as `0x${string}`);
 
         setState((s) => ({ ...s, step: "confirming", encryptionProgress: 100 }));
 
@@ -231,7 +232,8 @@ export function useGiftMoney() {
             recipients as `0x${string}`[],
             // Type assertion: cofhe SDK encrypt returns opaque encrypted input objects
             // whose shape doesn't match wagmi's strict ABI-inferred arg types
-            encryptedShares as unknown as EncryptedInput[],
+            encryptedShares.slice(0, -1),
+            encryptedShares[encryptedShares.length - 1],
             note,
             BigInt(expiryTimestamp),
           ],

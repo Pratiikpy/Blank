@@ -205,9 +205,8 @@ beforeEach(() => {
   });
   useCofheConnectionMock.mockReturnValue({ connected: true });
   useCofheEncryptMock.mockReturnValue({ encryptInputsAsync: encryptInputsAsyncMock });
-  encryptInputsAsyncMock.mockResolvedValue([
-    { ctHash: 0x42n, securityZone: 0, utype: 5, signature: "0xenc" },
-  ]);
+  // 0.7: one handle per input, then a single batch signature.
+  encryptInputsAsyncMock.mockResolvedValue(["0xhandle", "0xbatchproof"]);
   toastLoadingMock.mockReturnValue("toast-id");
   isVaultApprovedMock.mockReturnValue(true);
   extractEventIdMock.mockReturnValue(42);
@@ -379,8 +378,8 @@ describe("useClaimLinks — Bearer mode (§15.x)", () => {
     expect(unifiedWriteAndWaitMock).toHaveBeenCalledTimes(1);
     const call = unifiedWriteAndWaitMock.mock.calls[0][0];
     expect(call.functionName).toBe("createLink");
-    expect(call.args[3]).toBe(MODE.Bearer);
-    expect(call.args[4]).toBe(ZERO_ADDR);
+    expect(call.args[4]).toBe(MODE.Bearer);
+    expect(call.args[5]).toBe(ZERO_ADDR);
   });
 
   it("returns { linkId, shareableUrl, secretHex } on success", async () => {
@@ -416,9 +415,9 @@ describe("useClaimLinks — EmailBound mode (§15.x)", () => {
       await result.current.createLink(emailParams());
     });
     const call = unifiedWriteAndWaitMock.mock.calls[0][0];
-    expect(call.args[3]).toBe(MODE.EmailBound);
-    expect(call.args[4]).toBe(ZERO_ADDR);
-    expect(call.args[2]).toMatch(/^0x[a-f0-9]{64}$/);
+    expect(call.args[4]).toBe(MODE.EmailBound);
+    expect(call.args[5]).toBe(ZERO_ADDR);
+    expect(call.args[3]).toMatch(/^0x[a-f0-9]{64}$/);
   });
 
   it("email '@' position 0 ('@example.com') -> rejected (indexOf < 1)", async () => {
@@ -439,8 +438,8 @@ describe("useClaimLinks — AddressBound mode (§15.x)", () => {
       await result.current.createLink(addressBoundParams());
     });
     const call = unifiedWriteAndWaitMock.mock.calls[0][0];
-    expect(call.args[3]).toBe(MODE.AddressBound);
-    expect(call.args[4]).toBe(BOUND_ADDR);
+    expect(call.args[4]).toBe(MODE.AddressBound);
+    expect(call.args[5]).toBe(BOUND_ADDR);
   });
 
   it("shareableUrl encodes the mode in the hash fragment (consumer discriminates by leading char)", async () => {
@@ -514,7 +513,7 @@ describe("useClaimLinks — parseUnits encoding (§15.x)", () => {
       await result.current.createLink(bearerParams({ expirySeconds: 0 }));
     });
     const call = unifiedWriteAndWaitMock.mock.calls[0][0];
-    expect(call.args[5]).toBe(0n);
+    expect(call.args[6]).toBe(0n);
   });
 
   it("custom expirySeconds passes through as BigInt", async () => {
@@ -522,7 +521,7 @@ describe("useClaimLinks — parseUnits encoding (§15.x)", () => {
     await act(async () => {
       await result.current.createLink(bearerParams({ expirySeconds: 30 * 86400 }));
     });
-    expect(unifiedWriteAndWaitMock.mock.calls[0][0].args[5]).toBe(BigInt(30 * 86400));
+    expect(unifiedWriteAndWaitMock.mock.calls[0][0].args[6]).toBe(BigInt(30 * 86400));
   });
 });
 
@@ -626,7 +625,9 @@ describe("useClaimLinks — pipeline lifecycle (§15.x)", () => {
     });
     expect(startMock).toHaveBeenCalled();
     const encArgs = encryptInputsAsyncMock.mock.calls[0];
-    expect(encArgs[1]).toBe(onEncryptStepMock);
+    // 0.7 signature: (items, consumingContract, onStep)
+    expect(encArgs[1]).toBe(CL_ADDR);
+    expect(encArgs[2]).toBe(onEncryptStepMock);
     expect(markSubmittingMock).toHaveBeenCalled();
     expect(markDoneMock).toHaveBeenCalled();
     expect(markFailedMock).toHaveBeenCalledTimes(0);

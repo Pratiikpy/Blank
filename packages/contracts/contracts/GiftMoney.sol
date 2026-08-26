@@ -7,8 +7,8 @@ import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "./utils/ReentrancyGuard.sol";
 
 interface IFHERC20Vault {
-    function transferFrom(address from, address to, InEuint64 memory encAmount) external returns (euint64);
-    function transferFromVerified(address from, address to, euint64 amount) external returns (euint64);
+    function transferFrom(address from, address to, externalEuint64 encAmount, bytes calldata proof) external returns (euint64);
+    function transferFromVerified(address from, address to, sharedEuint64 shared) external returns (sharedEuint64);
 }
 
 interface IEventHub {
@@ -16,8 +16,8 @@ interface IEventHub {
 }
 
 interface IPaymentReceipts {
-    function bumpUserReceived(address user, euint64 amount) external;
-    function bumpGlobal(euint64 amount) external;
+    function bumpUserReceived(address user, sharedEuint64 shared) external;
+    function bumpGlobal(sharedEuint64 shared) external;
 }
 
 /// @title GiftMoney — "Red Envelope" encrypted random splits
@@ -158,7 +158,8 @@ contract GiftMoney is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     function createEnvelope(
         address vault,
         address[] calldata recipients,
-        InEuint64[] memory shares,
+        externalEuint64[] calldata shares,
+        bytes calldata proof,
         string calldata note,
         uint256 expiryTimestamp
     ) external nonReentrant returns (uint256) {
@@ -184,21 +185,27 @@ contract GiftMoney is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
         IFHERC20Vault vaultContract = IFHERC20Vault(vault);
 
+        // One batch signature covers every share in the envelope.
+        euint64[] memory verifiedShares = FHE.asEuint64s(shares, proof);
+
         for (uint256 i = 0; i < count; i++) {
             address recipient = recipients[i];
             require(recipient != address(0), "GiftMoney: zero address recipient");
             require(recipient != msg.sender, "GiftMoney: sender cannot be recipient");
             require(!isRecipient[envelopeId][recipient], "GiftMoney: duplicate recipient");
 
-            // Verify encrypted input here (msg.sender = user) before cross-contract call
-            euint64 verifiedShare = FHE.asEuint64(shares[i]);
-            FHE.allowTransient(verifiedShare, vault);
-
             // Transfer encrypted share directly from sender to recipient
             // Funds land in recipient's encrypted vault balance immediately
             // Store the actual transfer result (not a re-encrypted input) so the
             // handle tracks the real on-chain value post-transfer
-            euint64 transferred = vaultContract.transferFromVerified(msg.sender, recipient, verifiedShare);
+            euint64 transferred = FHE.receiveEuint64FromCall(
+                vaultContract.transferFromVerified(
+                    msg.sender,
+                    recipient,
+                    FHE.shareEuint64(verifiedShares[i], vault)
+                ),
+                vault
+            );
             _shares[envelopeId][recipient] = transferred;
 
             // Grant permissions: contract can reference it, recipient can unseal it, creator can verify
@@ -406,12 +413,10 @@ contract GiftMoney is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     ///      we re-authorize the amount handle before each cross-contract call.
     function _bumpReceiptsAndGlobal(address recipient, euint64 amount) internal {
         if (paymentReceipts == address(0)) return;
-        FHE.allowTransient(amount, paymentReceipts);
-        try IPaymentReceipts(paymentReceipts).bumpUserReceived(recipient, amount) {} catch (bytes memory reason) {
+        try IPaymentReceipts(paymentReceipts).bumpUserReceived(recipient, FHE.shareEuint64(amount, paymentReceipts)) {} catch (bytes memory reason) {
             emit ReceiptsBumpFailed("user", reason);
         }
-        FHE.allowTransient(amount, paymentReceipts);
-        try IPaymentReceipts(paymentReceipts).bumpGlobal(amount) {} catch (bytes memory reason) {
+        try IPaymentReceipts(paymentReceipts).bumpGlobal(FHE.shareEuint64(amount, paymentReceipts)) {} catch (bytes memory reason) {
             emit ReceiptsBumpFailed("global", reason);
         }
     }

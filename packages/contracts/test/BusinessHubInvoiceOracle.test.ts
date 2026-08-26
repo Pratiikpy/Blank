@@ -143,24 +143,23 @@ async function signOracleQuote(
   return oracle.signMessage(hre.ethers.getBytes(digest));
 }
 
-async function encUint64(client: any, signer: any, amount: bigint) {
+async function encUint64(client: any, signer: any, amount: bigint, consuming: string) {
   await hre.cofhe.connectWithHardhatSigner(client, signer);
-  const [enc] = await client.encryptInputs([Encryptable.uint64(amount)]).execute();
-  return enc;
+  return await client.encryptInputs([Encryptable.uint64(amount)]).setConsumingContract(consuming).execute();
 }
 
 async function createInvoice(
   ctx: Awaited<ReturnType<typeof fixture>>,
   amount: bigint,
 ): Promise<bigint> {
-  const enc = await encUint64(ctx.cofheClient, ctx.vendor, amount);
+  const enc = await encUint64(ctx.cofheClient, ctx.vendor, amount, await ctx.businessHub.getAddress());
   const now = await hre.ethers.provider.getBlock("latest");
   await ctx.businessHub
     .connect(ctx.vendor)
     .createInvoice(
       ctx.payer.address,
       await ctx.vault.getAddress(),
-      enc,
+      ...enc,
       "Oracle-fallback test invoice",
       now!.timestamp + 7 * 24 * 3600,
     );
@@ -235,7 +234,7 @@ describe("BusinessHub.payInvoiceWithOracleQuote — happy path", () => {
 
     // Approve + encrypt + pay
     await ctx.exoticToken.connect(ctx.payer).approve(businessHubAddr, payAmountIn);
-    const encMatch = await encUint64(ctx.cofheClient, ctx.payer, usdc(100));
+    const encMatch = await encUint64(ctx.cofheClient, ctx.payer, usdc(100), await ctx.businessHub.getAddress());
 
     const vendorBefore: bigint = await ctx.usdcToken.balanceOf(ctx.vendor.address);
     await expect(
@@ -250,7 +249,7 @@ describe("BusinessHub.payInvoiceWithOracleQuote — happy path", () => {
           expiresAt,
           nonce,
           sig,
-          encMatch,
+          ...encMatch,
         ),
     )
       .to.emit(ctx.businessHub, "InvoicePaymentOracleSettled")
@@ -318,10 +317,10 @@ describe("BusinessHub.payInvoiceWithOracleQuote — replay protection", () => {
     await f.ctx.exoticToken
       .connect(f.ctx.payer)
       .approve(businessHubAddr, parseUnits("200", USDC_DECIMALS));
-    const enc1 = await encUint64(f.ctx.cofheClient, f.ctx.payer, usdc(100));
+    const enc1 = await encUint64(f.ctx.cofheClient, f.ctx.payer, usdc(100), await f.ctx.businessHub.getAddress());
     await f.ctx.businessHub
       .connect(f.ctx.payer)
-      .payInvoiceWithOracleQuote(...f.args, enc1);
+      .payInvoiceWithOracleQuote(...f.args, ...enc1);
 
     // Second attempt with same nonce + same sig → reverts.
     // (The invoice is now PaymentPending so an earlier "not pending"
@@ -329,9 +328,9 @@ describe("BusinessHub.payInvoiceWithOracleQuote — replay protection", () => {
     await createInvoice(f.ctx, usdc(50)); // creates id=1; but we still try id=0 to hit nonce check.
 
     // Re-encrypt fresh because Cofhe inputs are single-use.
-    const enc2 = await encUint64(f.ctx.cofheClient, f.ctx.payer, usdc(100));
+    const enc2 = await encUint64(f.ctx.cofheClient, f.ctx.payer, usdc(100), await f.ctx.businessHub.getAddress(), await f.ctx.businessHub.getAddress());
     await expect(
-      f.ctx.businessHub.connect(f.ctx.payer).payInvoiceWithOracleQuote(...f.args, enc2),
+      f.ctx.businessHub.connect(f.ctx.payer).payInvoiceWithOracleQuote(...f.args, ...enc2),
     ).to.be.revertedWith("BusinessHub: not pending");
 
     // To purely test the nonce-reuse path, make a fresh invoice for the
@@ -354,7 +353,7 @@ describe("BusinessHub.payInvoiceWithOracleQuote — replay protection", () => {
       chainId,
       payer: f.ctx.payer.address,
     });
-    const enc3 = await encUint64(f.ctx.cofheClient, f.ctx.payer, usdc(50));
+    const enc3 = await encUint64(f.ctx.cofheClient, f.ctx.payer, usdc(50), await f.ctx.businessHub.getAddress());
     await expect(
       f.ctx.businessHub
         .connect(f.ctx.payer)
@@ -367,7 +366,7 @@ describe("BusinessHub.payInvoiceWithOracleQuote — replay protection", () => {
           expiresAt2,
           f.nonce,
           sig2,
-          enc3,
+          ...enc3,
         ),
     ).to.be.revertedWith("BusinessHub: nonce used");
   });
@@ -396,7 +395,7 @@ describe("BusinessHub.payInvoiceWithOracleQuote — sig + bound rejection", () =
     };
     const sig = await signOracleQuote(ctx.oracle, args);
     await ctx.exoticToken.connect(ctx.payer).approve(businessHubAddr, args.payAmountIn);
-    const enc = await encUint64(ctx.cofheClient, ctx.payer, usdc(100));
+    const enc = await encUint64(ctx.cofheClient, ctx.payer, usdc(100), await ctx.businessHub.getAddress());
     await expect(
       ctx.businessHub
         .connect(ctx.payer)
@@ -409,7 +408,7 @@ describe("BusinessHub.payInvoiceWithOracleQuote — sig + bound rejection", () =
           args.expiresAt,
           args.nonce,
           sig,
-          enc,
+          ...enc,
         ),
     ).to.be.revertedWith("BusinessHub: quote expired");
   });
@@ -434,7 +433,7 @@ describe("BusinessHub.payInvoiceWithOracleQuote — sig + bound rejection", () =
     };
     const sig = await signOracleQuote(ctx.oracle, args);
     await ctx.exoticToken.connect(ctx.payer).approve(businessHubAddr, args.payAmountIn);
-    const enc = await encUint64(ctx.cofheClient, ctx.payer, usdc(100));
+    const enc = await encUint64(ctx.cofheClient, ctx.payer, usdc(100), await ctx.businessHub.getAddress());
     await expect(
       ctx.businessHub
         .connect(ctx.payer)
@@ -447,7 +446,7 @@ describe("BusinessHub.payInvoiceWithOracleQuote — sig + bound rejection", () =
           args.expiresAt,
           args.nonce,
           sig,
-          enc,
+          ...enc,
         ),
     ).to.be.revertedWith("BusinessHub: rate out of bounds");
   });
@@ -472,7 +471,7 @@ describe("BusinessHub.payInvoiceWithOracleQuote — sig + bound rejection", () =
     };
     const sig = await signOracleQuote(ctx.oracle, args);
     await ctx.exoticToken.connect(ctx.payer).approve(businessHubAddr, args.payAmountIn);
-    const enc = await encUint64(ctx.cofheClient, ctx.payer, usdc(100));
+    const enc = await encUint64(ctx.cofheClient, ctx.payer, usdc(100), await ctx.businessHub.getAddress());
     await expect(
       ctx.businessHub
         .connect(ctx.payer)
@@ -485,7 +484,7 @@ describe("BusinessHub.payInvoiceWithOracleQuote — sig + bound rejection", () =
           args.expiresAt,
           args.nonce,
           sig,
-          enc,
+          ...enc,
         ),
     ).to.be.revertedWith("BusinessHub: rate out of bounds");
   });
@@ -511,7 +510,7 @@ describe("BusinessHub.payInvoiceWithOracleQuote — sig + bound rejection", () =
     };
     const sig = await signOracleQuote(ctx.oracle, args);
     await ctx.exoticToken.connect(ctx.payer).approve(businessHubAddr, args.payAmountIn);
-    const enc = await encUint64(ctx.cofheClient, ctx.payer, usdc(100));
+    const enc = await encUint64(ctx.cofheClient, ctx.payer, usdc(100), await ctx.businessHub.getAddress());
     await expect(
       ctx.businessHub
         .connect(ctx.payer)
@@ -524,7 +523,7 @@ describe("BusinessHub.payInvoiceWithOracleQuote — sig + bound rejection", () =
           args.expiresAt,
           args.nonce,
           sig,
-          enc,
+          ...enc,
         ),
     ).to.be.revertedWith("BusinessHub: expectedUsdcOut mismatch");
   });
@@ -554,19 +553,19 @@ describe("BusinessHub.payInvoiceWithOracleQuote — sig + bound rejection", () =
     // bound to ctx.payer as client (via createInvoice), so attacker
     // can't even pass the "not the client" gate. Best test: set up a
     // separate invoice with attacker as client.
-    const altEnc = await encUint64(ctx.cofheClient, ctx.vendor, usdc(100));
+    const altEnc = await encUint64(ctx.cofheClient, ctx.vendor, usdc(100), await ctx.businessHub.getAddress(), await ctx.businessHub.getAddress());
     await ctx.businessHub
       .connect(ctx.vendor)
       .createInvoice(
         ctx.attacker.address,
         await ctx.vault.getAddress(),
-        altEnc,
+        ...altEnc,
         "Attacker invoice",
         Number((await chainNow()) + 3600n),
       );
     await ctx.exoticToken.mint(ctx.attacker.address, args.payAmountIn);
     await ctx.exoticToken.connect(ctx.attacker).approve(businessHubAddr, args.payAmountIn);
-    const enc = await encUint64(ctx.cofheClient, ctx.attacker, usdc(100));
+    const enc = await encUint64(ctx.cofheClient, ctx.attacker, usdc(100), await ctx.businessHub.getAddress());
     await expect(
       ctx.businessHub
         .connect(ctx.attacker)
@@ -579,7 +578,7 @@ describe("BusinessHub.payInvoiceWithOracleQuote — sig + bound rejection", () =
           args.expiresAt,
           args.nonce,
           sig, // signed for ctx.payer, attacker is msg.sender
-          enc,
+          ...enc,
         ),
     ).to.be.revertedWith("BusinessHub: bad oracle sig");
   });
@@ -612,7 +611,7 @@ describe("BusinessHub.payInvoiceWithOracleQuote — digest binding", () => {
     const businessHubAddr = await ctx.businessHub.getAddress();
     const realChainId = BigInt((await hre.ethers.provider.getNetwork()).chainId);
     await ctx.exoticToken.connect(ctx.payer).approve(businessHubAddr, payAmountIn);
-    const enc = await encUint64(ctx.cofheClient, ctx.payer, usdc(100));
+    const enc = await encUint64(ctx.cofheClient, ctx.payer, usdc(100), await ctx.businessHub.getAddress());
     return {
       ctx,
       id,
@@ -656,7 +655,7 @@ describe("BusinessHub.payInvoiceWithOracleQuote — digest binding", () => {
           f.expiresAt,
           f.nonce,
           sig,
-          f.enc,
+          ...f.enc,
         ),
     ).to.be.revertedWith("BusinessHub: bad oracle sig");
   });
@@ -687,7 +686,7 @@ describe("BusinessHub.payInvoiceWithOracleQuote — digest binding", () => {
           f.expiresAt,
           f.nonce,
           sig,
-          f.enc,
+          ...f.enc,
         ),
     ).to.be.revertedWith("BusinessHub: bad oracle sig");
   });
@@ -752,7 +751,7 @@ describe("BusinessHub.payInvoiceWithOracleQuote — pre-flight reverts", () => {
     const exoticAddr = await ctx.exoticToken.getAddress();
     const businessHubAddr = await ctx.businessHub.getAddress();
     await ctx.exoticToken.connect(ctx.payer).approve(businessHubAddr, parseUnits("100", USDC_DECIMALS));
-    const enc = await encUint64(ctx.cofheClient, ctx.payer, usdc(100));
+    const enc = await encUint64(ctx.cofheClient, ctx.payer, usdc(100), await ctx.businessHub.getAddress());
     await expect(
       ctx.businessHub
         .connect(ctx.payer)
@@ -765,7 +764,7 @@ describe("BusinessHub.payInvoiceWithOracleQuote — pre-flight reverts", () => {
           (await ONE_HOUR_FROM_NOW()),
           RANDOM_NONCE(),
           "0x" + "00".repeat(65),
-          enc,
+          ...enc,
         ),
     ).to.be.revertedWith("BusinessHub: oracle unset");
   });
@@ -773,7 +772,7 @@ describe("BusinessHub.payInvoiceWithOracleQuote — pre-flight reverts", () => {
   it("rejects zero payToken / amounts", async () => {
     const ctx = await loadFixture(fixture);
     const id = await createInvoice(ctx, usdc(100));
-    const enc = await encUint64(ctx.cofheClient, ctx.payer, usdc(100));
+    const enc = await encUint64(ctx.cofheClient, ctx.payer, usdc(100), await ctx.businessHub.getAddress());
     await expect(
       ctx.businessHub
         .connect(ctx.payer)
@@ -786,7 +785,7 @@ describe("BusinessHub.payInvoiceWithOracleQuote — pre-flight reverts", () => {
           (await ONE_HOUR_FROM_NOW()),
           RANDOM_NONCE(),
           "0x" + "00".repeat(65),
-          enc,
+          ...enc,
         ),
     ).to.be.revertedWith("BusinessHub: zero payToken");
   });

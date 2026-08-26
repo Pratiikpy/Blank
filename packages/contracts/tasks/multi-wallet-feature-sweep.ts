@@ -289,7 +289,20 @@ task(
 
   // ─── Fund personas with ETH for gas (one batch from deployer) ───
   console.log("[Step 0] Funding personas with ETH for gas...");
-  const gasPerPersona = parseEther("0.002"); // enough for a handful of txs
+  // Derive the top-up from live gas price rather than hardcoding it. Every
+  // FHE call is submitted with a 5M gas LIMIT (the precompile cannot be
+  // estimated), and a wallet must hold limit * price up front even though it
+  // spends far less. On an L2 that is dust; on Ethereum Sepolia at 1 gwei it
+  // is ~0.005 ETH per submission, which is why a flat 0.002 left every
+  // persona unable to send a single transaction there.
+  // runPayroll submits with a 10M limit, the largest in this sweep.
+  const FHE_GAS_LIMIT = 10_000_000n;
+  const SUBMISSIONS_HEADROOM = 5n;
+  const livePrice = await publicClient.getGasPrice();
+  const derived = FHE_GAS_LIMIT * livePrice * SUBMISSIONS_HEADROOM;
+  const floor = parseEther("0.002");
+  const gasPerPersona = derived > floor ? derived : floor;
+  console.log(`  gas price ${livePrice} wei -> topping each persona up to ${gasPerPersona} wei`);
   for (const p of personas) {
     const bal = await publicClient.getBalance({ address: p.address });
     if (bal >= gasPerPersona) {
@@ -458,9 +471,10 @@ task(
 
         // Encrypt the pay amount
         await connectCofheAs(from);
-        const [encAmount] = (await cofheClient
+        const [encAmount, encAmountProof] = (await cofheClient
           .encryptInputs([Encryptable.uint64(PAY_AMOUNT)])
-          .execute()) as Array<{ ctHash: bigint; securityZone: number; utype: number; signature: Hex }>;
+          .setConsumingContract(PaymentHub as `0x${string}`)
+          .execute()) as [Hex, Hex];
 
         const payHash = await withRetry(`pay ${from.name}→${to.name}`, () => wallet.writeContract({
           address: PaymentHub as `0x${string}`,
@@ -472,23 +486,15 @@ task(
               inputs: [
                 { name: "recipient", type: "address" },
                 { name: "vault", type: "address" },
-                {
-                  name: "encAmount",
-                  type: "tuple",
-                  components: [
-                    { name: "ctHash", type: "uint256" },
-                    { name: "securityZone", type: "uint8" },
-                    { name: "utype", type: "uint8" },
-                    { name: "signature", type: "bytes" },
-                  ],
-                },
+                { name: "encAmount", type: "bytes32" },
+              { name: "proof", type: "bytes" },
                 { name: "note", type: "string" },
               ],
               outputs: [],
             },
           ],
           functionName: "sendPayment",
-          args: [to.address, Vault as `0x${string}`, encAmount, `wave4 sweep ${from.name}→${to.name}`],
+          args: [to.address, Vault as `0x${string}`, encAmount, encAmountProof, `wave4 sweep ${from.name}→${to.name}`],
           gas: 5_000_000n,
         }));
         await waitOk(payHash, "payHash");
@@ -583,9 +589,10 @@ task(
       await waitOk(apHash, "apHash");
 
       await connectCofheAs(personas[1]!);
-      const [encSettle] = (await cofheClient
+      const [encSettle, encSettleProof] = (await cofheClient
         .encryptInputs([Encryptable.uint64(parseUnits("0.1", 6))])
-        .execute()) as Array<{ ctHash: bigint; securityZone: number; utype: number; signature: Hex }>;
+        .setConsumingContract(GroupManager as `0x${string}`)
+        .execute()) as [Hex, Hex];
 
       const settleHash = await withRetry("settleDebt", () => bobWallet.writeContract({
         address: GroupManager as `0x${string}`,
@@ -598,22 +605,14 @@ task(
               { name: "groupId", type: "uint256" },
               { name: "with_", type: "address" },
               { name: "vault", type: "address" },
-              {
-                name: "encAmount",
-                type: "tuple",
-                components: [
-                  { name: "ctHash", type: "uint256" },
-                  { name: "securityZone", type: "uint8" },
-                  { name: "utype", type: "uint8" },
-                  { name: "signature", type: "bytes" },
-                ],
-              },
+              { name: "encAmount", type: "bytes32" },
+              { name: "proof", type: "bytes" },
             ],
             outputs: [],
           },
         ],
         functionName: "settleDebt",
-        args: [createdGroupId, personas[2]!.address, Vault as `0x${string}`, encSettle],
+        args: [createdGroupId, personas[2]!.address, Vault as `0x${string}`, encSettle, encSettleProof],
         gas: 5_000_000n,
       }));
       await waitOk(settleHash, "settleHash");
@@ -651,9 +650,10 @@ task(
       await waitOk(apHash, "apHash");
 
       await connectCofheAs(personas[0]!);
-      const [encGift] = (await cofheClient
+      const [encGift, encGiftProof] = (await cofheClient
         .encryptInputs([Encryptable.uint64(PAY_AMOUNT)])
-        .execute()) as Array<{ ctHash: bigint; securityZone: number; utype: number; signature: Hex }>;
+        .setConsumingContract(GiftMoney as `0x${string}`)
+        .execute()) as [Hex, Hex];
 
       // Real signature is createEnvelope(vault, recipients[], shares[],
       // note, expiryTimestamp) — sendGift was the wrong selector name
@@ -674,16 +674,8 @@ task(
             inputs: [
               { name: "vault", type: "address" },
               { name: "recipients", type: "address[]" },
-              {
-                name: "shares",
-                type: "tuple[]",
-                components: [
-                  { name: "ctHash", type: "uint256" },
-                  { name: "securityZone", type: "uint8" },
-                  { name: "utype", type: "uint8" },
-                  { name: "signature", type: "bytes" },
-                ],
-              },
+              { name: "shares", type: "bytes32[]" },
+              { name: "proof", type: "bytes" },
               { name: "note", type: "string" },
               { name: "expiryTimestamp", type: "uint256" },
             ],
@@ -695,6 +687,7 @@ task(
           Vault as `0x${string}`,
           [personas[1]!.address],
           [encGift],
+          encGiftProof,
           "wave4 sweep gift",
           0n,
         ],
@@ -771,9 +764,10 @@ task(
       await waitOk(apHash, "apHash");
 
       await connectCofheAs(personas[0]!);
-      const [encEscrow] = (await cofheClient
+      const [encEscrow, encEscrowProof] = (await cofheClient
         .encryptInputs([Encryptable.uint64(parseUnits("2", 6))])
-        .execute()) as Array<{ ctHash: bigint; securityZone: number; utype: number; signature: Hex }>;
+        .setConsumingContract(EncryptedEscrow as `0x${string}`)
+        .execute()) as [Hex, Hex];
 
       // Real signature: createEscrow(beneficiary, vault, encAmount,
       // description, arbiter, deadline) — my prior sweep had arbiter
@@ -796,16 +790,8 @@ task(
             inputs: [
               { name: "beneficiary", type: "address" },
               { name: "vault", type: "address" },
-              {
-                name: "encAmount",
-                type: "tuple",
-                components: [
-                  { name: "ctHash", type: "uint256" },
-                  { name: "securityZone", type: "uint8" },
-                  { name: "utype", type: "uint8" },
-                  { name: "signature", type: "bytes" },
-                ],
-              },
+              { name: "encAmount", type: "bytes32" },
+              { name: "proof", type: "bytes" },
               { name: "description", type: "string" },
               { name: "arbiter", type: "address" },
               { name: "deadline", type: "uint256" },
@@ -818,6 +804,7 @@ task(
           personas[1]!.address,
           Vault as `0x${string}`,
           encEscrow,
+          encEscrowProof,
           "wave4 sweep escrow",
           personas[2]!.address,
           escrowDeadline,
@@ -945,9 +932,10 @@ task(
       await waitOk(apHash, "apHash");
 
       await connectCofheAs(personas[1]!);
-      const [encLink] = (await cofheClient
+      const [encLink, encLinkProof] = (await cofheClient
         .encryptInputs([Encryptable.uint64(parseUnits("0.5", 6))])
-        .execute()) as Array<{ ctHash: bigint; securityZone: number; utype: number; signature: Hex }>;
+        .setConsumingContract(ClaimLinks as `0x${string}`)
+        .execute()) as [Hex, Hex];
 
       // bearer secret + hash
       const DOMAIN = keccak256(toBytes("BLANK_CLAIM_v1"));
@@ -975,16 +963,8 @@ task(
             stateMutability: "nonpayable",
             inputs: [
               { name: "vault", type: "address" },
-              {
-                name: "encAmount",
-                type: "tuple",
-                components: [
-                  { name: "ctHash", type: "uint256" },
-                  { name: "securityZone", type: "uint8" },
-                  { name: "utype", type: "uint8" },
-                  { name: "signature", type: "bytes" },
-                ],
-              },
+              { name: "encAmount", type: "bytes32" },
+              { name: "proof", type: "bytes" },
               { name: "secretHash", type: "bytes32" },
               { name: "mode", type: "uint8" },
               { name: "boundAddress", type: "address" },
@@ -997,7 +977,7 @@ task(
         functionName: "createLink",
         args: [
           Vault as `0x${string}`,
-          encLink,
+          encLink, encLinkProof,
           secretHash,
           0, // BEARER mode
           "0x0000000000000000000000000000000000000000",
@@ -1071,9 +1051,10 @@ task(
         transport: http(rpcUrl),
       });
       await connectCofheAs(personas[1]!);
-      const [encAddrLink] = (await cofheClient
+      const [encAddrLink, encAddrLinkProof] = (await cofheClient
         .encryptInputs([Encryptable.uint64(parseUnits("0.2", 6))])
-        .execute()) as Array<{ ctHash: bigint; securityZone: number; utype: number; signature: Hex }>;
+        .setConsumingContract(ClaimLinks as `0x${string}`)
+        .execute()) as [Hex, Hex];
 
       // LinkMode enum: Bearer=0, EmailBound=1, AddressBound=2
       // secretHash = keccak256(DOMAIN || uint8(mode) || secret)
@@ -1102,16 +1083,8 @@ task(
             stateMutability: "nonpayable",
             inputs: [
               { name: "vault", type: "address" },
-              {
-                name: "encAmount",
-                type: "tuple",
-                components: [
-                  { name: "ctHash", type: "uint256" },
-                  { name: "securityZone", type: "uint8" },
-                  { name: "utype", type: "uint8" },
-                  { name: "signature", type: "bytes" },
-                ],
-              },
+              { name: "encAmount", type: "bytes32" },
+              { name: "proof", type: "bytes" },
               { name: "secretHash", type: "bytes32" },
               { name: "mode", type: "uint8" },
               { name: "boundAddress", type: "address" },
@@ -1124,7 +1097,7 @@ task(
         functionName: "createLink",
         args: [
           Vault as `0x${string}`,
-          encAddrLink,
+          encAddrLink, encAddrLinkProof,
           ABsecretHash,
           2, // LinkMode.AddressBound (Bearer=0, EmailBound=1, AddressBound=2)
           personas[2]!.address, // Carol only
@@ -1216,9 +1189,10 @@ task(
   } else {
     try {
       await connectCofheAs(personas[2]!);
-      const [encEmailLink] = (await cofheClient
+      const [encEmailLink, encEmailLinkProof] = (await cofheClient
         .encryptInputs([Encryptable.uint64(parseUnits("0.15", 6))])
-        .execute()) as Array<{ ctHash: bigint; securityZone: number; utype: number; signature: Hex }>;
+        .setConsumingContract(ClaimLinks as `0x${string}`)
+        .execute()) as [Hex, Hex];
 
       // Approve ClaimLinks on the vault (Carol — different signer than Bob)
       const carolWallet0 = createWalletClient({
@@ -1256,16 +1230,8 @@ task(
             stateMutability: "nonpayable",
             inputs: [
               { name: "vault", type: "address" },
-              {
-                name: "encAmount",
-                type: "tuple",
-                components: [
-                  { name: "ctHash", type: "uint256" },
-                  { name: "securityZone", type: "uint8" },
-                  { name: "utype", type: "uint8" },
-                  { name: "signature", type: "bytes" },
-                ],
-              },
+              { name: "encAmount", type: "bytes32" },
+              { name: "proof", type: "bytes" },
               { name: "secretHash", type: "bytes32" },
               { name: "mode", type: "uint8" },
               { name: "boundAddress", type: "address" },
@@ -1278,7 +1244,7 @@ task(
         functionName: "createLink",
         args: [
           Vault as `0x${string}`,
-          encEmailLink,
+          encEmailLink, encEmailLinkProof,
           ebSecretHash,
           1, // EmailBound
           "0x0000000000000000000000000000000000000000",
@@ -1426,9 +1392,10 @@ task(
         transport: http(rpcUrl),
       });
       await connectCofheAs(personas[0]!);
-      const [encPrice] = (await cofheClient
+      const [encPrice, encPriceProof] = (await cofheClient
         .encryptInputs([Encryptable.uint64(parseUnits("3", 6))])
-        .execute()) as Array<{ ctHash: bigint; securityZone: number; utype: number; signature: Hex }>;
+        .setConsumingContract(Storefront as `0x${string}`)
+        .execute()) as [Hex, Hex];
       // Race-safe pre-read of nextListingId
       const listingIdPreCreate = (await publicClient.readContract({
         address: Storefront as `0x${string}`,
@@ -1445,16 +1412,8 @@ task(
             inputs: [
               { name: "mode", type: "uint8" }, // SaleMode.FixedPrice = 0
               { name: "vault", type: "address" },
-              {
-                name: "encPrice",
-                type: "tuple",
-                components: [
-                  { name: "ctHash", type: "uint256" },
-                  { name: "securityZone", type: "uint8" },
-                  { name: "utype", type: "uint8" },
-                  { name: "signature", type: "bytes" },
-                ],
-              },
+              { name: "encPrice", type: "bytes32" },
+              { name: "proof", type: "bytes" },
               { name: "auctionSeconds", type: "uint256" },
               { name: "title", type: "string" },
               { name: "descriptionCidHash", type: "bytes32" },
@@ -1467,7 +1426,7 @@ task(
         args: [
           0, // FixedPrice
           Vault as `0x${string}`,
-          encPrice,
+          encPrice, encPriceProof,
           0n, // auctionSeconds = 0 for fixed
           "Wave4 Sweep Item",
           "0x0000000000000000000000000000000000000000000000000000000000000000",
@@ -1499,9 +1458,10 @@ task(
         });
         await waitOk(apHash, "apHash");
         await connectCofheAs(personas[2]!);
-        const [encBuy] = (await cofheClient
+        const [encBuy, encBuyProof] = (await cofheClient
           .encryptInputs([Encryptable.uint64(parseUnits("3", 6))])
-          .execute()) as Array<{ ctHash: bigint; securityZone: number; utype: number; signature: Hex }>;
+          .setConsumingContract(Storefront as `0x${string}`)
+          .execute()) as [Hex, Hex];
         const deliveryNoteHash = keccak256(toBytes("wave4-sweep-buyer-note"));
         const buyHash = await withRetry("storefront_buy", () => carolWallet.writeContract({
           address: Storefront as `0x${string}`,
@@ -1512,23 +1472,15 @@ task(
               stateMutability: "nonpayable",
               inputs: [
                 { name: "listingId", type: "uint256" },
-                {
-                  name: "encAmount",
-                  type: "tuple",
-                  components: [
-                    { name: "ctHash", type: "uint256" },
-                    { name: "securityZone", type: "uint8" },
-                    { name: "utype", type: "uint8" },
-                    { name: "signature", type: "bytes" },
-                  ],
-                },
+                { name: "encAmount", type: "bytes32" },
+              { name: "proof", type: "bytes" },
                 { name: "deliveryNoteHash", type: "bytes32" },
               ],
               outputs: [],
             },
           ],
           functionName: "buyFixed",
-          args: [justListed, encBuy, deliveryNoteHash],
+          args: [justListed, encBuy, encBuyProof, deliveryNoteHash],
           gas: 5_000_000n,
         }));
         await waitOk(buyHash, "buyHash");
@@ -1560,9 +1512,10 @@ task(
         transport: http(rpcUrl),
       });
       await connectCofheAs(personas[3]!);
-      const [encGoal] = (await cofheClient
+      const [encGoal, encGoalProof] = (await cofheClient
         .encryptInputs([Encryptable.uint64(parseUnits("5", 6))])
-        .execute()) as Array<{ ctHash: bigint; securityZone: number; utype: number; signature: Hex }>;
+        .setConsumingContract(Crowdfund as `0x${string}`)
+        .execute()) as [Hex, Hex];
       const cfHash = await daveWallet.writeContract({
         address: Crowdfund as `0x${string}`,
         abi: [
@@ -1572,16 +1525,8 @@ task(
             stateMutability: "nonpayable",
             inputs: [
               { name: "vault", type: "address" },
-              {
-                name: "encGoal",
-                type: "tuple",
-                components: [
-                  { name: "ctHash", type: "uint256" },
-                  { name: "securityZone", type: "uint8" },
-                  { name: "utype", type: "uint8" },
-                  { name: "signature", type: "bytes" },
-                ],
-              },
+              { name: "encGoal", type: "bytes32" },
+              { name: "proof", type: "bytes" },
               { name: "durationSeconds", type: "uint256" },
               { name: "title", type: "string" },
               { name: "descriptionCidHash", type: "bytes32" },
@@ -1592,7 +1537,7 @@ task(
         functionName: "createCampaign",
         args: [
           Vault as `0x${string}`,
-          encGoal,
+          encGoal, encGoalProof,
           7n * 24n * 60n * 60n, // 7 days
           "Wave4 Sweep Campaign",
           "0x0000000000000000000000000000000000000000000000000000000000000000",
@@ -1701,13 +1646,16 @@ task(
       await waitOk(apHash, "apHash");
       // Encrypt three salaries in parallel
       await connectCofheAs(personas[0]!);
-      const salaries = (await cofheClient
+      const salaryBatch = (await cofheClient
         .encryptInputs([
           Encryptable.uint64(parseUnits("0.5", 6)),
           Encryptable.uint64(parseUnits("0.5", 6)),
           Encryptable.uint64(parseUnits("0.5", 6)),
         ])
-        .execute()) as Array<{ ctHash: bigint; securityZone: number; utype: number; signature: Hex }>;
+        .setConsumingContract(BusinessHub as `0x${string}`)
+        .execute()) as Hex[];
+      const salaries = salaryBatch.slice(0, -1);
+      const salariesProof = salaryBatch[salaryBatch.length - 1]!;
       const payrollHash = await aliceWallet.writeContract({
         address: BusinessHub as `0x${string}`,
         abi: [
@@ -1718,16 +1666,8 @@ task(
             inputs: [
               { name: "employees", type: "address[]" },
               { name: "vault", type: "address" },
-              {
-                name: "salaries",
-                type: "tuple[]",
-                components: [
-                  { name: "ctHash", type: "uint256" },
-                  { name: "securityZone", type: "uint8" },
-                  { name: "utype", type: "uint8" },
-                  { name: "signature", type: "bytes" },
-                ],
-              },
+              { name: "salaries", type: "bytes32[]" },
+              { name: "proof", type: "bytes" },
             ],
             outputs: [],
           },
@@ -1737,6 +1677,7 @@ task(
           [personas[1]!.address, personas[2]!.address, personas[3]!.address],
           Vault as `0x${string}`,
           salaries,
+          salariesProof,
         ],
         gas: 10_000_000n,
       });
@@ -1763,9 +1704,10 @@ task(
         transport: http(rpcUrl),
       });
       await connectCofheAs(personas[1]!);
-      const [encUnshield] = (await cofheClient
+      const [encUnshield, encUnshieldProof] = (await cofheClient
         .encryptInputs([Encryptable.uint64(parseUnits("0.5", 6))])
-        .execute()) as Array<{ ctHash: bigint; securityZone: number; utype: number; signature: Hex }>;
+        .setConsumingContract(Vault as `0x${string}`)
+        .execute()) as [Hex, Hex];
       const unshieldHash = await bobWallet.writeContract({
         address: Vault as `0x${string}`,
         abi: [
@@ -1774,22 +1716,14 @@ task(
             type: "function",
             stateMutability: "nonpayable",
             inputs: [
-              {
-                name: "encAmount",
-                type: "tuple",
-                components: [
-                  { name: "ctHash", type: "uint256" },
-                  { name: "securityZone", type: "uint8" },
-                  { name: "utype", type: "uint8" },
-                  { name: "signature", type: "bytes" },
-                ],
-              },
+              { name: "encAmount", type: "bytes32" },
+              { name: "proof", type: "bytes" },
             ],
             outputs: [{ type: "uint256" }],
           },
         ],
         functionName: "requestUnshield",
-        args: [encUnshield],
+        args: [encUnshield, encUnshieldProof],
         gas: 5_000_000n,
       });
       await waitOk(unshieldHash, "unshieldHash");
@@ -1859,9 +1793,10 @@ task(
       await waitOk(apHash, "apHash");
 
       await connectCofheAs(personas[0]!);
-      const [encTip] = (await cofheClient
+      const [encTip, encTipProof] = (await cofheClient
         .encryptInputs([Encryptable.uint64(parseUnits("0.2", 6))])
-        .execute()) as Array<{ ctHash: bigint; securityZone: number; utype: number; signature: Hex }>;
+        .setConsumingContract(CreatorHub as `0x${string}`)
+        .execute()) as [Hex, Hex];
       const supportHash = await aliceWallet.writeContract({
         address: CreatorHub as `0x${string}`,
         abi: [
@@ -1872,23 +1807,15 @@ task(
             inputs: [
               { name: "creator", type: "address" },
               { name: "vault", type: "address" },
-              {
-                name: "encAmount",
-                type: "tuple",
-                components: [
-                  { name: "ctHash", type: "uint256" },
-                  { name: "securityZone", type: "uint8" },
-                  { name: "utype", type: "uint8" },
-                  { name: "signature", type: "bytes" },
-                ],
-              },
+              { name: "encAmount", type: "bytes32" },
+              { name: "proof", type: "bytes" },
               { name: "message", type: "string" },
             ],
             outputs: [],
           },
         ],
         functionName: "support",
-        args: [personas[1]!.address, Vault as `0x${string}`, encTip, "wave4 sweep tip"],
+        args: [personas[1]!.address, Vault as `0x${string}`, encTip, encTipProof, "wave4 sweep tip"],
         gas: 5_000_000n,
       });
       await waitOk(supportHash, "supportHash");
@@ -1930,9 +1857,10 @@ task(
       await waitOk(apHash, "apHash");
 
       await connectCofheAs(personas[2]!);
-      const [encPledge] = (await cofheClient
+      const [encPledge, encPledgeProof] = (await cofheClient
         .encryptInputs([Encryptable.uint64(parseUnits("1", 6))])
-        .execute()) as Array<{ ctHash: bigint; securityZone: number; utype: number; signature: Hex }>;
+        .setConsumingContract(Crowdfund as `0x${string}`)
+        .execute()) as [Hex, Hex];
 
       // Get the most recent campaignId via nextCampaignId-1
       const nextId = (await publicClient.readContract({
@@ -1951,22 +1879,14 @@ task(
             stateMutability: "nonpayable",
             inputs: [
               { name: "campaignId", type: "uint256" },
-              {
-                name: "encAmount",
-                type: "tuple",
-                components: [
-                  { name: "ctHash", type: "uint256" },
-                  { name: "securityZone", type: "uint8" },
-                  { name: "utype", type: "uint8" },
-                  { name: "signature", type: "bytes" },
-                ],
-              },
+              { name: "encAmount", type: "bytes32" },
+              { name: "proof", type: "bytes" },
             ],
             outputs: [],
           },
         ],
         functionName: "contribute",
-        args: [targetCampaignId, encPledge],
+        args: [targetCampaignId, encPledge, encPledgeProof],
         gas: 5_000_000n,
       });
       await waitOk(contributeHash, "contributeHash");
@@ -2010,9 +1930,10 @@ task(
     results.push({ feature: "neg_self_pay", persona: "Alice", status: "skip", error: "cofhe client unavailable" });
   } else {
     await connectCofheAs(personas[0]!);
-    const [encSelf] = (await cofheClient
+    const [encSelf, encSelfProof] = (await cofheClient
       .encryptInputs([Encryptable.uint64(parseUnits("0.1", 6))])
-      .execute()) as Array<{ ctHash: bigint; securityZone: number; utype: number; signature: Hex }>;
+      .setConsumingContract(PaymentHub as `0x${string}`)
+      .execute()) as [Hex, Hex];
     await expectRevert("Alice→Alice", "neg_self_pay", "Alice", async () => {
       // simulateContract performs the eth_call dry-run, which surfaces the
       // require() / custom-error revert immediately without sending a real
@@ -2028,23 +1949,15 @@ task(
             inputs: [
               { name: "recipient", type: "address" },
               { name: "vault", type: "address" },
-              {
-                name: "encAmount",
-                type: "tuple",
-                components: [
-                  { name: "ctHash", type: "uint256" },
-                  { name: "securityZone", type: "uint8" },
-                  { name: "utype", type: "uint8" },
-                  { name: "signature", type: "bytes" },
-                ],
-              },
+              { name: "encAmount", type: "bytes32" },
+              { name: "proof", type: "bytes" },
               { name: "note", type: "string" },
             ],
             outputs: [],
           },
         ],
         functionName: "sendPayment",
-        args: [personas[0]!.address, Vault as `0x${string}`, encSelf, "self-pay rejection test"],
+        args: [personas[0]!.address, Vault as `0x${string}`, encSelf, encSelfProof, "self-pay rejection test"],
         gas: 5_000_000n,
       });
     });
@@ -2057,9 +1970,10 @@ task(
     results.push({ feature: "neg_non_member_expense", persona: "Alice", status: "skip", error: "cofhe client unavailable" });
   } else {
     await connectCofheAs(personas[0]!);
-    const [encZero] = (await cofheClient
+    const [encZero, encZeroProof] = (await cofheClient
       .encryptInputs([Encryptable.uint64(0n)])
-      .execute()) as Array<{ ctHash: bigint; securityZone: number; utype: number; signature: Hex }>;
+      .setConsumingContract(GroupManager as `0x${string}`)
+      .execute()) as [Hex, Hex];
     await expectRevert("non-member addExpense", "neg_non_member_expense", "Alice", async () => {
       await publicClient.simulateContract({
         account: privateKeyToAccount(personas[0]!.privKey),
@@ -2072,26 +1986,9 @@ task(
             inputs: [
               { name: "groupId", type: "uint256" },
               { name: "splitWith", type: "address[]" },
-              {
-                name: "shares",
-                type: "tuple[]",
-                components: [
-                  { name: "ctHash", type: "uint256" },
-                  { name: "securityZone", type: "uint8" },
-                  { name: "utype", type: "uint8" },
-                  { name: "signature", type: "bytes" },
-                ],
-              },
-              {
-                name: "totalPaid",
-                type: "tuple",
-                components: [
-                  { name: "ctHash", type: "uint256" },
-                  { name: "securityZone", type: "uint8" },
-                  { name: "utype", type: "uint8" },
-                  { name: "signature", type: "bytes" },
-                ],
-              },
+              { name: "shares", type: "bytes32[]" },
+              { name: "totalPaid", type: "bytes32" },
+              { name: "proof", type: "bytes" },
               { name: "description", type: "string" },
             ],
             outputs: [],
@@ -2099,7 +1996,7 @@ task(
         ],
         functionName: "addExpense",
         // groupId 99999 — likely non-existent, so msg.sender is not a member
-        args: [99_999n, [personas[1]!.address], [encZero], encZero, "non-member test"],
+        args: [99_999n, [personas[1]!.address], [encZero], encZero, encZeroProof, "non-member test"],
         gas: 5_000_000n,
       });
     });
@@ -2139,9 +2036,10 @@ task(
       // Encrypt Dave's address as the stealth recipient.
       // Encryptable.address is the cofhe SDK shape for InEaddress.
       await connectCofheAs(personas[2]!);
-      const [encRecipient] = (await cofheClient
+      const [encRecipient, encRecipientProof] = (await cofheClient
         .encryptInputs([Encryptable.address(personas[3]!.address)])
-        .execute()) as Array<{ ctHash: bigint; securityZone: number; utype: number; signature: Hex }>;
+        .setConsumingContract(StealthPayments as `0x${string}`)
+        .execute()) as [Hex, Hex];
 
       // Claim code: random 32 bytes; claimCodeHash = keccak(claimCode || recipient).
       const claimCodeBytes = new Uint8Array(32);
@@ -2165,16 +2063,8 @@ task(
             stateMutability: "nonpayable",
             inputs: [
               { name: "plaintextAmount", type: "uint256" },
-              {
-                name: "encRecipient",
-                type: "tuple",
-                components: [
-                  { name: "ctHash", type: "uint256" },
-                  { name: "securityZone", type: "uint8" },
-                  { name: "utype", type: "uint8" },
-                  { name: "signature", type: "bytes" },
-                ],
-              },
+              { name: "encRecipient", type: "bytes32" },
+              { name: "proof", type: "bytes" },
               { name: "claimCodeHash", type: "bytes32" },
               { name: "vault", type: "address" },
               { name: "note", type: "string" },
@@ -2183,7 +2073,7 @@ task(
           },
         ],
         functionName: "sendStealth",
-        args: [stealthAmount, encRecipient, claimCodeHash, Vault as `0x${string}`, "wave4 sweep stealth"],
+        args: [stealthAmount, encRecipient, encRecipientProof, claimCodeHash, Vault as `0x${string}`, "wave4 sweep stealth"],
         gas: 5_000_000n,
       }));
       await waitOk(stealthHash, "stealthHash");
@@ -2248,9 +2138,10 @@ task(
     results.push({ feature: "neg_creator_self_tip", persona: "Bob", status: "skip", error: "CreatorHub or cofhe unavailable" });
   } else {
     await connectCofheAs(personas[1]!);
-    const [encSelfTip] = (await cofheClient
+    const [encSelfTip, encSelfTipProof] = (await cofheClient
       .encryptInputs([Encryptable.uint64(parseUnits("0.1", 6))])
-      .execute()) as Array<{ ctHash: bigint; securityZone: number; utype: number; signature: Hex }>;
+      .setConsumingContract(CreatorHub as `0x${string}`)
+      .execute()) as [Hex, Hex];
     await expectRevert("Bob self-tip", "neg_creator_self_tip", "Bob", async () => {
       await publicClient.simulateContract({
         account: privateKeyToAccount(personas[1]!.privKey),
@@ -2263,16 +2154,8 @@ task(
             inputs: [
               { name: "creator", type: "address" },
               { name: "vault", type: "address" },
-              {
-                name: "encAmount",
-                type: "tuple",
-                components: [
-                  { name: "ctHash", type: "uint256" },
-                  { name: "securityZone", type: "uint8" },
-                  { name: "utype", type: "uint8" },
-                  { name: "signature", type: "bytes" },
-                ],
-              },
+              { name: "encAmount", type: "bytes32" },
+              { name: "proof", type: "bytes" },
               { name: "message", type: "string" },
             ],
             outputs: [],
@@ -2280,7 +2163,7 @@ task(
         ],
         functionName: "support",
         // Bob tipping Bob — should revert "CreatorHub: cannot self-tip"
-        args: [personas[1]!.address, Vault as `0x${string}`, encSelfTip, "self-tip rejection test"],
+        args: [personas[1]!.address, Vault as `0x${string}`, encSelfTip, encSelfTipProof, "self-tip rejection test"],
         gas: 5_000_000n,
       });
     });
@@ -2359,23 +2242,15 @@ task(
             inputs: [
               { name: "employees", type: "address[]" },
               { name: "vault", type: "address" },
-              {
-                name: "salaries",
-                type: "tuple[]",
-                components: [
-                  { name: "ctHash", type: "uint256" },
-                  { name: "securityZone", type: "uint8" },
-                  { name: "utype", type: "uint8" },
-                  { name: "signature", type: "bytes" },
-                ],
-              },
+              { name: "salaries", type: "bytes32[]" },
+              { name: "proof", type: "bytes" },
             ],
             outputs: [],
           },
         ],
         functionName: "runPayroll",
         // Zero-length batch — must revert "BusinessHub: invalid batch size"
-        args: [[], Vault as `0x${string}`, []],
+        args: [[], Vault as `0x${string}`, [], "0x"],
         gas: 2_000_000n,
       });
     });

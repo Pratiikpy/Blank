@@ -170,9 +170,7 @@ beforeEach(() => {
   });
   useCofheConnectionMock.mockReturnValue({ connected: true });
   useCofheEncryptMock.mockReturnValue({ encryptInputsAsync: encryptInputsAsyncMock });
-  encryptInputsAsyncMock.mockResolvedValue([
-    { ctHash: 0x42n, securityZone: 0, utype: 5, signature: "0xenc" },
-  ]);
+  encryptInputsAsyncMock.mockResolvedValue(["0xhandle0", "0xbatchproof"]);
   toastLoadingMock.mockReturnValue("toast-id");
   isVaultApprovedMock.mockReturnValue(true);
   extractEventIdMock.mockReturnValue(7);
@@ -464,9 +462,9 @@ describe("useEncryptedEscrow — createEscrow happy path (§15.x)", () => {
     expect(call.address).toBe(EE_ADDR);
     expect(call.args[0]).toBe(ALICE);
     expect(call.args[1]).toBe(VAULT);
-    expect(call.args[3]).toBe("Build website");
-    expect(call.args[4]).toBe(ARBITER);
-    expect(call.args[5]).toBe(BigInt(params.deadlineSeconds));
+    expect(call.args[4]).toBe("Build website");
+    expect(call.args[5]).toBe(ARBITER);
+    expect(call.args[6]).toBe(BigInt(params.deadlineSeconds));
     expect(call.gas).toBe(5_000_000n);
   });
 
@@ -510,7 +508,7 @@ describe("useEncryptedEscrow — createEscrow happy path (§15.x)", () => {
     expect(startMock).toHaveBeenCalled();
     // The pipeline's onEncryptStep is passed to encryptInputsAsync as 2nd arg
     const encArgs = encryptInputsAsyncMock.mock.calls[0];
-    expect(encArgs[1]).toBe(onEncryptStepMock);
+    expect(encArgs[2]).toBe(onEncryptStepMock);
     expect(markSubmittingMock).toHaveBeenCalled();
     expect(markDoneMock).toHaveBeenCalled();
   });

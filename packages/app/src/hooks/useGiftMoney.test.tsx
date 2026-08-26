@@ -203,9 +203,11 @@ beforeEach(() => {
     logs: [],
   });
   extractEventIdMock.mockReturnValue(42);
-  encryptInputsAsyncMock.mockImplementation(async (inputs: unknown[]) =>
-    inputs.map((_, i) => ({ ctHash: BigInt(i + 1), signature: "0xenc" })),
-  );
+  // 0.7: one handle per input, then a single batch signature.
+  encryptInputsAsyncMock.mockImplementation(async (inputs: unknown[]) => [
+    ...inputs.map((_, i) => `0xhandle${i}`),
+    "0xbatchproof",
+  ]);
   insertActivityMock.mockResolvedValue(undefined);
   insertActivitiesFanoutMock.mockResolvedValue(undefined);
 });
@@ -490,8 +492,8 @@ describe("useGiftMoney — createGift happy path (§15.x)", () => {
     expect(call.args[1]).toEqual([ALICE, BOB]);
     expect(Array.isArray(call.args[2])).toBe(true);
     expect(call.args[2]).toHaveLength(2);
-    expect(call.args[3]).toBe("Happy Birthday");
-    expect(call.args[4]).toBe(1735689600n);
+    expect(call.args[4]).toBe("Happy Birthday");
+    expect(call.args[5]).toBe(1735689600n);
     expect(call.gas).toBe(5_000_000n);
     const encBatch = encryptInputsAsyncMock.mock.calls[0][0] as Array<{ raw: bigint }>;
     expect(encBatch[0].raw).toBe(60_000_000n);
@@ -503,7 +505,7 @@ describe("useGiftMoney — createGift happy path (§15.x)", () => {
     await act(async () => {
       await result.current.createGift(VAULT, ["100"], [ALICE], "Hi");
     });
-    expect(unifiedWriteAndWaitMock.mock.calls[0][0].args[4]).toBe(0n);
+    expect(unifiedWriteAndWaitMock.mock.calls[0][0].args[5]).toBe(0n);
   });
 
   it("step ladder: input -> approving -> encrypting -> confirming -> sending -> success", async () => {

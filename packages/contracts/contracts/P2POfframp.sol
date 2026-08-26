@@ -7,9 +7,9 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
 interface IFHERC20Vault {
-    function transferFrom(address from, address to, InEuint64 memory encAmount) external returns (euint64);
-    function transferFromVerified(address from, address to, euint64 amount) external returns (euint64);
-    function transferVerified(address to, euint64 amount) external returns (euint64);
+    function transferFrom(address from, address to, externalEuint64 encAmount, bytes calldata proof) external returns (euint64);
+    function transferFromVerified(address from, address to, sharedEuint64 shared) external returns (sharedEuint64);
+    function transferVerified(address to, sharedEuint64 shared) external returns (sharedEuint64);
 }
 
 interface IReclaimAdapter {
@@ -161,10 +161,13 @@ contract P2POfframp is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     /// Create an offer. Maker's vault USDC stays in maker's account
     /// until takeOffer; we just record intent here. Maker MUST have
     /// pre-approved the vault to this contract's address.
+    /// @param proof One batch signature covering `encAmount` then `encMinFill`,
+    ///        in that exact order.
     function createOffer(
         address vault,
-        InEuint64 calldata encAmount,
-        InEuint64 calldata encMinFill,
+        externalEuint64 encAmount,
+        externalEuint64 encMinFill,
+        bytes calldata proof,
         uint32 fiatRail,
         bytes32 makerHandleHash,
         uint64 fiatAmountMicroUSD,
@@ -180,8 +183,12 @@ contract P2POfframp is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
         offerId = nextOfferId++;
 
-        euint64 encUsdc = FHE.asEuint64(encAmount);
-        euint64 encMin  = FHE.asEuint64(encMinFill);
+        externalEuint64[] memory packed = new externalEuint64[](2);
+        packed[0] = encAmount;
+        packed[1] = encMinFill;
+        euint64[] memory verified = FHE.asEuint64s(packed, proof);
+        euint64 encUsdc = verified[0];
+        euint64 encMin  = verified[1];
         FHE.allowThis(encUsdc);
         FHE.allowThis(encMin);
         FHE.allow(encUsdc, msg.sender);
@@ -239,8 +246,7 @@ contract P2POfframp is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         // read it on the transferFromVerified call. The handle was
         // created in the maker's context at createOffer; we hold
         // contract-level access via FHE.allowThis already.
-        FHE.allowTransient(o.encUsdcAmount, o.vault);
-        IFHERC20Vault(o.vault).transferFromVerified(o.maker, address(this), o.encUsdcAmount);
+        IFHERC20Vault(o.vault).transferFromVerified(o.maker, address(this), FHE.shareEuint64(o.encUsdcAmount, o.vault));
 
         // The fill snapshot IS the maker's encrypted offer amount.
         // Drift between lock and release becomes impossible because
@@ -317,8 +323,7 @@ contract P2POfframp is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         // mapping is the only writer, and we never re-write the
         // field after lock. transferVerified pulls exactly the
         // escrowed encrypted amount.
-        FHE.allowTransient(f.encAmountAtLock, o.vault);
-        IFHERC20Vault(o.vault).transferVerified(f.taker, f.encAmountAtLock);
+        IFHERC20Vault(o.vault).transferVerified(f.taker, FHE.shareEuint64(f.encAmountAtLock, o.vault));
 
         f.state = FillState.Released;
         makerFillCount[o.maker] += 1;
@@ -354,13 +359,11 @@ contract P2POfframp is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         Offer storage o = offers[f.offerId];
 
         if (releaseToTaker) {
-            FHE.allowTransient(f.encAmountAtLock, o.vault);
-            IFHERC20Vault(o.vault).transferVerified(f.taker, f.encAmountAtLock);
+            IFHERC20Vault(o.vault).transferVerified(f.taker, FHE.shareEuint64(f.encAmountAtLock, o.vault));
             f.state = FillState.Resolved;
             makerFillCount[o.maker] += 1;
         } else {
-            FHE.allowTransient(f.encAmountAtLock, o.vault);
-            IFHERC20Vault(o.vault).transferVerified(o.maker, f.encAmountAtLock);
+            IFHERC20Vault(o.vault).transferVerified(o.maker, FHE.shareEuint64(f.encAmountAtLock, o.vault));
             f.state = FillState.Refunded;
         }
 
@@ -378,8 +381,7 @@ contract P2POfframp is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         require(f.state == FillState.Locked, "P2POfframp: bad state");
         require(block.timestamp >= f.lockedAt + 24 hours, "P2POfframp: proof window open");
 
-        FHE.allowTransient(f.encAmountAtLock, o.vault);
-        IFHERC20Vault(o.vault).transferVerified(o.maker, f.encAmountAtLock);
+        IFHERC20Vault(o.vault).transferVerified(o.maker, FHE.shareEuint64(f.encAmountAtLock, o.vault));
 
         f.state = FillState.Refunded;
         emit FillRefunded(fillId);

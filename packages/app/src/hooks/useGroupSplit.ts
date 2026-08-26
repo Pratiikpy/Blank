@@ -8,7 +8,7 @@ import { Encryptable } from "@/lib/cofhe-shim";
 import { useCofheDecryptForView } from "@/lib/cofhe-shim";
 import toast from "react-hot-toast";
 import { toastMappedError } from "@/lib/error-messages";
-import { MAX_UINT64, type EncryptedInput } from "@/lib/constants";
+import { MAX_UINT64 } from "@/lib/constants";
 import { useChain } from "@/providers/ChainProvider";
 import { GroupManagerAbi, FHERC20VaultAbi } from "@/lib/abis";
 import { insertGroupExpense, insertGroupMembership, insertActivity } from "@/lib/supabase";
@@ -185,15 +185,18 @@ export function useGroupSplit() {
           return;
         }
 
-        // Encrypt each person's share individually
-        const encryptedShares = await encryptInputsAsync(
-          shares.map((s) => Encryptable.uint64(parseUnits(s, 6)))
+        // addExpense verifies every share AND the total under ONE batch
+        // signature, so they have to be encrypted together, shares first.
+        const expenseBatch = await encryptInputsAsync(
+          [
+            ...shares.map((s) => Encryptable.uint64(parseUnits(s, 6))),
+            Encryptable.uint64(parseUnits(totalAmount, 6)),
+          ],
+          contracts.GroupManager as `0x${string}`,
         );
-
-        // Encrypt the total paid by payer
-        const [encryptedTotal] = await encryptInputsAsync([
-          Encryptable.uint64(parseUnits(totalAmount, 6)),
-        ]);
+        const encryptedShares = expenseBatch.slice(0, shares.length);
+        const encryptedTotal = expenseBatch[shares.length];
+        const expenseProof = expenseBatch[expenseBatch.length - 1];
 
         // Call GroupManager.addExpense() on-chain
         const addResult = await unifiedWriteAndWait({
@@ -203,10 +206,9 @@ export function useGroupSplit() {
           args: [
             BigInt(groupId),
             members as `0x${string}`[],
-            // Type assertion: cofhe SDK encrypt returns opaque encrypted input objects
-            // whose shape doesn't match wagmi's strict ABI-inferred arg types
-            encryptedShares as unknown as EncryptedInput[],
-            encryptedTotal as unknown as EncryptedInput,
+            encryptedShares,
+            encryptedTotal,
+            expenseProof,
             description,
           ],
           gas: BigInt(5_000_000), // FHE: manual gas limit (precompile can't be estimated)
@@ -306,9 +308,10 @@ export function useGroupSplit() {
         }
 
         const amountWei = parseUnits(amount, 6);
-        const [encAmount] = await encryptInputsAsync([
+        const [encAmount, encAmountProof] = await encryptInputsAsync([
           Encryptable.uint64(amountWei),
-        ]);
+        ],
+        contracts.GroupManager as `0x${string}`);
 
         const settleResult = await unifiedWriteAndWait({
           address: contracts.GroupManager as `0x${string}`,
@@ -319,8 +322,8 @@ export function useGroupSplit() {
             withAddress as `0x${string}`,
             contracts.FHERC20Vault_USDC as `0x${string}`,
             // Type assertion: cofhe SDK encrypted input (see above)
-            encAmount as unknown as EncryptedInput,
-          ],
+            encAmount,
+          encAmountProof,],
           gas: BigInt(5_000_000), // FHE: manual gas limit (precompile can't be estimated)
         });
         const hash = settleResult.hash;
@@ -414,16 +417,17 @@ export function useGroupSplit() {
         }
 
         const votesWei = parseUnits(votes, 6);
-        const [encrypted] = await encryptInputsAsync([
+        const [encrypted, encryptedProof] = await encryptInputsAsync([
           Encryptable.uint64(votesWei),
-        ]);
+        ],
+        contracts.GroupManager as `0x${string}`);
 
         const voteResult = await unifiedWriteAndWait({
           address: contracts.GroupManager as `0x${string}`,
           abi: GroupManagerAbi,
           functionName: "voteOnExpense",
           // Type assertion: cofhe SDK encrypted input (see above)
-          args: [BigInt(groupId), BigInt(expenseId), encrypted as unknown as EncryptedInput],
+          args: [BigInt(groupId), BigInt(expenseId), encrypted, encryptedProof],
           gas: BigInt(5_000_000), // FHE: manual gas limit (precompile can't be estimated)
         });
         const hash = voteResult.hash;

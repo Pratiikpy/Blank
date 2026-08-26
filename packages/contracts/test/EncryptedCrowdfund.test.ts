@@ -60,19 +60,18 @@ async function deployFixture() {
   return { owner, alice, bob, charlie, dave, client, testUSDC, vault, crowdfund };
 }
 
-async function encUint64(client: any, signer: any, amount: bigint) {
+async function encUint64(client: any, signer: any, amount: bigint, consuming: string) {
   await hre.cofhe.connectWithHardhatSigner(client, signer);
-  const [enc] = await client.encryptInputs([Encryptable.uint64(amount)]).execute();
-  return enc;
+  return await client.encryptInputs([Encryptable.uint64(amount)]).setConsumingContract(consuming).execute();
 }
 
 describe("EncryptedCrowdfund", () => {
   it("creates a campaign", async () => {
     const ctx = await loadFixture(deployFixture);
-    const encGoal = await encUint64(ctx.client, ctx.alice, usdc(100));
+    const encGoal = await encUint64(ctx.client, ctx.alice, usdc(100), await ctx.crowdfund.getAddress());
     await ctx.crowdfund.connect(ctx.alice).createCampaign(
       await ctx.vault.getAddress(),
-      encGoal,
+      ...encGoal,
       7 * 86400,
       "Save the bees",
       ZERO_BYTES32,
@@ -85,23 +84,23 @@ describe("EncryptedCrowdfund", () => {
 
   it("rejects bad duration", async () => {
     const ctx = await loadFixture(deployFixture);
-    const enc = await encUint64(ctx.client, ctx.alice, usdc(1));
+    const enc = await encUint64(ctx.client, ctx.alice, usdc(1), await ctx.crowdfund.getAddress());
     await expect(
-      ctx.crowdfund.connect(ctx.alice).createCampaign(await ctx.vault.getAddress(), enc, 60, "x", ZERO_BYTES32),
+      ctx.crowdfund.connect(ctx.alice).createCampaign(await ctx.vault.getAddress(), ...enc, 60, "x", ZERO_BYTES32),
     ).to.be.revertedWith("Crowdfund: bad duration");
   });
 
   it("contributors add to encrypted total", async () => {
     const ctx = await loadFixture(deployFixture);
-    const encGoal = await encUint64(ctx.client, ctx.alice, usdc(100));
+    const encGoal = await encUint64(ctx.client, ctx.alice, usdc(100), await ctx.crowdfund.getAddress());
     await ctx.crowdfund.connect(ctx.alice).createCampaign(
-      await ctx.vault.getAddress(), encGoal, 7 * 86400, "C", ZERO_BYTES32,
+      await ctx.vault.getAddress(), ...encGoal, 7 * 86400, "C", ZERO_BYTES32,
     );
 
-    const c1 = await encUint64(ctx.client, ctx.bob, usdc(40));
-    await ctx.crowdfund.connect(ctx.bob).contribute(0, c1);
-    const c2 = await encUint64(ctx.client, ctx.charlie, usdc(30));
-    await ctx.crowdfund.connect(ctx.charlie).contribute(0, c2);
+    const c1 = await encUint64(ctx.client, ctx.bob, usdc(40), await ctx.crowdfund.getAddress());
+    await ctx.crowdfund.connect(ctx.bob).contribute(0, ...c1);
+    const c2 = await encUint64(ctx.client, ctx.charlie, usdc(30), await ctx.crowdfund.getAddress());
+    await ctx.crowdfund.connect(ctx.charlie).contribute(0, ...c2);
 
     expect(await ctx.crowdfund.getContributionCount(0)).to.equal(2);
 
@@ -112,27 +111,27 @@ describe("EncryptedCrowdfund", () => {
 
   it("creator cannot contribute to own campaign", async () => {
     const ctx = await loadFixture(deployFixture);
-    const encGoal = await encUint64(ctx.client, ctx.alice, usdc(100));
+    const encGoal = await encUint64(ctx.client, ctx.alice, usdc(100), await ctx.crowdfund.getAddress());
     await ctx.crowdfund.connect(ctx.alice).createCampaign(
-      await ctx.vault.getAddress(), encGoal, 3600, "C", ZERO_BYTES32,
+      await ctx.vault.getAddress(), ...encGoal, 3600, "C", ZERO_BYTES32,
     );
-    const enc = await encUint64(ctx.client, ctx.alice, usdc(10));
+    const enc = await encUint64(ctx.client, ctx.alice, usdc(10), await ctx.crowdfund.getAddress());
     await expect(
-      ctx.crowdfund.connect(ctx.alice).contribute(0, enc),
+      ctx.crowdfund.connect(ctx.alice).contribute(0, ...enc),
     ).to.be.revertedWith("Crowdfund: creator cannot contribute");
   });
 
   it("happy path: goal met → creator releases", async () => {
     const ctx = await loadFixture(deployFixture);
-    const encGoal = await encUint64(ctx.client, ctx.alice, usdc(50));
+    const encGoal = await encUint64(ctx.client, ctx.alice, usdc(50), await ctx.crowdfund.getAddress());
     await ctx.crowdfund.connect(ctx.alice).createCampaign(
-      await ctx.vault.getAddress(), encGoal, 3600, "Goal-met", ZERO_BYTES32,
+      await ctx.vault.getAddress(), ...encGoal, 3600, "Goal-met", ZERO_BYTES32,
     );
 
-    const c1 = await encUint64(ctx.client, ctx.bob, usdc(40));
-    await ctx.crowdfund.connect(ctx.bob).contribute(0, c1);
-    const c2 = await encUint64(ctx.client, ctx.charlie, usdc(20));
-    await ctx.crowdfund.connect(ctx.charlie).contribute(0, c2);
+    const c1 = await encUint64(ctx.client, ctx.bob, usdc(40), await ctx.crowdfund.getAddress());
+    await ctx.crowdfund.connect(ctx.bob).contribute(0, ...c1);
+    const c2 = await encUint64(ctx.client, ctx.charlie, usdc(20), await ctx.crowdfund.getAddress());
+    await ctx.crowdfund.connect(ctx.charlie).contribute(0, ...c2);
 
     // 60 raised >= 50 goal → success.
     await time.increase(3601);
@@ -141,7 +140,7 @@ describe("EncryptedCrowdfund", () => {
     // Decrypt off-chain + publish result.
     const handle = await ctx.crowdfund.getGoalCheckHandle(0);
     await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.dave);
-    const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutPermit().execute();
+    const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutACP().execute();
     await ctx.crowdfund.connect(ctx.dave).publishCloseResult(0, Boolean(proof.decryptedValue), proof.signature);
 
     const c = await ctx.crowdfund.getCampaign(0);
@@ -158,15 +157,15 @@ describe("EncryptedCrowdfund", () => {
 
   it("failure path: goal NOT met → contributors refund", async () => {
     const ctx = await loadFixture(deployFixture);
-    const encGoal = await encUint64(ctx.client, ctx.alice, usdc(500));
+    const encGoal = await encUint64(ctx.client, ctx.alice, usdc(500), await ctx.crowdfund.getAddress());
     await ctx.crowdfund.connect(ctx.alice).createCampaign(
-      await ctx.vault.getAddress(), encGoal, 3600, "Fails", ZERO_BYTES32,
+      await ctx.vault.getAddress(), ...encGoal, 3600, "Fails", ZERO_BYTES32,
     );
 
-    const c1 = await encUint64(ctx.client, ctx.bob, usdc(40));
-    await ctx.crowdfund.connect(ctx.bob).contribute(0, c1);
-    const c2 = await encUint64(ctx.client, ctx.charlie, usdc(20));
-    await ctx.crowdfund.connect(ctx.charlie).contribute(0, c2);
+    const c1 = await encUint64(ctx.client, ctx.bob, usdc(40), await ctx.crowdfund.getAddress());
+    await ctx.crowdfund.connect(ctx.bob).contribute(0, ...c1);
+    const c2 = await encUint64(ctx.client, ctx.charlie, usdc(20), await ctx.crowdfund.getAddress());
+    await ctx.crowdfund.connect(ctx.charlie).contribute(0, ...c2);
 
     // 60 raised < 500 goal → failure.
     await time.increase(3601);
@@ -174,7 +173,7 @@ describe("EncryptedCrowdfund", () => {
 
     const handle = await ctx.crowdfund.getGoalCheckHandle(0);
     await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.dave);
-    const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutPermit().execute();
+    const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutACP().execute();
     await ctx.crowdfund.connect(ctx.dave).publishCloseResult(0, Boolean(proof.decryptedValue), proof.signature);
 
     const c = await ctx.crowdfund.getCampaign(0);
@@ -203,23 +202,23 @@ describe("EncryptedCrowdfund", () => {
 
   it("cannot contribute past deadline", async () => {
     const ctx = await loadFixture(deployFixture);
-    const encGoal = await encUint64(ctx.client, ctx.alice, usdc(100));
+    const encGoal = await encUint64(ctx.client, ctx.alice, usdc(100), await ctx.crowdfund.getAddress());
     await ctx.crowdfund.connect(ctx.alice).createCampaign(
-      await ctx.vault.getAddress(), encGoal, 3600, "Past", ZERO_BYTES32,
+      await ctx.vault.getAddress(), ...encGoal, 3600, "Past", ZERO_BYTES32,
     );
     await time.increase(3601);
-    const enc = await encUint64(ctx.client, ctx.bob, usdc(10));
+    const enc = await encUint64(ctx.client, ctx.bob, usdc(10), await ctx.crowdfund.getAddress());
     await expect(
-      ctx.crowdfund.connect(ctx.bob).contribute(0, enc),
+      ctx.crowdfund.connect(ctx.bob).contribute(0, ...enc),
     ).to.be.revertedWith("Crowdfund: past deadline");
   });
 
   // §2.2 of BEST_VERSION_FULL_PLAN: zero-contributions close grief.
   it("rejects close on a campaign with zero contributions", async () => {
     const ctx = await loadFixture(deployFixture);
-    const encGoal = await encUint64(ctx.client, ctx.alice, usdc(100));
+    const encGoal = await encUint64(ctx.client, ctx.alice, usdc(100), await ctx.crowdfund.getAddress());
     await ctx.crowdfund.connect(ctx.alice).createCampaign(
-      await ctx.vault.getAddress(), encGoal, 3600, "Empty", ZERO_BYTES32,
+      await ctx.vault.getAddress(), ...encGoal, 3600, "Empty", ZERO_BYTES32,
     );
     await time.increase(3601);
 
@@ -234,22 +233,22 @@ describe("EncryptedCrowdfund", () => {
   // §15.3.1: double-publish must revert.
   it("rejects publishCloseResult called twice on the same campaign", async () => {
     const ctx = await loadFixture(deployFixture);
-    const encGoal = await encUint64(ctx.client, ctx.alice, usdc(50));
+    const encGoal = await encUint64(ctx.client, ctx.alice, usdc(50), await ctx.crowdfund.getAddress());
     await ctx.crowdfund.connect(ctx.alice).createCampaign(
-      await ctx.vault.getAddress(), encGoal, 3600, "Double-publish", ZERO_BYTES32,
+      await ctx.vault.getAddress(), ...encGoal, 3600, "Double-publish", ZERO_BYTES32,
     );
 
-    const c1 = await encUint64(ctx.client, ctx.bob, usdc(40));
-    await ctx.crowdfund.connect(ctx.bob).contribute(0, c1);
-    const c2 = await encUint64(ctx.client, ctx.charlie, usdc(20));
-    await ctx.crowdfund.connect(ctx.charlie).contribute(0, c2);
+    const c1 = await encUint64(ctx.client, ctx.bob, usdc(40), await ctx.crowdfund.getAddress());
+    await ctx.crowdfund.connect(ctx.bob).contribute(0, ...c1);
+    const c2 = await encUint64(ctx.client, ctx.charlie, usdc(20), await ctx.crowdfund.getAddress());
+    await ctx.crowdfund.connect(ctx.charlie).contribute(0, ...c2);
 
     await time.increase(3601);
     await ctx.crowdfund.connect(ctx.dave).closeCampaign(0);
 
     const handle = await ctx.crowdfund.getGoalCheckHandle(0);
     await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.dave);
-    const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutPermit().execute();
+    const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutACP().execute();
 
     await ctx.crowdfund.connect(ctx.dave).publishCloseResult(0, Boolean(proof.decryptedValue), proof.signature);
 
@@ -263,38 +262,38 @@ describe("EncryptedCrowdfund", () => {
   describe("State-change events", () => {
     it("emits CampaignCreated on createCampaign", async () => {
       const ctx = await loadFixture(deployFixture);
-      const encGoal = await encUint64(ctx.client, ctx.alice, usdc(100));
+      const encGoal = await encUint64(ctx.client, ctx.alice, usdc(100), await ctx.crowdfund.getAddress());
 
       await expect(
         ctx.crowdfund.connect(ctx.alice).createCampaign(
-          await ctx.vault.getAddress(), encGoal, 3600, "with note", ZERO_BYTES32,
+          await ctx.vault.getAddress(), ...encGoal, 3600, "with note", ZERO_BYTES32,
         ),
       ).to.emit(ctx.crowdfund, "CampaignCreated");
     });
 
     it("emits Contributed on contribute", async () => {
       const ctx = await loadFixture(deployFixture);
-      const encGoal = await encUint64(ctx.client, ctx.alice, usdc(100));
+      const encGoal = await encUint64(ctx.client, ctx.alice, usdc(100), await ctx.crowdfund.getAddress());
       await ctx.crowdfund.connect(ctx.alice).createCampaign(
-        await ctx.vault.getAddress(), encGoal, 3600, "C", ZERO_BYTES32,
+        await ctx.vault.getAddress(), ...encGoal, 3600, "C", ZERO_BYTES32,
       );
 
-      const c1 = await encUint64(ctx.client, ctx.bob, usdc(40));
-      await expect(ctx.crowdfund.connect(ctx.bob).contribute(0, c1))
+      const c1 = await encUint64(ctx.client, ctx.bob, usdc(40), await ctx.crowdfund.getAddress());
+      await expect(ctx.crowdfund.connect(ctx.bob).contribute(0, ...c1))
         .to.emit(ctx.crowdfund, "Contributed");
     });
 
     it("emits CampaignClosed + CloseResultPublished + CampaignReleased on goal-met flow", async () => {
       const ctx = await loadFixture(deployFixture);
-      const encGoal = await encUint64(ctx.client, ctx.alice, usdc(50));
+      const encGoal = await encUint64(ctx.client, ctx.alice, usdc(50), await ctx.crowdfund.getAddress());
       await ctx.crowdfund.connect(ctx.alice).createCampaign(
-        await ctx.vault.getAddress(), encGoal, 3600, "Met", ZERO_BYTES32,
+        await ctx.vault.getAddress(), ...encGoal, 3600, "Met", ZERO_BYTES32,
       );
 
-      const c1 = await encUint64(ctx.client, ctx.bob, usdc(40));
-      await ctx.crowdfund.connect(ctx.bob).contribute(0, c1);
-      const c2 = await encUint64(ctx.client, ctx.charlie, usdc(20));
-      await ctx.crowdfund.connect(ctx.charlie).contribute(0, c2);
+      const c1 = await encUint64(ctx.client, ctx.bob, usdc(40), await ctx.crowdfund.getAddress());
+      await ctx.crowdfund.connect(ctx.bob).contribute(0, ...c1);
+      const c2 = await encUint64(ctx.client, ctx.charlie, usdc(20), await ctx.crowdfund.getAddress());
+      await ctx.crowdfund.connect(ctx.charlie).contribute(0, ...c2);
 
       await time.increase(3601);
       await expect(ctx.crowdfund.connect(ctx.dave).closeCampaign(0))
@@ -302,7 +301,7 @@ describe("EncryptedCrowdfund", () => {
 
       const handle = await ctx.crowdfund.getGoalCheckHandle(0);
       await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.dave);
-      const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutPermit().execute();
+      const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutACP().execute();
 
       await expect(
         ctx.crowdfund.connect(ctx.dave).publishCloseResult(0, Boolean(proof.decryptedValue), proof.signature),
@@ -314,20 +313,20 @@ describe("EncryptedCrowdfund", () => {
 
     it("emits ContributionRefunded on goal-not-met refund", async () => {
       const ctx = await loadFixture(deployFixture);
-      const encGoal = await encUint64(ctx.client, ctx.alice, usdc(500));
+      const encGoal = await encUint64(ctx.client, ctx.alice, usdc(500), await ctx.crowdfund.getAddress());
       await ctx.crowdfund.connect(ctx.alice).createCampaign(
-        await ctx.vault.getAddress(), encGoal, 3600, "Fail", ZERO_BYTES32,
+        await ctx.vault.getAddress(), ...encGoal, 3600, "Fail", ZERO_BYTES32,
       );
 
-      const c1 = await encUint64(ctx.client, ctx.bob, usdc(40));
-      await ctx.crowdfund.connect(ctx.bob).contribute(0, c1);
+      const c1 = await encUint64(ctx.client, ctx.bob, usdc(40), await ctx.crowdfund.getAddress());
+      await ctx.crowdfund.connect(ctx.bob).contribute(0, ...c1);
 
       await time.increase(3601);
       await ctx.crowdfund.connect(ctx.dave).closeCampaign(0);
 
       const handle = await ctx.crowdfund.getGoalCheckHandle(0);
       await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.dave);
-      const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutPermit().execute();
+      const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutACP().execute();
       await ctx.crowdfund.connect(ctx.dave).publishCloseResult(0, Boolean(proof.decryptedValue), proof.signature);
 
       await expect(ctx.crowdfund.connect(ctx.bob).claimRefund(0, 0))
@@ -379,25 +378,25 @@ describe("EncryptedCrowdfund", () => {
       // Fix: closeCampaign AND-s `FHE.gt(encGoal, 0)` into the verdict.
       // Verdict goes to refunding instead.
       const ctx = await loadFixture(deployFixture);
-      const encZeroGoal = await encUint64(ctx.client, ctx.alice, usdc(0));
+      const encZeroGoal = await encUint64(ctx.client, ctx.alice, usdc(0), await ctx.crowdfund.getAddress());
       await ctx.crowdfund.connect(ctx.alice).createCampaign(
         await ctx.vault.getAddress(),
-        encZeroGoal,
+        ...encZeroGoal,
         3600,
         "zero-goal-grief",
         ZERO_BYTES32,
       );
 
       // Bob contributes $40.
-      const bob = await encUint64(ctx.client, ctx.bob, usdc(40));
-      await ctx.crowdfund.connect(ctx.bob).contribute(0, bob);
+      const bob = await encUint64(ctx.client, ctx.bob, usdc(40), await ctx.crowdfund.getAddress());
+      await ctx.crowdfund.connect(ctx.bob).contribute(0, ...bob);
 
       await time.increase(3601);
       await ctx.crowdfund.connect(ctx.dave).closeCampaign(0);
 
       const handle = await ctx.crowdfund.getGoalCheckHandle(0);
       await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.dave);
-      const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutPermit().execute();
+      const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutACP().execute();
 
       // The fix: verdict must be FALSE despite raised(40) >= goal(0).
       expect(Boolean(proof.decryptedValue)).to.equal(false);
@@ -418,24 +417,24 @@ describe("EncryptedCrowdfund", () => {
     it("positive encGoal still works (regression sanity)", async () => {
       // The new goalIsPositive AND must not break legitimate campaigns.
       const ctx = await loadFixture(deployFixture);
-      const encGoal = await encUint64(ctx.client, ctx.alice, usdc(50));
+      const encGoal = await encUint64(ctx.client, ctx.alice, usdc(50), await ctx.crowdfund.getAddress());
       await ctx.crowdfund.connect(ctx.alice).createCampaign(
         await ctx.vault.getAddress(),
-        encGoal,
+        ...encGoal,
         3600,
         "positive-goal",
         ZERO_BYTES32,
       );
 
-      const bob = await encUint64(ctx.client, ctx.bob, usdc(60));
-      await ctx.crowdfund.connect(ctx.bob).contribute(0, bob);
+      const bob = await encUint64(ctx.client, ctx.bob, usdc(60), await ctx.crowdfund.getAddress());
+      await ctx.crowdfund.connect(ctx.bob).contribute(0, ...bob);
 
       await time.increase(3601);
       await ctx.crowdfund.connect(ctx.dave).closeCampaign(0);
 
       const handle = await ctx.crowdfund.getGoalCheckHandle(0);
       await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.dave);
-      const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutPermit().execute();
+      const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutACP().execute();
       expect(Boolean(proof.decryptedValue)).to.equal(true);
     });
   });

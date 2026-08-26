@@ -7,7 +7,7 @@ import { useCofheEncrypt, useCofheConnection } from "@/lib/cofhe-shim";
 import { Encryptable } from "@/lib/cofhe-shim";
 import toast from "react-hot-toast";
 import { log } from "@/lib/log";
-import { MAX_UINT64, type EncryptedInput } from "@/lib/constants";
+import { MAX_UINT64 } from "@/lib/constants";
 import { useChain } from "@/providers/ChainProvider";
 import { PaymentHubAbi, FHERC20VaultAbi } from "@/lib/abis";
 import { insertPaymentRequest, updateRequestStatus, insertActivity } from "@/lib/supabase";
@@ -79,7 +79,8 @@ export function useRequestPayment() {
 
         setStep("encrypting");
         const amountWei = parseUnits(amount, 6);
-        const [encAmount] = await encryptInputsAsync([Encryptable.uint64(amountWei)]);
+        const [encAmount, encAmountProof] = await encryptInputsAsync([Encryptable.uint64(amountWei)],
+        contracts.PaymentHub as `0x${string}`);
 
         setStep("sending");
         const createResult = await unifiedWriteAndWait({
@@ -91,8 +92,8 @@ export function useRequestPayment() {
             contracts.FHERC20Vault_USDC as `0x${string}`,
             // Type assertion: cofhe SDK encrypt returns opaque encrypted input objects
             // whose shape doesn't match wagmi's strict ABI-inferred arg types
-            encAmount as unknown as EncryptedInput,
-            note,
+            encAmount,
+            encAmountProof,note,
           ],
           gas: BigInt(5_000_000), // FHE: manual gas limit (precompile can't be estimated)
         });
@@ -229,14 +230,15 @@ export function useRequestPayment() {
         }
 
         const amountWei = parseUnits(amount, 6);
-        const [encAmount] = await encryptInputsAsync([Encryptable.uint64(amountWei)]);
+        const [encAmount, encAmountProof] = await encryptInputsAsync([Encryptable.uint64(amountWei)],
+        contracts.PaymentHub as `0x${string}`);
 
         const fulfillResult = await unifiedWriteAndWait({
           address: contracts.PaymentHub as `0x${string}`,
           abi: PaymentHubAbi,
           functionName: "fulfillRequest",
           // Type assertion: cofhe SDK encrypted input (see above)
-          args: [BigInt(reqId), encAmount as unknown as EncryptedInput],
+          args: [BigInt(reqId), encAmount, encAmountProof],
           gas: BigInt(5_000_000), // FHE: manual gas limit (precompile can't be estimated)
         });
         const hash = fulfillResult.hash;

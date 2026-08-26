@@ -887,17 +887,11 @@ describe("useShield — unshield (§15.x)", () => {
     expect(result.current.unshieldError).toContain("Decryption timed out");
   });
 
-  it("encryption shape normalization: nested `data` envelope unwrapped", async () => {
-    encryptInputsAsyncStub.mockResolvedValue([
-      {
-        data: {
-          ctHash: 0x99n,
-          securityZone: 1,
-          utype: 5,
-          signature: "0xnested",
-        },
-      },
-    ]);
+  it("passes the handle and the batch proof straight through to requestUnshield", async () => {
+    // 0.7 returns one handle per input followed by a single batch signature.
+    // There is no struct to normalise any more: whatever the SDK returns is
+    // what goes on the wire, in order.
+    encryptInputsAsyncStub.mockResolvedValue(["0xhandle", "0xbatchproof"]);
     refetchPendingMock.mockResolvedValue({ data: 0x99n });
     const { result } = renderHook(() => useShield());
     await act(async () => {
@@ -906,11 +900,23 @@ describe("useShield — unshield (§15.x)", () => {
     const reqCall = unifiedWriteMock.mock.calls.find(
       (c) => c[0].functionName === "requestUnshield",
     );
-    expect(reqCall![0].args[0]).toMatchObject({
-      ctHash: 0x99n,
-      securityZone: 1,
-      signature: "0xnested",
+    expect(reqCall![0].args).toEqual(["0xhandle", "0xbatchproof"]);
+  });
+
+  it("names the vault as the consuming contract for an unshield", async () => {
+    // requestUnshield runs FHE.asEuint64 inside the vault, so the vault is
+    // what the batch signature must be bound to. Naming anything else
+    // type-checks and then reverts on chain.
+    encryptInputsAsyncStub.mockResolvedValue(["0xhandle", "0xbatchproof"]);
+    refetchPendingMock.mockResolvedValue({ data: 0x99n });
+    const { result } = renderHook(() => useShield());
+    await act(async () => {
+      await result.current.unshield("5", encryptInputsAsyncStub, EncryptableStub);
     });
+    const reqCall = unifiedWriteMock.mock.calls.find(
+      (c) => c[0].functionName === "requestUnshield",
+    );
+    expect(encryptInputsAsyncStub.mock.calls[0]![1]).toBe(reqCall![0].address);
   });
 });
 

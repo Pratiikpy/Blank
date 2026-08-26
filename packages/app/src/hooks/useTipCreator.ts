@@ -6,7 +6,7 @@ import { useCofheEncrypt, useCofheConnection } from "@/lib/cofhe-shim";
 import { Encryptable } from "@/lib/cofhe-shim";
 import toast from "react-hot-toast";
 import { log } from "@/lib/log";
-import { MAX_UINT64, type EncryptedInput } from "@/lib/constants";
+import { MAX_UINT64 } from "@/lib/constants";
 import { useChain } from "@/providers/ChainProvider";
 import { CreatorHubAbi, FHERC20VaultAbi } from "@/lib/abis";
 import { insertActivity, insertCreatorSupporter, recomputeCreatorSupporterCount } from "@/lib/supabase";
@@ -80,26 +80,10 @@ export function useTipCreator() {
         }
 
         // Encrypt the tip amount
-        const [rawEncAmount] = await encryptInputsAsync([
+        const [encAmount, encAmountProof] = await encryptInputsAsync([
           Encryptable.uint64(amountWei),
-        ]);
-        // Normalize SDK output — the SDK wraps ctHash/securityZone/utype/
-        // signature either at the top level or inside `.data`. The contract's
-        // InEuint64 ABI tuple expects them at the top level. useSendPayment
-        // normalizes the same way; without this the signature in the
-        // encrypted input doesn't line up with the ctHash when verified on-
-        // chain → "InvalidSigner" revert from MockTaskManager.verifyInput.
-        const raw = rawEncAmount as {
-          ctHash?: bigint | string | number; securityZone?: number; utype?: number; signature?: `0x${string}`;
-          data?: { ctHash?: bigint | string | number; securityZone?: number; utype?: number; signature?: `0x${string}` };
-        };
-        const encAmount = {
-          ctHash: BigInt(raw.ctHash ?? raw.data?.ctHash ?? 0),
-          securityZone: Number(raw.securityZone ?? raw.data?.securityZone ?? 0),
-          utype: Number(raw.utype ?? raw.data?.utype ?? 5),
-          signature: (raw.signature ?? raw.data?.signature ?? "0x") as `0x${string}`,
-        };
-
+        ],
+        contracts.CreatorHub as `0x${string}`);
         // Call CreatorHub.support() — unifiedWriteAndWait so AA path skips
         // the chain-side polling (free RPC tier rate-limits it).
         const tipResult = await unifiedWriteAndWait({
@@ -109,7 +93,8 @@ export function useTipCreator() {
           args: [
             creator as `0x${string}`,
             contracts.FHERC20Vault_USDC as `0x${string}`,
-            encAmount as unknown as EncryptedInput,
+            encAmount,
+            encAmountProof,
             message,
           ],
           gas: BigInt(5_000_000), // FHE: manual gas limit (precompile can't be estimated)

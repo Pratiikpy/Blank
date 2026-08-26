@@ -160,7 +160,7 @@ contract PaymentReceipts is UUPSUpgradeable, OwnableUpgradeable {
     function issueReceipt(
         address payer,
         address payee,
-        InEuint64 memory encAmount,
+        externalEuint64 encAmount, bytes calldata proof,
         address token
     ) external onlyAuthorized returns (bytes32) {
         require(payer != address(0) && payee != address(0), "Invalid addresses");
@@ -171,7 +171,7 @@ contract PaymentReceipts is UUPSUpgradeable, OwnableUpgradeable {
         FHE.allow(paymentId, payer);
         FHE.allow(paymentId, payee);
 
-        euint64 amount = FHE.asEuint64(encAmount);
+        euint64 amount = FHE.asEuint64(encAmount, proof);
 
         // Create public receipt hash (anchor for verification)
         bytes32 salt = keccak256(abi.encodePacked(block.timestamp, payer, payee, receiptCount));
@@ -481,16 +481,16 @@ contract PaymentReceipts is UUPSUpgradeable, OwnableUpgradeable {
     ///      bumps from a different tx than the underlying transfer (e.g. a
     ///      lazy-flush batch model), it MUST track its own idempotency
     ///      ledger so the same logical event can't bump twice.
-    function bumpGlobalVolume(euint64 amount) external onlyAuthorized {
-        _bumpGlobalInternal(amount);
+    function bumpGlobalVolume(sharedEuint64 shared) external onlyAuthorized {
+        _bumpGlobalInternal(FHE.receiveEuint64Param(shared));
     }
 
     /// @notice Alias of bumpGlobalVolume — matches the (newer) `bumpGlobal`
     ///         naming used by BusinessHub. Both names route to the same
     ///         internal implementation; kept separate so existing callers
     ///         (PaymentHub) don't need to be re-wired.
-    function bumpGlobal(euint64 amount) external onlyAuthorized {
-        _bumpGlobalInternal(amount);
+    function bumpGlobal(sharedEuint64 shared) external onlyAuthorized {
+        _bumpGlobalInternal(FHE.receiveEuint64Param(shared));
     }
 
     /// @notice #92: Add an encrypted amount to a user's total-received counter.
@@ -501,7 +501,8 @@ contract PaymentReceipts is UUPSUpgradeable, OwnableUpgradeable {
     ///      `_totalReceived`. Caller must be in `authorizedCallers`. Amount
     ///      must be a euint64 the caller already holds (allowTransient or
     ///      allow-chain) so this contract can operate on it.
-    function bumpUserReceived(address user, euint64 amount) external onlyAuthorized {
+    function bumpUserReceived(address user, sharedEuint64 shared) external onlyAuthorized {
+        euint64 amount = FHE.receiveEuint64Param(shared);
         _initUserStats(user);
         _totalReceived[user] = FHE.add(_totalReceived[user], amount);
         FHE.allowThis(_totalReceived[user]);
@@ -531,7 +532,8 @@ contract PaymentReceipts is UUPSUpgradeable, OwnableUpgradeable {
     ///         the original send was a real transaction that legitimately
     ///         counted, and decrementing would undercount the platform's
     ///         actual lifetime activity.
-    function decrementGlobalVolume(euint64 amount) external onlyAuthorized {
+    function decrementGlobalVolume(sharedEuint64 shared) external onlyAuthorized {
+        euint64 amount = FHE.receiveEuint64Param(shared);
         _ensureGlobalStatsInit();
         ebool canSub = FHE.gte(_globalVolume, amount);
         euint64 newVal = FHE.select(canSub, FHE.sub(_globalVolume, amount), FHE.asEuint64(0));

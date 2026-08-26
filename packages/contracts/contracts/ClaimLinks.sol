@@ -7,9 +7,9 @@ import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "./utils/ReentrancyGuard.sol";
 
 interface IFHERC20Vault {
-    function transferFrom(address from, address to, InEuint64 memory encAmount) external returns (euint64);
-    function transferFromVerified(address from, address to, euint64 amount) external returns (euint64);
-    function transferVerified(address to, euint64 amount) external returns (euint64);
+    function transferFrom(address from, address to, externalEuint64 encAmount, bytes calldata proof) external returns (euint64);
+    function transferFromVerified(address from, address to, sharedEuint64 shared) external returns (sharedEuint64);
+    function transferVerified(address to, sharedEuint64 shared) external returns (sharedEuint64);
 }
 
 interface IEventHub {
@@ -17,8 +17,8 @@ interface IEventHub {
 }
 
 interface IPaymentReceipts {
-    function bumpUserReceived(address user, euint64 amount) external;
-    function bumpGlobal(euint64 amount) external;
+    function bumpUserReceived(address user, sharedEuint64 shared) external;
+    function bumpGlobal(sharedEuint64 shared) external;
 }
 
 /// @title ClaimLinks — encrypted send-by-link with three security modes
@@ -148,7 +148,7 @@ contract ClaimLinks is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     /// @return linkId          Stored ID.
     function createLink(
         address vault,
-        InEuint64 calldata encAmount,
+        externalEuint64 encAmount, bytes calldata proof,
         bytes32 secretHash,
         LinkMode mode,
         address boundAddress,
@@ -167,11 +167,13 @@ contract ClaimLinks is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         uint256 expiry = block.timestamp + (expirySeconds == 0 ? defaultExpirySeconds : expirySeconds);
 
         // Verify input here (msg.sender = sender) before cross-contract call
-        euint64 verified = FHE.asEuint64(encAmount);
-        FHE.allowTransient(verified, vault);
+        euint64 verified = FHE.asEuint64(encAmount, proof);
 
         // Move funds from sender into this contract's vault balance
-        euint64 locked = IFHERC20Vault(vault).transferFromVerified(msg.sender, address(this), verified);
+        euint64 locked = FHE.receiveEuint64FromCall(
+            IFHERC20Vault(vault).transferFromVerified(msg.sender, address(this), FHE.shareEuint64(verified, vault)),
+            vault
+        );
 
         // §2.1 privacy posture: only this contract retains decrypt rights
         // on the locked handle. Sender does NOT get allowSender(locked).
@@ -266,8 +268,10 @@ contract ClaimLinks is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         // Move funds: this contract -> claimer, encrypted the whole way.
         // Use transferVerified (not transferFromVerified) since this contract
         // is the source — no self-allowance needed.
-        FHE.allowTransient(link.encAmount, link.vault);
-        euint64 transferred = IFHERC20Vault(link.vault).transferVerified(claimer, link.encAmount);
+        euint64 transferred = FHE.receiveEuint64FromCall(
+            IFHERC20Vault(link.vault).transferVerified(claimer, FHE.shareEuint64(link.encAmount, link.vault)),
+            link.vault
+        );
 
         // Claimer can decrypt the amount; this contract keeps a handle for receipts.
         FHE.allowThis(transferred);
@@ -293,8 +297,7 @@ contract ClaimLinks is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
         link.refunded = true;
 
-        FHE.allowTransient(link.encAmount, link.vault);
-        IFHERC20Vault(link.vault).transferVerified(msg.sender, link.encAmount);
+        IFHERC20Vault(link.vault).transferVerified(msg.sender, FHE.shareEuint64(link.encAmount, link.vault));
 
         emit LinkRefunded(linkId, msg.sender, block.timestamp);
         try eventHub.emitActivity(msg.sender, address(0), "claim_link_refunded", link.note, linkId) {} catch {}
@@ -364,15 +367,13 @@ contract ClaimLinks is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
     function _bumpReceiptsAndGlobal(address recipient, euint64 amount) internal {
         if (paymentReceipts == address(0)) return;
-        FHE.allowTransient(amount, paymentReceipts);
         // §2.6 of BEST_VERSION_FULL_PLAN: surface receipt-bump failures so an
         // indexer can detect + replay the missing bump. The previous silent
         // catch left lifetime-received counters drifting silently (audit A9).
-        try IPaymentReceipts(paymentReceipts).bumpUserReceived(recipient, amount) {} catch (bytes memory reason) {
+        try IPaymentReceipts(paymentReceipts).bumpUserReceived(recipient, FHE.shareEuint64(amount, paymentReceipts)) {} catch (bytes memory reason) {
             emit ReceiptsBumpFailed("user", reason);
         }
-        FHE.allowTransient(amount, paymentReceipts);
-        try IPaymentReceipts(paymentReceipts).bumpGlobal(amount) {} catch (bytes memory reason) {
+        try IPaymentReceipts(paymentReceipts).bumpGlobal(FHE.shareEuint64(amount, paymentReceipts)) {} catch (bytes memory reason) {
             emit ReceiptsBumpFailed("global", reason);
         }
     }

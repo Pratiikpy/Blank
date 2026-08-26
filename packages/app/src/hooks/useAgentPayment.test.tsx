@@ -170,9 +170,7 @@ beforeEach(() => {
     hash: "0xtxhash",
     receipt: { status: "success", blockNumber: 12345n },
   });
-  encryptInputsAsyncMock.mockResolvedValue([
-    { ctHash: 0x42n, securityZone: 0, utype: 5, signature: "0xenc" },
-  ]);
+  encryptInputsAsyncMock.mockResolvedValue(["0xhandle0", "0xbatchproof"]);
   getBlockMock.mockResolvedValue({
     timestamp: BigInt(Math.floor(Date.now() / 1000)),
   });
@@ -587,11 +585,11 @@ describe("useAgentPayment — submit happy path (§15.x)", () => {
     expect(call.address).toBe(PAYMENT_HUB);
     expect(call.args[0]).toBe(ALICE);
     expect(call.args[1]).toBe(VAULT);
-    expect(call.args[3]).toBe("March salary");
-    expect(call.args[4]).toBe(AGENT);
-    expect(call.args[5]).toBe(NONCE);
-    expect(call.args[6]).toBe(BigInt(att.expiry));
-    expect(call.args[7]).toBe(SIG);
+    expect(call.args[4]).toBe("March salary");
+    expect(call.args[5]).toBe(AGENT);
+    expect(call.args[6]).toBe(NONCE);
+    expect(call.args[7]).toBe(BigInt(att.expiry));
+    expect(call.args[8]).toBe(SIG);
     expect(call.gas).toBe(5_000_000n);
   });
 

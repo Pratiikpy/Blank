@@ -485,7 +485,11 @@ export function useShield() {
 
   // Public: initiate an unshield. Encrypts amount, calls requestUnshield,
   // then immediately attempts the claim (after the on-chain allowPublic).
-  const unshield = useCallback(async (amount: string, encryptInputsAsync: (items: unknown[]) => Promise<unknown[]>, Encryptable: any): Promise<boolean> => {
+  const unshield = useCallback(async (
+    amount: string,
+    encryptInputsAsync: (items: unknown[], consumingContract: `0x${string}`) => Promise<unknown[]>,
+    Encryptable: any,
+  ): Promise<boolean> => {
     if (!address || !contracts.FHERC20Vault_USDC) return false;
     if (!amount || amount.trim() === "") {
       toast.error("Enter an amount to unshield");
@@ -497,21 +501,17 @@ export function useShield() {
 
     try {
       const amountWei = parseUnits(amount, 6);
-      const encrypted = await encryptInputsAsync([Encryptable.uint64(amountWei)]);
-      const raw = encrypted[0] as any;
-      const encAmount = {
-        ctHash: BigInt(raw.ctHash ?? raw.data?.ctHash ?? 0),
-        securityZone: Number(raw.securityZone ?? raw.data?.securityZone ?? 0),
-        utype: Number(raw.utype ?? raw.data?.utype ?? 5),
-        signature: (raw.signature ?? raw.data?.signature ?? "0x") as `0x${string}`,
-      };
+      const encrypted = await encryptInputsAsync([Encryptable.uint64(amountWei)],
+        contracts.FHERC20Vault_USDC as `0x${string}`);
+      const encAmount = encrypted[0] as `0x${string}`;
+      const encProof = encrypted[encrypted.length - 1] as `0x${string}`;
 
       setUnshieldStep("requesting");
       const reqHash = await unifiedWrite({
         address: contracts.FHERC20Vault_USDC as `0x${string}`,
         abi: FHERC20VaultAbi,
         functionName: "requestUnshield",
-        args: [encAmount],
+        args: [encAmount, encProof],
         gas: BigInt(5_000_000),
       });
 

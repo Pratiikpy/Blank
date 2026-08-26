@@ -156,12 +156,16 @@ contract FHERC20Vault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
     /// @notice Request to convert encrypted balance back to plaintext ERC20.
     ///         Uses FHE.select() to avoid leaking whether balance is sufficient.
-    /// @param encAmount Encrypted amount to unshield
+    /// @param encAmount Encrypted amount handle to unshield
+    /// @param proof Batch signature authenticating `encAmount`
     /// @return success Encrypted boolean — unseal to check if it worked
-    function requestUnshield(InEuint64 memory encAmount) external nonReentrant returns (euint64) {
+    function requestUnshield(
+        externalEuint64 encAmount,
+        bytes calldata proof
+    ) external nonReentrant returns (euint64) {
         _ensureInitialized(msg.sender);
 
-        euint64 amount = FHE.asEuint64(encAmount);
+        euint64 amount = FHE.asEuint64(encAmount, proof);
 
         // CRITICAL anti-overwrite guard: pre-fix this function overwrote
         // _pendingUnshields on every call. A user with an outstanding
@@ -239,16 +243,21 @@ contract FHERC20Vault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     ///         Returns the encrypted amount that was actually transferred
     ///         (zero if balance was insufficient).
     /// @param to Recipient address
-    /// @param encAmount Encrypted amount to transfer
+    /// @param encAmount Encrypted amount handle to transfer
+    /// @param proof Batch signature authenticating `encAmount`
     /// @return transferred The encrypted amount actually transferred (zero if failed)
-    function transfer(address to, InEuint64 memory encAmount) external nonReentrant returns (euint64) {
+    function transfer(
+        address to,
+        externalEuint64 encAmount,
+        bytes calldata proof
+    ) external nonReentrant returns (euint64) {
         require(to != address(0), "FHERC20Vault: transfer to zero address");
         require(to != msg.sender, "FHERC20Vault: transfer to self");
 
         _ensureInitialized(msg.sender);
         _ensureInitialized(to);
 
-        euint64 amount = FHE.asEuint64(encAmount);
+        euint64 amount = FHE.asEuint64(encAmount, proof);
 
         // Privacy-preserving balance check
         ebool hasEnough = FHE.gte(_balances[msg.sender], amount);
@@ -290,17 +299,22 @@ contract FHERC20Vault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     ///         already holds — the caller doesn't have a fresh ciphertext
     ///         to encrypt; it has a handle.
     /// @param to Recipient
-    /// @param amount Pre-verified euint64 handle held by msg.sender
-    /// @return transferred The encrypted amount actually transferred (zero if balance insufficient)
+    /// @param shared Amount shared to this vault by the calling contract
+    /// @return transferred The encrypted amount actually transferred, shared back
+    ///         to the caller (zero if balance insufficient)
     function transferVerified(
         address to,
-        euint64 amount
-    ) external nonReentrant returns (euint64) {
+        sharedEuint64 shared
+    ) external nonReentrant returns (sharedEuint64) {
         require(to != address(0), "FHERC20Vault: transfer to zero address");
         require(to != msg.sender, "FHERC20Vault: transfer to self");
 
         _ensureInitialized(msg.sender);
         _ensureInitialized(to);
+
+        // The share slot records who directed this handle at us, so a caller
+        // cannot name a ciphertext the vault merely happens to be allowed on.
+        euint64 amount = FHE.receiveEuint64Param(shared);
 
         // Privacy-preserving balance check
         ebool hasEnough = FHE.gte(_balances[msg.sender], amount);
@@ -316,13 +330,14 @@ contract FHERC20Vault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         FHE.allowThis(_balances[to]);
         FHE.allow(_balances[to], to);
 
-        // Return handle so caller can check actual amount transferred
+        // Return handle so caller can check actual amount transferred. The
+        // share is directed at the caller instead of a bare allowTransient,
+        // so the caller can prove where the value came from.
         FHE.allowThis(actualAmount);
-        FHE.allowSender(actualAmount);
 
         emit EncryptedTransfer(msg.sender, to, block.timestamp);
 
-        return actualAmount;
+        return FHE.shareEuint64(actualAmount, msg.sender);
     }
 
     /// @notice Transfer tokens on behalf of `from` using encrypted allowance.
@@ -334,7 +349,8 @@ contract FHERC20Vault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     function transferFrom(
         address from,
         address to,
-        InEuint64 memory encAmount
+        externalEuint64 encAmount,
+        bytes calldata proof
     ) external nonReentrant returns (euint64) {
         require(to != address(0), "FHERC20Vault: transfer to zero address");
         // Defense-in-depth: reject from == to. transferVerified already
@@ -351,7 +367,7 @@ contract FHERC20Vault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         _ensureInitialized(from);
         _ensureInitialized(to);
 
-        euint64 amount = FHE.asEuint64(encAmount);
+        euint64 amount = FHE.asEuint64(encAmount, proof);
 
         return _executeTransferFrom(from, to, amount);
     }
@@ -363,13 +379,14 @@ contract FHERC20Vault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     ///         msg.sender = the calling contract, not the original tx signer).
     /// @param from Token owner
     /// @param to Recipient
-    /// @param amount Pre-verified euint64 handle (caller must have called FHE.asEuint64)
-    /// @return transferred The encrypted amount actually transferred
+    /// @param shared Amount shared to this vault by the calling contract
+    /// @return transferred The encrypted amount actually transferred, shared back
+    ///         to the caller
     function transferFromVerified(
         address from,
         address to,
-        euint64 amount
-    ) external nonReentrant returns (euint64) {
+        sharedEuint64 shared
+    ) external nonReentrant returns (sharedEuint64) {
         require(to != address(0), "FHERC20Vault: transfer to zero address");
         // See transferFrom for rationale — same defense-in-depth guard.
         require(from != to, "FHERC20Vault: from and to are the same");
@@ -377,7 +394,11 @@ contract FHERC20Vault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         _ensureInitialized(from);
         _ensureInitialized(to);
 
-        return _executeTransferFrom(from, to, amount);
+        // Sharer must be our caller, so a handle the vault merely holds
+        // permission on cannot be passed in by an unrelated party.
+        euint64 amount = FHE.receiveEuint64Param(shared);
+
+        return FHE.shareEuint64(_executeTransferFrom(from, to, amount), msg.sender);
     }
 
     /// @dev Internal transfer logic shared by transferFrom and transferFromVerified.
@@ -420,11 +441,16 @@ contract FHERC20Vault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     /// @notice Approve a spender to transfer encrypted tokens on your behalf.
     ///         Typically used to approve PaymentHub, GroupManager, etc.
     /// @param spender Address to approve (contract or EOA)
-    /// @param encAmount Encrypted allowance amount
-    function approve(address spender, InEuint64 memory encAmount) external nonReentrant {
+    /// @param encAmount Encrypted allowance amount handle
+    /// @param proof Batch signature authenticating `encAmount`
+    function approve(
+        address spender,
+        externalEuint64 encAmount,
+        bytes calldata proof
+    ) external nonReentrant {
         require(spender != address(0), "FHERC20Vault: approve zero address");
 
-        euint64 amount = FHE.asEuint64(encAmount);
+        euint64 amount = FHE.asEuint64(encAmount, proof);
         _allowances[msg.sender][spender] = amount;
 
         FHE.allowThis(_allowances[msg.sender][spender]);

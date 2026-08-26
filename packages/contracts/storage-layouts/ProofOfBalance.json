@@ -1,15 +1,15 @@
 {
   "storage": [
     {
-      "astId": 65643,
+      "astId": 66408,
       "contract": "contracts/ProofOfBalance.sol:ProofOfBalance",
       "label": "proofs",
       "offset": 0,
       "slot": "0",
-      "type": "t_mapping(t_uint256,t_struct(BalanceProof)65638_storage)"
+      "type": "t_mapping(t_uint256,t_struct(BalanceProof)66403_storage)"
     },
     {
-      "astId": 65645,
+      "astId": 66410,
       "contract": "contracts/ProofOfBalance.sol:ProofOfBalance",
       "label": "nextProofId",
       "offset": 0,
@@ -28,19 +28,19 @@
       "label": "bool",
       "numberOfBytes": "1"
     },
-    "t_mapping(t_uint256,t_struct(BalanceProof)65638_storage)": {
+    "t_mapping(t_uint256,t_struct(BalanceProof)66403_storage)": {
       "encoding": "mapping",
       "key": "t_uint256",
       "label": "mapping(uint256 => struct ProofOfBalance.BalanceProof)",
       "numberOfBytes": "32",
-      "value": "t_struct(BalanceProof)65638_storage"
+      "value": "t_struct(BalanceProof)66403_storage"
     },
-    "t_struct(BalanceProof)65638_storage": {
+    "t_struct(BalanceProof)66403_storage": {
       "encoding": "inplace",
       "label": "struct ProofOfBalance.BalanceProof",
       "members": [
         {
-          "astId": 65626,
+          "astId": 66391,
           "contract": "contracts/ProofOfBalance.sol:ProofOfBalance",
           "label": "prover",
           "offset": 0,
@@ -48,7 +48,7 @@
           "type": "t_address"
         },
         {
-          "astId": 65628,
+          "astId": 66393,
           "contract": "contracts/ProofOfBalance.sol:ProofOfBalance",
           "label": "thresholdMicroUSD",
           "offset": 20,
@@ -56,7 +56,7 @@
           "type": "t_uint64"
         },
         {
-          "astId": 65631,
+          "astId": 66396,
           "contract": "contracts/ProofOfBalance.sol:ProofOfBalance",
           "label": "met",
           "offset": 0,
@@ -64,7 +64,7 @@
           "type": "t_userDefinedValueType(ebool)11789"
         },
         {
-          "astId": 65633,
+          "astId": 66398,
           "contract": "contracts/ProofOfBalance.sol:ProofOfBalance",
           "label": "createdAt",
           "offset": 0,
@@ -72,7 +72,7 @@
           "type": "t_uint64"
         },
         {
-          "astId": 65635,
+          "astId": 66400,
           "contract": "contracts/ProofOfBalance.sol:ProofOfBalance",
           "label": "revealed",
           "offset": 8,
@@ -80,7 +80,7 @@
           "type": "t_bool"
         },
         {
-          "astId": 65637,
+          "astId": 66402,
           "contract": "contracts/ProofOfBalance.sol:ProofOfBalance",
           "label": "revealedValue",
           "offset": 9,

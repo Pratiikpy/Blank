@@ -7,7 +7,7 @@ import { useCofheEncrypt } from "@/lib/cofhe-shim";
 import { useCofheDecryptForTx } from "@/lib/cofhe-shim";
 import { Encryptable } from "@/lib/cofhe-shim";
 import { P2PExchangeAbi, FHERC20VaultAbi, TestUSDCAbi } from "@/lib/abis";
-import { MAX_UINT64, type EncryptedInput } from "@/lib/constants";
+import { MAX_UINT64 } from "@/lib/constants";
 import { useChain } from "@/providers/ChainProvider";
 import {
   supabase,
@@ -327,18 +327,19 @@ export function useExchange() {
           markVaultApproved(contracts.P2PExchange);
         }
 
-        const [encTakerPayment, encMakerPayment] = await encryptInputsAsync([
+        // fillOffer verifies both amounts under ONE batch signature, so they
+        // must be encrypted together and passed in this order.
+        const [encTakerPayment, encMakerPayment, fillProof] = await encryptInputsAsync([
           Encryptable.uint64(takerAmount),
           Encryptable.uint64(makerAmount),
-        ]);
+        ],
+        contracts.P2PExchange as `0x${string}`);
 
         const fillResult = await unifiedWriteAndWait({
           address: contracts.P2PExchange,
           abi: P2PExchangeAbi,
           functionName: "fillOffer",
-          // Type assertion: cofhe SDK encrypt returns opaque encrypted input objects
-          // whose shape doesn't match wagmi's strict ABI-inferred arg types
-          args: [BigInt(offerId), encTakerPayment as unknown as EncryptedInput, encMakerPayment as unknown as EncryptedInput],
+          args: [BigInt(offerId), encTakerPayment, encMakerPayment, fillProof],
           gas: BigInt(5_000_000), // FHE: manual gas limit (precompile can't be estimated)
         });
         const hash = fillResult.hash;

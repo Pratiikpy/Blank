@@ -213,9 +213,7 @@ beforeEach(() => {
     blockNumber: 5n,
     logs: [],
   });
-  encryptInputsAsyncMock.mockResolvedValue([
-    { ctHash: 0x42n, securityZone: 0, utype: 12, signature: "0xenc" },
-  ]);
+  encryptInputsAsyncMock.mockResolvedValue(["0xhandle0", "0xbatchproof"]);
   decryptForTxMock.mockResolvedValue({
     decryptedValue: 10_000_000n,
     signature: ("0x" + "01".repeat(65)) as `0x${string}`,
@@ -485,8 +483,8 @@ describe("useStealthPayments — sendStealth (§15.x)", () => {
     expect(sendCall.functionName).toBe("sendStealth");
     expect(sendCall.address).toBe(STEALTH);
     expect(sendCall.args[0]).toBe(100_000_000n);
-    expect(sendCall.args[3]).toBe(VAULT);
-    expect(sendCall.args[4]).toBe("secret");
+    expect(sendCall.args[4]).toBe(VAULT);
+    expect(sendCall.args[5]).toBe("secret");
     expect(sendCall.gas).toBe(5_000_000n);
 
     // encryptInputsAsync called with Encryptable.address(recipient)

@@ -21,12 +21,6 @@ import { invalidateBalanceQueries } from "@/lib/query-invalidation";
 import { STORAGE_KEYS, getStoredJson, setStoredJson, removeStored } from "@/lib/storage";
 import { mapError } from "@/lib/error-messages";
 
-// ─── Feature flag: atomic encrypt+write ─────────────────────────────
-// When true, uses useCofheEncryptAndWriteContract from @cofhe/react
-// to combine encryption and contract write into a single operation.
-// This simplifies the step machine from 6 states to 4.
-const USE_ATOMIC_ENCRYPT_WRITE = false;
-
 // ─── Step Machine ───────────────────────────────────────────────────
 
 export type SendStep =
@@ -163,22 +157,6 @@ export function useSendPayment() {
   const { encryptInputsAsync, isEncrypting } = useCofheEncrypt();
   const { unifiedWrite } = useUnifiedWrite();
 
-  // ─── TASK 5: Atomic encrypt+write hook from @cofhe/react ──────────
-  // useCofheEncryptAndWriteContract combines encryption and write into
-  // one operation. It:
-  //   1. Extracts encryptable values from ABI args
-  //   2. Encrypts them via cofhe SDK (ZK proof + ciphertext)
-  //   3. Inserts encrypted values back into args
-  //   4. Calls walletClient.writeContract
-  // This eliminates the separate "encrypting" -> "confirming" steps.
-  // §1.6 of BEST_VERSION_FULL_PLAN: removed useCofheEncryptAndWriteContract
-  // (a stub that threw). Atomic encrypt+write now goes through unifiedWrite,
-  // which accepts InEuint64 values directly. Atomic-state booleans below
-  // were sourced from the stub and are now stubbed locally as false (the
-  // USE_ATOMIC_ENCRYPT_WRITE flag is constant-false anyway).
-  const atomicEncryption = { isEncrypting: false };
-  const atomicWrite = { isPending: false };
-
   // Encrypted input — stored between encrypt and confirm steps (legacy path)
   const [encryptedAmount, setEncryptedAmount] = useState<Record<string, unknown> | null>(null);
 
@@ -272,190 +250,7 @@ export function useSendPayment() {
     !!publicClient &&
     (state.mode === "single" ? canProceedSingle : canProceedMany);
 
-  // ─── Atomic path: encrypt + write in one shot (TASK 5) ─────────────
-  // Steps: input -> confirming -> sending -> success
-  // The "confirming" step lets the user review before submitting.
-  // On confirm, encryption and transaction happen as one atomic operation.
-
-  const sendAtomic = useCallback(async () => {
-    if (!canProceed || !address) return;
-
-    // Go to confirming step — user reviews recipient/amount before final send
-    setState((s) => ({ ...s, step: "confirming", encryptionProgress: 0 }));
-  }, [canProceed, address]);
-
-  // #239: pulled the body out so we can self-call once on allowance errors
-  // (clear stale cache + re-approve + retry). Without this, the user has to
-  // hit "send" again manually after every cross-device or stale-cache miss.
-  const _runConfirmSendAtomic = useCallback(async (isRetry: boolean): Promise<void> => {
-    if (!address) return;
-    // #272: synchronous latch check PRECEDES the state check — state flips
-    // are async (React batching), but the ref is always current.
-    if (submittingRef.current && !isRetry) return;
-    if (state.step === "sending" && !isRetry) return; // Already submitting
-
-    if (!publicClient) {
-      toast.error("Connection lost. Please refresh.");
-      return;
-    }
-
-    submittingRef.current = true;
-    try {
-      setState((s) => ({ ...s, step: "sending", encryptionProgress: 0 }));
-
-      if (!state.amount || state.amount.trim() === "") {
-        toast.error("Enter an amount");
-        setState((s) => ({ ...s, step: "input" }));
-        return;
-      }
-
-      const vaultAddress = contracts.FHERC20Vault_USDC as `0x${string}`;
-      const amountWei = parseUnits(state.amount, 6);
-
-      if (amountWei === 0n || parseFloat(state.amount) < 0.01) {
-        toast.error("Minimum amount is $0.01");
-        setState((s) => ({ ...s, step: "input" }));
-        return;
-      }
-
-      // Approve PaymentHub as a spender on the vault (lazy, cached for 24h)
-      if (!isVaultApproved(contracts.PaymentHub)) {
-        setState((s) => ({ ...s, step: "encrypting" })); // Show approving state
-        const approveHash = await unifiedWrite({
-          address: contracts.FHERC20Vault_USDC,
-          abi: FHERC20VaultAbi,
-          functionName: "approvePlaintext",
-          args: [contracts.PaymentHub, BigInt("0xFFFFFFFFFFFFFFFF")], // MAX_UINT64
-          gas: BigInt(5_000_000), // CoFHE: manual gas limit (precompile breaks estimation)
-        });
-        await publicClient.waitForTransactionReceipt({ hash: approveHash, confirmations: 1 });
-        markVaultApproved(contracts.PaymentHub);
-      }
-
-      // Atomic encrypt + write via PaymentHub.sendPayment():
-      //   1. Extracts the encAmount field from args based on ABI internalType
-      //      (our ABI annotates encAmount with internalType: "struct InEuint64")
-      //   2. Encrypts it (ZK proof + ciphertext generation)
-      //   3. Inserts the encrypted result back into args
-      //   4. Calls walletClient.writeContract
-      //
-      // PaymentHub calls vault.transferFrom() on the user's behalf, which
-      // is why the approval step above is required.
-      // §1.6 of BEST_VERSION_FULL_PLAN: migrated from encryptAndWrite stub
-      // (which threw) to unifiedWrite. unifiedWrite handles InEuint64
-      // encryption internally and routes through both EOA and AA paths.
-      const hash = await unifiedWrite({
-        address: contracts.PaymentHub,
-        abi: PaymentHubAbi,
-        functionName: "sendPayment",
-        args: [
-          state.recipient as `0x${string}`,
-          vaultAddress,
-          amountWei,
-          state.note || "",
-        ],
-        // §3.19 of BEST_VERSION_FULL_PLAN: FHE-touching call needs explicit
-        // gas (precompile can't be auto-estimated). The §1.6 migration from
-        // the encryptAndWrite stub dropped this; restoring per audit iter 41.
-        gas: BigInt(5_000_000),
-      });
-
-      // Save pending tx for crash recovery (#71)
-      const pendingSendKey = STORAGE_KEYS.pendingSend(address, activeChainId);
-      setStoredJson(pendingSendKey, {
-        hash,
-        recipient: state.recipient,
-        amount: state.amount,
-        token: state.token,
-        timestamp: Date.now(),
-      });
-
-      // Wait for on-chain confirmation before writing to Supabase
-      const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
-      if (receipt.status === "reverted") {
-        throw new Error("Transaction reverted on-chain");
-      }
-
-      // Clear pending tx on success
-      removeStored(pendingSendKey);
-
-      // Notify other tabs and invalidate cached balances (#60, #76, #96)
-      broadcastAction("balance_changed");
-      broadcastAction("activity_added");
-      invalidateBalanceQueries();
-
-      setState((s) => ({
-        ...s,
-        step: "success",
-        txHash: hash,
-        encryptionProgress: 100,
-      }));
-
-      // Write to Supabase for real-time notification to recipient
-      await insertActivity({
-        tx_hash: hash,
-        user_from: address.toLowerCase(),
-        user_to: state.recipient.toLowerCase(),
-        activity_type: ACTIVITY_TYPES.PAYMENT,
-        contract_address: vaultAddress,
-        note: state.note,
-        token_address: contracts.TestUSDC,
-        // Safe: Sepolia block numbers fit in Number.MAX_SAFE_INTEGER for the foreseeable future
-        block_number: Number(receipt.blockNumber),
-      });
-
-      toast.success("Payment sent!");
-    } catch (err) {
-      // Clear cached approval on allowance/transfer errors so next attempt re-approves
-      const msg = err instanceof Error ? err.message : String(err);
-      const isAllowanceErr = /allowance|approve|insufficient|ERC20/i.test(msg);
-      if (isAllowanceErr) {
-        clearVaultApproval(contracts.PaymentHub);
-        // #239: retry once with a freshly-cleared approval. Common cause:
-        // user was approved on-chain but cache TTL flipped, OR a different
-        // tab/device just consumed the allowance. Re-running the same flow
-        // re-approves (because cache is now empty) and resubmits the send.
-        // Guard with isRetry so a genuinely-broken approval can't loop.
-        if (!isRetry) {
-          submittingRef.current = false;
-          return _runConfirmSendAtomic(true);
-        }
-      }
-      // #277: map to friendly copy + suppress toast on wallet-cancellation
-      const mapped = mapError(err);
-      setState((s) => ({
-        ...s,
-        step: "error",
-        error: err instanceof Error ? err.message : "Transaction failed",
-      }));
-      if (!mapped.userCancelled) toast.error(mapped.title);
-    } finally {
-      submittingRef.current = false;
-    }
-  }, [address, state.step, state.amount, state.recipient, state.note, unifiedWrite, publicClient, activeChainId, contracts]);
-
-  // Phase 7.D — the atomic path uses `encryptAndWrite` from `@cofhe/react`,
-  // which lives outside our `unifiedWrite` abstraction and currently has no
-  // self-pay hook. Until that integration lands, fail loudly when a caller
-  // requests "self" on the atomic path so we never silently fall through to
-  // sponsored (which would AA31-revert with no recoverable UX). SendConfirm
-  // should keep falling back to the legacy path (USE_ATOMIC_ENCRYPT_WRITE
-  // is false today anyway) when self-pay is required.
-  const confirmSendAtomic = useCallback(
-    (paymasterMode?: "sponsored" | "self") => {
-      if (paymasterMode === "self") {
-        const msg = "Self-pay is not yet supported on the atomic encrypt-and-write path. Toggle USE_ATOMIC_ENCRYPT_WRITE off to use the legacy path.";
-        setState((s) => ({ ...s, step: "error", error: msg }));
-        toast.error(msg);
-        return;
-      }
-      return _runConfirmSendAtomic(false);
-    },
-    [_runConfirmSendAtomic],
-  );
-
-  // ─── Legacy path: separate encrypt then write ──────────────────────
-  // Kept as fallback when USE_ATOMIC_ENCRYPT_WRITE is false.
+  // ─── Send: encrypt, then write ─────────────────────────────────────
   // Steps: input -> encrypting -> confirming -> sending -> success
 
   const sendLegacy = useCallback(async () => {
@@ -529,19 +324,16 @@ export function useSendPayment() {
       const vaultAddress = contracts.FHERC20Vault_USDC as `0x${string}`;
       const amountWei = parseUnits(state.amount, 6);
 
+      // PaymentHub.sendPayment is what runs FHE.asEuint64 on this handle.
+      // The vault approve below is a plaintext ERC-20 call and consumes nothing.
       const encrypted = await encryptInputsAsync([
         Encryptable.uint64(amountWei),
-      ]);
+      ],
+        contracts.PaymentHub as `0x${string}`);
       log.debug("useSendPayment.encrypt.success", { length: encrypted?.length });
-      // Explicitly construct ABI tuple from SDK result (CipherPay pattern)
-      const raw = encrypted[0] as any;
-      const encAmount = {
-        ctHash: BigInt(raw.ctHash ?? raw.data?.ctHash ?? 0),
-        securityZone: Number(raw.securityZone ?? raw.data?.securityZone ?? 0),
-        utype: Number(raw.utype ?? raw.data?.utype ?? 5),
-        signature: (raw.signature ?? raw.data?.signature ?? "0x") as `0x${string}`,
-      };
-      log.debug("useSendPayment.encAmount.built", { ctHashHexLen: encAmount.ctHash.toString(16).length, approved: isVaultApproved(contracts.PaymentHub) });
+      // 0.7 returns one handle per input followed by a single batch signature.
+      const encAmount = encrypted[0] as `0x${string}`;
+      const encProof = encrypted[encrypted.length - 1] as `0x${string}`;
 
       // Step 2: Approve + Send
       setState((s) => ({ ...s, step: "sending", encryptionProgress: 100 }));
@@ -583,6 +375,7 @@ export function useSendPayment() {
           state.recipient as `0x${string}`,
           vaultAddress,
           encAmount,
+          encProof,
           state.note || "",
         ],
         // FHE transactions can't be gas-estimated (precompile not available in simulation)
@@ -734,7 +527,7 @@ export function useSendPayment() {
         setState((s) => ({ ...s, step: "encrypting", encryptionProgress: 50 }));
         const encSalaries = await encryptInputsAsync(
           amounts.map((a) => Encryptable.uint64(parseUnits(a, 6))),
-        );
+        contracts.BusinessHub as `0x${string}`);
 
         setState((s) => ({ ...s, step: "sending", encryptionProgress: 100 }));
         const hash = await unifiedWrite({
@@ -819,12 +612,8 @@ export function useSendPayment() {
 
   // ─── Route to correct implementation ───────────────────────────────
 
-  const send = USE_ATOMIC_ENCRYPT_WRITE ? sendAtomic : sendLegacy;
-  // Many-mode forces the legacy path — atomic encrypt+write encrypts a
-  // single value at a time and doesn't fit the parallel batch pattern.
-  const confirmSendSingle = USE_ATOMIC_ENCRYPT_WRITE
-    ? confirmSendAtomic
-    : confirmSendLegacy;
+  const send = sendLegacy;
+  const confirmSendSingle = confirmSendLegacy;
   const confirmSend = (paymasterMode?: "sponsored" | "self") =>
     state.mode === "many"
       ? confirmBatchSend(paymasterMode)
@@ -846,12 +635,8 @@ export function useSendPayment() {
 
   return {
     ...state,
-    isEncrypting: USE_ATOMIC_ENCRYPT_WRITE
-      ? atomicEncryption.isEncrypting
-      : isEncrypting,
-    isSending: USE_ATOMIC_ENCRYPT_WRITE
-      ? atomicWrite.isPending
-      : false,
+    isEncrypting,
+    isSending: false,
     cofheConnected,
     amountWarning,
     setRecipient,

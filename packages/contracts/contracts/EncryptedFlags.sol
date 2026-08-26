@@ -152,8 +152,8 @@ contract EncryptedFlags is UUPSUpgradeable, OwnableUpgradeable {
     /// @param encAmount Encrypted payment amount
     /// @return fee Encrypted fee amount
     /// @return netAmount Encrypted amount after fee deduction
-    function calculateFee(InEuint64 memory encAmount) external returns (euint64 fee, euint64 netAmount) {
-        euint64 amount = FHE.asEuint64(encAmount);
+    function calculateFee(externalEuint64 encAmount, bytes calldata proof) external returns (euint64 fee, euint64 netAmount) {
+        euint64 amount = FHE.asEuint64(encAmount, proof);
 
         // fee = amount * baseFeeRate (in basis points, e.g., 100 = 1%)
         // Then shift right by 14 to approximate division by 10000
@@ -175,8 +175,8 @@ contract EncryptedFlags is UUPSUpgradeable, OwnableUpgradeable {
 
     /// @notice Calculate merchant fee (discounted)
     ///         Demonstrates chained FHE operations: mul → shr → sub → select
-    function calculateMerchantFee(InEuint64 memory encAmount, address merchant) external returns (euint64 fee, euint64 netAmount) {
-        euint64 amount = FHE.asEuint64(encAmount);
+    function calculateMerchantFee(externalEuint64 encAmount, bytes calldata proof, address merchant) external returns (euint64 fee, euint64 netAmount) {
+        euint64 amount = FHE.asEuint64(encAmount, proof);
 
         // Calculate base fee
         euint64 baseFee = FHE.shr(FHE.mul(amount, _baseFeeRate), FHE.asEuint64(14));
@@ -205,8 +205,8 @@ contract EncryptedFlags is UUPSUpgradeable, OwnableUpgradeable {
 
     /// @notice Set audit scope for an auditor (encrypted bitmask)
     ///         Each bit controls access to a specific data category
-    function setAuditScope(address auditor, InEuint8 memory encScope) external {
-        euint8 scope = FHE.asEuint8(encScope);
+    function setAuditScope(address auditor, externalEuint8 encScope, bytes calldata proof) external {
+        euint8 scope = FHE.asEuint8(encScope, proof);
         _auditScopes[msg.sender][auditor] = scope;
         FHE.allowThis(scope);
         FHE.allowSender(scope);
@@ -216,9 +216,9 @@ contract EncryptedFlags is UUPSUpgradeable, OwnableUpgradeable {
 
     /// @notice Check if auditor has access to a specific scope bit
     ///         Uses: FHE.and() with euint8 for bitwise AND
-    function checkAuditScope(address user, address auditor, InEuint8 memory encBitMask) external returns (ebool) {
+    function checkAuditScope(address user, address auditor, externalEuint8 encBitMask, bytes calldata proof) external returns (ebool) {
         euint8 scope = _auditScopes[user][auditor];
-        euint8 mask = FHE.asEuint8(encBitMask);
+        euint8 mask = FHE.asEuint8(encBitMask, proof);
 
         // Bitwise AND to check if the specific bit is set
         euint8 result = FHE.and(scope, mask);

@@ -71,3 +71,8 @@ packages/app/TESTING_STATUS.md
 packages/app/docs/internal/
 .vercel
 /proof-deck.html
+
+# local operator scratch — never commit
+packages/contracts/.keys_tmp.txt
+packages/contracts/.sweep-*.log
+packages/contracts/arb-deploy*.log

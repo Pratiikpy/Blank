@@ -7,8 +7,8 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
 interface IFHERC20Vault {
-    function transferFrom(address from, address to, InEuint64 memory encAmount) external returns (euint64);
-    function transferFromVerified(address from, address to, euint64 amount) external returns (euint64);
+    function transferFrom(address from, address to, externalEuint64 encAmount, bytes calldata proof) external returns (euint64);
+    function transferFromVerified(address from, address to, sharedEuint64 shared) external returns (sharedEuint64);
 }
 
 interface IEventHub {
@@ -122,7 +122,7 @@ contract CreatorHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     function support(
         address creator,
         address vault,
-        InEuint64 memory encAmount,
+        externalEuint64 encAmount, bytes calldata proof,
         string calldata message
     ) external nonReentrant {
         require(hasProfile[creator], "CreatorHub: no profile");
@@ -130,11 +130,10 @@ contract CreatorHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         require(creator != msg.sender, "CreatorHub: cannot self-tip");
 
         // Verify encrypted input here (msg.sender = user) before cross-contract call
-        euint64 amount = FHE.asEuint64(encAmount);
-        FHE.allowTransient(amount, vault);
+        euint64 amount = FHE.asEuint64(encAmount, proof);
 
         // Transfer tokens from supporter to creator using pre-verified handle
-        IFHERC20Vault(vault).transferFromVerified(msg.sender, creator, amount);
+        IFHERC20Vault(vault).transferFromVerified(msg.sender, creator, FHE.shareEuint64(amount, vault));
 
         // Update creator's encrypted total earnings
         _profiles[creator].totalEarnings = FHE.add(_profiles[creator].totalEarnings, amount);

@@ -9,7 +9,7 @@ import { useFhePipeline } from "./useFhePipeline";
 import { useChain } from "@/providers/ChainProvider";
 import { useCofheEncrypt, useCofheConnection, Encryptable } from "@/lib/cofhe-shim";
 import { ClaimLinksAbi, FHERC20VaultAbi } from "@/lib/abis";
-import { MAX_UINT64, type EncryptedInput, getExplorerTxUrl } from "@/lib/constants";
+import { MAX_UINT64, getExplorerTxUrl } from "@/lib/constants";
 import { isVaultApproved, markVaultApproved } from "@/lib/approval";
 import { extractEventId } from "@/lib/event-parser";
 import { invalidateBalanceQueries } from "@/lib/query-invalidation";
@@ -163,8 +163,9 @@ export function useClaimLinks() {
         // verify); the pipeline hook turns those into a live progress UI.
         setState((s) => ({ ...s, step: "encrypting" }));
         const amountUnits = parseUnits(params.amountTokens, params.decimals);
-        const [encAmount] = await encryptInputsAsync(
+        const [encAmount, encAmountProof] = await encryptInputsAsync(
           [Encryptable.uint64(amountUnits)],
+          claimLinksAddress,
           pipeline.onEncryptStep,
         );
 
@@ -177,8 +178,8 @@ export function useClaimLinks() {
           functionName: "createLink",
           args: [
             params.vault,
-            encAmount as unknown as EncryptedInput,
-            secretHash,
+            encAmount,
+            encAmountProof,secretHash,
             params.input.mode,
             boundAddress,
             BigInt(params.expirySeconds),

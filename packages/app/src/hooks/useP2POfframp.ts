@@ -9,7 +9,6 @@ import { useFhePipeline } from "./useFhePipeline";
 import { useChain } from "@/providers/ChainProvider";
 import { useCofheEncrypt, useCofheConnection, Encryptable } from "@/lib/cofhe-shim";
 import { P2POfframpAbi, FHERC20VaultAbi } from "@/lib/abis";
-import { type EncryptedInput } from "@/lib/constants";
 import { isVaultApproved, markVaultApproved } from "@/lib/approval";
 import { extractEventId } from "@/lib/event-parser";
 import { invalidateBalanceQueries } from "@/lib/query-invalidation";
@@ -180,8 +179,10 @@ export function useP2POfframp() {
         const usdcUnits = parseUnits(params.usdcAmountTokens, params.decimals);
         const minFillUnits = parseUnits(params.minFillUsdcTokens || params.usdcAmountTokens, params.decimals);
 
-        const [encAmount, encMin] = await encryptInputsAsync(
+        // createOffer verifies both amounts under ONE batch signature.
+        const [encAmount, encMin, offerProof] = await encryptInputsAsync(
           [Encryptable.uint64(usdcUnits), Encryptable.uint64(minFillUnits)],
+          offramp,
           pipeline.onEncryptStep,
         );
 
@@ -195,8 +196,9 @@ export function useP2POfframp() {
           functionName: "createOffer",
           args: [
             params.vault,
-            encAmount as unknown as EncryptedInput,
-            encMin as unknown as EncryptedInput,
+            encAmount,
+            encMin,
+            offerProof,
             params.fiatRail,
             handleHash,
             params.fiatAmountMicroUSD,

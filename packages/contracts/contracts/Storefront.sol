@@ -7,9 +7,9 @@ import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "./utils/ReentrancyGuard.sol";
 
 interface IFHERC20Vault {
-    function transferFrom(address from, address to, InEuint64 memory encAmount) external returns (euint64);
-    function transferFromVerified(address from, address to, euint64 amount) external returns (euint64);
-    function transferVerified(address to, euint64 amount) external returns (euint64);
+    function transferFrom(address from, address to, externalEuint64 encAmount, bytes calldata proof) external returns (euint64);
+    function transferFromVerified(address from, address to, sharedEuint64 shared) external returns (sharedEuint64);
+    function transferVerified(address to, sharedEuint64 shared) external returns (sharedEuint64);
 }
 
 interface IEventHub {
@@ -17,8 +17,8 @@ interface IEventHub {
 }
 
 interface IPaymentReceipts {
-    function bumpUserReceived(address user, euint64 amount) external;
-    function bumpGlobal(euint64 amount) external;
+    function bumpUserReceived(address user, sharedEuint64 shared) external;
+    function bumpGlobal(sharedEuint64 shared) external;
 }
 
 /// @title Storefront — one-product page with three private sale modes
@@ -200,7 +200,7 @@ contract Storefront is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     function createListing(
         SaleMode mode,
         address vault,
-        InEuint64 calldata encPrice,
+        externalEuint64 encPrice, bytes calldata proof,
         uint256 auctionSeconds,
         string calldata title,
         bytes32 descriptionCidHash,
@@ -223,7 +223,7 @@ contract Storefront is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         // Verify the encrypted price for FixedPrice / Auction. PWYW ignores it.
         euint64 verifiedPrice;
         if (mode != SaleMode.PayWhatYouWant) {
-            verifiedPrice = FHE.asEuint64(encPrice);
+            verifiedPrice = FHE.asEuint64(encPrice, proof);
             FHE.allowThis(verifiedPrice);
             FHE.allowSender(verifiedPrice);
         }
@@ -264,7 +264,7 @@ contract Storefront is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     ///                         hash). Plaintext bytes32 stored on-chain.
     function buyFixed(
         uint256 listingId,
-        InEuint64 calldata encAmount,
+        externalEuint64 encAmount, bytes calldata proof,
         bytes32 deliveryNoteHash
     ) external nonReentrant {
         Listing storage l = _listings[listingId];
@@ -274,19 +274,21 @@ contract Storefront is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         require(msg.sender != l.seller, "Storefront: seller cannot buy self-listing");
 
         // Verify input under buyer's signer.
-        euint64 verifiedAmount = FHE.asEuint64(encAmount);
+        euint64 verifiedAmount = FHE.asEuint64(encAmount, proof);
         FHE.allowThis(verifiedAmount);
 
         // Match check: buyer's offer must equal seller's price.
         ebool matches = FHE.eq(verifiedAmount, l.encPrice);
         euint64 actualPay = FHE.select(matches, verifiedAmount, FHE.asEuint64(0));
         FHE.allowThis(actualPay);
-        FHE.allowTransient(actualPay, l.vault);
 
         // Pull buyer → seller. transferFromVerified deducts allowance + balance.
         // If actualPay is 0 (mismatch), the vault still runs but moves nothing.
         IFHERC20Vault vault = IFHERC20Vault(l.vault);
-        euint64 transferred = vault.transferFromVerified(msg.sender, l.seller, actualPay);
+        euint64 transferred = FHE.receiveEuint64FromCall(
+            vault.transferFromVerified(msg.sender, l.seller, FHE.shareEuint64(actualPay, l.vault)),
+            l.vault
+        );
         FHE.allowThis(transferred);
         FHE.allowSender(transferred);
         FHE.allow(transferred, l.seller);
@@ -305,7 +307,7 @@ contract Storefront is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     ///         and losers can call `refundLoserBid` to reclaim their funds.
     ///
     ///         Multiple bids per address are allowed — track each.
-    function placeBid(uint256 listingId, InEuint64 calldata encAmount) external nonReentrant {
+    function placeBid(uint256 listingId, externalEuint64 encAmount, bytes calldata proof) external nonReentrant {
         Listing storage l = _listings[listingId];
         require(l.active && !l.closed, "Storefront: listing not active");
         require(l.mode == SaleMode.Auction, "Storefront: not Auction");
@@ -320,8 +322,7 @@ contract Storefront is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         require(_bids[listingId].length < MAX_BIDS, "Storefront: bid cap reached");
 
         // Verify input under bidder.
-        euint64 verifiedAmount = FHE.asEuint64(encAmount);
-        FHE.allowTransient(verifiedAmount, l.vault);
+        euint64 verifiedAmount = FHE.asEuint64(encAmount, proof);
 
         // §1.14 A8: gate the locked amount via FHE.select(verifiedAmount
         // >= l.encPrice). l.encPrice is the seller-set minimum bid for
@@ -332,10 +333,12 @@ contract Storefront is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         // FHE-tournament selection won't pick it as winner.
         ebool meetsMin = FHE.gte(verifiedAmount, l.encPrice);
         euint64 effectiveAmount = FHE.select(meetsMin, verifiedAmount, FHE.asEuint64(0));
-        FHE.allowTransient(effectiveAmount, l.vault);
 
         // Move funds bidder → this contract.
-        euint64 locked = IFHERC20Vault(l.vault).transferFromVerified(msg.sender, address(this), effectiveAmount);
+        euint64 locked = FHE.receiveEuint64FromCall(
+            IFHERC20Vault(l.vault).transferFromVerified(msg.sender, address(this), FHE.shareEuint64(effectiveAmount, l.vault)),
+            l.vault
+        );
         FHE.allowThis(locked);
         FHE.allowSender(locked);
 
@@ -440,8 +443,10 @@ contract Storefront is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         require(msg.sender == l.winner, "Storefront: not winner");
 
         // Pay seller the winning bid amount.
-        FHE.allowTransient(l.winningBid, l.vault);
-        euint64 paid = IFHERC20Vault(l.vault).transferVerified(l.seller, l.winningBid);
+        euint64 paid = FHE.receiveEuint64FromCall(
+            IFHERC20Vault(l.vault).transferVerified(l.seller, FHE.shareEuint64(l.winningBid, l.vault)),
+            l.vault
+        );
         FHE.allowThis(paid);
         FHE.allow(paid, l.seller);
 
@@ -495,8 +500,7 @@ contract Storefront is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         );
 
         // Refund: contract → bidder.
-        FHE.allowTransient(bid.amount, l.vault);
-        IFHERC20Vault(l.vault).transferVerified(msg.sender, bid.amount);
+        IFHERC20Vault(l.vault).transferVerified(msg.sender, FHE.shareEuint64(bid.amount, l.vault));
 
         bid.refunded = true;
         emit BidRefunded(listingId, msg.sender, bidIndex);
@@ -508,7 +512,7 @@ contract Storefront is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     ///         "name your price" digital products.
     function payPWYW(
         uint256 listingId,
-        InEuint64 calldata encAmount,
+        externalEuint64 encAmount, bytes calldata proof,
         bytes32 deliveryNoteHash
     ) external nonReentrant {
         Listing storage l = _listings[listingId];
@@ -516,10 +520,12 @@ contract Storefront is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         require(l.mode == SaleMode.PayWhatYouWant, "Storefront: not PWYW");
         require(msg.sender != l.seller, "Storefront: seller cannot pay self");
 
-        euint64 verifiedAmount = FHE.asEuint64(encAmount);
-        FHE.allowTransient(verifiedAmount, l.vault);
+        euint64 verifiedAmount = FHE.asEuint64(encAmount, proof);
 
-        euint64 transferred = IFHERC20Vault(l.vault).transferFromVerified(msg.sender, l.seller, verifiedAmount);
+        euint64 transferred = FHE.receiveEuint64FromCall(
+            IFHERC20Vault(l.vault).transferFromVerified(msg.sender, l.seller, FHE.shareEuint64(verifiedAmount, l.vault)),
+            l.vault
+        );
         FHE.allowThis(transferred);
         FHE.allowSender(transferred);
         FHE.allow(transferred, l.seller);
@@ -624,13 +630,11 @@ contract Storefront is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
     function _bumpReceiptsAndGlobal(address recipient, euint64 amount) internal {
         if (paymentReceipts == address(0)) return;
-        FHE.allowTransient(amount, paymentReceipts);
         // §2.6 of BEST_VERSION_FULL_PLAN: surface receipt-bump failures.
-        try IPaymentReceipts(paymentReceipts).bumpUserReceived(recipient, amount) {} catch (bytes memory reason) {
+        try IPaymentReceipts(paymentReceipts).bumpUserReceived(recipient, FHE.shareEuint64(amount, paymentReceipts)) {} catch (bytes memory reason) {
             emit ReceiptsBumpFailed("user", reason);
         }
-        FHE.allowTransient(amount, paymentReceipts);
-        try IPaymentReceipts(paymentReceipts).bumpGlobal(amount) {} catch (bytes memory reason) {
+        try IPaymentReceipts(paymentReceipts).bumpGlobal(FHE.shareEuint64(amount, paymentReceipts)) {} catch (bytes memory reason) {
             emit ReceiptsBumpFailed("global", reason);
         }
     }

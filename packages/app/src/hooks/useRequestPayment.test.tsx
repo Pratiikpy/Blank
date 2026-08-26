@@ -177,9 +177,7 @@ beforeEach(() => {
   useEmailAuthSignerMock.mockReturnValue({ signEmailAuth: signEmailAuthMock });
   toastLoadingMock.mockReturnValue("toast-id");
   isVaultApprovedMock.mockReturnValue(true);
-  encryptInputsAsyncMock.mockResolvedValue([
-    { ctHash: 0x42n, securityZone: 0, utype: 5, signature: "0xenc" },
-  ]);
+  encryptInputsAsyncMock.mockResolvedValue(["0xhandle0", "0xbatchproof"]);
   unifiedWriteAndWaitMock.mockResolvedValue({
     hash: "0xtxhash",
     receipt: { status: "success", blockNumber: 12345n, logs: [] },
@@ -283,7 +281,7 @@ describe("useRequestPayment — createRequest happy path (§15.x)", () => {
     expect(call.functionName).toBe("createRequest");
     expect(call.args[0]).toBe(PAYER);
     expect(call.args[1]).toBe(VAULT);
-    expect(call.args[3]).toBe("Coffee");
+    expect(call.args[4]).toBe("Coffee");
     expect(call.gas).toBe(5_000_000n);
   });
 

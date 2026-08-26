@@ -26,10 +26,9 @@ async function deployProxy(name: string, initArgs: unknown[] = []) {
   return Factory.attach(await proxy.getAddress()) as any;
 }
 
-async function encUint64(ctx: any, signer: any, value: bigint) {
+async function encUint64(ctx: any, signer: any, value: bigint, consuming: string) {
   await hre.cofhe.connectWithHardhatSigner(ctx.client, signer);
-  const [enc] = await ctx.client.encryptInputs([Encryptable.uint64(value)]).execute();
-  return enc;
+  return await ctx.client.encryptInputs([Encryptable.uint64(value)]).setConsumingContract(consuming).execute();
 }
 
 async function deployFixture() {
@@ -42,15 +41,15 @@ async function deployFixture() {
 describe("ProofOfBalance", () => {
   it("rejects threshold=0", async () => {
     const ctx = await loadFixture(deployFixture);
-    const enc = await encUint64(ctx, ctx.alice, 1000n);
-    await expect(ctx.proof.connect(ctx.alice).createProof(enc, 0))
+    const enc = await encUint64(ctx, ctx.alice, 1000n, await ctx.proof.getAddress());
+    await expect(ctx.proof.connect(ctx.alice).createProof(...enc, 0))
       .to.be.revertedWith("ProofOfBalance: threshold=0");
   });
 
   it("creates proof, emits ProofCreated, getProof returns initial state", async () => {
     const ctx = await loadFixture(deployFixture);
-    const enc = await encUint64(ctx, ctx.alice, 5_000_000n);
-    await expect(ctx.proof.connect(ctx.alice).createProof(enc, 1_000_000))
+    const enc = await encUint64(ctx, ctx.alice, 5_000_000n, await ctx.proof.getAddress());
+    await expect(ctx.proof.connect(ctx.alice).createProof(...enc, 1_000_000))
       .to.emit(ctx.proof, "ProofCreated");
     const p = await ctx.proof.getProof(0);
     expect(p.prover).to.equal(ctx.alice.address);
@@ -60,12 +59,12 @@ describe("ProofOfBalance", () => {
 
   it("balance >= threshold reveals true; replay reveal reverts", async () => {
     const ctx = await loadFixture(deployFixture);
-    const enc = await encUint64(ctx, ctx.alice, 5_000_000n); // 5 microUSD
-    await ctx.proof.connect(ctx.alice).createProof(enc, 1_000_000); // threshold 1
+    const enc = await encUint64(ctx, ctx.alice, 5_000_000n, await ctx.proof.getAddress()); // 5 microUSD
+    await ctx.proof.connect(ctx.alice).createProof(...enc, 1_000_000); // threshold 1
 
     const handle = (await ctx.proof.proofs(0)).met;
     await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.alice);
-    const decrypted = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutPermit().execute();
+    const decrypted = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutACP().execute();
     expect(Boolean(decrypted.decryptedValue)).to.equal(true);
 
     await expect(
@@ -83,12 +82,12 @@ describe("ProofOfBalance", () => {
 
   it("balance < threshold reveals false", async () => {
     const ctx = await loadFixture(deployFixture);
-    const enc = await encUint64(ctx, ctx.alice, 500_000n); // half a microUSD
-    await ctx.proof.connect(ctx.alice).createProof(enc, 1_000_000);
+    const enc = await encUint64(ctx, ctx.alice, 500_000n, await ctx.proof.getAddress()); // half a microUSD
+    await ctx.proof.connect(ctx.alice).createProof(...enc, 1_000_000);
 
     const handle = (await ctx.proof.proofs(0)).met;
     await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.alice);
-    const decrypted = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutPermit().execute();
+    const decrypted = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutACP().execute();
     expect(Boolean(decrypted.decryptedValue)).to.equal(false);
     await ctx.proof.connect(ctx.alice).revealProof(0, Boolean(decrypted.decryptedValue), decrypted.signature);
     expect((await ctx.proof.getProof(0)).revealedValue).to.equal(false);

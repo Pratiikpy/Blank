@@ -8,6 +8,7 @@ import { insertActivity } from "@/lib/supabase";
 import { ACTIVITY_TYPES } from "@/lib/activity-types";
 import { broadcastAction } from "@/lib/cross-tab";
 import { invalidateBalanceQueries } from "@/lib/query-invalidation";
+import { useCofheEncrypt, Encryptable } from "@/lib/cofhe-shim";
 import { log } from "@/lib/log";
 import toast from "react-hot-toast";
 import { toastMappedError } from "@/lib/error-messages";
@@ -58,10 +59,10 @@ export function useInheritance() {
     };
   }, [publicClient]);
 
-  // §1.6 of BEST_VERSION_FULL_PLAN: useCofheEncryptAndWriteContract was a
-  // stub that threw "Use writeContractAsync directly with Encryptable values".
-  // Migrated finalizeClaim to unifiedWrite (already imported above) which
-  // accepts InEuint64 values directly and routes through both EOA and AA paths.
+  // finalizeClaim used to hand plaintext values to the ABI and rely on
+  // @cofhe/react auto-encrypting them. 0.7 removed that path, so the amounts
+  // are encrypted explicitly here and passed as handles plus one batch proof.
+  const { encryptInputsAsync } = useCofheEncrypt();
 
   // Read current plan. blockTag:"pending" bypasses the public RPC's
   // eth_call cache — without it, a getPlan read immediately after the
@@ -367,9 +368,13 @@ export function useInheritance() {
       try {
         // Encrypt type(uint64).max for each vault — the vault's transferFrom uses
         // FHE.select so over-requesting is safe (transfers up to available balance).
-        // The ABI's InEuint64[] internalType annotation tells @cofhe/react to
-        // auto-encrypt these plaintext values.
-        const maxAmounts = Array.from({ length: vaultCount }, () => MAX_UINT64);
+        // One batch signature covers every per-vault amount.
+        const claimBatch = await encryptInputsAsync(
+          Array.from({ length: vaultCount }, () => Encryptable.uint64(MAX_UINT64)),
+          contracts.InheritanceManager as `0x${string}`,
+        );
+        const maxAmounts = claimBatch.slice(0, -1);
+        const claimProof = claimBatch[claimBatch.length - 1];
 
         const hash = await unifiedWrite({
           address: contracts.InheritanceManager,
@@ -378,6 +383,7 @@ export function useInheritance() {
           args: [
             ownerAddress as `0x${string}`,
             maxAmounts,
+            claimProof,
           ],
           gas: BigInt(5_000_000), // FHE: manual gas limit (precompile can't be estimated)
         });

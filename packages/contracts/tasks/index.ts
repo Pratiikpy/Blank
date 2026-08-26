@@ -59,3 +59,6 @@ import "./rotate-offramp-arbiter";
 import "./deploy-upgrade-wave5-recovery";
 import "./deploy-upgrade-conditional-escrow";
 import "./lifecycle-conditional-escrow";
+import "./decrypt-once";
+import "./deploy-upgrade-cofhe-0-7";
+import "./verify-cofhe-0-7";

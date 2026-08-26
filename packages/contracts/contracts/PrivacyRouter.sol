@@ -11,9 +11,9 @@ import "./utils/ReentrancyGuard.sol";
 // ─── Interfaces ──────────────────────────────────────────────────────
 
 interface IFHERC20Vault {
-    function transferFrom(address from, address to, InEuint64 memory encAmount) external returns (euint64);
-    function transferFromVerified(address from, address to, euint64 amount) external returns (euint64);
-    function transfer(address to, InEuint64 memory encAmount) external returns (euint64);
+    function transferFrom(address from, address to, externalEuint64 encAmount, bytes calldata proof) external returns (euint64);
+    function transferFromVerified(address from, address to, sharedEuint64 shared) external returns (sharedEuint64);
+    function transfer(address to, externalEuint64 encAmount, bytes calldata proof) external returns (euint64);
     function balanceOf(address account) external view returns (euint64);
     function underlyingToken() external view returns (address);
     function shield(uint256 amount) external;
@@ -171,7 +171,7 @@ contract PrivacyRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     function initiateSwap(
         address vaultIn,
         address vaultOut,
-        InEuint64 memory encAmount,
+        externalEuint64 encAmount, bytes calldata proof,
         uint256 minAmountOut
     ) external nonReentrant returns (uint256) {
         require(vaultIn != address(0) && vaultOut != address(0), "PrivacyRouter: zero vault");
@@ -182,15 +182,13 @@ contract PrivacyRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         require(tokenIn != tokenOut, "PrivacyRouter: same underlying");
 
         // Verify encrypted input here (msg.sender = user) before cross-contract call
-        euint64 verifiedAmount = FHE.asEuint64(encAmount);
-        FHE.allowTransient(verifiedAmount, vaultIn);
+        euint64 verifiedAmount = FHE.asEuint64(encAmount, proof);
 
         // Transfer encrypted tokens from user to router's balance in vaultIn
         // This deducts from user's encrypted balance and adds to router's
-        euint64 transferred = IFHERC20Vault(vaultIn).transferFromVerified(
-            msg.sender,
-            address(this),
-            verifiedAmount
+        euint64 transferred = FHE.receiveEuint64FromCall(
+            IFHERC20Vault(vaultIn).transferFromVerified(msg.sender, address(this), FHE.shareEuint64(verifiedAmount, vaultIn)),
+            vaultIn
         );
 
         // Grant this contract permission to use the encrypted handle

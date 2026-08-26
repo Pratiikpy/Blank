@@ -85,17 +85,17 @@ export function useProofOfBalance() {
         const balanceMicroUSD = BigInt(Math.round(balanceUSDC * 1_000_000));
         const thresholdMicroUSD = BigInt(Math.round(thresholdUSDC * 1_000_000));
 
-        const [encBalance] = await encryptInputsAsync(
+        const [encBalance, balanceProof] = await encryptInputsAsync(
           [Encryptable.uint64(balanceMicroUSD)],
-          pipeline.onEncryptStep,
-        );
+          contracts.ProofOfBalance as `0x${string}`,
+          pipeline.onEncryptStep);
 
         setStep("creating");
         const result = await unifiedWriteAndWait({
           address: proofOfBalanceAddr,
           abi: ProofOfBalanceAbi,
           functionName: "createProof",
-          args: [encBalance, thresholdMicroUSD],
+          args: [encBalance, balanceProof, thresholdMicroUSD],
           gas: BigInt(5_000_000),
         });
 

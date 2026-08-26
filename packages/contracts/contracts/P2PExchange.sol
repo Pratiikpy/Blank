@@ -7,8 +7,8 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
 interface IFHERC20Vault {
-    function transferFrom(address from, address to, InEuint64 memory encAmount) external returns (euint64);
-    function transferFromVerified(address from, address to, euint64 amount) external returns (euint64);
+    function transferFrom(address from, address to, externalEuint64 encAmount, bytes calldata proof) external returns (euint64);
+    function transferFromVerified(address from, address to, sharedEuint64 shared) external returns (sharedEuint64);
 }
 
 interface IEventHub {
@@ -95,10 +95,13 @@ contract P2PExchange is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     /// @param offerId The offer to fill
     /// @param encTakerPayment Encrypted amount taker sends (must be >= offer.amountWant)
     /// @param encMakerPayment Encrypted amount to transfer from maker (must be <= offer.amountGive)
+    /// @param proof One batch signature covering `encTakerPayment` then
+    ///        `encMakerPayment`, in that exact order.
     function fillOffer(
         uint256 offerId,
-        InEuint64 memory encTakerPayment,
-        InEuint64 memory encMakerPayment
+        externalEuint64 encTakerPayment,
+        externalEuint64 encMakerPayment,
+        bytes calldata proof
     ) external nonReentrant {
         Offer storage o = offers[offerId];
         require(o.active && !o.filled, "P2PExchange: not available");
@@ -111,10 +114,14 @@ contract P2PExchange is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         require(o.expiry == 0 || block.timestamp < o.expiry, "P2PExchange: offer expired");
         require(msg.sender != o.maker, "P2PExchange: self-fill");
 
-        // Verify encrypted inputs here (msg.sender = taker) before cross-contract calls
-        euint64 verifiedTakerPayment = FHE.asEuint64(encTakerPayment);
-        FHE.allowTransient(verifiedTakerPayment, o.tokenWant);
-        euint64 verifiedMakerPayment = FHE.asEuint64(encMakerPayment);
+        // Verify encrypted inputs here (msg.sender = taker) before cross-contract calls.
+        // Both handles share one batch signature, so they verify together.
+        externalEuint64[] memory packed = new externalEuint64[](2);
+        packed[0] = encTakerPayment;
+        packed[1] = encMakerPayment;
+        euint64[] memory verified = FHE.asEuint64s(packed, proof);
+        euint64 verifiedTakerPayment = verified[0];
+        euint64 verifiedMakerPayment = verified[1];
 
         // ── CRITICAL anti-overdraw clamp on the maker side ──────────────
         // The taker controls `encMakerPayment` (it's a function arg). If
@@ -129,16 +136,21 @@ contract P2PExchange is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         euint64 makerCap = FHE.asEuint64(uint64(o.amountGive));
         ebool withinCap = FHE.lte(verifiedMakerPayment, makerCap);
         euint64 clampedMakerPayment = FHE.select(withinCap, verifiedMakerPayment, makerCap);
-        FHE.allowTransient(clampedMakerPayment, o.tokenGive);
 
         // Taker sends tokenWant to maker
-        euint64 actualGive = IFHERC20Vault(o.tokenWant).transferFromVerified(msg.sender, o.maker, verifiedTakerPayment);
+        euint64 actualGive = FHE.receiveEuint64FromCall(
+            IFHERC20Vault(o.tokenWant).transferFromVerified(msg.sender, o.maker, FHE.shareEuint64(verifiedTakerPayment, o.tokenWant)),
+            o.tokenWant
+        );
         FHE.allowSender(actualGive);
         FHE.allow(actualGive, o.maker);
 
         // Maker sends tokenGive to taker (maker must have pre-approved this contract).
         // Uses the clamped amount above so this transfer cannot exceed amountGive.
-        euint64 actualReceive = IFHERC20Vault(o.tokenGive).transferFromVerified(o.maker, msg.sender, clampedMakerPayment);
+        euint64 actualReceive = FHE.receiveEuint64FromCall(
+            IFHERC20Vault(o.tokenGive).transferFromVerified(o.maker, msg.sender, FHE.shareEuint64(clampedMakerPayment, o.tokenGive)),
+            o.tokenGive
+        );
         FHE.allowSender(actualReceive);
 
         // ── Amount Verification ──────────────────────────────────────────

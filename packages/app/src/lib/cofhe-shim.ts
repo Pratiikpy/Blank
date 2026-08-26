@@ -182,7 +182,7 @@ async function loadSdk(): Promise<boolean> {
 
       const config = _sdkModules.createCofheConfig({
         supportedChains: [_sdkModules.activeChain],
-        react: { autogeneratePermits: true },
+        react: { autogenerateACPs: true },
       });
       _sdkClient = _sdkModules.createCofheClient(config);
 
@@ -405,8 +405,15 @@ export function useCofheEncrypt() {
   // SDK builder so callers can drive a real-step progress UI off the
   // 5 phases the SDK reports (initTfhe → fetchKeys → pack → prove → verify).
   // The callback signature matches @cofhe/sdk's EncryptStepCallbackFunction.
+  // `consumingContract` is the contract that runs FHE.asEuint* on these
+  // handles, which is NOT always the contract being called. For a hub call
+  // it is the hub; for a shield/unshield it is the vault. The verifier binds
+  // the address into the signed digest, so naming the wrong one type-checks
+  // and then reverts on chain. It is required rather than optional so every
+  // call site has to state it.
   const encryptInputsAsync = useCallback(async (
     items: unknown[],
+    consumingContract: `0x${string}`,
     onStep?: (step: unknown, ctx?: { isStart?: boolean; isEnd?: boolean; duration?: number }) => void,
   ) => {
     setIsEncrypting(true);
@@ -476,7 +483,7 @@ export function useCofheEncrypt() {
           // worked because they produced self-permits implicitly earlier; new
           // accounts fail with `InvalidSigner` until this runs once. The only
           // other smart-account + FHE project (z0tz-cctp-bridge) calls
-          // `permits.createSelf` before every encrypted op. We call it once
+          // `acp.createSelf` before every encrypted op. We call it once
           // per (address, chainId), piggybacking on the already-unlocked
           // passphrase session so we don't prompt the user twice.
           if (
@@ -488,19 +495,27 @@ export function useCofheEncrypt() {
             const alreadyWarm = typeof localStorage !== "undefined" && localStorage.getItem(warmupKey) === "1";
             if (!alreadyWarm) {
               try {
-                log.debug("cofhe-shim.permits.warmup.start", { account: authoritativeAccount });
-                await (_sdkClient as { permits: { createSelf: (args: { issuer: string }) => Promise<unknown> } })
-                  .permits.createSelf({ issuer: authoritativeAccount });
+                log.debug("cofhe-shim.acp.warmup.start", { account: authoritativeAccount });
+                await (_sdkClient as { acp: { createSelf: (args: { issuer: string }) => Promise<unknown> } })
+                  .acp.createSelf({ issuer: authoritativeAccount });
                 if (typeof localStorage !== "undefined") localStorage.setItem(warmupKey, "1");
-                log.debug("cofhe-shim.permits.warmup.success");
+                log.debug("cofhe-shim.acp.warmup.success");
               } catch (warmupErr) {
-                log.warn("cofhe-shim.permits.warmup.failed", warmupErr instanceof Error ? warmupErr : new Error(String(warmupErr)));
+                log.warn("cofhe-shim.acp.warmup.failed", warmupErr instanceof Error ? warmupErr : new Error(String(warmupErr)));
               }
             }
           }
 
-          log.debug("cofhe-shim.encrypt.start", { account: authoritativeAccount });
-          const builder = _sdkClient.encryptInputs(items);
+          log.debug("cofhe-shim.encrypt.start", { account: authoritativeAccount, consumingContract });
+          if (!consumingContract) {
+            throw new Error("Encryption failed: no consuming contract was provided");
+          }
+          // 0.7 binds the consuming contract into the signed digest, which is
+          // what stops a batch signed for one contract being replayed into
+          // another. Without it the builder has no execute() at all.
+          const builder = _sdkClient
+            .encryptInputs(items)
+            .setConsumingContract(consumingContract);
           if (authoritativeAccount && typeof builder.setAccount === "function") {
             builder.setAccount(authoritativeAccount);
           }
@@ -591,7 +606,7 @@ export function useCofheDecryptForTx() {
       log.debug("cofhe-shim.decryptForTx.requesting", { ctHash: ctHash.toString() });
       const result = await _sdkClient
         .decryptForTx(ctHash, fheTypeId)
-        .withoutPermit()
+        .withoutACP()
         .execute();
       log.debug("cofhe-shim.decryptForTx.success");
       return {
@@ -639,9 +654,9 @@ export function useCofheDecryptForView() {
     // on-chain ACL constraint).
     if (address) {
       try {
-        const active = _sdkClient.permits?.getActivePermit?.();
+        const active = _sdkClient.acp?.getActiveACP?.();
         if (!active) {
-          await _sdkClient.permits?.getOrCreateSelfPermit?.();
+          await _sdkClient.acp?.getOrCreateSelfACP?.();
         }
       } catch {
         // permit creation fails silently — decryptForView will surface the real error
@@ -806,7 +821,7 @@ export function useCofheActivePermit() {
     }
 
     try {
-      const active = _sdkClient.permits?.getActivePermit?.();
+      const active = _sdkClient.acp?.getActiveACP?.();
       if (active) {
         const now = Math.floor(Date.now() / 1000);
         const isValid = active.expiration > now;
@@ -819,7 +834,7 @@ export function useCofheActivePermit() {
         });
       } else if (!creatingRef.current) {
         creatingRef.current = true;
-        _sdkClient.permits?.getOrCreateSelfPermit?.()
+        _sdkClient.acp?.getOrCreateSelfACP?.()
           .then((permit: any) => {
             const now = Math.floor(Date.now() / 1000);
             const isValid = permit.expiration > now;
@@ -829,7 +844,7 @@ export function useCofheActivePermit() {
             });
           })
           .catch((err: any) => {
-            log.warn("cofhe-shim.permits.autoCreate.failed", err instanceof Error ? err : new Error(String(err)));
+            log.warn("cofhe-shim.acp.autoCreate.failed", err instanceof Error ? err : new Error(String(err)));
           })
           .finally(() => { creatingRef.current = false; });
       }
@@ -857,7 +872,7 @@ export function useCofheNavigateToCreatePermit() {
       return;
     }
     try {
-      await _sdkClient.permits?.getOrCreateSelfPermit?.();
+      await _sdkClient.acp?.getOrCreateSelfACP?.();
       _notifySdkStateChange();
     } catch (err) {
       log.error("cofhe-shim.navigateToCreatePermit.failed", err instanceof Error ? err : new Error(String(err)));
