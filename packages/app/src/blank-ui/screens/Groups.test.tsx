@@ -150,7 +150,7 @@ function setUseGroupSplit(isProcessing = false) {
 
 beforeEach(() => {
   useOnChainGroupsMock.mockReset();
-  useOnChainGroupsMock.mockReturnValue({ groups: [], refresh: vi.fn() });
+  useOnChainGroupsMock.mockReturnValue({ groups: [], members: {}, refresh: vi.fn() });
   useEffectiveAddressMock.mockReset();
   useChainMock.mockReset();
   useGroupSplitMock.mockReset();
@@ -971,6 +971,7 @@ describe("Groups — on-chain membership fallback (§15.x)", () => {
       groups: [
         groupRow({ group_id: 8, group_name: "Read from the chain", is_admin: false }),
       ],
+      members: { 8: [ME.toLowerCase(), ALICE.toLowerCase()] },
       refresh: vi.fn(),
     });
     const { container } = render(<Groups />);
@@ -984,11 +985,44 @@ describe("Groups — on-chain membership fallback (§15.x)", () => {
     ]);
     useOnChainGroupsMock.mockReturnValue({
       groups: [groupRow({ group_id: 8, group_name: "Chain name" })],
+      members: {},
       refresh: vi.fn(),
     });
     const { container } = render(<Groups />);
     await flush();
     expect(container.textContent).toContain("Indexed name");
     expect(container.textContent).not.toContain("Chain name");
+  });
+});
+
+describe("Groups — member chips (§15.x)", () => {
+  // The stack held exactly one chip built from the viewer's own address, so a
+  // group of four rendered a single coloured circle with two hex characters in
+  // it. It reads as a stray number, not as people.
+  it("CRITICAL shows every member the chain reported, with a count", () => {
+    fetchUserGroupsMock.mockResolvedValue([]);
+    useOnChainGroupsMock.mockReturnValue({
+      groups: [groupRow({ group_id: 3, group_name: "Flatmates" })],
+      members: { 3: [ME.toLowerCase(), ALICE.toLowerCase(), BOB.toLowerCase()] },
+      refresh: vi.fn(),
+    });
+    const { container } = render(<Groups />);
+    return flush().then(() => {
+      expect(container.textContent).toContain("3 members");
+    });
+  });
+
+  it("says 'member' for one", () => {
+    fetchUserGroupsMock.mockResolvedValue([]);
+    useOnChainGroupsMock.mockReturnValue({
+      groups: [groupRow({ group_id: 4, group_name: "Solo" })],
+      members: { 4: [ME.toLowerCase()] },
+      refresh: vi.fn(),
+    });
+    const { container } = render(<Groups />);
+    return flush().then(() => {
+      expect(container.textContent).toContain("1 member");
+      expect(container.textContent).not.toContain("1 members");
+    });
   });
 });

@@ -761,8 +761,11 @@ function GroupCard({
   onLeave,
   onArchive,
   isProcessing,
+  members,
 }: {
   group: GroupMembershipRow;
+  /** Every member's address, when the chain told us. */
+  members?: string[];
   expenses: GroupExpenseRow[];
   onAddExpense: (groupId: number) => void;
   onImportSplitwise: (groupId: number) => void;
@@ -772,7 +775,11 @@ function GroupCard({
   onArchive: (groupId: number) => void;
   isProcessing: boolean;
 }) {
-  const color = addressToColor(group.member_address);
+  // The stack used to hold exactly one chip: two hex characters of the
+  // viewer's own address, which reads as a stray number rather than as people.
+  // Show everyone when the member list is known.
+  const chips = (members && members.length > 0 ? members : [group.member_address]).slice(0, 5);
+  const overflow = (members?.length ?? 1) - chips.length;
 
   return (
     <div className="rounded-[2rem] glass-card p-4 sm:p-8 hover:-translate-y-1 transition-all duration-300">
@@ -800,16 +807,30 @@ function GroupCard({
         </div>
       </div>
 
-      {/* Avatar */}
-      <div className="flex items-center gap-2 mb-6">
+      {/* Members */}
+      <div className="flex items-center gap-3 mb-6">
         <div className="flex -space-x-3">
-          <div
-            className="w-10 h-10 rounded-full border-2 border-white flex items-center justify-center text-xs font-bold text-white"
-            style={{ background: color }}
-          >
-            {group.member_address.slice(2, 4).toUpperCase()}
-          </div>
+          {chips.map((m) => (
+            <div
+              key={m}
+              title={m}
+              className="w-10 h-10 rounded-full border-2 border-white flex items-center justify-center text-xs font-bold text-white"
+              style={{ background: addressToColor(m) }}
+            >
+              {m.slice(2, 4).toUpperCase()}
+            </div>
+          ))}
+          {overflow > 0 && (
+            <div className="w-10 h-10 rounded-full border-2 border-white bg-black/60 flex items-center justify-center text-xs font-bold text-white">
+              +{overflow}
+            </div>
+          )}
         </div>
+        {members && members.length > 0 && (
+          <span className="text-sm text-[var(--text-primary)]/50">
+            {members.length} {members.length === 1 ? "member" : "members"}
+          </span>
+        )}
       </div>
 
       {/* Amounts (encrypted) */}
@@ -946,7 +967,11 @@ export default function Groups() {
   // filters by _activeChainIdForSupabase server-side.
   const { activeChainId } = useChain();
   const { leaveGroup, archiveGroup, isProcessing: groupActionProcessing } = useGroupSplit();
-  const { groups: onChainGroups, refresh: refreshOnChainGroups } = useOnChainGroups();
+  const {
+    groups: onChainGroups,
+    members: onChainMembers,
+    refresh: refreshOnChainGroups,
+  } = useOnChainGroups();
   const [showCreate, setShowCreate] = useState(false);
   const [expenseGroupId, setExpenseGroupId] = useState<number | null>(null);
   // Phase 3.3 — Splitwise CSV import per-group modal trigger.
@@ -1187,6 +1212,7 @@ export default function Groups() {
                 key={group.id}
                 group={group}
                 expenses={expensesMap[group.group_id] || []}
+                members={onChainMembers[group.group_id]}
                 onAddExpense={setExpenseGroupId}
                 onImportSplitwise={setImportGroupId}
                 onSettleDebt={setSettleGroupId}

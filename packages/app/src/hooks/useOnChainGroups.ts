@@ -36,6 +36,10 @@ export function useOnChainGroups() {
   const { effectiveAddress, eoa } = useEffectiveAddress();
   const publicClient = usePublicClient({ chainId: activeChainId });
   const [groups, setGroups] = useState<GroupMembershipRow[]>([]);
+  // getGroup returns the full member list. The membership row shape has no
+  // room for it, and the card was rendering an avatar stack containing only
+  // the viewer's own address, so keep it alongside.
+  const [members, setMembers] = useState<Record<number, string[]>>({});
   const [tick, setTick] = useState(0);
 
   const manager = contracts.GroupManager as `0x${string}` | undefined;
@@ -54,6 +58,7 @@ export function useOnChainGroups() {
   useEffect(() => {
     if (!publicClient || !manager || manager === ZERO_ADDRESS || addresses.length === 0) {
       setGroups([]);
+      setMembers({});
       lastSerialized.current = "";
       return;
     }
@@ -103,11 +108,13 @@ export function useOnChainGroups() {
         if (cancelled) return;
 
         const next: GroupMembershipRow[] = [];
+        const nextMembers: Record<number, string[]> = {};
         details.forEach((r, i) => {
           if (r.status !== "fulfilled") return;
           const t = r.value as GroupTuple;
           if (!t[3]) return; // archived
           const id = ids[i];
+          nextMembers[id] = t[1].map((m) => m.toLowerCase());
           next.push({
             id: `onchain-group-${activeChainId}-${id}`,
             group_id: id,
@@ -121,10 +128,11 @@ export function useOnChainGroups() {
         });
 
         next.sort((a, b) => b.group_id - a.group_id);
-        const serialized = JSON.stringify(next);
+        const serialized = JSON.stringify([next, nextMembers]);
         if (serialized === lastSerialized.current) return;
         lastSerialized.current = serialized;
         setGroups(next);
+        setMembers(nextMembers);
       } catch (err) {
         log.warn(
           "useOnChainGroups.readFailed",
@@ -138,5 +146,5 @@ export function useOnChainGroups() {
     };
   }, [publicClient, manager, addresses, activeChainId, tick]);
 
-  return { groups, refresh };
+  return { groups, members, refresh };
 }

@@ -1235,3 +1235,47 @@ describe("BusinessTools — on-chain fallback (§15.x)", () => {
     expect(container.textContent).toContain("Failed to load data");
   });
 });
+
+describe("BusinessTools — invoice row identity (§15.x)", () => {
+  // The row always printed the client address. For the vendor that reads as
+  // "billed to X"; for the client it is their own address, which tells them
+  // nothing about who wants paying. It went unnoticed while clients could not
+  // see their invoices at all.
+  it("CRITICAL the client sees who is billing them, not themselves", async () => {
+    fetchVendorInvoicesMock.mockResolvedValue([]);
+    fetchClientInvoicesMock.mockResolvedValue([
+      invoiceRow({ invoice_id: 5, vendor_address: BOB, client_address: ME }),
+    ]);
+    fetchUserEscrowsMock.mockResolvedValue([]);
+    const { container } = render(<BusinessTools />);
+    await flush();
+    expect(container.textContent).toContain(`From ${BOB.slice(0, 6)}`);
+    expect(container.textContent).not.toContain(`To ${ME.slice(0, 6)}`);
+  });
+
+  it("the vendor sees who they billed", async () => {
+    fetchVendorInvoicesMock.mockResolvedValue([
+      invoiceRow({ invoice_id: 6, vendor_address: ME, client_address: ALICE }),
+    ]);
+    fetchClientInvoicesMock.mockResolvedValue([]);
+    fetchUserEscrowsMock.mockResolvedValue([]);
+    const { container } = render(<BusinessTools />);
+    await flush();
+    expect(container.textContent).toContain(`To ${ALICE.slice(0, 6)}`);
+  });
+
+  it("an invoice with no creation date does not print 'No date'", async () => {
+    fetchVendorInvoicesMock.mockResolvedValue([]);
+    fetchClientInvoicesMock.mockResolvedValue([]);
+    fetchUserEscrowsMock.mockResolvedValue([]);
+    useOnChainBusinessRecordsMock.mockReturnValue({
+      invoices: [{ ...invoiceRow({ invoice_id: 7 }), created_at: "" }],
+      escrows: [],
+      refresh: vi.fn(),
+    });
+    const { container } = render(<BusinessTools />);
+    await flush();
+    expect(container.textContent).toContain("Due");
+    expect(container.textContent).not.toContain("No date");
+  });
+});

@@ -778,9 +778,21 @@ export default function BusinessTools() {
                           <FileText size={24} className="text-[#007AFF]" />
                         </div>
                         <div className="min-w-0">
-                          <p className="font-medium text-[var(--text-primary)] truncate">{truncateAddr(invoice.client_address)}</p>
+                          {/* Show the other party. This always printed the
+                              client, which reads as your own address when you
+                              are the one being billed. Nobody noticed while
+                              clients could not see their invoices at all. */}
+                          <p className="font-medium text-[var(--text-primary)] truncate">
+                            {invoice.client_address?.toLowerCase() === address?.toLowerCase()
+                              ? `From ${truncateAddr(invoice.vendor_address)}`
+                              : `To ${truncateAddr(invoice.client_address)}`}
+                          </p>
                           <p className="text-sm text-[var(--text-primary)]/50">
-                            {formatDate(invoice.created_at)} &middot; Due {formatDeadline(invoice.due_date)}
+                            {/* An invoice read from the chain has no creation
+                                date, and "No date · Due in 30 days" reads as a
+                                bug. Drop the half we do not have. */}
+                            {invoice.created_at && `${formatDate(invoice.created_at)} · `}
+                            Due {formatDeadline(invoice.due_date)}
                           </p>
                           {invoice.description && <p className="text-xs text-[var(--text-primary)]/40 truncate">{invoice.description}</p>}
                         </div>

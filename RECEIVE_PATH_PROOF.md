@@ -137,7 +137,29 @@ guard; the socket exhaustion that could starve a payment is gone either way.
 Bob had never transacted. The claim deployed his account and collected the
 gift, with no indexer running at any point.
 
-Re-runnable: `node packages/app/.receive.mjs` against a local dev server.
+All four second-party actions, each driven the same way. Every "saw it" is
+with Supabase down, so the second person found the thing by reading a contract:
+
+| Flow | What the chain said |
+| --- | --- |
+| gift claim | `opened(#52, bob)` false to true |
+| invoice pay | `#42` status `pending` to `payment_pending` |
+| group settle | `#47` name "Flatmates", `bobIsMember=true`, settle submitted |
+| request pay | `#36` status `pending` to `fulfilled` |
+
+`payment_pending` is the state `payInvoice` leaves an invoice in: the client's
+funds are held and the vendor finalises. That is the whole of the client's half.
+
+Re-runnable against a local dev server:
+
+```bash
+node packages/app/.receive.mjs        # gift: send and claim
+node packages/app/.invoice-pay.mjs    # invoice: bill and pay
+node packages/app/.group-request.mjs  # group settle + request pay
+```
+
+One driver bug, found by running it: the request note field is a `textarea`,
+and the script looked for an `input`. Fixed in the script, not the product.
 
 ### On screen
 
@@ -155,11 +177,40 @@ Reading those shots turned up one thing the tests did not: the badge said
 "1 Gifts". Fixed, with a pin. At 375px the row stacks, the Claim button stays
 reachable, and nothing collides with the bottom nav.
 
+The client's invoice list (`inv-bob-client-list.png`) turned up two more, both
+invisible until clients could see invoices at all:
+
+- Every row printed the **client** address, so a client read their own address
+  where the biller's name belongs. Rows now say "From <vendor>" or
+  "To <client>" depending on which side you are.
+- A chain-sourced invoice has no creation date, and the row printed
+  "No date · Due in 30 days". The unknown half is now omitted.
+
+And the group card (`gr-bob-group-list.png`) turned up a third: its avatar
+stack held exactly one chip, built from two hex characters of the viewer's own
+address, so a group of four rendered as a lone red circle reading "57". The
+member list is right there in `getGroup`, so the card now shows a chip per
+member and a count.
+
+### Every chain the app ships on
+
+The new hooks are chain-agnostic, so the thing that separates "proven on Base"
+from "works everywhere" is whether the views answer. All 18 calls (six views
+across three chains) responded, at the addresses `src/lib/constants.ts` gives:
+
+```
+Eth Sepolia    getReceivedEnvelopes getClientInvoices getVendorInvoices
+Base Sepolia   getUserEscrows getUserGroups getIncomingRequests
+Arb Sepolia    6/6 ok on each, failures: 0
+```
+
+Re-runnable: `node packages/app/.views-probe.mjs`.
+
 ### Offline
 
 ```
 app   tsc --noEmit                     0 errors
-app   vitest run                       270 files, 6040 passing
+app   vitest run                       270 files, 6045 passing
 app   check-imports                    boundary check passed
 app   check-voice                      clean, 142 files
 ```
@@ -187,11 +238,13 @@ rewritten rather than deleted, and each now states what the user sees.
 ## What is NOT verified
 
 - Only Base Sepolia was driven through the browser for the receive path.
-  Arbitrum and Ethereum Sepolia carry the same contracts and the same frontend,
-  but no second-person browser journey has been run on them.
-- The receive halves of invoice payment, group settle and request fulfilment
-  are covered by the contract-level sweep and by unit tests, not yet by a
-  second browser persona. Gift claim is the one proven end to end both ways.
+  Every view the new hooks call answers on all three chains (above), and the
+  frontend is the same build, but no second-person browser journey has been run
+  on Arbitrum or Ethereum Sepolia.
+- The group settle was confirmed by the modal closing after the transaction
+  went out, not by a status field: `settleDebt` moves encrypted balances and
+  leaves no plaintext flag to read. The other three were judged on a chain
+  value that changed.
 - The Ethereum Sepolia feature sweep is still incomplete for the reason
   recorded in `COFHE_0_7_MIGRATION_PROOF.md`: it needs roughly 0.2 ETH and the
   deployer holds 0.025.
