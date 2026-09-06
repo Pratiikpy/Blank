@@ -3,7 +3,7 @@ import { usePublicClient } from "wagmi";
 import { useEffectiveAddress } from "./useEffectiveAddress";
 import { useUnifiedWrite } from "./useUnifiedWrite";
 import { parseUnits, formatUnits, decodeEventLog, type Log } from "viem";
-import { useCofheEncrypt, useCofheConnection } from "@/lib/cofhe-shim";
+import { useCofheEncrypt, useCofheConnection, ENCRYPTION_NOT_READY } from "@/lib/cofhe-shim";
 import { Encryptable } from "@/lib/cofhe-shim";
 import { useCofheDecryptForView } from "@/lib/cofhe-shim";
 import toast from "react-hot-toast";
@@ -91,7 +91,11 @@ export function useGroupSplit() {
   // Create a new group on-chain + sync to Supabase
   const createGroup = useCallback(
     async (name: string, members: string[]) => {
-      if (!address || !connected) return;
+      // No `connected` gate: this call carries no encrypted argument, so it
+      // does not need the CoFHE client. Requiring it made the button a silent
+      // no-op for anyone whose smart account is not deployed yet — which is
+      // exactly the state a brand new recipient is in.
+      if (!address) return;
       if (submittingRef.current) return; // Prevent double-submit (ref-based)
       if (!publicClient) { toast.error("Connection lost"); return; }
 
@@ -280,7 +284,8 @@ export function useGroupSplit() {
   // Settle a debt with another group member via encrypted vault transfer
   const settleDebt = useCallback(
     async (groupId: number, withAddress: string, amount: string) => {
-      if (!address || !connected) return;
+      if (!address) return;
+      if (!connected) { toast.error(ENCRYPTION_NOT_READY); return; }
       if (submittingRef.current) return; // Prevent double-submit (ref-based)
 
       if (!publicClient) {

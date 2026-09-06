@@ -20,6 +20,7 @@ import toast from "react-hot-toast";
 import { isAddress, parseUnits, formatUnits } from "viem";
 import { usePublicClient } from "wagmi";
 import { useBusinessHub } from "@/hooks/useBusinessHub";
+import { useOnChainBusinessRecords } from "@/hooks/useOnChainBusinessRecords";
 import { toastMappedError } from "@/lib/error-messages";
 import { EmptyState } from "@/components/common/EmptyState";
 import { MILESTONE_TEMPLATES } from "@/lib/escrow-templates";
@@ -79,6 +80,11 @@ export default function BusinessTools() {
   const publicClient = usePublicClient({ chainId: activeChainId });
   const { step, createInvoice, runPayroll, createEscrow, finalizeInvoice, markDelivered, approveRelease, disputeEscrow, payInvoice, payInvoiceWithSwap, payInvoiceWithOracleQuote, cancelInvoice, arbiterDecide, claimExpiredEscrow } = useBusinessHub();
   const { activities } = useActivityFeed();
+  const {
+    invoices: onChainInvoices,
+    escrows: onChainEscrows,
+    refresh: refreshOnChainRecords,
+  } = useOnChainBusinessRecords();
   const payrollActivities = useMemo(
     () => activities.filter((a) => a.activity_type === "payroll"),
     [activities],
@@ -91,9 +97,10 @@ export default function BusinessTools() {
   const [visibleEscrowCount, setVisibleEscrowCount] = useState(ESCROW_PAGE_SIZE);
   const { subscribe } = useRealtime();
 
-  // Real data from Supabase
-  const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
-  const [escrows, setEscrows] = useState<EscrowRow[]>([]);
+  // Real data from Supabase. Merged below with what BusinessHub itself
+  // reports, so neither list depends on the indexer being reachable.
+  const [dbInvoices, setInvoices] = useState<InvoiceRow[]>([]);
+  const [dbEscrows, setEscrows] = useState<EscrowRow[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(false);
   const [dataError, setDataError] = useState<string | null>(null);
   const [confirmDisputeId, setConfirmDisputeId] = useState<number | null>(null);
@@ -193,12 +200,31 @@ export default function BusinessTools() {
     loadData();
   }, [loadData]);
 
-  // Reload data after successful operations
+  // Supabase rows win on any invoice or escrow it knows about — they carry
+  // fields the chain does not (client email, PDF CID, reminder state). The
+  // chain fills the gaps, which is what makes an invoice payable and an
+  // escrow actionable when the indexer is behind or unreachable. Without
+  // this, a client named on a real on-chain invoice saw "No invoices yet"
+  // and had no Pay button at all.
+  const invoices = useMemo(() => {
+    const known = new Set(dbInvoices.map((i) => i.invoice_id));
+    return [...dbInvoices, ...onChainInvoices.filter((i) => !known.has(i.invoice_id))];
+  }, [dbInvoices, onChainInvoices]);
+
+  const escrows = useMemo(() => {
+    const known = new Set(dbEscrows.map((e) => e.escrow_id));
+    return [...dbEscrows, ...onChainEscrows.filter((e) => !known.has(e.escrow_id))];
+  }, [dbEscrows, onChainEscrows]);
+
+  // Reload data after successful operations. Re-read the chain too, so a
+  // freshly created invoice or a payment that just mined shows its new status
+  // without waiting on the indexer.
   useEffect(() => {
     if (step === "success") {
       loadData();
+      refreshOnChainRecords();
     }
-  }, [step, loadData]);
+  }, [step, loadData, refreshOnChainRecords]);
 
   // Realtime: refetch escrows when this address is added/updated as arbiter,
   // depositor, or beneficiary. Without the arbiter subscription, Carol's
@@ -716,7 +742,7 @@ export default function BusinessTools() {
                   <Loader2 size={24} className="animate-spin text-[var(--text-primary)]/40" />
                   <span className="text-[var(--text-primary)]/50">Loading invoices...</span>
                 </div>
-              ) : dataError ? (
+              ) : dataError && invoices.length === 0 ? (
                 <button onClick={loadData} className="w-full text-center py-8 text-red-500 hover:bg-red-50/50 rounded-2xl transition-colors">
                   <AlertTriangle size={40} className="mx-auto mb-3 opacity-60" />
                   <p className="font-medium mb-1">{dataError}</p>
@@ -731,6 +757,17 @@ export default function BusinessTools() {
                 />
               ) : (
                 <div className="space-y-3">
+                  {/* The indexer failed but the chain answered. Show what we
+                      have and say the list may be short, rather than replacing
+                      a payable invoice with a retry button. */}
+                  {dataError && (
+                    <button
+                      onClick={loadData}
+                      className="w-full rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-left text-sm text-amber-800 transition-colors hover:bg-amber-100"
+                    >
+                      Showing invoices read from the chain. Some details may be missing. Tap to retry.
+                    </button>
+                  )}
                   {invoices.slice(0, visibleInvoiceCount).map((invoice) => (
                     <div
                       key={invoice.id}
@@ -939,7 +976,7 @@ export default function BusinessTools() {
                 <Loader2 size={24} className="animate-spin text-[var(--text-primary)]/40" />
                 <span className="text-[var(--text-primary)]/50">Loading escrows...</span>
               </div>
-            ) : dataError ? (
+            ) : dataError && filteredEscrows.length === 0 ? (
               <div className="rounded-[2rem] glass-card p-4 sm:p-8">
                 <button onClick={loadData} className="w-full text-center py-8 text-red-500 hover:bg-red-50/50 rounded-2xl transition-colors">
                   <AlertTriangle size={40} className="mx-auto mb-3 opacity-60" />

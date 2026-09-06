@@ -131,13 +131,43 @@ function readSaCache(chainId: number): SmartAccount | undefined {
   }
 }
 
+// `useSmartAccount` keeps its state in local useState, and ten components call
+// it independently, so a refresh inside one instance is invisible to the other
+// nine. That mattered in exactly one place and broke the first payment of every
+// new user: the first UserOp deploys the account and re-resolves it inside the
+// *sending* hook, while SmartAccountCofheBinder — which refuses to bind an
+// undeployed account because ERC-1271 needs on-chain code — kept its own stale
+// `isDeployed: false` and never connected the CoFHE client. The send then died
+// with "Client must be connected" until the user reloaded the page.
+//
+// SA_CACHE is already shared across instances; it just had no way to tell React
+// it changed. These listeners close that gap.
+const SA_CACHE_LISTENERS = new Set<() => void>();
+
+function notifySaCacheChange(): void {
+  for (const fn of SA_CACHE_LISTENERS) {
+    try { fn(); } catch { /* one bad listener must not stop the others */ }
+  }
+}
+
+/** Subscribe to smart-account cache writes. Returns an unsubscribe function. */
+export function subscribeSmartAccountCache(fn: () => void): () => void {
+  SA_CACHE_LISTENERS.add(fn);
+  return () => { SA_CACHE_LISTENERS.delete(fn); };
+}
+
 function writeSaCache(chainId: number, acct: SmartAccount): void {
+  const prev = SA_CACHE.get(chainId);
   SA_CACHE.set(chainId, acct);
-  if (typeof window === "undefined") return;
-  try {
-    window.sessionStorage.setItem(`${SA_STORAGE_KEY}:${chainId}`, JSON.stringify(acct));
-  } catch {
-    /* sessionStorage may be full or disabled; in-memory cache still works */
+  if (typeof window !== "undefined") {
+    try {
+      window.sessionStorage.setItem(`${SA_STORAGE_KEY}:${chainId}`, JSON.stringify(acct));
+    } catch {
+      /* sessionStorage may be full or disabled; in-memory cache still works */
+    }
+  }
+  if (!prev || prev.address !== acct.address || prev.isDeployed !== acct.isDeployed) {
+    notifySaCacheChange();
   }
 }
 
@@ -181,6 +211,20 @@ export function useSmartAccount() {
   const [status, setStatus] = useState<SmartAccountStatus>(cached ? "ready" : "idle");
   const [account, setAccount] = useState<SmartAccount | null>(cached ?? null);
   const [error, setError] = useState<string | null>(null);
+
+  // Adopt cache writes made by any other instance of this hook — see the
+  // note on SA_CACHE_LISTENERS above. Without this the binder never learns
+  // that the first UserOp deployed the account.
+  useEffect(() => subscribeSmartAccountCache(() => {
+    const fresh = readSaCache(activeChainId);
+    if (!fresh) return;
+    setAccount((prev) =>
+      prev && prev.address === fresh.address && prev.isDeployed === fresh.isDeployed
+        ? prev
+        : fresh,
+    );
+    setStatus((s) => (s === "ready" ? s : "ready"));
+  }), [activeChainId]);
 
   // #123: parallel submitCallData calls previously both read the same nonce
   // from the EntryPoint (on-chain) because the first tx hadn't mined. Second
@@ -528,6 +572,18 @@ export function useSmartAccount() {
               if (cur >= expected) break;
               await new Promise((r) => setTimeout(r, 1_500));
             }
+
+            // Re-resolve AFTER the RPC has caught up. The resolveAccount()
+            // above runs immediately post-relay, when this public RPC is
+            // still 3-4 blocks behind, so on a first-ever UserOp it reads
+            // getCode() === "0x" and latches isDeployed = false.
+            //
+            // SmartAccountCofheBinder refuses to bind an undeployed account
+            // (ERC-1271 needs on-chain code), so that stale flag left the
+            // CoFHE client unconnected for the rest of the session: a brand
+            // new user could shield, then their first send failed with
+            // "Client must be connected" until they manually reloaded.
+            if (isFirstOp) await resolveAccount();
           }
 
           // Forward the relayer's receipt verbatim. Free public RPC tiers

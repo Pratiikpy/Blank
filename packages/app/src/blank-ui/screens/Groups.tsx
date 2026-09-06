@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useGroupSplit } from "@/hooks/useGroupSplit";
+import { useOnChainGroups } from "@/hooks/useOnChainGroups";
 import { recognizeReceipt } from "@/lib/receipt-ocr";
 import { SplitwiseImportModal } from "@/blank-ui/components";
 import { useEffectiveAddress } from "@/hooks/useEffectiveAddress";
@@ -945,6 +946,7 @@ export default function Groups() {
   // filters by _activeChainIdForSupabase server-side.
   const { activeChainId } = useChain();
   const { leaveGroup, archiveGroup, isProcessing: groupActionProcessing } = useGroupSplit();
+  const { groups: onChainGroups, refresh: refreshOnChainGroups } = useOnChainGroups();
   const [showCreate, setShowCreate] = useState(false);
   const [expenseGroupId, setExpenseGroupId] = useState<number | null>(null);
   // Phase 3.3 — Splitwise CSV import per-group modal trigger.
@@ -997,17 +999,28 @@ export default function Groups() {
   // Fetch on mount + poll every 30s
   useEffect(() => {
     refreshData();
-    const interval = setInterval(() => refreshData(), 30_000);
+    refreshOnChainGroups();
+    const interval = setInterval(() => {
+      refreshData();
+      refreshOnChainGroups();
+    }, 30_000);
     return () => clearInterval(interval);
-  }, [refreshData]);
+  }, [refreshData, refreshOnChainGroups]);
 
-  // Deduplicate groups by group_id (user might have multiple membership rows)
-  const uniqueGroups = groups.reduce<GroupMembershipRow[]>((acc, g) => {
-    if (!acc.find((existing) => existing.group_id === g.group_id)) {
-      acc.push(g);
-    }
-    return acc;
-  }, []);
+  // Deduplicate groups by group_id (user might have multiple membership rows).
+  // On-chain memberships are appended after the indexer's, so a Supabase row
+  // wins where both exist (it also carries is_admin). Reading the chain is
+  // what lets a member who was just added open the group and settle their
+  // share before the indexer has written anything for them.
+  const uniqueGroups = [...groups, ...onChainGroups].reduce<GroupMembershipRow[]>(
+    (acc, g) => {
+      if (!acc.find((existing) => existing.group_id === g.group_id)) {
+        acc.push(g);
+      }
+      return acc;
+    },
+    [],
+  );
 
   // Join-by-ID handler (#83) — Supabase-only for now. See addSelfToGroup.
   const handleJoinByGroupId = useCallback(async () => {

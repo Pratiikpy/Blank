@@ -35,6 +35,7 @@ const useGiftMoneyMock = vi.hoisted(() => vi.fn());
 const usePublicClientMock = vi.hoisted(() => vi.fn());
 const useEffectiveAddressMock = vi.hoisted(() => vi.fn());
 const useActivityFeedMock = vi.hoisted(() => vi.fn());
+const useReceivedEnvelopesMock = vi.hoisted(() => vi.fn());
 const useChainMock = vi.hoisted(() => vi.fn());
 const toastErrorMock = vi.hoisted(() => vi.fn());
 
@@ -44,6 +45,9 @@ vi.mock("@/hooks/useEffectiveAddress", () => ({
   useEffectiveAddress: useEffectiveAddressMock,
 }));
 vi.mock("@/hooks/useActivityFeed", () => ({ useActivityFeed: useActivityFeedMock }));
+vi.mock("@/hooks/useReceivedEnvelopes", () => ({
+  useReceivedEnvelopes: useReceivedEnvelopesMock,
+}));
 vi.mock("@/providers/ChainProvider", () => ({ useChain: useChainMock }));
 vi.mock("@/lib/abis", () => ({ GiftMoneyAbi: [] }));
 vi.mock("@/lib/format", () => ({
@@ -134,6 +138,11 @@ beforeEach(() => {
   usePublicClientMock.mockReset();
   useEffectiveAddressMock.mockReset();
   useActivityFeedMock.mockReset();
+  useReceivedEnvelopesMock.mockReset();
+  useReceivedEnvelopesMock.mockReturnValue({
+    rows: [],
+    refresh: vi.fn(),
+  });
   useChainMock.mockReset();
   toastErrorMock.mockReset();
 
@@ -306,6 +315,99 @@ describe("Gifts — activity feed filtering (§15.x)", () => {
   });
 });
 
+describe("Gifts — on-chain received envelopes (§15.x)", () => {
+  // The received list used to be built from the activity feed alone. When the
+  // indexer was behind or unreachable the recipient of a real, funded envelope
+  // saw the empty state and had no control to claim with — the money was
+  // stranded behind a backend that has nothing to do with the claim.
+  // GiftMoney.getReceivedEnvelopes is the source of truth; these pin that the
+  // screen uses it.
+  it("CRITICAL empty feed + on-chain envelope still renders a claimable row", () => {
+    useActivityFeedMock.mockReturnValue({ activities: [] });
+    useReceivedEnvelopesMock.mockReturnValue({
+      rows: [
+        buildActivity({
+          id: "onchain-envelope-84532-77",
+          user_from: ALICE.toLowerCase(),
+          user_to: ME.toLowerCase(),
+          note: "[envelope:77] read from the chain",
+          tx_hash: "onchain-envelope-77",
+        }),
+      ],
+      refresh: vi.fn(),
+    });
+    const { container, getByText } = render(<Gifts />);
+    expect(container.textContent).toContain("read from the chain");
+    expect(container.textContent).not.toContain("No gifts received yet");
+    expect(getByText("Claim")).toBeTruthy();
+  });
+
+  it("does not duplicate an envelope present in both the feed and the chain", () => {
+    useActivityFeedMock.mockReturnValue({
+      activities: [
+        buildActivity({
+          id: "from-feed",
+          note: "[envelope:42] indexed copy",
+        }),
+      ],
+    });
+    useReceivedEnvelopesMock.mockReturnValue({
+      rows: [
+        buildActivity({
+          id: "onchain-envelope-84532-42",
+          note: "[envelope:42] chain copy",
+          tx_hash: "onchain-envelope-42",
+        }),
+      ],
+      refresh: vi.fn(),
+    });
+    const { container } = render(<Gifts />);
+    expect(container.textContent).toContain("indexed copy");
+    expect(container.textContent).not.toContain("chain copy");
+    expect(container.textContent).toContain("1 Gift");
+  });
+
+  it("ignores on-chain rows this user sent to themselves", () => {
+    useActivityFeedMock.mockReturnValue({ activities: [] });
+    useReceivedEnvelopesMock.mockReturnValue({
+      rows: [
+        buildActivity({
+          id: "onchain-envelope-84532-9",
+          user_from: ME.toLowerCase(),
+          user_to: ME.toLowerCase(),
+          note: "[envelope:9] self-send pollution",
+          tx_hash: "onchain-envelope-9",
+        }),
+      ],
+      refresh: vi.fn(),
+    });
+    const { container } = render(<Gifts />);
+    expect(container.textContent).not.toContain("self-send pollution");
+    expect(container.textContent).toContain("No gifts received yet");
+  });
+
+  it("re-reads the chain after a claim so the row flips without the indexer", async () => {
+    const refresh = vi.fn();
+    useActivityFeedMock.mockReturnValue({ activities: [] });
+    useReceivedEnvelopesMock.mockReturnValue({
+      rows: [
+        buildActivity({
+          id: "onchain-envelope-84532-5",
+          note: "[envelope:5] claim me",
+          tx_hash: "onchain-envelope-5",
+        }),
+      ],
+      refresh,
+    });
+    const { getByText } = render(<Gifts />);
+    await act(async () => {
+      fireEvent.click(getByText("Claim"));
+    });
+    expect(claimGiftMock).toHaveBeenCalledWith(5);
+    expect(refresh).toHaveBeenCalled();
+  });
+});
+
 describe("Gifts — envelope-expiry fetch (§15.x)", () => {
   it("CRITICAL visible envelope IDs trigger getEnvelope readContract per id", async () => {
     useActivityFeedMock.mockReturnValue({
@@ -469,5 +571,26 @@ describe("Gifts — no-public-client gate (§15.x)", () => {
       await Promise.resolve();
     });
     expect(r).not.toHaveBeenCalled();
+  });
+});
+
+describe("Gifts — count label (§15.x)", () => {
+  it("says 'Gift' for one and 'Gifts' for two", () => {
+    useActivityFeedMock.mockReturnValue({
+      activities: [buildActivity({ id: "one", note: "[envelope:1] one" })],
+    });
+    const { container, unmount } = render(<Gifts />);
+    expect(container.textContent).toContain("1 Gift");
+    expect(container.textContent).not.toContain("1 Gifts");
+    unmount();
+
+    useActivityFeedMock.mockReturnValue({
+      activities: [
+        buildActivity({ id: "one", note: "[envelope:1] one" }),
+        buildActivity({ id: "two", note: "[envelope:2] two" }),
+      ],
+    });
+    const second = render(<Gifts />);
+    expect(second.container.textContent).toContain("2 Gifts");
   });
 });

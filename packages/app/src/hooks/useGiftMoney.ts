@@ -3,7 +3,7 @@ import { usePublicClient } from "wagmi";
 import { useEffectiveAddress } from "./useEffectiveAddress";
 import { useUnifiedWrite } from "./useUnifiedWrite";
 import { parseUnits } from "viem";
-import { useCofheEncrypt, useCofheConnection } from "@/lib/cofhe-shim";
+import { useCofheEncrypt, useCofheConnection, ENCRYPTION_NOT_READY } from "@/lib/cofhe-shim";
 import { Encryptable } from "@/lib/cofhe-shim";
 import toast from "react-hot-toast";
 import { MAX_UINT64 } from "@/lib/constants";
@@ -166,7 +166,8 @@ export function useGiftMoney() {
       note: string,
       expiryTimestamp: number = 0
     ) => {
-      if (!address || !connected) return;
+      if (!address) return;
+      if (!connected) { toast.error(ENCRYPTION_NOT_READY); return; }
       if (state.isProcessing) return; // Already submitting
       if (shares.length === 0 || shares.length !== recipients.length) {
         toast.error("Shares and recipients must match");
@@ -352,7 +353,11 @@ export function useGiftMoney() {
 
   const claimGift = useCallback(
     async (envelopeId: number) => {
-      if (!address || !connected) return;
+      // No `connected` gate: this call carries no encrypted argument, so it
+      // does not need the CoFHE client. Requiring it made the button a silent
+      // no-op for anyone whose smart account is not deployed yet — which is
+      // exactly the state a brand new recipient is in.
+      if (!address) return;
       if (state.isProcessing) return; // Already submitting
 
       if (!publicClient) {
@@ -429,7 +434,11 @@ export function useGiftMoney() {
 
   const deactivateEnvelope = useCallback(
     async (envelopeId: number) => {
-      if (!address || !connected) return;
+      // No `connected` gate: this call carries no encrypted argument, so it
+      // does not need the CoFHE client. Requiring it made the button a silent
+      // no-op for anyone whose smart account is not deployed yet — which is
+      // exactly the state a brand new recipient is in.
+      if (!address) return;
       if (state.isProcessing) return;
 
       if (!publicClient) {
@@ -508,7 +517,11 @@ export function useGiftMoney() {
 
   const setExpiry = useCallback(
     async (envelopeId: number, expiryTimestamp: number) => {
-      if (!address || !connected) return;
+      // No `connected` gate: this call carries no encrypted argument, so it
+      // does not need the CoFHE client. Requiring it made the button a silent
+      // no-op for anyone whose smart account is not deployed yet — which is
+      // exactly the state a brand new recipient is in.
+      if (!address) return;
       if (state.isProcessing) return;
 
       if (!publicClient) {

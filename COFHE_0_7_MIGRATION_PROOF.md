@@ -212,9 +212,6 @@ Two harness bugs were found and fixed by running it, not by reading it:
    gas price and the largest limit in the sweep, so it sizes itself per chain.
 
 ## What is NOT verified
-- No browser flow has been driven since the migration. The frontend builds, its
-  unit tests pass, and its encrypted arguments were validated against the
-  compiled ABIs, but a real user journey through the UI is a separate proof.
 - Decryption and encrypted-balance reads after users re-sign an ACP. Stored
   permits are dropped by 0.7 (they were signed under retired EIP-712 types), so
   every user signs once more on first use.

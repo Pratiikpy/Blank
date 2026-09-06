@@ -87,7 +87,10 @@ vi.mock("./useEffectiveAddress", () => ({
 }));
 vi.mock("@/providers/ChainProvider", () => ({ useChain: useChainMock }));
 vi.mock("./useUnifiedWrite", () => ({ useUnifiedWrite: useUnifiedWriteMock }));
+const NOT_READY = vi.hoisted(() => "encryption-not-ready");
 vi.mock("@/lib/cofhe-shim", () => ({
+  // Pins "the not-ready message is shown" without pinning the exact copy.
+  ENCRYPTION_NOT_READY: NOT_READY,
   useCofheEncrypt: useCofheEncryptMock,
   useCofheConnection: useCofheConnectionMock,
   useCofheDecryptForView: useCofheDecryptForViewMock,
@@ -255,13 +258,27 @@ describe("useGroupSplit — createGroup (§15.x)", () => {
     expect(unifiedWriteAndWaitMock).toHaveBeenCalledTimes(0);
   });
 
-  it("not connected (cofhe handshake pending) -> early return", async () => {
+  it("CRITICAL creates with the CoFHE handshake still pending", async () => {
+    // createGroup(name, members) carries no encrypted argument. Gating it on
+    // the CoFHE client made it a silent no-op for anyone whose smart account
+    // is not deployed yet, which is every brand new user.
     useCofheConnectionMock.mockReturnValue({ connected: false });
     const { result } = renderHook(() => useGroupSplit());
     await act(async () => {
       await result.current.createGroup("Trip", [ALICE]);
     });
+    expect(unifiedWriteAndWaitMock).toHaveBeenCalledTimes(1);
+    expect(unifiedWriteAndWaitMock.mock.calls[0][0].functionName).toBe("createGroup");
+  });
+
+  it("CRITICAL settleDebt does encrypt, so it refuses AND says why", async () => {
+    useCofheConnectionMock.mockReturnValue({ connected: false });
+    const { result } = renderHook(() => useGroupSplit());
+    await act(async () => {
+      await result.current.settleDebt(1, ALICE, "10");
+    });
     expect(unifiedWriteAndWaitMock).toHaveBeenCalledTimes(0);
+    expect(toastErrorMock).toHaveBeenCalledWith(NOT_READY);
   });
 
   it("no publicClient -> 'Connection lost' toast + no write", async () => {

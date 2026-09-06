@@ -284,9 +284,14 @@ export default function Dashboard() {
                 Your financial privacy is protected with Fully Homomorphic Encryption
               </p>
             </div>
+            {/* The app shell also renders a bell (BlankApp RolesBell), but
+                that one is for ROLES; this one flags a payment received in the
+                last five minutes and jumps to History. Distinct signals, so
+                both stay — `self-start` keeps this one clear of the greeting
+                when the address wraps onto a second line on narrow screens. */}
             <button
               onClick={() => navigate("/app/history")}
-              className="relative w-10 h-10 rounded-full bg-white/60 border border-black/5 flex items-center justify-center hover:bg-white/80 transition-all shrink-0 mt-1"
+              className="relative w-10 h-10 rounded-full bg-white/60 border border-black/5 flex items-center justify-center hover:bg-white/80 transition-all shrink-0 self-start"
               aria-label="Notifications"
             >
               <Bell size={20} className="text-[var(--text-primary)]" />
@@ -316,7 +321,11 @@ export default function Dashboard() {
                   <div className="w-8 h-8 rounded-full bg-emerald-500 text-white flex items-center justify-center text-sm font-bold">1</div>
                   <div className="flex-1">
                     <p className="text-sm font-medium">Get test USDC</p>
-                    <p className="text-xs text-[var(--text-tertiary)]">Tap the faucet button below</p>
+                    <p className="text-xs text-[var(--text-tertiary)]">
+                      {import.meta.env.PROD
+                        ? "Send testnet USDC to your address, or use a public faucet"
+                        : "Tap Get USDC below"}
+                    </p>
                   </div>
                 </div>
                 <div className="flex items-center gap-3 p-3 rounded-xl bg-gray-50 border border-gray-100">
@@ -334,6 +343,20 @@ export default function Dashboard() {
                   </div>
                 </div>
               </div>
+
+              {/* Mobile is a separate return from the desktop layout, so this
+                  card needs its own copy of the faucet button — without it a
+                  new user on a phone was told to tap a button that only
+                  existed in the desktop tree. */}
+              {!import.meta.env.PROD && (
+                <button
+                  onClick={handleFaucetFromDashboard}
+                  disabled={faucetPending}
+                  className="w-full h-11 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-medium transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  {faucetPending ? "Minting…" : "Get USDC"}
+                </button>
+              )}
             </div>
           )}
 
@@ -684,7 +707,11 @@ export default function Dashboard() {
                 <div className="w-8 h-8 rounded-full bg-emerald-500 text-white flex items-center justify-center text-sm font-bold">1</div>
                 <div>
                   <p className="text-sm font-medium">Get test USDC</p>
-                  <p className="text-xs text-[var(--text-tertiary)]">Tap the faucet button below</p>
+                  <p className="text-xs text-[var(--text-tertiary)]">
+                    {import.meta.env.PROD
+                      ? "Send testnet USDC to your address, or use a public faucet"
+                      : "Tap Get USDC below"}
+                  </p>
                 </div>
               </div>
               <div className="flex-1 flex items-center gap-3 p-3 rounded-xl bg-gray-50 border border-gray-100">
@@ -702,6 +729,21 @@ export default function Dashboard() {
                 </div>
               </div>
             </div>
+
+            {/* The faucet a new user is actually told to tap. The other
+                dashboard faucet is gated behind `activities.length > 0`, so
+                someone who just created a wallet — exactly the person this
+                card is for — never saw a button at all and hit a dead end on
+                step 1. Same handler, same PROD gate as Settings. */}
+            {!import.meta.env.PROD && (
+              <button
+                onClick={handleFaucetFromDashboard}
+                disabled={faucetPending}
+                className="w-full h-11 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-medium transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {faucetPending ? "Minting…" : "Get USDC"}
+              </button>
+            )}
           </div>
         )}
 
@@ -1163,7 +1205,7 @@ function BalanceCard({ balance, privacyMode, onTogglePrivacy, hasPermit, onCreat
                 className="text-xl sm:text-2xl font-medium text-[var(--text-primary)]"
                 style={{ fontFamily: "'Outfit', sans-serif" }}
               >
-                {activityCount} transactions
+                {activityCount} {activityCount === 1 ? "transaction" : "transactions"}
               </p>
             </div>
             <div className="rounded-2xl bg-white/50 dark:bg-white/5 border border-black/5 dark:border-white/10 p-4 sm:p-6">

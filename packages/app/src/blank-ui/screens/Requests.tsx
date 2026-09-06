@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useEffectiveAddress } from "@/hooks/useEffectiveAddress";
 import { useNavigate } from "react-router-dom";
 import {
@@ -17,6 +17,7 @@ import {
 import toast from "react-hot-toast";
 import { useRequestPayment } from "@/hooks/useRequestPayment";
 import { fetchIncomingRequests, fetchOutgoingRequests, supabase, type PaymentRequestRow } from "@/lib/supabase";
+import { useOnChainRequests } from "@/hooks/useOnChainRequests";
 import { onCrossTabAction } from "@/lib/cross-tab";
 
 // ---------------------------------------------------------------
@@ -377,9 +378,10 @@ export default function Requests() {
   const { effectiveAddress: address } = useEffectiveAddress();
   const navigate = useNavigate();
   const { cancelRequest } = useRequestPayment();
+  const { incoming: onChainIncoming, refresh: refreshOnChainRequests } = useOnChainRequests();
 
   const [tab, setTab] = useState<"incoming" | "outgoing">("incoming");
-  const [incoming, setIncoming] = useState<PaymentRequestRow[]>([]);
+  const [dbIncoming, setIncoming] = useState<PaymentRequestRow[]>([]);
   const [outgoing, setOutgoing] = useState<PaymentRequestRow[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -402,16 +404,35 @@ export default function Requests() {
     Promise.all([
       fetchIncomingRequests(address.toLowerCase()),
       fetchOutgoingRequests(address.toLowerCase()),
-    ]).then(([inc, out]) => {
-      setIncoming(inc);
-      setOutgoing(out);
-      setLoading(false);
-    });
+    ])
+      .then(([inc, out]) => {
+        setIncoming(inc);
+        setOutgoing(out);
+      })
+      // Without this the skeletons stay up forever on a rejected fetch, which
+      // would hide the chain-sourced requests merged in below.
+      .catch(() => {
+        setIncoming([]);
+        setOutgoing([]);
+      })
+      .finally(() => setLoading(false));
   }, [address]);
 
   useEffect(() => {
     loadRequests();
   }, [loadRequests]);
+
+  // The incoming tab is the actionable one: it is where a payer decides
+  // whether to pay. Loading it from Supabase alone made the indexer a hard
+  // dependency of that decision — a request that existed on chain but had no
+  // row yet showed as an empty inbox, and the requester waited on money that
+  // could not be sent from the UI. PaymentHub.getIncomingRequests fills the
+  // gap. Indexer rows win where both have the request, since they also carry
+  // the payer email.
+  const incoming = useMemo(() => {
+    const known = new Set(dbIncoming.map((r) => r.request_id));
+    return [...dbIncoming, ...onChainIncoming.filter((r) => !known.has(r.request_id))];
+  }, [dbIncoming, onChainIncoming]);
 
   // Audit Top-28 #25: subscribe to payment_requests UPDATE events so the
   // requester sees their list update the moment a payer fulfills, without a
@@ -462,10 +483,12 @@ export default function Requests() {
       setCancellingId(req.request_id);
       await cancelRequest(req.request_id);
       setCancellingId(null);
-      // Refresh the list
+      // Refresh the list. Re-read the chain too, so a cancelled request stops
+      // showing as actionable even when the indexer has not caught up.
       loadRequests();
+      refreshOnChainRequests();
     },
-    [cancelRequest, loadRequests]
+    [cancelRequest, loadRequests, refreshOnChainRequests]
   );
 
   const requests = tab === "incoming" ? incoming : outgoing;

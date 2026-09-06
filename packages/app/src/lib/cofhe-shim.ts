@@ -180,9 +180,17 @@ async function loadSdk(): Promise<boolean> {
         activeChain,
       };
 
+      // No `react` block here. 0.7 ships two different createCofheConfig
+      // functions: the one in `@cofhe/react` accepts `react: {...}` and strips
+      // it before delegating, while the one in `@cofhe/sdk/web` rejects any
+      // unknown key outright. This app aliases "@cofhe/react" to this shim
+      // (see vite.config.ts) and drives the web client directly, so the react
+      // options were never read — and under 0.7 they throw at construction.
+      // The throw is caught below and silently downgrades the app to
+      // "encryption unavailable", which is why this only showed up in a
+      // browser and not in any unit test.
       const config = _sdkModules.createCofheConfig({
         supportedChains: [_sdkModules.activeChain],
-        react: { autogenerateACPs: true },
       });
       _sdkClient = _sdkModules.createCofheClient(config);
 
@@ -191,7 +199,17 @@ async function loadSdk(): Promise<boolean> {
       _notifySdkStateChange();
       return true;
     } catch (err) {
-      log.warn("cofhe-shim.sdk.loadFailed.usingFallback", err instanceof Error ? err : new Error(String(err)));
+      const error = err instanceof Error ? err : new Error(String(err));
+      // A config-validation failure is our bug, not the browser's. Treating it
+      // like a missing-WASM fallback is how a one-word key mistake hid behind
+      // a "usingFallback" warning and took the whole app's encryption down
+      // with nothing louder than a console line. Surface it as an error so it
+      // cannot be mistaken for an environment limitation again.
+      if (/Invalid cofhe configuration|Unrecognized key/i.test(error.message)) {
+        log.error("cofhe-shim.sdk.configInvalid", error);
+      } else {
+        log.warn("cofhe-shim.sdk.loadFailed.usingFallback", error);
+      }
       _sdkFailed = true;
       _notifySdkStateChange();
       return false;
@@ -205,6 +223,19 @@ async function loadSdk(): Promise<boolean> {
 loadSdk();
 
 // ─── useCofheConnection ─────────────────────────────────────────────
+
+/**
+ * Shown when a write that carries an encrypted argument is attempted before
+ * the CoFHE client is bound.
+ *
+ * A passkey user's smart account is counterfactual until their first UserOp,
+ * and the binder will not bind an undeployed account because ERC-1271 needs
+ * on-chain code. Every encrypted write used to `return` silently in that
+ * state, so a brand new user pressed the button and nothing happened at all:
+ * no spinner, no error, no transaction. Say what is wrong and what fixes it.
+ */
+export const ENCRYPTION_NOT_READY =
+  "Encryption isn't ready yet. Make a deposit to finish setting up your wallet, then try again.";
 
 export function useCofheConnection() {
   const { isConnected, chain } = useAccount();

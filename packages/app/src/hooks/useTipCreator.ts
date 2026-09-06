@@ -2,7 +2,7 @@ import { useState, useCallback, useRef } from "react";
 import { usePublicClient } from "wagmi";
 import { useEffectiveAddress } from "./useEffectiveAddress";
 import { parseUnits } from "viem";
-import { useCofheEncrypt, useCofheConnection } from "@/lib/cofhe-shim";
+import { useCofheEncrypt, useCofheConnection, ENCRYPTION_NOT_READY } from "@/lib/cofhe-shim";
 import { Encryptable } from "@/lib/cofhe-shim";
 import toast from "react-hot-toast";
 import { log } from "@/lib/log";
@@ -50,7 +50,8 @@ export function useTipCreator() {
 
   const tip = useCallback(
     async (creator: string, amount: string, message: string) => {
-      if (!address || !connected) return;
+      if (!address) return;
+      if (!connected) { toast.error(ENCRYPTION_NOT_READY); return; }
       if (submittingRef.current) return; // Prevent double-submit (ref-based)
 
       if (!publicClient) {

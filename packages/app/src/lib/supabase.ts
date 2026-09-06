@@ -15,9 +15,68 @@ export function setSupabaseActiveChain(id: number) {
 //  CLIENT
 // ═══════════════════════════════════════════════════════════════════
 
+// ─── Unreachable-host circuit breaker ────────────────────────────────
+//
+// Measured with the indexer host down and two wallets driving a gift flow for
+// five minutes: 446 and 417 console errors per tab, ending in
+// ERR_NO_BUFFER_SPACE and ERR_NETWORK_CHANGED. Roughly a dozen callers poll
+// this client (activity feed, groups, requests, invoices, notifications), each
+// on its own 30s timer, and every one of them retried into a refused socket.
+// Exhausting the browser's socket pool does not just make noise, it starves
+// the RPC and relayer calls that the actual payment depends on.
+//
+// A failure here means the host is unreachable, not that a query was wrong:
+// HTTP errors resolve normally and never trip this. After three consecutive
+// network failures we stop dialling for a minute. Callers already treat a
+// rejected query as "no rows" and useConnectionHealth already surfaces the
+// outage to the user, so nothing downstream changes except the volume.
+const BREAKER_TRIP_AFTER = 3;
+const BREAKER_COOLDOWN_MS = 60_000;
+
+let consecutiveNetworkFailures = 0;
+let breakerOpenUntil = 0;
+
+/** True while the client is deliberately not dialling an unreachable host. */
+export function isSupabaseBackingOff(): boolean {
+  return Date.now() < breakerOpenUntil;
+}
+
+async function breakerFetch(
+  input: RequestInfo | URL,
+  init?: RequestInit,
+): Promise<Response> {
+  if (isSupabaseBackingOff()) {
+    throw new Error("Supabase host unreachable; backing off");
+  }
+  try {
+    const res = await fetch(input, init);
+    consecutiveNetworkFailures = 0;
+    return res;
+  } catch (err) {
+    consecutiveNetworkFailures += 1;
+    if (consecutiveNetworkFailures >= BREAKER_TRIP_AFTER) {
+      breakerOpenUntil = Date.now() + BREAKER_COOLDOWN_MS;
+      consecutiveNetworkFailures = 0;
+      log.warn("supabase.unreachable.backingOff", {
+        cooldownMs: BREAKER_COOLDOWN_MS,
+      });
+    }
+    throw err;
+  }
+}
+
 export const supabase: SupabaseClient | null =
   SUPABASE_URL && SUPABASE_ANON_KEY
-    ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+    ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        global: { fetch: breakerFetch },
+        realtime: {
+          // supabase-js defaults to a 10s retry forever. Same reasoning as
+          // above: back off to 30s so a dead host costs two sockets a minute
+          // instead of six.
+          reconnectAfterMs: (tries: number) =>
+            Math.min(1_000 * 2 ** Math.min(tries, 5), 30_000),
+        },
+      })
     : null;
 
 // Warn if running without Supabase

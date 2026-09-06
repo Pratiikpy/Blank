@@ -63,7 +63,10 @@ vi.mock("wagmi", () => ({ usePublicClient: usePublicClientMock }));
 vi.mock("./useEffectiveAddress", () => ({
   useEffectiveAddress: useEffectiveAddressMock,
 }));
+const NOT_READY = vi.hoisted(() => "encryption-not-ready");
 vi.mock("@/lib/cofhe-shim", () => ({
+  // Pins "the not-ready message is shown" without pinning the exact copy.
+  ENCRYPTION_NOT_READY: NOT_READY,
   useCofheConnection: useCofheConnectionMock,
   useCofheEncrypt: useCofheEncryptMock,
   Encryptable: new Proxy({}, { get: () => (v: unknown) => ({ raw: v }) }),
@@ -187,7 +190,7 @@ describe("useTipCreator — guard rails (§15.x)", () => {
     expect(toastErrorMock).toHaveBeenCalledTimes(0);
   });
 
-  it("cofhe not connected -> early return", async () => {
+  it("CRITICAL cofhe not connected -> no write AND the user is told why", async () => {
     useCofheConnectionMock.mockReturnValue({ connected: false });
     const { result } = renderHook(() => useTipCreator());
     await act(async () => {
@@ -195,6 +198,7 @@ describe("useTipCreator — guard rails (§15.x)", () => {
     });
     expect(encryptInputsAsyncMock).toHaveBeenCalledTimes(0);
     expect(unifiedWriteAndWaitMock).toHaveBeenCalledTimes(0);
+    expect(toastErrorMock).toHaveBeenCalledWith(NOT_READY);
   });
 
   it("publicClient null -> 'Connection lost' toast (no encrypt)", async () => {

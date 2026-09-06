@@ -3,7 +3,7 @@ import { usePublicClient } from "wagmi";
 import { useEffectiveAddress } from "./useEffectiveAddress";
 import { useUnifiedWrite } from "./useUnifiedWrite";
 import { parseUnits } from "viem";
-import { useCofheEncrypt, useCofheConnection } from "@/lib/cofhe-shim";
+import { useCofheEncrypt, useCofheConnection, ENCRYPTION_NOT_READY } from "@/lib/cofhe-shim";
 import { Encryptable } from "@/lib/cofhe-shim";
 import toast from "react-hot-toast";
 import { log } from "@/lib/log";
@@ -63,7 +63,8 @@ export function useRequestPayment() {
   // Supabase stores: from_address = payer, to_address = requester.
   const createRequest = useCallback(
     async (from: string, amount: string, note: string, payerEmail?: string) => {
-      if (!address || !connected) return;
+      if (!address) return;
+      if (!connected) { toast.error(ENCRYPTION_NOT_READY); return; }
       if (step === "encrypting" || step === "sending") return; // Already submitting
 
       if (!publicClient) {
@@ -196,7 +197,8 @@ export function useRequestPayment() {
 
   const fulfillRequest = useCallback(
     async (reqId: number, amount: string, requesterAddress: string) => {
-      if (!address || !connected) return;
+      if (!address) return;
+      if (!connected) { toast.error(ENCRYPTION_NOT_READY); return; }
       if (step === "encrypting" || step === "sending") return; // Already submitting
 
       if (!publicClient) {

@@ -75,7 +75,10 @@ vi.mock("./useEffectiveAddress", () => ({
 }));
 vi.mock("@/providers/ChainProvider", () => ({ useChain: useChainMock }));
 vi.mock("./useUnifiedWrite", () => ({ useUnifiedWrite: useUnifiedWriteMock }));
+const NOT_READY = vi.hoisted(() => "encryption-not-ready");
 vi.mock("@/lib/cofhe-shim", () => ({
+  // Pins "the not-ready message is shown" without pinning the exact copy.
+  ENCRYPTION_NOT_READY: NOT_READY,
   useCofheEncrypt: useCofheEncryptMock,
   useCofheConnection: useCofheConnectionMock,
   Encryptable: new Proxy({}, { get: () => (v: unknown) => ({ raw: v }) }),
@@ -229,13 +232,17 @@ describe("useRequestPayment — createRequest guards (§15.x)", () => {
     expect(toastErrorMock).toHaveBeenCalledTimes(0);
   });
 
-  it("cofhe not connected -> silent early return", async () => {
+  it("CRITICAL cofhe not connected -> no write AND the user is told why", async () => {
+    // Was a silent return. A request carries an encrypted amount so it really
+    // cannot proceed, but pressing the button and getting nothing at all is
+    // indistinguishable from a broken app.
     useCofheConnectionMock.mockReturnValue({ connected: false });
     const { result } = renderHook(() => useRequestPayment());
     await act(async () => {
       await result.current.createRequest(PAYER, "10", "note");
     });
     expect(unifiedWriteAndWaitMock).toHaveBeenCalledTimes(0);
+    expect(toastErrorMock).toHaveBeenCalledWith(NOT_READY);
   });
 
   it("no publicClient -> 'Connection lost' toast", async () => {
