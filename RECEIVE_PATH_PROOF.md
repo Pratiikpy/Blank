@@ -315,6 +315,26 @@ Both fixed: the gate removed from `claimStealth`, and the catch now shows
 - The Ethereum Sepolia feature sweep is still incomplete for the reason
   recorded in `COFHE_0_7_MIGRATION_PROOF.md`: it needs roughly 0.2 ETH and the
   deployer holds 0.025.
+### 6. Both fixed bugs confirmed on all three chains
+
+The paymaster-target fix and the two `!connected`-gate fixes (gift claim,
+stealth claim) are hook-level and chain-agnostic, so the open question was
+whether they actually apply the same way on Arbitrum and Ethereum Sepolia,
+not just Base. Re-ran the two proofs that had real bugs on both:
+
+| Chain | Gift claim | Stealth claim |
+| --- | --- | --- |
+| Base Sepolia | PASS (#52) | PASS (#35) |
+| Arbitrum Sepolia | PASS (#5) | PASS (#4) |
+| Ethereum Sepolia | PASS (#27) | PASS (#8) |
+
+Ethereum Sepolia is not money-blocked for this: the deployer's own wallet
+(0.025 ETH) is what the raw hardhat multi-wallet sweep spends directly, but
+these browser proofs run through the sponsored AA path, and
+`BlankPaymaster`'s EntryPoint deposit there is 0.14 ETH, comparable to Base's
+0.17 and well above Arbitrum's 0.045. The sweep and the browser proofs draw
+from different pools.
+
 - The ERC-5564/6538 stealth-address feature (Settings -> Stealth Meta-Address,
   `/app/stealth/setup` + `/app/stealth/inbox`) is real and reachable, not
   orphaned: `SendConfirm.tsx` auto-routes a normal send through it whenever
