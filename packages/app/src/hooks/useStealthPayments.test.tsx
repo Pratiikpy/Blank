@@ -595,6 +595,24 @@ describe("useStealthPayments — sendStealth (§15.x)", () => {
 // ───────────────────────────────────────────────────────────
 
 describe("useStealthPayments — claimStealth (§15.x)", () => {
+  // Found by driving two real wallets: the recipient's smart account is
+  // undeployed until their first UserOp, so the CoFHE binder never binds and
+  // `connected` stays false. claimCode travels as a plain bytes32 secret
+  // verified by hash comparison, not FHE-encrypted, so claimStealth never
+  // needed the CoFHE client — the old `!connected` gate made Claim a silent
+  // no-op for every first-time recipient.
+  it("CRITICAL claims with the CoFHE client unconnected (undeployed account)", async () => {
+    useCofheConnectionMock.mockReturnValue({ connected: false });
+    const { result } = renderHook(() => useStealthPayments());
+    let r: unknown;
+    await act(async () => {
+      r = await result.current.claimStealth(42, CLAIM_CODE);
+    });
+    expect(r).toBe("0xtxhash");
+    expect(unifiedWriteAndWaitMock).toHaveBeenCalledTimes(1);
+    expect(unifiedWriteAndWaitMock.mock.calls[0][0].functionName).toBe("claimStealth");
+  });
+
   it("no address -> 'Please connect your wallet' + null", async () => {
     useEffectiveAddressMock.mockReturnValue({ effectiveAddress: null });
     const { result } = renderHook(() => useStealthPayments());

@@ -669,7 +669,13 @@ export function useStealthPayments() {
 
   const claimStealth = useCallback(
     async (transferId: number, claimCode: string): Promise<string | null> => {
-      if (!address || !connected) {
+      // No `connected` gate: claimCode travels as a plain bytes32 secret,
+      // verified on-chain by hash comparison, not by FHE encryption — this
+      // call never touches the CoFHE client. Requiring it made Claim a
+      // silent no-op for every first-time recipient, whose smart account is
+      // undeployed and therefore never binds the client. The claim is
+      // itself the UserOp that deploys the account.
+      if (!address) {
         toast.error("Please connect your wallet");
         return null;
       }

@@ -82,7 +82,7 @@ not (client email, PDF CID, reminder state, group admin).
 Checked and **not** affected:
 
 - `/claim/:chainId/:linkId` already reads `ClaimLinks.getLink` from the chain.
-- The stealth inbox already scans ERC-5564 announcements on chain.
+- The stealth *claim-code* inbox (the one actually reachable from `/app/stealth`) already reads via a share link, not the indexer. See §5 below for what that one needed.
 - Inheritance already lets an heir type the owner's address; the claim card
   reads `getPlan(owner)` directly. The "Plans naming you" list is a
   convenience, not the only route.
@@ -253,7 +253,7 @@ Re-runnable: `node packages/app/.views-probe.mjs`.
 
 ```
 app   tsc --noEmit                     0 errors
-app   vitest run                       270 files, 6045 passing
+app   vitest run                       270 files, 6050 passing
 app   check-imports                    boundary check passed
 app   check-voice                      clean, 142 files
 ```
@@ -278,6 +278,30 @@ rewritten rather than deleted, and each now states what the user sees.
 
 ---
 
+### 5. Stealth claim had the same gate bug as gift claim, plus a silent catch
+
+Blank ships two unrelated privacy features under the "Stealth" name:
+`StealthPayments.sol` (claim-code based, plain recipient address, the
+`/app/stealth` screen a user actually reaches) and a separate ERC-5564/6538
+meta-address + announcement scanner at `/app/stealth/setup` and
+`/app/stealth/inbox`. My first pass tested the wrong one, watching for
+`Announcement` events a claim-code send never emits.
+
+Once corrected, the real flow hit the identical bug class fixed earlier for
+gift claim: `claimStealth(transferId, claimCode)` gated on `!connected`.
+`claimCode` is a plain bytes32 secret verified by hash comparison, never
+FHE-encrypted, so the call never needed the CoFHE client. Every first-time
+recipient's smart account is undeployed and never binds it, so Claim was a
+silent no-op there too.
+
+A second bug compounded it: `handleClaimFromInbox`'s catch block swallowed
+any error with zero toast, so a plain RPC 429 (16 of them, measured) made the
+row quietly revert to "new" with nothing distinguishing it from the click not
+registering at all.
+
+Both fixed: the gate removed from `claimStealth`, and the catch now shows
+`err.message`. Re-run PASS: transfer `#35`, inbox status `new` -> `claimed`.
+
 ## What is NOT verified
 
 - Only Base Sepolia was driven through the browser for the receive path.
@@ -291,3 +315,10 @@ rewritten rather than deleted, and each now states what the user sees.
 - The Ethereum Sepolia feature sweep is still incomplete for the reason
   recorded in `COFHE_0_7_MIGRATION_PROOF.md`: it needs roughly 0.2 ETH and the
   deployer holds 0.025.
+- The ERC-5564/6538 stealth-address feature (Settings -> Stealth Meta-Address,
+  `/app/stealth/setup` + `/app/stealth/inbox`) is real and reachable, not
+  orphaned: `SendConfirm.tsx` auto-routes a normal send through it whenever
+  the recipient has a published meta-address. Publishing was confirmed
+  working after the paymaster fix (§3). The send-auto-route -> announce ->
+  scan -> sweep loop was not driven end-to-end as two people; only the
+  claim-code stealth feature (§5) was.

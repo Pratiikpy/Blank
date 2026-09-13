@@ -636,7 +636,13 @@ export default function Stealth() {
           markInboxEntryStatus(address, activeChainId, entry.claimCodeHash, "new");
           setInboxTick((t) => t + 1);
         }
-      } catch {
+      } catch (err) {
+        // Was a silent catch: an RPC hiccup on getMyPendingClaims (a plain
+        // 429, seen in testing) flipped the row back to "new" with nothing
+        // on screen, indistinguishable from the click not registering.
+        toast.error(
+          err instanceof Error ? err.message : "Failed to claim. Please try again.",
+        );
         markInboxEntryStatus(address, activeChainId, entry.claimCodeHash, "new");
         setInboxTick((t) => t + 1);
       }
