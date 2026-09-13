@@ -243,6 +243,21 @@ function humanizeWriteError(err: unknown): string {
   if (s.includes("aa31") || s.includes("paymaster deposit too low")) {
     return "The gas sponsor is out of funds. The Blank team has been notified; please try again in a few minutes.";
   }
+  // The gas sponsor only covers calls to contracts it has approved. A missing
+  // target is permanent, not a blip, and telling someone to "try again in a
+  // moment" sends them round a loop that can never succeed. Publishing a
+  // stealth meta-address failed exactly this way on every chain.
+  if (s.includes("unapproved target") || s.includes("unapproved batch target")) {
+    return "Blank's gas sponsor does not cover this contract yet, so the transaction cannot be sponsored. This will not fix itself; please report it.";
+  }
+  if (s.includes("not whitelisted") || s.includes("unapproved factory")) {
+    return "This wallet is not eligible for sponsored gas. Add ETH to your smart wallet to pay for it yourself, or report this.";
+  }
+  // AA33: the paymaster refused during validation. Retrying is pointless
+  // until whatever it objected to changes.
+  if (s.includes("aa33")) {
+    return "The gas sponsor refused this transaction. It will not succeed on a retry; please report it.";
+  }
   // Generic bare-reason-null fallback. Could be many root causes;
   // suggest retry without claiming knowledge of paymaster funding.
   if (s.includes("entrypoint.handleops failed") && s.includes("reason=null")) {

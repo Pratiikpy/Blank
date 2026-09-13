@@ -996,6 +996,28 @@ describe("useUnifiedWrite — humanizeWriteError mapping (§15.x)", () => {
   it("AA31 / paymaster deposit too low -> 'gas sponsor is out of funds'", () =>
     expectMappedError("AA31 paymaster deposit too low", "gas sponsor is out of funds"));
 
+  // The paymaster only sponsors calls to contracts on its allowlist. A missing
+  // target is permanent: publishing a stealth meta-address hit it on all three
+  // chains and the copy told users to "try again in a moment", which could
+  // never work. These three pin that the copy says so.
+  it("CRITICAL 'unapproved target' -> says it will not fix itself", () =>
+    expectMappedError(
+      "BlankPaymaster: unapproved target",
+      /will not fix itself|report it/i,
+    ));
+
+  it("'unapproved batch target' maps the same way", () =>
+    expectMappedError(
+      "BlankPaymaster: unapproved batch target",
+      /will not fix itself|report it/i,
+    ));
+
+  it("CRITICAL AA33 -> 'will not succeed on a retry', not 'try again'", () =>
+    expectMappedError("AA33 reverted (or OOG)", /will not succeed on a retry/i));
+
+  it("'not whitelisted' -> offers the self-paid route", () =>
+    expectMappedError("BlankPaymaster: not whitelisted", /pay for it yourself/i));
+
   it("EntryPoint reverted with reason=null -> generic retry copy", () =>
     expectMappedError(
       "entrypoint.handleops failed: ... reason=null",

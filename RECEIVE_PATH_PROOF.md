@@ -87,7 +87,45 @@ Checked and **not** affected:
   reads `getPlan(owner)` directly. The "Plans naming you" list is a
   convenience, not the only route.
 
-### 3. A dead indexer starved the payment itself
+### 3. The gas sponsor blocked three whole features
+
+Publishing a stealth meta-address failed on every chain. The screen said "The
+transaction was rejected on-chain with no reason returned. Try again in a
+moment." It would never have succeeded on a retry.
+
+`BlankPaymaster._validatePaymasterUserOp` requires `approvedTargets[target]`.
+A missing target reverts inside validation, so `handleOps` reverts, the relayer
+returns 502, and the reason string is thrown away on the way out. Auditing the
+allowlist against every contract the UI actually calls found **12 unapproved
+targets across the three chains**:
+
+| Target | Chains missing | What it broke |
+| --- | --- | --- |
+| `ERC6538Registry` | all three | nobody could publish a stealth meta-address, so nobody could receive a stealth payment |
+| `ERC5564Announcer` | all three | the announcement side of the same feature |
+| `ProofOfBalance` | all three | proof of balance, for every passkey user |
+| `ClaimLinks` | Arbitrum | send by link |
+| `Storefront` | Arbitrum | storefront purchases |
+| `EncryptedCrowdfund` | Arbitrum | crowdfund contributions |
+
+`wire-paymaster-targets` already existed as an ops task; its list simply never
+grew to include these, and it had not been run on Arbitrum since those three
+deployed. The list now includes them and the task ran on all three chains:
+approved counts went 16 to 19 (Ethereum), 18 to 21 (Base), 15 to 21 (Arbitrum),
+and a re-audit reports **0 unapproved targets**.
+
+Two things made this cost far more than it should have, both now fixed:
+
+- **The relayer discarded the reason.** `handleOps` reverts carry
+  `FailedOp(uint256,string)` or `FailedOpWithRevert(...)`, which is where
+  "AA33 reverted" and the paymaster's own require string live. `/api/relay`
+  reported only ethers' "transaction execution reverted ... reason=null". It
+  now decodes both and returns the reason with `permanent: true`.
+- **The copy told users to retry.** A validation rejection is permanent.
+  Unapproved-target, not-whitelisted and AA33 now each say what happened and
+  that a retry will not help.
+
+### 4. A dead indexer starved the payment itself
 
 With the Supabase host down, five minutes of one gift flow logged **446 and 417
 console errors** across the two tabs, ending in `ERR_NO_BUFFER_SPACE` and
@@ -146,6 +184,10 @@ with Supabase down, so the second person found the thing by reading a contract:
 | invoice pay | `#42` status `pending` to `payment_pending` |
 | group settle | `#47` name "Flatmates", `bobIsMember=true`, settle submitted |
 | request pay | `#36` status `pending` to `fulfilled` |
+| claim link | `#50` bearer, `claimed` false to true, `claimer` is Bob |
+
+The claim link is the one a stranger receives: a public URL, opened by a wallet
+that had never transacted, with no account of any kind on the sender's side.
 
 `payment_pending` is the state `payInvoice` leaves an invoice in: the client's
 funds are held and the vendor finalises. That is the whole of the client's half.
@@ -156,6 +198,7 @@ Re-runnable against a local dev server:
 node packages/app/.receive.mjs        # gift: send and claim
 node packages/app/.invoice-pay.mjs    # invoice: bill and pay
 node packages/app/.group-request.mjs  # group settle + request pay
+node packages/app/.claim-link.mjs     # bearer link: create and claim
 ```
 
 One driver bug, found by running it: the request note field is a `textarea`,

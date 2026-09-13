@@ -54,6 +54,18 @@ const TARGETED_CONTRACTS = [
   "ClaimLinks",
   "Storefront",
   "EncryptedCrowdfund",
+  // Found by driving a second wallet through stealth on Base Sepolia: a
+  // recipient pressing "Publish meta-address" got "rejected on-chain with no
+  // reason returned". The UserOp targets the canonical ERC-6538 Registry,
+  // which was never on this list, so the paymaster reverted in validation and
+  // handleOps reverted with it. No passkey user could publish a meta-address
+  // on any chain, which means nobody could receive a stealth payment at all.
+  // The announcer is the send side of the same feature.
+  "ERC6538Registry",
+  "ERC5564Announcer",
+  // Same class: proof-of-balance writes are a sponsored UserOp and the
+  // contract was never approved on any chain.
+  "ProofOfBalance",
 ];
 
 task(
