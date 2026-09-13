@@ -63,7 +63,10 @@ vi.mock("wagmi", () => ({ usePublicClient: usePublicClientMock }));
 vi.mock("./useEffectiveAddress", () => ({
   useEffectiveAddress: useEffectiveAddressMock,
 }));
+const NOT_READY = vi.hoisted(() => "encryption-not-ready");
 vi.mock("@/lib/cofhe-shim", () => ({
+  // Pins "the not-ready message is shown" without pinning the exact copy.
+  ENCRYPTION_NOT_READY: NOT_READY,
   useCofheConnection: useCofheConnectionMock,
   useCofheEncrypt: useCofheEncryptMock,
   Encryptable: new Proxy({}, { get: () => (v: unknown) => ({ raw: v }) }),
@@ -160,9 +163,7 @@ beforeEach(() => {
     hash: "0xtxhash",
     receipt: { status: "success", blockNumber: 12345n },
   });
-  encryptInputsAsyncMock.mockResolvedValue([
-    { ctHash: 0x42n, securityZone: 0, utype: 5, signature: "0xabc" },
-  ]);
+  encryptInputsAsyncMock.mockResolvedValue(["0xhandle0", "0xbatchproof"]);
 });
 
 // ----- initial state ----- //
@@ -189,7 +190,7 @@ describe("useTipCreator — guard rails (§15.x)", () => {
     expect(toastErrorMock).toHaveBeenCalledTimes(0);
   });
 
-  it("cofhe not connected -> early return", async () => {
+  it("CRITICAL cofhe not connected -> no write AND the user is told why", async () => {
     useCofheConnectionMock.mockReturnValue({ connected: false });
     const { result } = renderHook(() => useTipCreator());
     await act(async () => {
@@ -197,6 +198,7 @@ describe("useTipCreator — guard rails (§15.x)", () => {
     });
     expect(encryptInputsAsyncMock).toHaveBeenCalledTimes(0);
     expect(unifiedWriteAndWaitMock).toHaveBeenCalledTimes(0);
+    expect(toastErrorMock).toHaveBeenCalledWith(NOT_READY);
   });
 
   it("publicClient null -> 'Connection lost' toast (no encrypt)", async () => {
@@ -327,93 +329,30 @@ describe("useTipCreator — first-time approval cache (§15.x)", () => {
 
 // ----- SDK output normalization ----- //
 
-describe("useTipCreator — SDK output normalization (§15.x)", () => {
-  it("top-level shape: ctHash + signature passed through as-is", async () => {
-    encryptInputsAsyncMock.mockResolvedValue([
-      {
-        ctHash: 0x42n,
-        securityZone: 1,
-        utype: 5,
-        signature: "0xtoplevel",
-      },
-    ]);
+describe("useTipCreator — 0.7 encrypted input wiring (§15.x)", () => {
+  it("passes the handle and the batch proof through in order", async () => {
+    // 0.7 returns [handle, ..., batchSignature]. There is no struct to
+    // normalise: what the SDK returns goes on the wire unchanged.
+    encryptInputsAsyncMock.mockResolvedValue(["0xhandle0", "0xbatchproof"]);
     const { result } = renderHook(() => useTipCreator());
     await act(async () => {
       await result.current.tip(CREATOR, "10", "thanks");
     });
     const args = unifiedWriteAndWaitMock.mock.calls[0][0];
-    const encInput = args.args[2] as {
-      ctHash: bigint;
-      securityZone: number;
-      utype: number;
-      signature: string;
-    };
-    expect(encInput.ctHash).toBe(0x42n);
-    expect(encInput.securityZone).toBe(1);
-    expect(encInput.utype).toBe(5);
-    expect(encInput.signature).toBe("0xtoplevel");
+    expect(args.args[2]).toBe("0xhandle0");
+    expect(args.args[3]).toBe("0xbatchproof");
   });
 
-  it("nested .data shape: ctHash + signature lifted from raw.data to top level", async () => {
-    encryptInputsAsyncMock.mockResolvedValue([
-      {
-        // top level intentionally empty
-        data: {
-          ctHash: 0x99n,
-          securityZone: 2,
-          utype: 5,
-          signature: "0xnested",
-        },
-      },
-    ]);
+  it("names CreatorHub as the consuming contract", async () => {
+    // CreatorHub.support runs FHE.asEuint64, so the batch signature is bound
+    // to CreatorHub — not to the vault the funds move through.
     const { result } = renderHook(() => useTipCreator());
     await act(async () => {
       await result.current.tip(CREATOR, "10", "thanks");
     });
-    const args = unifiedWriteAndWaitMock.mock.calls[0][0];
-    const encInput = args.args[2] as {
-      ctHash: bigint;
-      securityZone: number;
-      utype: number;
-      signature: string;
-    };
-    expect(encInput.ctHash).toBe(0x99n);
-    expect(encInput.securityZone).toBe(2);
-    expect(encInput.signature).toBe("0xnested");
-  });
-
-  it("neither path set -> defaults: ctHash=0n, signature='0x', utype=5 (defensive)", async () => {
-    encryptInputsAsyncMock.mockResolvedValue([{}]);
-    const { result } = renderHook(() => useTipCreator());
-    await act(async () => {
-      await result.current.tip(CREATOR, "10", "thanks");
-    });
-    const args = unifiedWriteAndWaitMock.mock.calls[0][0];
-    const encInput = args.args[2] as {
-      ctHash: bigint;
-      securityZone: number;
-      utype: number;
-      signature: string;
-    };
-    expect(encInput.ctHash).toBe(0n);
-    expect(encInput.utype).toBe(5);
-    expect(encInput.signature).toBe("0x");
-  });
-
-  it("encryptInputsAsync called with Encryptable.uint64(parseUnits(amount, 6))", async () => {
-    const { result } = renderHook(() => useTipCreator());
-    await act(async () => {
-      await result.current.tip(CREATOR, "1.5", "thanks");
-    });
-    expect(encryptInputsAsyncMock).toHaveBeenCalledTimes(1);
-    const arr = encryptInputsAsyncMock.mock.calls[0][0] as Array<{ raw: bigint }>;
-    expect(arr).toHaveLength(1);
-    // parseUnits("1.5", 6) === 1_500_000n
-    expect(arr[0].raw).toBe(1_500_000n);
+    expect(encryptInputsAsyncMock.mock.calls[0][1]).toBe(HUB);
   });
 });
-
-// ----- support call ----- //
 
 describe("useTipCreator — CreatorHub.support call (§15.x)", () => {
   it("calls support with (creator, vault, encAmount, message)", async () => {
@@ -427,7 +366,7 @@ describe("useTipCreator — CreatorHub.support call (§15.x)", () => {
     expect(args.functionName).toBe("support");
     expect(args.args[0]).toBe(CREATOR);
     expect(args.args[1]).toBe(VAULT);
-    expect(args.args[3]).toBe("great work");
+    expect(args.args[4]).toBe("great work");
   });
 
   it("passes manual gas limit (FHE precompile breaks estimation)", async () => {

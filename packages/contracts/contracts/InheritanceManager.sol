@@ -7,8 +7,8 @@ import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "./utils/ReentrancyGuard.sol";
 
 interface IFHERC20Vault {
-    function transferFrom(address from, address to, InEuint64 memory encAmount) external returns (euint64);
-    function transferFromVerified(address from, address to, euint64 amount) external returns (euint64);
+    function transferFrom(address from, address to, externalEuint64 encAmount, bytes calldata proof) external returns (euint64);
+    function transferFromVerified(address from, address to, sharedEuint64 shared) external returns (sharedEuint64);
 }
 
 interface IEventHub {
@@ -189,7 +189,11 @@ contract InheritanceManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
     ///
     /// @param owner_ The address of the plan owner whose funds are being claimed
     /// @param encAmounts Encrypted amounts to transfer from each vault (one per vault in plan.vaults)
-    function finalizeClaim(address owner_, InEuint64[] memory encAmounts) external nonReentrant {
+    function finalizeClaim(
+        address owner_,
+        externalEuint64[] calldata encAmounts,
+        bytes calldata proof
+    ) external nonReentrant {
         // #185 mutex: first heir wins cleanly; any subsequent call (including a
         // racing second heir or a replay of the original) gets this specific
         // revert instead of a generic "no plan" error or a silent no-op.
@@ -226,15 +230,21 @@ contract InheritanceManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
         // would otherwise be stuck since the owner is presumed inactive
         // and can't call setVaults to remove the bad entry. Emits
         // ClaimVaultSkipped per failure so off-chain monitors can alert.
-        for (uint256 i = 0; i < plan.vaults.length; i++) {
-            // Verify encrypted input here (msg.sender = heir) before cross-contract call
-            euint64 verifiedAmount = FHE.asEuint64(encAmounts[i]);
-            FHE.allowTransient(verifiedAmount, plan.vaults[i]);
+        // One batch signature covers every per-vault amount in the claim.
+        euint64[] memory verifiedAmounts = FHE.asEuint64s(encAmounts, proof);
 
+        for (uint256 i = 0; i < plan.vaults.length; i++) {
             IFHERC20Vault vault = IFHERC20Vault(plan.vaults[i]);
             // vault.transferFromVerified checks both balance AND allowance via FHE.select
             // Returns the actual encrypted amount transferred (zero if insufficient)
-            try vault.transferFromVerified(owner_, plan.heir, verifiedAmount) returns (euint64 transferred) {
+            try vault.transferFromVerified(
+                owner_,
+                plan.heir,
+                FHE.shareEuint64(verifiedAmounts[i], plan.vaults[i])
+            ) returns (sharedEuint64 shared) {
+                // try/catch is the same call edge, so the callee named here is
+                // the vault we just called.
+                euint64 transferred = FHE.receiveEuint64FromCall(shared, plan.vaults[i]);
                 // Grant the heir permission to read the transferred amount handle
                 FHE.allowTransient(transferred, plan.heir);
             } catch {

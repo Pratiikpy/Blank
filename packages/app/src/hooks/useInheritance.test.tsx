@@ -70,6 +70,13 @@ vi.mock("wagmi", () => ({
 vi.mock("./useEffectiveAddress", () => ({
   useEffectiveAddress: useEffectiveAddressMock,
 }));
+// finalizeClaim now encrypts explicitly (0.7 removed the ABI auto-encrypt
+// path), so the shim has to be mocked here or it pulls in real wagmi hooks.
+const encryptInputsAsyncMock = vi.fn();
+vi.mock("@/lib/cofhe-shim", () => ({
+  useCofheEncrypt: () => ({ encryptInputsAsync: encryptInputsAsyncMock }),
+  Encryptable: { uint64: (raw: bigint) => ({ raw }) },
+}));
 vi.mock("@/providers/ChainProvider", () => ({ useChain: useChainMock }));
 vi.mock("./useUnifiedWrite", () => ({ useUnifiedWrite: useUnifiedWriteMock }));
 vi.mock("@/lib/abis", () => ({ InheritanceManagerAbi: [] }));
@@ -119,6 +126,9 @@ function planTuple(over: Partial<{
 }
 
 beforeEach(() => {
+  encryptInputsAsyncMock.mockReset();
+  // 0.7: one handle per vault, then a single batch signature.
+  encryptInputsAsyncMock.mockResolvedValue(["0xhandle0", "0xbatchproof"]);
   useEffectiveAddressMock.mockReset();
   useChainMock.mockReset();
   usePublicClientMock.mockReset();
@@ -650,26 +660,37 @@ describe("useInheritance — finalizeClaim (§15.x)", () => {
     expect(unifiedWriteMock).toHaveBeenCalledTimes(0);
   });
 
-  it("vaultCount=1 -> finalizeClaim called with [MAX_UINT64] (length 1)", async () => {
+  it("vaultCount=1 -> encrypts one MAX_UINT64 and sends one handle + proof", async () => {
+    encryptInputsAsyncMock.mockResolvedValue(["0xh0", "0xbatchproof"]);
     const { result } = renderHook(() => useInheritance());
     await act(async () => {
       await result.current.finalizeClaim(OWNER, 1);
     });
+    // the plaintext that got encrypted
+    const items = encryptInputsAsyncMock.mock.calls[0][0] as Array<{ raw: bigint }>;
+    expect(items).toHaveLength(1);
+    expect(items[0].raw).toBe(BigInt("18446744073709551615")); // MAX_UINT64
+
     const call = unifiedWriteMock.mock.calls[0][0];
     expect(call.functionName).toBe("finalizeClaim");
     expect(call.args[0]).toBe(OWNER);
-    expect(call.args[1]).toHaveLength(1);
-    expect(call.args[1][0]).toBe(BigInt("18446744073709551615")); // MAX_UINT64
+    expect(call.args[1]).toEqual(["0xh0"]);
+    expect(call.args[2]).toBe("0xbatchproof");
   });
 
-  it("vaultCount=3 -> array of THREE MAX_UINT64 values", async () => {
+  it("vaultCount=3 -> THREE encrypted MAX_UINT64 handles under ONE batch proof", async () => {
+    encryptInputsAsyncMock.mockResolvedValue(["0xh0", "0xh1", "0xh2", "0xbatchproof"]);
     const { result } = renderHook(() => useInheritance());
     await act(async () => {
       await result.current.finalizeClaim(OWNER, 3);
     });
-    const arr = unifiedWriteMock.mock.calls[0][0].args[1] as bigint[];
-    expect(arr).toHaveLength(3);
-    expect(arr.every((v) => v === BigInt("18446744073709551615"))).toBe(true);
+    const items = encryptInputsAsyncMock.mock.calls[0][0] as Array<{ raw: bigint }>;
+    expect(items).toHaveLength(3);
+    expect(items.every((v) => v.raw === BigInt("18446744073709551615"))).toBe(true);
+
+    const call = unifiedWriteMock.mock.calls[0][0];
+    expect(call.args[1]).toEqual(["0xh0", "0xh1", "0xh2"]);
+    expect(call.args[2]).toBe("0xbatchproof");
   });
 
   it("DUAL-ROW: heir's own row + owner's notification row", async () => {

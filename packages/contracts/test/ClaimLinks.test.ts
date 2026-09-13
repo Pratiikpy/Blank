@@ -102,10 +102,9 @@ async function deployFixture() {
   return { owner, alice, bob, charlie, client, testUSDC, vault, claimLinks };
 }
 
-async function encAmount(client: any, signer: any, amount: bigint) {
+async function encAmount(client: any, signer: any, amount: bigint, consuming: string) {
   await hre.cofhe.connectWithHardhatSigner(client, signer);
-  const [enc] = await client.encryptInputs([Encryptable.uint64(amount)]).execute();
-  return enc;
+  return await client.encryptInputs([Encryptable.uint64(amount)]).setConsumingContract(consuming).execute();
 }
 
 describe("ClaimLinks", () => {
@@ -113,11 +112,11 @@ describe("ClaimLinks", () => {
     it("creates and claims a bearer link", async () => {
       const ctx = await loadFixture(deployFixture);
       const secret = newSecret();
-      const enc = await encAmount(ctx.client, ctx.alice, usdc(50));
+      const enc = await encAmount(ctx.client, ctx.alice, usdc(50), await ctx.claimLinks.getAddress());
 
       await ctx.claimLinks.connect(ctx.alice).createLink(
         await ctx.vault.getAddress(),
-        enc,
+        ...enc,
         bearerHash(secret),
         MODE_BEARER,
         hre.ethers.ZeroAddress,
@@ -135,11 +134,11 @@ describe("ClaimLinks", () => {
     it("rejects a wrong secret", async () => {
       const ctx = await loadFixture(deployFixture);
       const secret = newSecret();
-      const enc = await encAmount(ctx.client, ctx.alice, usdc(20));
+      const enc = await encAmount(ctx.client, ctx.alice, usdc(20), await ctx.claimLinks.getAddress());
 
       await ctx.claimLinks.connect(ctx.alice).createLink(
         await ctx.vault.getAddress(),
-        enc,
+        ...enc,
         bearerHash(secret),
         MODE_BEARER,
         hre.ethers.ZeroAddress,
@@ -155,11 +154,11 @@ describe("ClaimLinks", () => {
     it("cannot be claimed twice", async () => {
       const ctx = await loadFixture(deployFixture);
       const secret = newSecret();
-      const enc = await encAmount(ctx.client, ctx.alice, usdc(10));
+      const enc = await encAmount(ctx.client, ctx.alice, usdc(10), await ctx.claimLinks.getAddress());
 
       await ctx.claimLinks.connect(ctx.alice).createLink(
         await ctx.vault.getAddress(),
-        enc,
+        ...enc,
         bearerHash(secret),
         MODE_BEARER,
         hre.ethers.ZeroAddress,
@@ -179,11 +178,11 @@ describe("ClaimLinks", () => {
       const ctx = await loadFixture(deployFixture);
       const secret = newSecret();
       const email = "bob@example.com";
-      const enc = await encAmount(ctx.client, ctx.alice, usdc(30));
+      const enc = await encAmount(ctx.client, ctx.alice, usdc(30), await ctx.claimLinks.getAddress());
 
       await ctx.claimLinks.connect(ctx.alice).createLink(
         await ctx.vault.getAddress(),
-        enc,
+        ...enc,
         emailHash(secret, email),
         MODE_EMAIL,
         hre.ethers.ZeroAddress,
@@ -201,11 +200,11 @@ describe("ClaimLinks", () => {
     it("rejects a wrong email", async () => {
       const ctx = await loadFixture(deployFixture);
       const secret = newSecret();
-      const enc = await encAmount(ctx.client, ctx.alice, usdc(15));
+      const enc = await encAmount(ctx.client, ctx.alice, usdc(15), await ctx.claimLinks.getAddress());
 
       await ctx.claimLinks.connect(ctx.alice).createLink(
         await ctx.vault.getAddress(),
-        enc,
+        ...enc,
         emailHash(secret, "bob@example.com"),
         MODE_EMAIL,
         hre.ethers.ZeroAddress,
@@ -224,11 +223,11 @@ describe("ClaimLinks", () => {
     it("only the bound address can claim", async () => {
       const ctx = await loadFixture(deployFixture);
       const secret = newSecret();
-      const enc = await encAmount(ctx.client, ctx.alice, usdc(40));
+      const enc = await encAmount(ctx.client, ctx.alice, usdc(40), await ctx.claimLinks.getAddress());
 
       await ctx.claimLinks.connect(ctx.alice).createLink(
         await ctx.vault.getAddress(),
-        enc,
+        ...enc,
         addressHash(secret),
         MODE_ADDRESS,
         ctx.bob.address,
@@ -252,14 +251,14 @@ describe("ClaimLinks", () => {
     it("sender refunds after expiry", async () => {
       const ctx = await loadFixture(deployFixture);
       const secret = newSecret();
-      const enc = await encAmount(ctx.client, ctx.alice, usdc(25));
+      const enc = await encAmount(ctx.client, ctx.alice, usdc(25), await ctx.claimLinks.getAddress());
 
       const aliceBefore = await ctx.vault.balanceOf(ctx.alice.address);
       await mock_expectPlaintext(ctx.alice.provider, aliceBefore, usdc(1_000));
 
       await ctx.claimLinks.connect(ctx.alice).createLink(
         await ctx.vault.getAddress(),
-        enc,
+        ...enc,
         bearerHash(secret),
         MODE_BEARER,
         hre.ethers.ZeroAddress,
@@ -285,11 +284,11 @@ describe("ClaimLinks", () => {
     it("non-sender cannot refund", async () => {
       const ctx = await loadFixture(deployFixture);
       const secret = newSecret();
-      const enc = await encAmount(ctx.client, ctx.alice, usdc(5));
+      const enc = await encAmount(ctx.client, ctx.alice, usdc(5), await ctx.claimLinks.getAddress());
 
       await ctx.claimLinks.connect(ctx.alice).createLink(
         await ctx.vault.getAddress(),
-        enc,
+        ...enc,
         bearerHash(secret),
         MODE_BEARER,
         hre.ethers.ZeroAddress,
@@ -306,11 +305,11 @@ describe("ClaimLinks", () => {
     it("cannot refund a claimed link", async () => {
       const ctx = await loadFixture(deployFixture);
       const secret = newSecret();
-      const enc = await encAmount(ctx.client, ctx.alice, usdc(8));
+      const enc = await encAmount(ctx.client, ctx.alice, usdc(8), await ctx.claimLinks.getAddress());
 
       await ctx.claimLinks.connect(ctx.alice).createLink(
         await ctx.vault.getAddress(),
-        enc,
+        ...enc,
         bearerHash(secret),
         MODE_BEARER,
         hre.ethers.ZeroAddress,
@@ -330,11 +329,11 @@ describe("ClaimLinks", () => {
     it("cannot refund twice", async () => {
       const ctx = await loadFixture(deployFixture);
       const secret = newSecret();
-      const enc = await encAmount(ctx.client, ctx.alice, usdc(3));
+      const enc = await encAmount(ctx.client, ctx.alice, usdc(3), await ctx.claimLinks.getAddress());
 
       await ctx.claimLinks.connect(ctx.alice).createLink(
         await ctx.vault.getAddress(),
-        enc,
+        ...enc,
         bearerHash(secret),
         MODE_BEARER,
         hre.ethers.ZeroAddress,
@@ -354,11 +353,11 @@ describe("ClaimLinks", () => {
     it("cannot claim a refunded link", async () => {
       const ctx = await loadFixture(deployFixture);
       const secret = newSecret();
-      const enc = await encAmount(ctx.client, ctx.alice, usdc(4));
+      const enc = await encAmount(ctx.client, ctx.alice, usdc(4), await ctx.claimLinks.getAddress());
 
       await ctx.claimLinks.connect(ctx.alice).createLink(
         await ctx.vault.getAddress(),
-        enc,
+        ...enc,
         bearerHash(secret),
         MODE_BEARER,
         hre.ethers.ZeroAddress,
@@ -382,11 +381,11 @@ describe("ClaimLinks", () => {
       const ctx = await loadFixture(deployFixture);
       const secret = newSecret();
       const email = "alice@example.com";
-      const enc = await encAmount(ctx.client, ctx.alice, usdc(2));
+      const enc = await encAmount(ctx.client, ctx.alice, usdc(2), await ctx.claimLinks.getAddress());
 
       await ctx.claimLinks.connect(ctx.alice).createLink(
         await ctx.vault.getAddress(),
-        enc,
+        ...enc,
         emailHash(secret, email),
         MODE_EMAIL,
         hre.ethers.ZeroAddress,
@@ -402,11 +401,11 @@ describe("ClaimLinks", () => {
     it("rejects claimEmailBound on a Bearer link", async () => {
       const ctx = await loadFixture(deployFixture);
       const secret = newSecret();
-      const enc = await encAmount(ctx.client, ctx.alice, usdc(2));
+      const enc = await encAmount(ctx.client, ctx.alice, usdc(2), await ctx.claimLinks.getAddress());
 
       await ctx.claimLinks.connect(ctx.alice).createLink(
         await ctx.vault.getAddress(),
-        enc,
+        ...enc,
         bearerHash(secret),
         MODE_BEARER,
         hre.ethers.ZeroAddress,
@@ -423,11 +422,11 @@ describe("ClaimLinks", () => {
     it("rejects claimAddressBound on a Bearer link", async () => {
       const ctx = await loadFixture(deployFixture);
       const secret = newSecret();
-      const enc = await encAmount(ctx.client, ctx.alice, usdc(2));
+      const enc = await encAmount(ctx.client, ctx.alice, usdc(2), await ctx.claimLinks.getAddress());
 
       await ctx.claimLinks.connect(ctx.alice).createLink(
         await ctx.vault.getAddress(),
-        enc,
+        ...enc,
         bearerHash(secret),
         MODE_BEARER,
         hre.ethers.ZeroAddress,
@@ -454,10 +453,10 @@ describe("ClaimLinks", () => {
     it("Bearer: sender cannot claim their own link", async () => {
       const ctx = await loadFixture(deployFixture);
       const secret = newSecret();
-      const enc = await encAmount(ctx.client, ctx.alice, usdc(7));
+      const enc = await encAmount(ctx.client, ctx.alice, usdc(7), await ctx.claimLinks.getAddress());
       await ctx.claimLinks.connect(ctx.alice).createLink(
         await ctx.vault.getAddress(),
-        enc,
+        ...enc,
         bearerHash(secret),
         MODE_BEARER,
         hre.ethers.ZeroAddress,
@@ -477,12 +476,12 @@ describe("ClaimLinks", () => {
     it("AddressBound: sender cannot claim even when boundAddress=self", async () => {
       const ctx = await loadFixture(deployFixture);
       const secret = newSecret();
-      const enc = await encAmount(ctx.client, ctx.alice, usdc(7));
+      const enc = await encAmount(ctx.client, ctx.alice, usdc(7), await ctx.claimLinks.getAddress());
       // Alice creates an AddressBound link to herself — the most
       // direct attack shape.
       await ctx.claimLinks.connect(ctx.alice).createLink(
         await ctx.vault.getAddress(),
-        enc,
+        ...enc,
         addressHash(secret),
         MODE_ADDRESS,
         ctx.alice.address,
@@ -499,11 +498,11 @@ describe("ClaimLinks", () => {
     it("rejects claim after expiry", async () => {
       const ctx = await loadFixture(deployFixture);
       const secret = newSecret();
-      const enc = await encAmount(ctx.client, ctx.alice, usdc(7));
+      const enc = await encAmount(ctx.client, ctx.alice, usdc(7), await ctx.claimLinks.getAddress());
 
       await ctx.claimLinks.connect(ctx.alice).createLink(
         await ctx.vault.getAddress(),
-        enc,
+        ...enc,
         bearerHash(secret),
         MODE_BEARER,
         hre.ethers.ZeroAddress,
@@ -521,13 +520,13 @@ describe("ClaimLinks", () => {
     it("rejects expirySeconds > 365 days", async () => {
       const ctx = await loadFixture(deployFixture);
       const secret = newSecret();
-      const enc = await encAmount(ctx.client, ctx.alice, usdc(1));
+      const enc = await encAmount(ctx.client, ctx.alice, usdc(1), await ctx.claimLinks.getAddress());
 
       const oneYearOneSec = 365 * 24 * 3600 + 1;
       await expect(
         ctx.claimLinks.connect(ctx.alice).createLink(
           await ctx.vault.getAddress(),
-          enc,
+          ...enc,
           bearerHash(secret),
           MODE_BEARER,
           hre.ethers.ZeroAddress,
@@ -540,12 +539,12 @@ describe("ClaimLinks", () => {
     it("accepts expirySeconds == MAX_EXPIRY_SECONDS (365 days)", async () => {
       const ctx = await loadFixture(deployFixture);
       const secret = newSecret();
-      const enc = await encAmount(ctx.client, ctx.alice, usdc(1));
+      const enc = await encAmount(ctx.client, ctx.alice, usdc(1), await ctx.claimLinks.getAddress());
 
       const exactlyOneYear = 365 * 24 * 3600;
       await ctx.claimLinks.connect(ctx.alice).createLink(
         await ctx.vault.getAddress(),
-        enc,
+        ...enc,
         bearerHash(secret),
         MODE_BEARER,
         hre.ethers.ZeroAddress,
@@ -558,11 +557,11 @@ describe("ClaimLinks", () => {
     it("accepts expirySeconds == 0 (uses default)", async () => {
       const ctx = await loadFixture(deployFixture);
       const secret = newSecret();
-      const enc = await encAmount(ctx.client, ctx.alice, usdc(1));
+      const enc = await encAmount(ctx.client, ctx.alice, usdc(1), await ctx.claimLinks.getAddress());
 
       await ctx.claimLinks.connect(ctx.alice).createLink(
         await ctx.vault.getAddress(),
-        enc,
+        ...enc,
         bearerHash(secret),
         MODE_BEARER,
         hre.ethers.ZeroAddress,
@@ -617,12 +616,12 @@ describe("ClaimLinks", () => {
     it("emits LinkCreated on createLink with the assigned linkId", async () => {
       const ctx = await loadFixture(deployFixture);
       const secret = newSecret();
-      const enc = await encAmount(ctx.client, ctx.alice, usdc(11));
+      const enc = await encAmount(ctx.client, ctx.alice, usdc(11), await ctx.claimLinks.getAddress());
 
       await expect(
         ctx.claimLinks.connect(ctx.alice).createLink(
           await ctx.vault.getAddress(),
-          enc,
+          ...enc,
           bearerHash(secret),
           MODE_BEARER,
           hre.ethers.ZeroAddress,
@@ -635,11 +634,11 @@ describe("ClaimLinks", () => {
     it("emits LinkClaimed on claim with linkId + claimer", async () => {
       const ctx = await loadFixture(deployFixture);
       const secret = newSecret();
-      const enc = await encAmount(ctx.client, ctx.alice, usdc(12));
+      const enc = await encAmount(ctx.client, ctx.alice, usdc(12), await ctx.claimLinks.getAddress());
 
       await ctx.claimLinks.connect(ctx.alice).createLink(
         await ctx.vault.getAddress(),
-        enc,
+        ...enc,
         bearerHash(secret),
         MODE_BEARER,
         hre.ethers.ZeroAddress,
@@ -654,11 +653,11 @@ describe("ClaimLinks", () => {
     it("emits LinkRefunded on refund with linkId + sender", async () => {
       const ctx = await loadFixture(deployFixture);
       const secret = newSecret();
-      const enc = await encAmount(ctx.client, ctx.alice, usdc(13));
+      const enc = await encAmount(ctx.client, ctx.alice, usdc(13), await ctx.claimLinks.getAddress());
 
       await ctx.claimLinks.connect(ctx.alice).createLink(
         await ctx.vault.getAddress(),
-        enc,
+        ...enc,
         bearerHash(secret),
         MODE_BEARER,
         hre.ethers.ZeroAddress,

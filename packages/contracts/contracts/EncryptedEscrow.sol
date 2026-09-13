@@ -9,8 +9,8 @@ import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import {IConditionResolver} from "./interfaces/IConditionResolver.sol";
 
 interface IFHERC20Vault {
-    function transferFromVerified(address from, address to, euint64 amount) external returns (euint64);
-    function transferVerified(address to, euint64 amount) external returns (euint64);
+    function transferFromVerified(address from, address to, sharedEuint64 shared) external returns (sharedEuint64);
+    function transferVerified(address to, sharedEuint64 shared) external returns (sharedEuint64);
 }
 
 interface IEventHub {
@@ -18,8 +18,8 @@ interface IEventHub {
 }
 
 interface IPaymentReceipts {
-    function bumpUserReceived(address user, euint64 amount) external;
-    function bumpGlobal(euint64 amount) external;
+    function bumpUserReceived(address user, sharedEuint64 shared) external;
+    function bumpGlobal(sharedEuint64 shared) external;
 }
 
 /// @title EncryptedEscrow — fully-encrypted 2-of-2 escrow with optional arbiter.
@@ -108,7 +108,7 @@ contract EncryptedEscrow is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
     function createEscrow(
         address beneficiary,
         address vault,
-        InEuint64 calldata encAmount,
+        externalEuint64 encAmount, bytes calldata proof,
         string calldata description,
         address arbiter,
         uint256 deadline
@@ -129,11 +129,13 @@ contract EncryptedEscrow is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
         require(arbiter != beneficiary, "EncryptedEscrow: arbiter == beneficiary");
 
         // Verify the encrypted input under depositor's signer.
-        euint64 verified = FHE.asEuint64(encAmount);
-        FHE.allowTransient(verified, vault);
+        euint64 verified = FHE.asEuint64(encAmount, proof);
 
         // Pull funds: depositor → this contract.
-        euint64 locked = IFHERC20Vault(vault).transferFromVerified(msg.sender, address(this), verified);
+        euint64 locked = FHE.receiveEuint64FromCall(
+            IFHERC20Vault(vault).transferFromVerified(msg.sender, address(this), FHE.shareEuint64(verified, vault)),
+            vault
+        );
         FHE.allowThis(locked);
         FHE.allowSender(locked);
         FHE.allow(locked, beneficiary);
@@ -180,7 +182,7 @@ contract EncryptedEscrow is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
     function createConditionalEscrow(
         address beneficiary,
         address vault,
-        InEuint64 calldata encAmount,
+        externalEuint64 encAmount, bytes calldata proof,
         string calldata description,
         address resolver,
         bytes calldata resolverData,
@@ -197,9 +199,11 @@ contract EncryptedEscrow is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
         require(bytes(description).length <= 512, "EncryptedEscrow: description too long");
 
         // Verify the encrypted input under depositor's signer, then pull funds.
-        euint64 verified = FHE.asEuint64(encAmount);
-        FHE.allowTransient(verified, vault);
-        euint64 locked = IFHERC20Vault(vault).transferFromVerified(msg.sender, address(this), verified);
+        euint64 verified = FHE.asEuint64(encAmount, proof);
+        euint64 locked = FHE.receiveEuint64FromCall(
+            IFHERC20Vault(vault).transferFromVerified(msg.sender, address(this), FHE.shareEuint64(verified, vault)),
+            vault
+        );
         FHE.allowThis(locked);
         FHE.allowSender(locked);
         FHE.allow(locked, beneficiary);
@@ -300,8 +304,10 @@ contract EncryptedEscrow is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
         address recipient = releaseToBeneficiary ? e.beneficiary : e.depositor;
         e.status = EscrowStatus.Released;
 
-        FHE.allowTransient(e.encAmount, e.vault);
-        euint64 paid = IFHERC20Vault(e.vault).transferVerified(recipient, e.encAmount);
+        euint64 paid = FHE.receiveEuint64FromCall(
+            IFHERC20Vault(e.vault).transferVerified(recipient, FHE.shareEuint64(e.encAmount, e.vault)),
+            e.vault
+        );
         FHE.allowThis(paid);
         FHE.allow(paid, recipient);
 
@@ -326,8 +332,7 @@ contract EncryptedEscrow is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
 
         e.status = EscrowStatus.Refunded;
 
-        FHE.allowTransient(e.encAmount, e.vault);
-        IFHERC20Vault(e.vault).transferVerified(msg.sender, e.encAmount);
+        IFHERC20Vault(e.vault).transferVerified(msg.sender, FHE.shareEuint64(e.encAmount, e.vault));
 
         emit EscrowExpiryClaimed(escrowId, msg.sender);
         try eventHub.emitActivity(msg.sender, address(0), "escrow_expired_claimed", e.description, escrowId) {} catch {}
@@ -339,8 +344,10 @@ contract EncryptedEscrow is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
         Escrow storage e = _escrows[escrowId];
         e.status = EscrowStatus.Released;
 
-        FHE.allowTransient(e.encAmount, e.vault);
-        euint64 paid = IFHERC20Vault(e.vault).transferVerified(e.beneficiary, e.encAmount);
+        euint64 paid = FHE.receiveEuint64FromCall(
+            IFHERC20Vault(e.vault).transferVerified(e.beneficiary, FHE.shareEuint64(e.encAmount, e.vault)),
+            e.vault
+        );
         FHE.allowThis(paid);
         FHE.allow(paid, e.beneficiary);
 
@@ -394,13 +401,11 @@ contract EncryptedEscrow is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
 
     function _bumpReceiptsAndGlobal(address recipient, euint64 amount) internal {
         if (paymentReceipts == address(0)) return;
-        FHE.allowTransient(amount, paymentReceipts);
         // §2.6 of BEST_VERSION_FULL_PLAN: surface receipt-bump failures.
-        try IPaymentReceipts(paymentReceipts).bumpUserReceived(recipient, amount) {} catch (bytes memory reason) {
+        try IPaymentReceipts(paymentReceipts).bumpUserReceived(recipient, FHE.shareEuint64(amount, paymentReceipts)) {} catch (bytes memory reason) {
             emit ReceiptsBumpFailed("user", reason);
         }
-        FHE.allowTransient(amount, paymentReceipts);
-        try IPaymentReceipts(paymentReceipts).bumpGlobal(amount) {} catch (bytes memory reason) {
+        try IPaymentReceipts(paymentReceipts).bumpGlobal(FHE.shareEuint64(amount, paymentReceipts)) {} catch (bytes memory reason) {
             emit ReceiptsBumpFailed("global", reason);
         }
     }

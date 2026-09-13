@@ -62,20 +62,19 @@ async function deployFixture() {
   return { owner, alice, bob, charlie, client, vault, escrow, resolver };
 }
 
-async function encUint64(client: any, signer: any, amount: bigint) {
+async function encUint64(client: any, signer: any, amount: bigint, consuming: string) {
   await hre.cofhe.connectWithHardhatSigner(client, signer);
-  const [enc] = await client.encryptInputs([Encryptable.uint64(amount)]).execute();
-  return enc;
+  return await client.encryptInputs([Encryptable.uint64(amount)]).setConsumingContract(consuming).execute();
 }
 
 describe("EncryptedEscrow", () => {
   it("creates an encrypted escrow", async () => {
     const ctx = await loadFixture(deployFixture);
-    const enc = await encUint64(ctx.client, ctx.alice, usdc(50));
+    const enc = await encUint64(ctx.client, ctx.alice, usdc(50), await ctx.escrow.getAddress());
     await ctx.escrow.connect(ctx.alice).createEscrow(
       ctx.bob.address,
       await ctx.vault.getAddress(),
-      enc,
+      ...enc,
       "Build a website",
       hre.ethers.ZeroAddress,
       (await time.latest()) + 7 * 86400,
@@ -105,12 +104,12 @@ describe("EncryptedEscrow", () => {
   // The address(0) ("no arbiter") path stays accepted.
   it("createEscrow rejects arbiter == depositor (conflict of interest)", async () => {
     const ctx = await loadFixture(deployFixture);
-    const enc = await encUint64(ctx.client, ctx.alice, usdc(50));
+    const enc = await encUint64(ctx.client, ctx.alice, usdc(50), await ctx.escrow.getAddress());
     await expect(
       ctx.escrow.connect(ctx.alice).createEscrow(
         ctx.bob.address,
         await ctx.vault.getAddress(),
-        enc,
+        ...enc,
         "self-deal attempt",
         ctx.alice.address, // arbiter == depositor
         (await time.latest()) + 7 * 86400,
@@ -120,12 +119,12 @@ describe("EncryptedEscrow", () => {
 
   it("createEscrow rejects arbiter == beneficiary (conflict of interest)", async () => {
     const ctx = await loadFixture(deployFixture);
-    const enc = await encUint64(ctx.client, ctx.alice, usdc(50));
+    const enc = await encUint64(ctx.client, ctx.alice, usdc(50), await ctx.escrow.getAddress());
     await expect(
       ctx.escrow.connect(ctx.alice).createEscrow(
         ctx.bob.address,
         await ctx.vault.getAddress(),
-        enc,
+        ...enc,
         "self-deal attempt",
         ctx.bob.address, // arbiter == beneficiary
         (await time.latest()) + 7 * 86400,
@@ -135,9 +134,9 @@ describe("EncryptedEscrow", () => {
 
   it("happy path: markDelivered + approveRelease → release to beneficiary", async () => {
     const ctx = await loadFixture(deployFixture);
-    const enc = await encUint64(ctx.client, ctx.alice, usdc(50));
+    const enc = await encUint64(ctx.client, ctx.alice, usdc(50), await ctx.escrow.getAddress());
     await ctx.escrow.connect(ctx.alice).createEscrow(
-      ctx.bob.address, await ctx.vault.getAddress(), enc,
+      ctx.bob.address, await ctx.vault.getAddress(), ...enc,
       "x", hre.ethers.ZeroAddress, (await time.latest()) + 7 * 86400,
     );
 
@@ -152,9 +151,9 @@ describe("EncryptedEscrow", () => {
 
   it("approveRelease before delivery: release fires when delivery is marked", async () => {
     const ctx = await loadFixture(deployFixture);
-    const enc = await encUint64(ctx.client, ctx.alice, usdc(50));
+    const enc = await encUint64(ctx.client, ctx.alice, usdc(50), await ctx.escrow.getAddress());
     await ctx.escrow.connect(ctx.alice).createEscrow(
-      ctx.bob.address, await ctx.vault.getAddress(), enc,
+      ctx.bob.address, await ctx.vault.getAddress(), ...enc,
       "x", hre.ethers.ZeroAddress, (await time.latest()) + 7 * 86400,
     );
 
@@ -170,9 +169,9 @@ describe("EncryptedEscrow", () => {
 
   it("dispute → arbiter releases to beneficiary", async () => {
     const ctx = await loadFixture(deployFixture);
-    const enc = await encUint64(ctx.client, ctx.alice, usdc(40));
+    const enc = await encUint64(ctx.client, ctx.alice, usdc(40), await ctx.escrow.getAddress());
     await ctx.escrow.connect(ctx.alice).createEscrow(
-      ctx.bob.address, await ctx.vault.getAddress(), enc,
+      ctx.bob.address, await ctx.vault.getAddress(), ...enc,
       "with arbiter", ctx.charlie.address, (await time.latest()) + 7 * 86400,
     );
 
@@ -187,9 +186,9 @@ describe("EncryptedEscrow", () => {
 
   it("dispute → arbiter refunds to depositor", async () => {
     const ctx = await loadFixture(deployFixture);
-    const enc = await encUint64(ctx.client, ctx.alice, usdc(40));
+    const enc = await encUint64(ctx.client, ctx.alice, usdc(40), await ctx.escrow.getAddress());
     await ctx.escrow.connect(ctx.alice).createEscrow(
-      ctx.bob.address, await ctx.vault.getAddress(), enc,
+      ctx.bob.address, await ctx.vault.getAddress(), ...enc,
       "with arbiter", ctx.charlie.address, (await time.latest()) + 7 * 86400,
     );
 
@@ -202,10 +201,10 @@ describe("EncryptedEscrow", () => {
 
   it("expired escrow: depositor refunds after deadline", async () => {
     const ctx = await loadFixture(deployFixture);
-    const enc = await encUint64(ctx.client, ctx.alice, usdc(25));
+    const enc = await encUint64(ctx.client, ctx.alice, usdc(25), await ctx.escrow.getAddress());
     const deadline = (await time.latest()) + 7 * 86400;
     await ctx.escrow.connect(ctx.alice).createEscrow(
-      ctx.bob.address, await ctx.vault.getAddress(), enc,
+      ctx.bob.address, await ctx.vault.getAddress(), ...enc,
       "x", hre.ethers.ZeroAddress, deadline,
     );
 
@@ -225,9 +224,9 @@ describe("EncryptedEscrow", () => {
 
   it("non-arbiter cannot decide", async () => {
     const ctx = await loadFixture(deployFixture);
-    const enc = await encUint64(ctx.client, ctx.alice, usdc(10));
+    const enc = await encUint64(ctx.client, ctx.alice, usdc(10), await ctx.escrow.getAddress());
     await ctx.escrow.connect(ctx.alice).createEscrow(
-      ctx.bob.address, await ctx.vault.getAddress(), enc,
+      ctx.bob.address, await ctx.vault.getAddress(), ...enc,
       "x", ctx.charlie.address, (await time.latest()) + 7 * 86400,
     );
     await ctx.escrow.connect(ctx.alice).disputeEscrow(0);
@@ -240,9 +239,9 @@ describe("EncryptedEscrow", () => {
   // §2.5 A17 of BEST_VERSION_FULL_PLAN: idempotency guards.
   it("markDelivered rejects double-call (idempotency)", async () => {
     const ctx = await loadFixture(deployFixture);
-    const enc = await encUint64(ctx.client, ctx.alice, usdc(10));
+    const enc = await encUint64(ctx.client, ctx.alice, usdc(10), await ctx.escrow.getAddress());
     await ctx.escrow.connect(ctx.alice).createEscrow(
-      ctx.bob.address, await ctx.vault.getAddress(), enc,
+      ctx.bob.address, await ctx.vault.getAddress(), ...enc,
       "x", ctx.charlie.address, (await time.latest()) + 7 * 86400,
     );
     await ctx.escrow.connect(ctx.bob).markDelivered(0);
@@ -254,9 +253,9 @@ describe("EncryptedEscrow", () => {
 
   it("approveRelease rejects double-call (idempotency)", async () => {
     const ctx = await loadFixture(deployFixture);
-    const enc = await encUint64(ctx.client, ctx.alice, usdc(10));
+    const enc = await encUint64(ctx.client, ctx.alice, usdc(10), await ctx.escrow.getAddress());
     await ctx.escrow.connect(ctx.alice).createEscrow(
-      ctx.bob.address, await ctx.vault.getAddress(), enc,
+      ctx.bob.address, await ctx.vault.getAddress(), ...enc,
       "x", ctx.charlie.address, (await time.latest()) + 7 * 86400,
     );
     await ctx.escrow.connect(ctx.alice).approveRelease(0);
@@ -268,9 +267,9 @@ describe("EncryptedEscrow", () => {
 
   it("no-arbiter escrow rejects dispute (would be permanent fund-lock)", async () => {
     const ctx = await loadFixture(deployFixture);
-    const enc = await encUint64(ctx.client, ctx.alice, usdc(10));
+    const enc = await encUint64(ctx.client, ctx.alice, usdc(10), await ctx.escrow.getAddress());
     await ctx.escrow.connect(ctx.alice).createEscrow(
-      ctx.bob.address, await ctx.vault.getAddress(), enc,
+      ctx.bob.address, await ctx.vault.getAddress(), ...enc,
       "x", hre.ethers.ZeroAddress, (await time.latest()) + 7 * 86400,
     );
 
@@ -287,10 +286,10 @@ describe("EncryptedEscrow", () => {
 
   it("rejects deadline less than 1 day out", async () => {
     const ctx = await loadFixture(deployFixture);
-    const enc = await encUint64(ctx.client, ctx.alice, usdc(10));
+    const enc = await encUint64(ctx.client, ctx.alice, usdc(10), await ctx.escrow.getAddress());
     await expect(
       ctx.escrow.connect(ctx.alice).createEscrow(
-        ctx.bob.address, await ctx.vault.getAddress(), enc,
+        ctx.bob.address, await ctx.vault.getAddress(), ...enc,
         "x", hre.ethers.ZeroAddress, (await time.latest()) + 60,
       ),
     ).to.be.revertedWith("EncryptedEscrow: deadline < 1 day out");
@@ -298,10 +297,10 @@ describe("EncryptedEscrow", () => {
 
   it("rejects self-deposit (depositor === beneficiary)", async () => {
     const ctx = await loadFixture(deployFixture);
-    const enc = await encUint64(ctx.client, ctx.alice, usdc(10));
+    const enc = await encUint64(ctx.client, ctx.alice, usdc(10), await ctx.escrow.getAddress());
     await expect(
       ctx.escrow.connect(ctx.alice).createEscrow(
-        ctx.alice.address, await ctx.vault.getAddress(), enc,
+        ctx.alice.address, await ctx.vault.getAddress(), ...enc,
         "x", hre.ethers.ZeroAddress, (await time.latest()) + 7 * 86400,
       ),
     ).to.be.revertedWith("EncryptedEscrow: bad beneficiary");
@@ -312,13 +311,13 @@ describe("EncryptedEscrow", () => {
   describe("State-change events", () => {
     it("emits EscrowCreated on createEscrow", async () => {
       const ctx = await loadFixture(deployFixture);
-      const enc = await encUint64(ctx.client, ctx.alice, usdc(10));
+      const enc = await encUint64(ctx.client, ctx.alice, usdc(10), await ctx.escrow.getAddress());
 
       await expect(
         ctx.escrow.connect(ctx.alice).createEscrow(
           ctx.bob.address,
           await ctx.vault.getAddress(),
-          enc,
+          ...enc,
           "with note",
           hre.ethers.ZeroAddress,
           (await time.latest()) + 7 * 86400,
@@ -328,9 +327,9 @@ describe("EncryptedEscrow", () => {
 
     it("emits EscrowDelivered + EscrowApproved + EscrowReleased on happy path", async () => {
       const ctx = await loadFixture(deployFixture);
-      const enc = await encUint64(ctx.client, ctx.alice, usdc(15));
+      const enc = await encUint64(ctx.client, ctx.alice, usdc(15), await ctx.escrow.getAddress());
       await ctx.escrow.connect(ctx.alice).createEscrow(
-        ctx.bob.address, await ctx.vault.getAddress(), enc,
+        ctx.bob.address, await ctx.vault.getAddress(), ...enc,
         "happy", hre.ethers.ZeroAddress, (await time.latest()) + 7 * 86400,
       );
 
@@ -346,9 +345,9 @@ describe("EncryptedEscrow", () => {
 
     it("emits EscrowDisputed + EscrowArbiterDecided on dispute path", async () => {
       const ctx = await loadFixture(deployFixture);
-      const enc = await encUint64(ctx.client, ctx.alice, usdc(20));
+      const enc = await encUint64(ctx.client, ctx.alice, usdc(20), await ctx.escrow.getAddress());
       await ctx.escrow.connect(ctx.alice).createEscrow(
-        ctx.bob.address, await ctx.vault.getAddress(), enc,
+        ctx.bob.address, await ctx.vault.getAddress(), ...enc,
         "dispute", ctx.charlie.address, (await time.latest()) + 7 * 86400,
       );
 
@@ -361,10 +360,10 @@ describe("EncryptedEscrow", () => {
 
     it("emits EscrowExpiryClaimed on claimExpiredEscrow", async () => {
       const ctx = await loadFixture(deployFixture);
-      const enc = await encUint64(ctx.client, ctx.alice, usdc(25));
+      const enc = await encUint64(ctx.client, ctx.alice, usdc(25), await ctx.escrow.getAddress());
       const deadline = (await time.latest()) + 7 * 86400;
       await ctx.escrow.connect(ctx.alice).createEscrow(
-        ctx.bob.address, await ctx.vault.getAddress(), enc,
+        ctx.bob.address, await ctx.vault.getAddress(), ...enc,
         "expired", hre.ethers.ZeroAddress, deadline,
       );
 
@@ -421,14 +420,14 @@ describe("EncryptedEscrow", () => {
 
     it("releases to the vendor once the buyer approves", async () => {
       const ctx = await loadFixture(deployFixture);
-      const enc = await encUint64(ctx.client, ctx.alice, usdc(60));
+      const enc = await encUint64(ctx.client, ctx.alice, usdc(60), await ctx.escrow.getAddress());
       const deadline = (await time.latest()) + 7 * 86400;
       const resolverAddr = await ctx.resolver.getAddress();
 
       await ctx.escrow.connect(ctx.alice).createConditionalEscrow(
         ctx.bob.address,
         await ctx.vault.getAddress(),
-        enc,
+        ...enc,
         "milestone job",
         resolverAddr,
         resolverData(ctx.alice.address, deadline),
@@ -450,12 +449,12 @@ describe("EncryptedEscrow", () => {
 
     it("auto-releases to the vendor after the deadline with no approval", async () => {
       const ctx = await loadFixture(deployFixture);
-      const enc = await encUint64(ctx.client, ctx.alice, usdc(40));
+      const enc = await encUint64(ctx.client, ctx.alice, usdc(40), await ctx.escrow.getAddress());
       const deadline = (await time.latest()) + 2 * 86400;
       const resolverAddr = await ctx.resolver.getAddress();
 
       await ctx.escrow.connect(ctx.alice).createConditionalEscrow(
-        ctx.bob.address, await ctx.vault.getAddress(), enc,
+        ctx.bob.address, await ctx.vault.getAddress(), ...enc,
         "auto", resolverAddr, resolverData(ctx.alice.address, deadline), deadline,
       );
 
@@ -474,12 +473,12 @@ describe("EncryptedEscrow", () => {
 
     it("blocks the depositor from refunding a resolver-gated escrow", async () => {
       const ctx = await loadFixture(deployFixture);
-      const enc = await encUint64(ctx.client, ctx.alice, usdc(25));
+      const enc = await encUint64(ctx.client, ctx.alice, usdc(25), await ctx.escrow.getAddress());
       const deadline = (await time.latest()) + 2 * 86400;
       const resolverAddr = await ctx.resolver.getAddress();
 
       await ctx.escrow.connect(ctx.alice).createConditionalEscrow(
-        ctx.bob.address, await ctx.vault.getAddress(), enc,
+        ctx.bob.address, await ctx.vault.getAddress(), ...enc,
         "no refund", resolverAddr, resolverData(ctx.alice.address, deadline), deadline,
       );
 
@@ -491,12 +490,12 @@ describe("EncryptedEscrow", () => {
 
     it("emits EscrowCreated + EscrowResolverSet on create", async () => {
       const ctx = await loadFixture(deployFixture);
-      const enc = await encUint64(ctx.client, ctx.alice, usdc(10));
+      const enc = await encUint64(ctx.client, ctx.alice, usdc(10), await ctx.escrow.getAddress());
       const deadline = (await time.latest()) + 7 * 86400;
       const resolverAddr = await ctx.resolver.getAddress();
 
       const tx = ctx.escrow.connect(ctx.alice).createConditionalEscrow(
-        ctx.bob.address, await ctx.vault.getAddress(), enc,
+        ctx.bob.address, await ctx.vault.getAddress(), ...enc,
         "evented", resolverAddr, resolverData(ctx.alice.address, deadline), deadline,
       );
       await expect(tx).to.emit(ctx.escrow, "EscrowCreated");
@@ -505,12 +504,12 @@ describe("EncryptedEscrow", () => {
 
     it("rejects a resolver that does not implement IConditionResolver", async () => {
       const ctx = await loadFixture(deployFixture);
-      const enc = await encUint64(ctx.client, ctx.alice, usdc(10));
+      const enc = await encUint64(ctx.client, ctx.alice, usdc(10), await ctx.escrow.getAddress());
       const deadline = (await time.latest()) + 7 * 86400;
 
       await expect(
         ctx.escrow.connect(ctx.alice).createConditionalEscrow(
-          ctx.bob.address, await ctx.vault.getAddress(), enc,
+          ctx.bob.address, await ctx.vault.getAddress(), ...enc,
           "bad resolver", ctx.bob.address, resolverData(ctx.alice.address, deadline), deadline,
         ),
       ).to.be.reverted;

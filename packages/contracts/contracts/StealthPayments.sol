@@ -9,8 +9,8 @@ import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "./utils/ReentrancyGuard.sol";
 
 interface IFHERC20Vault {
-    function transferFrom(address from, address to, InEuint64 memory encAmount) external returns (euint64);
-    function transferFromVerified(address from, address to, euint64 amount) external returns (euint64);
+    function transferFrom(address from, address to, externalEuint64 encAmount, bytes calldata proof) external returns (euint64);
+    function transferFromVerified(address from, address to, sharedEuint64 shared) external returns (sharedEuint64);
     function underlyingToken() external view returns (address);
 }
 
@@ -19,8 +19,8 @@ interface IEventHub {
 }
 
 interface IPaymentReceipts {
-    function bumpGlobal(euint64 amount) external;
-    function decrementGlobalVolume(euint64 amount) external;
+    function bumpGlobal(sharedEuint64 shared) external;
+    function decrementGlobalVolume(sharedEuint64 shared) external;
 }
 
 /// @title StealthPayments — Privacy-preserving stealth payment system
@@ -161,14 +161,16 @@ contract StealthPayments is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
     ///         because the hash is bound to the recipient's address.
     ///
     /// @param plaintextAmount Amount of underlying tokens to deposit (public)
-    /// @param encRecipient Encrypted recipient address (FHE-encrypted)
+    /// @param encRecipient Encrypted recipient address handle (FHE-encrypted)
+    /// @param proof Batch signature authenticating `encRecipient`
     /// @param claimCodeHash keccak256(abi.encodePacked(claimCode, recipientAddress))
     /// @param vault FHERC20Vault address (used to identify the token)
     /// @param note Public context note (e.g., "birthday gift")
     /// @return transferId The ID of the created stealth transfer
     function sendStealth(
         uint256 plaintextAmount,
-        InEaddress memory encRecipient,
+        externalEaddress encRecipient,
+        bytes calldata proof,
         bytes32 claimCodeHash,
         address vault,
         string calldata note
@@ -194,7 +196,7 @@ contract StealthPayments is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
         FHE.allowSender(encAmount);
 
         // Process the encrypted recipient address
-        eaddress recipient = FHE.asEaddress(encRecipient);
+        eaddress recipient = FHE.asEaddress(encRecipient, proof);
         FHE.allowThis(recipient);
         FHE.allowSender(recipient);
 
@@ -478,8 +480,7 @@ contract StealthPayments is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
     ///      PaymentHub._bumpAggregate defensive patterns.
     function _bumpGlobal(euint64 amount) internal {
         if (paymentReceipts == address(0)) return;
-        FHE.allowTransient(amount, paymentReceipts);
-        try IPaymentReceipts(paymentReceipts).bumpGlobal(amount) {} catch (bytes memory reason) {
+        try IPaymentReceipts(paymentReceipts).bumpGlobal(FHE.shareEuint64(amount, paymentReceipts)) {} catch (bytes memory reason) {
             emit ReceiptsBumpFailed("global", reason);
         }
     }
@@ -489,8 +490,7 @@ contract StealthPayments is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
     ///      misconfigured receipts contract.
     function _decrementGlobal(euint64 amount) internal {
         if (paymentReceipts == address(0)) return;
-        FHE.allowTransient(amount, paymentReceipts);
-        try IPaymentReceipts(paymentReceipts).decrementGlobalVolume(amount) {} catch (bytes memory reason) {
+        try IPaymentReceipts(paymentReceipts).decrementGlobalVolume(FHE.shareEuint64(amount, paymentReceipts)) {} catch (bytes memory reason) {
             emit ReceiptsBumpFailed("decrementGlobal", reason);
         }
     }

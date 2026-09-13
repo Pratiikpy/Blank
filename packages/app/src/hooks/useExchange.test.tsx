@@ -219,10 +219,7 @@ beforeEach(() => {
     blockNumber: 1n,
     logs: [],
   });
-  encryptInputsAsyncMock.mockResolvedValue([
-    { ctHash: 0x42n, securityZone: 0, utype: 5, signature: "0xenc1" },
-    { ctHash: 0x43n, securityZone: 0, utype: 5, signature: "0xenc2" },
-  ]);
+  encryptInputsAsyncMock.mockResolvedValue(["0xhandle0", "0xhandle1", "0xbatchproof"]);
   decryptForTxMock.mockResolvedValue({
     decryptedValue: true,
     signature: SIGNATURE,

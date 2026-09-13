@@ -7,8 +7,8 @@ import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "./utils/ReentrancyGuard.sol";
 
 interface IFHERC20Vault {
-    function transferFromVerified(address from, address to, euint64 amount) external returns (euint64);
-    function transferVerified(address to, euint64 amount) external returns (euint64);
+    function transferFromVerified(address from, address to, sharedEuint64 shared) external returns (sharedEuint64);
+    function transferVerified(address to, sharedEuint64 shared) external returns (sharedEuint64);
 }
 
 interface IEventHub {
@@ -16,8 +16,8 @@ interface IEventHub {
 }
 
 interface IPaymentReceipts {
-    function bumpUserReceived(address user, euint64 amount) external;
-    function bumpGlobal(euint64 amount) external;
+    function bumpUserReceived(address user, sharedEuint64 shared) external;
+    function bumpGlobal(sharedEuint64 shared) external;
 }
 
 /// @title EncryptedCrowdfund — private campaigns with encrypted goal + contributions
@@ -112,7 +112,7 @@ contract EncryptedCrowdfund is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
 
     function createCampaign(
         address vault,
-        InEuint64 calldata encGoal,
+        externalEuint64 encGoal, bytes calldata proof,
         uint256 durationSeconds,
         string calldata title,
         bytes32 descriptionCidHash
@@ -121,7 +121,7 @@ contract EncryptedCrowdfund is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
         require(durationSeconds >= MIN_DURATION && durationSeconds <= MAX_DURATION, "Crowdfund: bad duration");
         require(bytes(title).length > 0 && bytes(title).length <= 200, "Crowdfund: bad title");
 
-        euint64 verifiedGoal = FHE.asEuint64(encGoal);
+        euint64 verifiedGoal = FHE.asEuint64(encGoal, proof);
         FHE.allowThis(verifiedGoal);
         FHE.allowSender(verifiedGoal);
 
@@ -152,17 +152,19 @@ contract EncryptedCrowdfund is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
 
     // ─── Contribute ───────────────────────────────────────────────────
 
-    function contribute(uint256 campaignId, InEuint64 calldata encAmount) external nonReentrant {
+    function contribute(uint256 campaignId, externalEuint64 encAmount, bytes calldata proof) external nonReentrant {
         Campaign storage c = _campaigns[campaignId];
         require(c.status == CampaignStatus.Open, "Crowdfund: not open");
         require(block.timestamp < c.deadline, "Crowdfund: past deadline");
         require(msg.sender != c.creator, "Crowdfund: creator cannot contribute");
 
-        euint64 verifiedAmount = FHE.asEuint64(encAmount);
-        FHE.allowTransient(verifiedAmount, c.vault);
+        euint64 verifiedAmount = FHE.asEuint64(encAmount, proof);
 
         // Move contributor's funds into this contract's vault balance.
-        euint64 locked = IFHERC20Vault(c.vault).transferFromVerified(msg.sender, address(this), verifiedAmount);
+        euint64 locked = FHE.receiveEuint64FromCall(
+            IFHERC20Vault(c.vault).transferFromVerified(msg.sender, address(this), FHE.shareEuint64(verifiedAmount, c.vault)),
+            c.vault
+        );
         FHE.allowThis(locked);
         FHE.allowSender(locked);
 
@@ -247,8 +249,10 @@ contract EncryptedCrowdfund is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
         require(c.status != CampaignStatus.Open, "Crowdfund: open");
 
         // Single sweep: contract -> creator.
-        FHE.allowTransient(c.encRaised, c.vault);
-        euint64 paid = IFHERC20Vault(c.vault).transferVerified(c.creator, c.encRaised);
+        euint64 paid = FHE.receiveEuint64FromCall(
+            IFHERC20Vault(c.vault).transferVerified(c.creator, FHE.shareEuint64(c.encRaised, c.vault)),
+            c.vault
+        );
         FHE.allowThis(paid);
         FHE.allow(paid, c.creator);
 
@@ -284,8 +288,7 @@ contract EncryptedCrowdfund is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
         require(contrib.contributor == msg.sender, "Crowdfund: not your contribution");
         require(!contrib.refunded, "Crowdfund: already refunded");
 
-        FHE.allowTransient(contrib.amount, c.vault);
-        IFHERC20Vault(c.vault).transferVerified(msg.sender, contrib.amount);
+        IFHERC20Vault(c.vault).transferVerified(msg.sender, FHE.shareEuint64(contrib.amount, c.vault));
 
         contrib.refunded = true;
         emit ContributionRefunded(campaignId, msg.sender, contributionIndex);
@@ -350,13 +353,11 @@ contract EncryptedCrowdfund is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
 
     function _bumpReceiptsAndGlobal(address recipient, euint64 amount) internal {
         if (paymentReceipts == address(0)) return;
-        FHE.allowTransient(amount, paymentReceipts);
         // §2.6 of BEST_VERSION_FULL_PLAN: surface receipt-bump failures.
-        try IPaymentReceipts(paymentReceipts).bumpUserReceived(recipient, amount) {} catch (bytes memory reason) {
+        try IPaymentReceipts(paymentReceipts).bumpUserReceived(recipient, FHE.shareEuint64(amount, paymentReceipts)) {} catch (bytes memory reason) {
             emit ReceiptsBumpFailed("user", reason);
         }
-        FHE.allowTransient(amount, paymentReceipts);
-        try IPaymentReceipts(paymentReceipts).bumpGlobal(amount) {} catch (bytes memory reason) {
+        try IPaymentReceipts(paymentReceipts).bumpGlobal(FHE.shareEuint64(amount, paymentReceipts)) {} catch (bytes memory reason) {
             emit ReceiptsBumpFailed("global", reason);
         }
     }

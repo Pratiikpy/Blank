@@ -839,7 +839,10 @@ describe("Stealth — Inbox tab + claim state machine (§15.x)", () => {
     expect(claimStealthMock).toHaveBeenCalledTimes(0);
   });
 
-  it("getMyPendingClaims throws -> status reverts to 'new' (no toast crash)", async () => {
+  it("CRITICAL getMyPendingClaims throws -> status reverts AND the user is told why", async () => {
+    // Was a silent catch: an RPC 429 (measured in a real two-wallet run)
+    // flipped the row back to "new" with nothing on screen, indistinguishable
+    // from the click never registering.
     const hash = ("0x" + "1".repeat(64)) as `0x${string}`;
     getStealthInboxMock.mockReturnValue([
       { claimCode: CLAIM_CODE, claimCodeHash: hash, status: "new", receivedAt: Date.now() },
@@ -851,6 +854,7 @@ describe("Stealth — Inbox tab + claim state machine (§15.x)", () => {
     await flush();
     const lastCall = markInboxEntryStatusMock.mock.calls.slice(-1)[0];
     expect(lastCall[3]).toBe("new");
+    expect(toastErrorMock).toHaveBeenCalledWith("rpc fail");
   });
 
   it("'claimed' entry renders green Claimed pill + button disabled", () => {

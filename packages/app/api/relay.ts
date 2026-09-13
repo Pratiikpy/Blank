@@ -481,6 +481,64 @@ async function handleImpl(req: any, res: any) {
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : "unknown error";
+    const failedOp = decodeFailedOp(err);
+    if (failedOp) {
+      // A validation failure is permanent: the same UserOp will fail the same
+      // way every time. Saying so, with the EntryPoint's own reason, is the
+      // difference between a five minute fix and an afternoon. Publishing a
+      // stealth meta-address failed this way on every chain and reported only
+      // "rejected on-chain with no reason returned. Try again in a moment."
+      res.status(502).json({
+        error: `UserOp validation rejected: ${failedOp}`,
+        reason: failedOp,
+        permanent: true,
+      });
+      return;
+    }
     res.status(502).json({ error: `entryPoint.handleOps failed: ${msg}` });
   }
+}
+
+/**
+ * Pull the EntryPoint's own reason out of a failed handleOps.
+ *
+ * v0.8 reverts validation failures as `FailedOp(uint256,string)` or
+ * `FailedOpWithRevert(uint256,string,bytes)`. Providers bury that data at
+ * different depths (`err.data`, `err.error.data`, `err.info.error.data`), and
+ * ethers surfaces only "transaction execution reverted ... reason=null", which
+ * throws away the one string that says what actually happened, for example
+ * "AA33 reverted" for a paymaster that refused the target.
+ */
+function decodeFailedOp(err: unknown): string | null {
+  const FAILED_OP = "0x220266b6";
+  const FAILED_OP_WITH_REVERT = "0x65c8fd4d";
+  let blob: string;
+  try {
+    blob = JSON.stringify(err, (_k, v) => (typeof v === "bigint" ? v.toString() : v));
+  } catch {
+    return null;
+  }
+  if (typeof (err as { message?: unknown })?.message === "string") {
+    blob += (err as { message: string }).message;
+  }
+  for (const selector of [FAILED_OP_WITH_REVERT, FAILED_OP]) {
+    const at = blob.indexOf(selector.slice(2));
+    if (at < 0) continue;
+    const hex = blob.slice(at).match(/^[0-9a-fA-F]+/)?.[0];
+    if (!hex) continue;
+    try {
+      const iface = new ethers.Interface([
+        "error FailedOp(uint256 opIndex, string reason)",
+        "error FailedOpWithRevert(uint256 opIndex, string reason, bytes inner)",
+      ]);
+      const parsed = iface.parseError("0x" + hex);
+      if (parsed?.args?.reason) return String(parsed.args.reason);
+    } catch {
+      /* not this shape; fall through to the next selector */
+    }
+  }
+  // The paymaster's own require strings travel as a plain Error revert nested
+  // inside FailedOpWithRevert. Surface them even when the outer decode fails.
+  const named = blob.match(/(BlankPaymaster|BlankAccount): [^"\\]{3,80}/);
+  return named ? named[0] : null;
 }

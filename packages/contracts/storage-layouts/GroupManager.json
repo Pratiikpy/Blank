@@ -1,7 +1,7 @@
 {
   "storage": [
     {
-      "astId": 70228,
+      "astId": 73153,
       "contract": "contracts/GroupManager.sol:GroupManager",
       "label": "_status",
       "offset": 0,
@@ -9,15 +9,15 @@
       "type": "t_uint256"
     },
     {
-      "astId": 53725,
+      "astId": 54998,
       "contract": "contracts/GroupManager.sol:GroupManager",
       "label": "eventHub",
       "offset": 0,
       "slot": "1",
-      "type": "t_contract(IEventHub)53698"
+      "type": "t_contract(IEventHub)54971"
     },
     {
-      "astId": 53730,
+      "astId": 55003,
       "contract": "contracts/GroupManager.sol:GroupManager",
       "label": "nextGroupId",
       "offset": 0,
@@ -25,15 +25,15 @@
       "type": "t_uint256"
     },
     {
-      "astId": 53735,
+      "astId": 55008,
       "contract": "contracts/GroupManager.sol:GroupManager",
       "label": "_groups",
       "offset": 0,
       "slot": "3",
-      "type": "t_mapping(t_uint256,t_struct(Group)53715_storage)"
+      "type": "t_mapping(t_uint256,t_struct(Group)54988_storage)"
     },
     {
-      "astId": 53741,
+      "astId": 55014,
       "contract": "contracts/GroupManager.sol:GroupManager",
       "label": "isMember",
       "offset": 0,
@@ -41,7 +41,7 @@
       "type": "t_mapping(t_uint256,t_mapping(t_address,t_bool))"
     },
     {
-      "astId": 53747,
+      "astId": 55020,
       "contract": "contracts/GroupManager.sol:GroupManager",
       "label": "isAdmin",
       "offset": 0,
@@ -49,7 +49,7 @@
       "type": "t_mapping(t_uint256,t_mapping(t_address,t_bool))"
     },
     {
-      "astId": 53754,
+      "astId": 55027,
       "contract": "contracts/GroupManager.sol:GroupManager",
       "label": "_debts",
       "offset": 0,
@@ -57,15 +57,15 @@
       "type": "t_mapping(t_uint256,t_mapping(t_address,t_userDefinedValueType(euint64)11797))"
     },
     {
-      "astId": 53761,
+      "astId": 55034,
       "contract": "contracts/GroupManager.sol:GroupManager",
       "label": "expenses",
       "offset": 0,
       "slot": "7",
-      "type": "t_mapping(t_uint256,t_mapping(t_uint256,t_struct(Expense)53722_storage))"
+      "type": "t_mapping(t_uint256,t_mapping(t_uint256,t_struct(Expense)54995_storage))"
     },
     {
-      "astId": 53767,
+      "astId": 55040,
       "contract": "contracts/GroupManager.sol:GroupManager",
       "label": "_userGroups",
       "offset": 0,
@@ -73,7 +73,7 @@
       "type": "t_mapping(t_address,t_array(t_uint256)dyn_storage)"
     },
     {
-      "astId": 53776,
+      "astId": 55049,
       "contract": "contracts/GroupManager.sol:GroupManager",
       "label": "_hasVoted",
       "offset": 0,
@@ -81,7 +81,7 @@
       "type": "t_mapping(t_uint256,t_mapping(t_uint256,t_mapping(t_address,t_bool)))"
     },
     {
-      "astId": 53783,
+      "astId": 55056,
       "contract": "contracts/GroupManager.sol:GroupManager",
       "label": "expenseArchived",
       "offset": 0,
@@ -89,7 +89,7 @@
       "type": "t_mapping(t_uint256,t_mapping(t_uint256,t_bool))"
     },
     {
-      "astId": 55054,
+      "astId": 56327,
       "contract": "contracts/GroupManager.sol:GroupManager",
       "label": "_expenseVotes",
       "offset": 0,
@@ -97,7 +97,7 @@
       "type": "t_mapping(t_uint256,t_mapping(t_uint256,t_userDefinedValueType(euint64)11797))"
     },
     {
-      "astId": 55060,
+      "astId": 56333,
       "contract": "contracts/GroupManager.sol:GroupManager",
       "label": "_votesInitialized",
       "offset": 0,
@@ -105,7 +105,7 @@
       "type": "t_mapping(t_uint256,t_mapping(t_uint256,t_bool))"
     },
     {
-      "astId": 55069,
+      "astId": 56342,
       "contract": "contracts/GroupManager.sol:GroupManager",
       "label": "lastSettleBlock",
       "offset": 0,
@@ -113,7 +113,7 @@
       "type": "t_mapping(t_uint256,t_mapping(t_address,t_mapping(t_address,t_uint256)))"
     },
     {
-      "astId": 55361,
+      "astId": 56634,
       "contract": "contracts/GroupManager.sol:GroupManager",
       "label": "__gap",
       "offset": 0,
@@ -150,7 +150,7 @@
       "label": "bool",
       "numberOfBytes": "1"
     },
-    "t_contract(IEventHub)53698": {
+    "t_contract(IEventHub)54971": {
       "encoding": "inplace",
       "label": "contract IEventHub",
       "numberOfBytes": "20"
@@ -232,12 +232,12 @@
       "numberOfBytes": "32",
       "value": "t_mapping(t_uint256,t_mapping(t_address,t_bool))"
     },
-    "t_mapping(t_uint256,t_mapping(t_uint256,t_struct(Expense)53722_storage))": {
+    "t_mapping(t_uint256,t_mapping(t_uint256,t_struct(Expense)54995_storage))": {
       "encoding": "mapping",
       "key": "t_uint256",
       "label": "mapping(uint256 => mapping(uint256 => struct GroupManager.Expense))",
       "numberOfBytes": "32",
-      "value": "t_mapping(t_uint256,t_struct(Expense)53722_storage)"
+      "value": "t_mapping(t_uint256,t_struct(Expense)54995_storage)"
     },
     "t_mapping(t_uint256,t_mapping(t_uint256,t_userDefinedValueType(euint64)11797))": {
       "encoding": "mapping",
@@ -246,19 +246,19 @@
       "numberOfBytes": "32",
       "value": "t_mapping(t_uint256,t_userDefinedValueType(euint64)11797)"
     },
-    "t_mapping(t_uint256,t_struct(Expense)53722_storage)": {
+    "t_mapping(t_uint256,t_struct(Expense)54995_storage)": {
       "encoding": "mapping",
       "key": "t_uint256",
       "label": "mapping(uint256 => struct GroupManager.Expense)",
       "numberOfBytes": "32",
-      "value": "t_struct(Expense)53722_storage"
+      "value": "t_struct(Expense)54995_storage"
     },
-    "t_mapping(t_uint256,t_struct(Group)53715_storage)": {
+    "t_mapping(t_uint256,t_struct(Group)54988_storage)": {
       "encoding": "mapping",
       "key": "t_uint256",
       "label": "mapping(uint256 => struct GroupManager.Group)",
       "numberOfBytes": "32",
-      "value": "t_struct(Group)53715_storage"
+      "value": "t_struct(Group)54988_storage"
     },
     "t_mapping(t_uint256,t_userDefinedValueType(euint64)11797)": {
       "encoding": "mapping",
@@ -272,12 +272,12 @@
       "label": "string",
       "numberOfBytes": "32"
     },
-    "t_struct(Expense)53722_storage": {
+    "t_struct(Expense)54995_storage": {
       "encoding": "inplace",
       "label": "struct GroupManager.Expense",
       "members": [
         {
-          "astId": 53717,
+          "astId": 54990,
           "contract": "contracts/GroupManager.sol:GroupManager",
           "label": "payer",
           "offset": 0,
@@ -285,7 +285,7 @@
           "type": "t_address"
         },
         {
-          "astId": 53719,
+          "astId": 54992,
           "contract": "contracts/GroupManager.sol:GroupManager",
           "label": "description",
           "offset": 0,
@@ -293,7 +293,7 @@
           "type": "t_string_storage"
         },
         {
-          "astId": 53721,
+          "astId": 54994,
           "contract": "contracts/GroupManager.sol:GroupManager",
           "label": "timestamp",
           "offset": 0,
@@ -303,12 +303,12 @@
       ],
       "numberOfBytes": "96"
     },
-    "t_struct(Group)53715_storage": {
+    "t_struct(Group)54988_storage": {
       "encoding": "inplace",
       "label": "struct GroupManager.Group",
       "members": [
         {
-          "astId": 53707,
+          "astId": 54980,
           "contract": "contracts/GroupManager.sol:GroupManager",
           "label": "name",
           "offset": 0,
@@ -316,7 +316,7 @@
           "type": "t_string_storage"
         },
         {
-          "astId": 53710,
+          "astId": 54983,
           "contract": "contracts/GroupManager.sol:GroupManager",
           "label": "members",
           "offset": 0,
@@ -324,7 +324,7 @@
           "type": "t_array(t_address)dyn_storage"
         },
         {
-          "astId": 53712,
+          "astId": 54985,
           "contract": "contracts/GroupManager.sol:GroupManager",
           "label": "expenseCount",
           "offset": 0,
@@ -332,7 +332,7 @@
           "type": "t_uint256"
         },
         {
-          "astId": 53714,
+          "astId": 54987,
           "contract": "contracts/GroupManager.sol:GroupManager",
           "label": "active",
           "offset": 0,

@@ -234,14 +234,11 @@ beforeEach(() => {
     status: "success",
     blockNumber: 5n,
   });
-  encryptInputsAsyncMock.mockImplementation(async (inputs: unknown[]) =>
-    inputs.map((_, i) => ({
-      ctHash: BigInt(i + 1),
-      securityZone: 0,
-      utype: 5,
-      signature: "0xenc",
-    })),
-  );
+  // 0.7: one handle per input, then a single batch signature.
+  encryptInputsAsyncMock.mockImplementation(async (inputs: unknown[]) => [
+    ...inputs.map((_, i) => `0xhandle${i}`),
+    "0xbatchproof",
+  ]);
 
   resetSharedState();
 });
@@ -660,13 +657,10 @@ describe("useSendPayment — confirmSend single legacy (§15.x)", () => {
     expect(call.functionName).toBe("sendPayment");
     expect(call.args[0]).toBe(ALICE);
     expect(call.args[1]).toBe(VAULT);
-    expect(call.args[2]).toMatchObject({
-      ctHash: 1n,
-      securityZone: 0,
-      utype: 5,
-      signature: "0xenc",
-    });
-    expect(call.args[3]).toBe("Hello");
+    // 0.7: the handle goes on the wire as-is, followed by the batch proof.
+    expect(call.args[2]).toBe("0xhandle0");
+    expect(call.args[3]).toBe("0xbatchproof");
+    expect(call.args[4]).toBe("Hello");
     expect(call.gas).toBe(5_000_000n);
   });
 

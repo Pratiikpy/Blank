@@ -75,7 +75,10 @@ vi.mock("./useEffectiveAddress", () => ({
 }));
 vi.mock("@/providers/ChainProvider", () => ({ useChain: useChainMock }));
 vi.mock("./useUnifiedWrite", () => ({ useUnifiedWrite: useUnifiedWriteMock }));
+const NOT_READY = vi.hoisted(() => "encryption-not-ready");
 vi.mock("@/lib/cofhe-shim", () => ({
+  // Pins "the not-ready message is shown" without pinning the exact copy.
+  ENCRYPTION_NOT_READY: NOT_READY,
   useCofheEncrypt: useCofheEncryptMock,
   useCofheConnection: useCofheConnectionMock,
   Encryptable: new Proxy({}, { get: () => (v: unknown) => ({ raw: v }) }),
@@ -177,9 +180,7 @@ beforeEach(() => {
   useEmailAuthSignerMock.mockReturnValue({ signEmailAuth: signEmailAuthMock });
   toastLoadingMock.mockReturnValue("toast-id");
   isVaultApprovedMock.mockReturnValue(true);
-  encryptInputsAsyncMock.mockResolvedValue([
-    { ctHash: 0x42n, securityZone: 0, utype: 5, signature: "0xenc" },
-  ]);
+  encryptInputsAsyncMock.mockResolvedValue(["0xhandle0", "0xbatchproof"]);
   unifiedWriteAndWaitMock.mockResolvedValue({
     hash: "0xtxhash",
     receipt: { status: "success", blockNumber: 12345n, logs: [] },
@@ -231,13 +232,17 @@ describe("useRequestPayment — createRequest guards (§15.x)", () => {
     expect(toastErrorMock).toHaveBeenCalledTimes(0);
   });
 
-  it("cofhe not connected -> silent early return", async () => {
+  it("CRITICAL cofhe not connected -> no write AND the user is told why", async () => {
+    // Was a silent return. A request carries an encrypted amount so it really
+    // cannot proceed, but pressing the button and getting nothing at all is
+    // indistinguishable from a broken app.
     useCofheConnectionMock.mockReturnValue({ connected: false });
     const { result } = renderHook(() => useRequestPayment());
     await act(async () => {
       await result.current.createRequest(PAYER, "10", "note");
     });
     expect(unifiedWriteAndWaitMock).toHaveBeenCalledTimes(0);
+    expect(toastErrorMock).toHaveBeenCalledWith(NOT_READY);
   });
 
   it("no publicClient -> 'Connection lost' toast", async () => {
@@ -283,7 +288,7 @@ describe("useRequestPayment — createRequest happy path (§15.x)", () => {
     expect(call.functionName).toBe("createRequest");
     expect(call.args[0]).toBe(PAYER);
     expect(call.args[1]).toBe(VAULT);
-    expect(call.args[3]).toBe("Coffee");
+    expect(call.args[4]).toBe("Coffee");
     expect(call.gas).toBe(5_000_000n);
   });
 

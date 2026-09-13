@@ -151,6 +151,12 @@ describe("isOfflineMode + client construction", () => {
     expect(createClientMock).toHaveBeenCalledWith(
       "https://fake.supabase.test",
       "fake-anon-key",
+      // Third argument carries the unreachable-host breaker and the realtime
+      // backoff; both are pinned in their own describe block below.
+      expect.objectContaining({
+        global: expect.objectContaining({ fetch: expect.any(Function) }),
+        realtime: expect.objectContaining({ reconnectAfterMs: expect.any(Function) }),
+      }),
     );
     expect(mod.isOfflineMode()).toBe(false);
     expect(mod.supabase).not.toBeNull();
@@ -594,5 +600,115 @@ describe("invoice update selector correctness", () => {
     expect(updatePayload).toBeTruthy();
     expect(updatePayload!.table).toBe("invoices");
     expect(updatePayload!.row).toEqual({ pdf_cid: "QmFakeCid" });
+  });
+});
+
+// ─── Unreachable-host circuit breaker ──────────────────────────────
+//
+// Measured with the indexer host down: two tabs driving one gift flow for
+// five minutes logged 446 and 417 console errors and ended in
+// ERR_NO_BUFFER_SPACE / ERR_NETWORK_CHANGED. A dozen callers poll this
+// client on independent 30s timers and every one of them kept dialling a
+// refused socket, which starves the RPC and relayer calls the payment
+// itself depends on. These pin that a dead host costs three dials a
+// minute, and that an ordinary failed query never trips it.
+describe("supabase — unreachable-host breaker (§15.x)", () => {
+  /** The wrapped fetch handed to createClient. */
+  async function getBreakerFetch() {
+    await import("./supabase");
+    const opts = createClientMock.mock.calls[0]?.[2] as
+      | { global?: { fetch?: typeof fetch } }
+      | undefined;
+    const f = opts?.global?.fetch;
+    expect(typeof f).toBe("function");
+    return f as (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("CRITICAL stops dialling after three consecutive network failures", async () => {
+    const breakerFetch = await getBreakerFetch();
+    const mod = await import("./supabase");
+    const realFetch = vi.fn().mockRejectedValue(new TypeError("Failed to fetch"));
+    vi.stubGlobal("fetch", realFetch);
+
+    for (let i = 0; i < 3; i++) {
+      await expect(breakerFetch("https://fake.supabase.test/rest/v1/x")).rejects.toThrow();
+    }
+    expect(realFetch).toHaveBeenCalledTimes(3);
+    expect(mod.isSupabaseBackingOff()).toBe(true);
+
+    // The fourth caller is refused locally: no socket is opened at all.
+    await expect(breakerFetch("https://fake.supabase.test/rest/v1/x")).rejects.toThrow(
+      /backing off/i,
+    );
+    expect(realFetch).toHaveBeenCalledTimes(3);
+
+    vi.advanceTimersByTime(61_000);
+    expect(mod.isSupabaseBackingOff()).toBe(false);
+    await expect(breakerFetch("https://fake.supabase.test/rest/v1/x")).rejects.toThrow();
+    expect(realFetch).toHaveBeenCalledTimes(4);
+
+    // Leave the breaker closed for the tests that follow.
+    vi.advanceTimersByTime(61_000);
+    vi.unstubAllGlobals();
+  });
+
+  it("CRITICAL an HTTP error response never trips it", async () => {
+    const breakerFetch = await getBreakerFetch();
+    const mod = await import("./supabase");
+    // A 400 from PostgREST resolves; only a refused socket rejects. Tripping
+    // on query errors would take the app offline over one bad filter.
+    const realFetch = vi.fn().mockResolvedValue(new Response("{}", { status: 400 }));
+    vi.stubGlobal("fetch", realFetch);
+
+    for (let i = 0; i < 5; i++) {
+      await breakerFetch("https://fake.supabase.test/rest/v1/x");
+    }
+    expect(realFetch).toHaveBeenCalledTimes(5);
+    expect(mod.isSupabaseBackingOff()).toBe(false);
+    vi.unstubAllGlobals();
+  });
+
+  it("one success resets the failure count", async () => {
+    const breakerFetch = await getBreakerFetch();
+    const mod = await import("./supabase");
+    const realFetch = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockResolvedValueOnce(new Response("{}", { status: 200 }))
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    vi.stubGlobal("fetch", realFetch);
+
+    await expect(breakerFetch("https://x")).rejects.toThrow();
+    await expect(breakerFetch("https://x")).rejects.toThrow();
+    await breakerFetch("https://x");
+    await expect(breakerFetch("https://x")).rejects.toThrow();
+    await expect(breakerFetch("https://x")).rejects.toThrow();
+    // Two before the success plus two after is four failures, but never
+    // three in a row.
+    expect(mod.isSupabaseBackingOff()).toBe(false);
+    vi.unstubAllGlobals();
+  });
+
+  it("CRITICAL realtime reconnect backs off instead of retrying forever at 10s", async () => {
+    await import("./supabase");
+    const opts = createClientMock.mock.calls[0]?.[2] as
+      | { realtime?: { reconnectAfterMs?: (tries: number) => number } }
+      | undefined;
+    const backoff = opts?.realtime?.reconnectAfterMs;
+    expect(typeof backoff).toBe("function");
+    expect(backoff!(1)).toBe(2_000);
+    expect(backoff!(3)).toBe(8_000);
+    expect(backoff!(5)).toBe(30_000);
+    expect(backoff!(50)).toBe(30_000);
   });
 });

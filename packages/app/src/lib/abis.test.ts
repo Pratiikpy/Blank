@@ -228,16 +228,16 @@ function hasFn(
 
 describe("hot-path function pins (frontend <-> deployed bytecode contract)", () => {
   it("PaymentHubAbi exports sendPayment + createRequest + fulfillRequest", () => {
-    expect(hasFn(PaymentHubAbi, "sendPayment", ["address", "address", "tuple", "string"])).toBe(true);
-    expect(hasFn(PaymentHubAbi, "createRequest", ["address", "address", "tuple", "string"])).toBe(true);
-    expect(hasFn(PaymentHubAbi, "fulfillRequest", ["uint256", "tuple"])).toBe(true);
+    expect(hasFn(PaymentHubAbi, "sendPayment", ["address", "address", "bytes32", "bytes", "string"])).toBe(true);
+    expect(hasFn(PaymentHubAbi, "createRequest", ["address", "address", "bytes32", "bytes", "string"])).toBe(true);
+    expect(hasFn(PaymentHubAbi, "fulfillRequest", ["uint256", "bytes32", "bytes"])).toBe(true);
   });
 
   it("FHERC20VaultAbi exports shield + transfer + balanceOf + requestUnshield + claimUnshield", () => {
     expect(hasFn(FHERC20VaultAbi, "shield", ["uint256"])).toBe(true);
-    expect(hasFn(FHERC20VaultAbi, "transfer", ["address", "tuple"])).toBe(true);
+    expect(hasFn(FHERC20VaultAbi, "transfer", ["address", "bytes32", "bytes"])).toBe(true);
     expect(hasFn(FHERC20VaultAbi, "balanceOf", ["address"])).toBe(true);
-    expect(hasFn(FHERC20VaultAbi, "requestUnshield", ["tuple"])).toBe(true);
+    expect(hasFn(FHERC20VaultAbi, "requestUnshield", ["bytes32", "bytes"])).toBe(true);
     expect(hasFn(FHERC20VaultAbi, "claimUnshield", ["uint64", "bytes"])).toBe(true);
   });
 
@@ -278,50 +278,57 @@ describe("hot-path function pins (frontend <-> deployed bytecode contract)", () 
 // Pinned here as a sentinel across every ABI that declares an
 // InEuint64 input.
 
-const CANONICAL_INEUINT64_SHAPE: ReadonlyArray<{ name: string; type: string }> = [
-  { name: "ctHash", type: "uint256" },
-  { name: "securityZone", type: "uint8" },
-  { name: "utype", type: "uint8" },
-  { name: "signature", type: "bytes" },
-];
+// ─── 0.7 encrypted-input layout ──────────────────────────────────────
+// cofhe-contracts 0.2.0 replaced the InEuintXX tuple with an
+// `externalEuintXX` handle (bytes32) plus a `bytes` batch signature. The
+// signature must immediately follow the contiguous run of handles it
+// authenticates — a handle without a following `bytes` is a call that
+// type-checks, encodes, and then reverts on chain.
 
-function findInEuint64Tuples(
-  abi: readonly unknown[],
-): Array<{ name?: string; components?: ReadonlyArray<{ name: string; type: string }> }> {
-  const out: Array<{ name?: string; components?: ReadonlyArray<{ name: string; type: string }> }> = [];
-  for (const entry of abi as Array<{ inputs?: ReadonlyArray<{ internalType?: string; components?: ReadonlyArray<{ name: string; type: string }>; type?: string; name?: string }> }>) {
-    for (const input of entry.inputs ?? []) {
-      if (input.internalType === "struct InEuint64" || input.internalType === "struct InEuint64[]") {
-        out.push({ name: input.name, components: input.components });
-      }
-    }
-  }
-  return out;
+type AbiInput = { name?: string; type?: string; internalType?: string };
+type AbiEntry = { type?: string; name?: string; inputs?: readonly AbiInput[] };
+
+function isHandle(i: AbiInput): boolean {
+  return (i.internalType ?? "").startsWith("external") && (i.type === "bytes32" || i.type === "bytes32[]");
 }
 
-describe("InEuint64 tuple component shape is consistent across ABIs", () => {
-  it("the canonical 4-field shape (ctHash + securityZone + utype + signature) matches every InEuint64 tuple in every ABI", () => {
-    let totalTuplesChecked = 0;
-    for (const [name, abi] of ALL_ABIS) {
-      const tuples = findInEuint64Tuples(abi);
-      for (const tuple of tuples) {
-        totalTuplesChecked++;
-        expect(tuple.components, `${name} InEuint64 tuple missing components`).toBeDefined();
-        const components = tuple.components ?? [];
-        expect(components.length, `${name} InEuint64 has wrong field count`).toBe(
-          CANONICAL_INEUINT64_SHAPE.length,
-        );
-        for (let i = 0; i < CANONICAL_INEUINT64_SHAPE.length; i++) {
-          const canonical = CANONICAL_INEUINT64_SHAPE[i]!;
-          const actual = components[i]!;
-          expect(actual.name, `${name} InEuint64 field ${i} name drift`).toBe(canonical.name);
-          expect(actual.type, `${name} InEuint64 field ${i} type drift`).toBe(canonical.type);
+describe("encrypted inputs carry a batch signature", () => {
+  it("every external* handle run is immediately followed by a bytes proof", () => {
+    let handleRuns = 0;
+    for (const [abiName, abi] of ALL_ABIS) {
+      for (const entry of abi as readonly AbiEntry[]) {
+        if (entry.type !== "function" || !entry.inputs) continue;
+        const inputs = entry.inputs;
+        for (let i = 0; i < inputs.length; i++) {
+          if (!isHandle(inputs[i]!)) continue;
+          // walk to the end of this contiguous run of handles
+          let j = i;
+          while (j + 1 < inputs.length && isHandle(inputs[j + 1]!)) j++;
+          handleRuns++;
+          const next = inputs[j + 1];
+          expect(
+            next?.type,
+            `${abiName}.${entry.name}: handle run ending at arg ${j} is not followed by a bytes proof`,
+          ).toBe("bytes");
+          i = j + 1;
         }
       }
     }
-    // Sanity: we should have inspected at least one InEuint64 tuple
-    // (multiple ABIs use it). A zero count means the regex / detection
-    // logic broke silently.
-    expect(totalTuplesChecked).toBeGreaterThan(5);
+    // Sanity: many functions take encrypted input. Zero means the
+    // detection broke silently rather than the ABIs being clean.
+    expect(handleRuns).toBeGreaterThan(5);
+  });
+
+  it("no ABI still references the deleted InEuintXX structs", () => {
+    for (const [abiName, abi] of ALL_ABIS) {
+      for (const entry of abi as readonly AbiEntry[]) {
+        for (const input of entry.inputs ?? []) {
+          expect(
+            input.internalType ?? "",
+            `${abiName}.${entry.name} still declares ${input.internalType}`,
+          ).not.toMatch(/^struct In(Euint|Ebool|Eaddress)/);
+        }
+      }
+    }
   });
 });

@@ -159,9 +159,7 @@ beforeEach(() => {
   toastLoadingMock.mockReturnValue("toast-id");
   insertActivityMock.mockResolvedValue(undefined);
   updateInvoiceStatusMock.mockResolvedValue(undefined);
-  encryptInputsAsyncMock.mockResolvedValue([
-    { ctHash: 0x42n, securityZone: 0, utype: 5, signature: "0xenc" },
-  ]);
+  encryptInputsAsyncMock.mockResolvedValue(["0xhandle0", "0xbatchproof"]);
   unifiedWriteAndWaitMock.mockResolvedValue({
     hash: "0xtxhash",
     receipt: { status: "success", blockNumber: 1n },

@@ -50,10 +50,9 @@ async function deployProxy(contractName: string, initArgs: unknown[] = []) {
   return Factory.attach(await proxy.getAddress()) as any;
 }
 
-async function encryptAmountFor(client: any, signer: any, amount: bigint) {
+async function encryptAmountFor(client: any, signer: any, amount: bigint, consuming: string) {
   await hre.cofhe.connectWithHardhatSigner(client, signer);
-  const [enc] = await client.encryptInputs([Encryptable.uint64(amount)]).execute();
-  return enc;
+  return await client.encryptInputs([Encryptable.uint64(amount)]).setConsumingContract(consuming).execute();
 }
 
 async function deployFixture() {
@@ -176,12 +175,12 @@ describe("CreatorHub — support (tipping path)", () => {
     await ctx.hub.connect(ctx.alice).setProfile("Alice", "bio", TIER1, TIER2, TIER3);
 
     const tip = 50n;
-    const encTip = await encryptAmountFor(ctx.client, ctx.bob, tip);
+    const encTip = await encryptAmountFor(ctx.client, ctx.bob, tip, await ctx.hub.getAddress());
     await expect(
       ctx.hub.connect(ctx.bob).support(
         ctx.alice.address,
         await ctx.vault.getAddress(),
-        encTip,
+        ...encTip,
         "love your work",
       ),
     )
@@ -201,11 +200,11 @@ describe("CreatorHub — support (tipping path)", () => {
     await ctx.hub.connect(ctx.alice).setProfile("Alice", "bio", TIER1, TIER2, TIER3);
 
     for (const tip of [50n, 75n]) {
-      const enc = await encryptAmountFor(ctx.client, ctx.bob, tip);
+      const enc = await encryptAmountFor(ctx.client, ctx.bob, tip, await ctx.hub.getAddress());
       await ctx.hub.connect(ctx.bob).support(
         ctx.alice.address,
         await ctx.vault.getAddress(),
-        enc,
+        ...enc,
         "tip " + tip.toString(),
       );
     }
@@ -218,11 +217,11 @@ describe("CreatorHub — support (tipping path)", () => {
     await ctx.hub.connect(ctx.alice).setProfile("Alice", "bio", TIER1, TIER2, TIER3);
 
     for (const tip of [50n, 75n]) {
-      const enc = await encryptAmountFor(ctx.client, ctx.bob, tip);
+      const enc = await encryptAmountFor(ctx.client, ctx.bob, tip, await ctx.hub.getAddress());
       await ctx.hub.connect(ctx.bob).support(
         ctx.alice.address,
         await ctx.vault.getAddress(),
-        enc,
+        ...enc,
         "",
       );
     }
@@ -235,11 +234,11 @@ describe("CreatorHub — support (tipping path)", () => {
     await ctx.hub.connect(ctx.alice).setProfile("Alice", "bio", TIER1, TIER2, TIER3);
 
     for (const supporter of [ctx.bob, ctx.charlie]) {
-      const enc = await encryptAmountFor(ctx.client, supporter, 50n);
+      const enc = await encryptAmountFor(ctx.client, supporter, 50n, await ctx.hub.getAddress());
       await ctx.hub.connect(supporter).support(
         ctx.alice.address,
         await ctx.vault.getAddress(),
-        enc,
+        ...enc,
         "",
       );
     }
@@ -254,11 +253,11 @@ describe("CreatorHub — support (tipping path)", () => {
     await ctx.hub.connect(ctx.alice).setProfile("Alice", "bio", TIER1, TIER2, TIER3);
 
     for (let i = 0; i < 3; i++) {
-      const enc = await encryptAmountFor(ctx.client, ctx.bob, 10n);
+      const enc = await encryptAmountFor(ctx.client, ctx.bob, 10n, await ctx.hub.getAddress());
       await ctx.hub.connect(ctx.bob).support(
         ctx.alice.address,
         await ctx.vault.getAddress(),
-        enc,
+        ...enc,
         "",
       );
     }
@@ -272,11 +271,11 @@ describe("CreatorHub — support (tipping path)", () => {
     await ctx.hub.connect(ctx.alice).setProfile("Alice", "bio", TIER1, TIER2, TIER3);
 
     for (const supporter of [ctx.bob, ctx.charlie]) {
-      const enc = await encryptAmountFor(ctx.client, supporter, 50n);
+      const enc = await encryptAmountFor(ctx.client, supporter, 50n, await ctx.hub.getAddress());
       await ctx.hub.connect(supporter).support(
         ctx.alice.address,
         await ctx.vault.getAddress(),
-        enc,
+        ...enc,
         "",
       );
     }
@@ -286,12 +285,12 @@ describe("CreatorHub — support (tipping path)", () => {
 
   it("rejects support to a creator with NO profile", async () => {
     const ctx = await loadFixture(deployFixture);
-    const enc = await encryptAmountFor(ctx.client, ctx.bob, 50n);
+    const enc = await encryptAmountFor(ctx.client, ctx.bob, 50n, await ctx.hub.getAddress());
     await expect(
       ctx.hub.connect(ctx.bob).support(
         ctx.alice.address,
         await ctx.vault.getAddress(),
-        enc,
+        ...enc,
         "",
       ),
     ).to.be.revertedWith("CreatorHub: no profile");
@@ -300,12 +299,12 @@ describe("CreatorHub — support (tipping path)", () => {
   it("rejects self-tipping (creator cannot inflate own count/earnings)", async () => {
     const ctx = await loadFixture(deployFixture);
     await ctx.hub.connect(ctx.alice).setProfile("Alice", "bio", TIER1, TIER2, TIER3);
-    const enc = await encryptAmountFor(ctx.client, ctx.alice, 50n);
+    const enc = await encryptAmountFor(ctx.client, ctx.alice, 50n, await ctx.hub.getAddress());
     await expect(
       ctx.hub.connect(ctx.alice).support(
         ctx.alice.address,
         await ctx.vault.getAddress(),
-        enc,
+        ...enc,
         "",
       ),
     ).to.be.revertedWith("CreatorHub: cannot self-tip");
@@ -339,11 +338,11 @@ describe("CreatorHub — view + tier-check gates", () => {
   it("checkMyTier succeeds for a supporter and submits FHE.gte tasks (no revert)", async () => {
     const ctx = await loadFixture(deployFixture);
     await ctx.hub.connect(ctx.alice).setProfile("Alice", "bio", TIER1, TIER2, TIER3);
-    const enc = await encryptAmountFor(ctx.client, ctx.bob, 150n);
+    const enc = await encryptAmountFor(ctx.client, ctx.bob, 150n, await ctx.hub.getAddress());
     await ctx.hub.connect(ctx.bob).support(
       ctx.alice.address,
       await ctx.vault.getAddress(),
-      enc,
+      ...enc,
       "",
     );
     // Just assert the tx doesn't revert; the ebool returns are encrypted

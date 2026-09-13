@@ -92,7 +92,10 @@ vi.mock("./useEffectiveAddress", () => ({
 }));
 vi.mock("@/providers/ChainProvider", () => ({ useChain: useChainMock }));
 vi.mock("./useUnifiedWrite", () => ({ useUnifiedWrite: useUnifiedWriteMock }));
+const NOT_READY = vi.hoisted(() => "encryption-not-ready");
 vi.mock("@/lib/cofhe-shim", () => ({
+  // Pins "the not-ready message is shown" without pinning the exact copy.
+  ENCRYPTION_NOT_READY: NOT_READY,
   useCofheEncrypt: useCofheEncryptMock,
   useCofheConnection: useCofheConnectionMock,
   Encryptable: new Proxy({}, { get: () => (v: unknown) => ({ raw: v }) }),
@@ -203,9 +206,11 @@ beforeEach(() => {
     logs: [],
   });
   extractEventIdMock.mockReturnValue(42);
-  encryptInputsAsyncMock.mockImplementation(async (inputs: unknown[]) =>
-    inputs.map((_, i) => ({ ctHash: BigInt(i + 1), signature: "0xenc" })),
-  );
+  // 0.7: one handle per input, then a single batch signature.
+  encryptInputsAsyncMock.mockImplementation(async (inputs: unknown[]) => [
+    ...inputs.map((_, i) => `0xhandle${i}`),
+    "0xbatchproof",
+  ]);
   insertActivityMock.mockResolvedValue(undefined);
   insertActivitiesFanoutMock.mockResolvedValue(undefined);
 });
@@ -317,13 +322,18 @@ describe("useGiftMoney — createGift guards (§15.x)", () => {
     expect(unifiedWriteAndWaitMock).toHaveBeenCalledTimes(0);
   });
 
-  it("not connected -> no write", async () => {
+  it("CRITICAL not connected -> no write AND the user is told why", async () => {
+    // createGift carries an encrypted amount, so a pending CoFHE handshake
+    // genuinely blocks it. What must never happen again is the button doing
+    // nothing at all: this used to `return` with no toast, no spinner and no
+    // transaction, which reads as a broken app.
     useCofheConnectionMock.mockReturnValue({ connected: false });
     const { result } = renderHook(() => useGiftMoney());
     await act(async () => {
       await result.current.createGift(VAULT, ["100"], [ALICE], "Hi");
     });
     expect(unifiedWriteAndWaitMock).toHaveBeenCalledTimes(0);
+    expect(toastErrorMock).toHaveBeenCalledWith(NOT_READY);
   });
 
   it("shares.length !== recipients.length -> 'Shares and recipients must match' toast", async () => {
@@ -490,8 +500,8 @@ describe("useGiftMoney — createGift happy path (§15.x)", () => {
     expect(call.args[1]).toEqual([ALICE, BOB]);
     expect(Array.isArray(call.args[2])).toBe(true);
     expect(call.args[2]).toHaveLength(2);
-    expect(call.args[3]).toBe("Happy Birthday");
-    expect(call.args[4]).toBe(1735689600n);
+    expect(call.args[4]).toBe("Happy Birthday");
+    expect(call.args[5]).toBe(1735689600n);
     expect(call.gas).toBe(5_000_000n);
     const encBatch = encryptInputsAsyncMock.mock.calls[0][0] as Array<{ raw: bigint }>;
     expect(encBatch[0].raw).toBe(60_000_000n);
@@ -503,7 +513,7 @@ describe("useGiftMoney — createGift happy path (§15.x)", () => {
     await act(async () => {
       await result.current.createGift(VAULT, ["100"], [ALICE], "Hi");
     });
-    expect(unifiedWriteAndWaitMock.mock.calls[0][0].args[4]).toBe(0n);
+    expect(unifiedWriteAndWaitMock.mock.calls[0][0].args[5]).toBe(0n);
   });
 
   it("step ladder: input -> approving -> encrypting -> confirming -> sending -> success", async () => {
@@ -667,6 +677,36 @@ describe("useGiftMoney — createGift happy path (§15.x)", () => {
 // ───────────────────────────────────────────────────────────
 
 describe("useGiftMoney — claimGift (§15.x)", () => {
+  // The bug this pins, found by driving two real wallets on Base Sepolia: a
+  // brand new recipient's smart account is counterfactual until their first
+  // UserOp, the CoFHE binder will not bind an undeployed account, so
+  // `connected` was false and Claim silently did nothing at all. claimGift
+  // takes no encrypted argument, so it never needed the client — and the
+  // claim itself is what deploys the account.
+  it("CRITICAL claims with the CoFHE client unconnected (undeployed account)", async () => {
+    useCofheConnectionMock.mockReturnValue({ connected: false });
+    const { result } = renderHook(() => useGiftMoney());
+    await act(async () => {
+      await result.current.claimGift(42);
+    });
+    expect(unifiedWriteAndWaitMock).toHaveBeenCalledTimes(1);
+    expect(unifiedWriteAndWaitMock.mock.calls[0][0].functionName).toBe("claimGift");
+    expect(toastErrorMock).not.toHaveBeenCalled();
+  });
+
+  it("deactivateEnvelope and setExpiry also carry no encrypted argument", async () => {
+    useCofheConnectionMock.mockReturnValue({ connected: false });
+    const { result } = renderHook(() => useGiftMoney());
+    await act(async () => {
+      await result.current.deactivateEnvelope(42);
+    });
+    expect(unifiedWriteAndWaitMock).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      await result.current.setExpiry(42, 1_800_000_000);
+    });
+    expect(unifiedWriteMock).toHaveBeenCalledTimes(1);
+  });
+
   it("no address -> no write", async () => {
     useEffectiveAddressMock.mockReturnValue({ effectiveAddress: null });
     const { result } = renderHook(() => useGiftMoney());

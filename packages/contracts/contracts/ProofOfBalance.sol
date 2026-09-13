@@ -62,13 +62,13 @@ contract ProofOfBalance is UUPSUpgradeable, OwnableUpgradeable {
 
     /// Create a balance-threshold proof. Returns proofId.
     function createProof(
-        InEuint64 calldata encBalance,
+        externalEuint64 encBalance, bytes calldata proof,
         uint64 thresholdMicroUSD
     ) external returns (uint256 proofId) {
         require(thresholdMicroUSD > 0, "ProofOfBalance: threshold=0");
         proofId = nextProofId++;
 
-        euint64 balance = FHE.asEuint64(encBalance);
+        euint64 balance = FHE.asEuint64(encBalance, proof);
         ebool met = FHE.gte(balance, FHE.asEuint64(thresholdMicroUSD));
 
         FHE.allowThis(met);

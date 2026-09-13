@@ -99,23 +99,22 @@ async function fixture() {
   };
 }
 
-async function encUint64(client: any, signer: any, amount: bigint) {
+async function encUint64(client: any, signer: any, amount: bigint, consuming: string) {
   await hre.cofhe.connectWithHardhatSigner(client, signer);
-  const [enc] = await client.encryptInputs([Encryptable.uint64(amount)]).execute();
-  return enc;
+  return await client.encryptInputs([Encryptable.uint64(amount)]).setConsumingContract(consuming).execute();
 }
 
 async function createInvoice(
   ctx: Awaited<ReturnType<typeof fixture>>,
   amount: bigint,
 ): Promise<bigint> {
-  const enc = await encUint64(ctx.client, ctx.vendor, amount);
+  const enc = await encUint64(ctx.client, ctx.vendor, amount, await ctx.businessHub.getAddress());
   const tx = await ctx.businessHub
     .connect(ctx.vendor)
     .createInvoice(
       ctx.payer.address,
       await ctx.vault.getAddress(),
-      enc,
+      ...enc,
       "Token-agnostic test invoice",
       Math.floor(Date.now() / 1000) + 7 * 24 * 3600,
     );
@@ -133,7 +132,7 @@ describe("BusinessHub.payInvoiceWithSwap — same-token short-circuit", () => {
       .connect(ctx.payer)
       .approve(await ctx.businessHub.getAddress(), usdc(100));
 
-    const encMatch = await encUint64(ctx.client, ctx.payer, usdc(100));
+    const encMatch = await encUint64(ctx.client, ctx.payer, usdc(100), await ctx.businessHub.getAddress());
     const vendorBefore: bigint = await ctx.usdcToken.balanceOf(ctx.vendor.address);
 
     await expect(
@@ -144,7 +143,7 @@ describe("BusinessHub.payInvoiceWithSwap — same-token short-circuit", () => {
         usdc(100),
         3000,
         await ctx.router.getAddress(),
-        encMatch,
+        ...encMatch,
       ),
     )
       .to.emit(ctx.businessHub, "InvoicePaymentSwapped")
@@ -163,7 +162,7 @@ describe("BusinessHub.payInvoiceWithSwap — same-token short-circuit", () => {
     await ctx.usdcToken
       .connect(ctx.payer)
       .approve(await ctx.businessHub.getAddress(), usdc(150));
-    const encMatch = await encUint64(ctx.client, ctx.payer, usdc(100));
+    const encMatch = await encUint64(ctx.client, ctx.payer, usdc(100), await ctx.businessHub.getAddress());
 
     await expect(
       ctx.businessHub.connect(ctx.payer).payInvoiceWithSwap(
@@ -173,7 +172,7 @@ describe("BusinessHub.payInvoiceWithSwap — same-token short-circuit", () => {
         usdc(100),
         3000,
         await ctx.router.getAddress(),
-        encMatch,
+        ...encMatch,
       ),
     ).to.be.revertedWith("BusinessHub: same-token requires payAmountInMax == expectedUsdcOut");
   });
@@ -192,7 +191,7 @@ describe("BusinessHub.payInvoiceWithSwap — swap path", () => {
     await ctx.usdtToken
       .connect(ctx.payer)
       .approve(await ctx.businessHub.getAddress(), payAmountInMax);
-    const encMatch = await encUint64(ctx.client, ctx.payer, usdc(100));
+    const encMatch = await encUint64(ctx.client, ctx.payer, usdc(100), await ctx.businessHub.getAddress());
 
     const vendorBefore: bigint = await ctx.usdcToken.balanceOf(ctx.vendor.address);
     const payerUsdtBefore: bigint = await ctx.usdtToken.balanceOf(ctx.payer.address);
@@ -204,7 +203,7 @@ describe("BusinessHub.payInvoiceWithSwap — swap path", () => {
       usdc(100),
       3000,
       await ctx.router.getAddress(),
-      encMatch,
+      ...encMatch,
     );
 
     const vendorAfter: bigint = await ctx.usdcToken.balanceOf(ctx.vendor.address);
@@ -233,7 +232,7 @@ describe("BusinessHub.payInvoiceWithSwap — swap path", () => {
     await ctx.usdtToken
       .connect(ctx.payer)
       .approve(await ctx.businessHub.getAddress(), payAmountInMax);
-    const encMatch = await encUint64(ctx.client, ctx.payer, usdc(100));
+    const encMatch = await encUint64(ctx.client, ctx.payer, usdc(100), await ctx.businessHub.getAddress());
 
     await expect(
       ctx.businessHub.connect(ctx.payer).payInvoiceWithSwap(
@@ -243,7 +242,7 @@ describe("BusinessHub.payInvoiceWithSwap — swap path", () => {
         usdc(100),
         3000,
         await ctx.router.getAddress(),
-        encMatch,
+        ...encMatch,
       ),
     )
       .to.emit(ctx.businessHub, "InvoicePaymentSwapped")
@@ -262,7 +261,7 @@ describe("BusinessHub.payInvoiceWithSwap — pre-flight reverts", () => {
     const ctx = await loadFixture(fixture);
     const id = await createInvoice(ctx, usdc(100));
     const [, , , otherSigner] = await hre.ethers.getSigners();
-    const encMatch = await encUint64(ctx.client, otherSigner, usdc(100));
+    const encMatch = await encUint64(ctx.client, otherSigner, usdc(100), await ctx.businessHub.getAddress());
     await expect(
       ctx.businessHub.connect(otherSigner).payInvoiceWithSwap(
         id,
@@ -271,7 +270,7 @@ describe("BusinessHub.payInvoiceWithSwap — pre-flight reverts", () => {
         usdc(100),
         3000,
         await ctx.router.getAddress(),
-        encMatch,
+        ...encMatch,
       ),
     ).to.be.revertedWith("BusinessHub: not the client");
   });
@@ -280,7 +279,7 @@ describe("BusinessHub.payInvoiceWithSwap — pre-flight reverts", () => {
     const ctx = await loadFixture(fixture);
     const id = await createInvoice(ctx, usdc(100));
     await ctx.businessHub.connect(ctx.vendor).cancelInvoice(id);
-    const encMatch = await encUint64(ctx.client, ctx.payer, usdc(100));
+    const encMatch = await encUint64(ctx.client, ctx.payer, usdc(100), await ctx.businessHub.getAddress());
     await expect(
       ctx.businessHub.connect(ctx.payer).payInvoiceWithSwap(
         id,
@@ -289,7 +288,7 @@ describe("BusinessHub.payInvoiceWithSwap — pre-flight reverts", () => {
         usdc(100),
         3000,
         await ctx.router.getAddress(),
-        encMatch,
+        ...encMatch,
       ),
     ).to.be.revertedWith("BusinessHub: not pending");
   });
@@ -297,7 +296,7 @@ describe("BusinessHub.payInvoiceWithSwap — pre-flight reverts", () => {
   it("rejects zero payToken / swapRouter / amounts", async () => {
     const ctx = await loadFixture(fixture);
     const id = await createInvoice(ctx, usdc(100));
-    const encMatch = await encUint64(ctx.client, ctx.payer, usdc(100));
+    const encMatch = await encUint64(ctx.client, ctx.payer, usdc(100), await ctx.businessHub.getAddress());
     const args = [
       id,
       await ctx.usdcToken.getAddress(),
@@ -305,7 +304,7 @@ describe("BusinessHub.payInvoiceWithSwap — pre-flight reverts", () => {
       usdc(100),
       3000,
       await ctx.router.getAddress(),
-      encMatch,
+      ...encMatch,
     ] as const;
     // zero payToken
     await expect(
@@ -317,6 +316,7 @@ describe("BusinessHub.payInvoiceWithSwap — pre-flight reverts", () => {
         args[4],
         args[5],
         args[6],
+        args[7],
       ),
     ).to.be.revertedWith("BusinessHub: zero payToken");
     // zero swapRouter
@@ -329,6 +329,7 @@ describe("BusinessHub.payInvoiceWithSwap — pre-flight reverts", () => {
         args[4],
         hre.ethers.ZeroAddress,
         args[6],
+        args[7],
       ),
     ).to.be.revertedWith("BusinessHub: zero swapRouter");
     // zero amounts
@@ -341,6 +342,7 @@ describe("BusinessHub.payInvoiceWithSwap — pre-flight reverts", () => {
         args[4],
         args[5],
         args[6],
+        args[7],
       ),
     ).to.be.revertedWith("BusinessHub: zero payAmountInMax");
     await expect(
@@ -352,6 +354,7 @@ describe("BusinessHub.payInvoiceWithSwap — pre-flight reverts", () => {
         args[4],
         args[5],
         args[6],
+        args[7],
       ),
     ).to.be.revertedWith("BusinessHub: zero expectedUsdcOut");
   });
@@ -364,7 +367,7 @@ describe("BusinessHub.payInvoiceWithSwap — finalize integration", () => {
     await ctx.usdcToken
       .connect(ctx.payer)
       .approve(await ctx.businessHub.getAddress(), usdc(100));
-    const encMatch = await encUint64(ctx.client, ctx.payer, usdc(100));
+    const encMatch = await encUint64(ctx.client, ctx.payer, usdc(100), await ctx.businessHub.getAddress());
     await ctx.businessHub.connect(ctx.payer).payInvoiceWithSwap(
       id,
       await ctx.usdcToken.getAddress(),
@@ -372,13 +375,13 @@ describe("BusinessHub.payInvoiceWithSwap — finalize integration", () => {
       usdc(100),
       3000,
       await ctx.router.getAddress(),
-      encMatch,
+      ...encMatch,
     );
 
     // Off-chain decrypt the validation handle, sign, finalize.
     const handle = await ctx.businessHub.getInvoiceValidationHandle(id);
     await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.payer);
-    const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutPermit().execute();
+    const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutACP().execute();
     await ctx.businessHub
       .connect(ctx.payer)
       .payInvoiceFinalize(id, Boolean(proof.decryptedValue), proof.signature);
@@ -394,7 +397,7 @@ describe("BusinessHub.payInvoiceWithSwap — finalize integration", () => {
       .connect(ctx.payer)
       .approve(await ctx.businessHub.getAddress(), usdc(100));
     // Payer LIES: encrypts a different value than the invoice amount.
-    const encWrong = await encUint64(ctx.client, ctx.payer, usdc(50));
+    const encWrong = await encUint64(ctx.client, ctx.payer, usdc(50), await ctx.businessHub.getAddress());
     await ctx.businessHub.connect(ctx.payer).payInvoiceWithSwap(
       id,
       await ctx.usdcToken.getAddress(),
@@ -402,12 +405,12 @@ describe("BusinessHub.payInvoiceWithSwap — finalize integration", () => {
       usdc(100),
       3000,
       await ctx.router.getAddress(),
-      encWrong,
+      ...encWrong,
     );
 
     const handle = await ctx.businessHub.getInvoiceValidationHandle(id);
     await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.payer);
-    const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutPermit().execute();
+    const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutACP().execute();
     await ctx.businessHub
       .connect(ctx.payer)
       .payInvoiceFinalize(id, Boolean(proof.decryptedValue), proof.signature);

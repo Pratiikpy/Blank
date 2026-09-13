@@ -11,9 +11,9 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
 interface IFHERC20Vault {
-    function transferFrom(address from, address to, InEuint64 memory encAmount) external returns (euint64);
-    function transferFromVerified(address from, address to, euint64 amount) external returns (euint64);
-    function transferVerified(address to, euint64 amount) external returns (euint64);
+    function transferFrom(address from, address to, externalEuint64 encAmount, bytes calldata proof) external returns (euint64);
+    function transferFromVerified(address from, address to, sharedEuint64 shared) external returns (sharedEuint64);
+    function transferVerified(address to, sharedEuint64 shared) external returns (sharedEuint64);
     function underlyingToken() external view returns (address);
 }
 
@@ -44,8 +44,8 @@ interface IEventHub {
 }
 
 interface IPaymentReceipts {
-    function bumpUserReceived(address user, euint64 amount) external;
-    function bumpGlobal(euint64 amount) external;
+    function bumpUserReceived(address user, sharedEuint64 shared) external;
+    function bumpGlobal(sharedEuint64 shared) external;
 }
 
 /// @title BusinessHub — Encrypted invoicing, payroll, and escrow
@@ -237,7 +237,7 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     function createInvoice(
         address client,
         address vault,
-        InEuint64 memory encAmount,
+        externalEuint64 encAmount, bytes calldata proof,
         string calldata description,
         uint256 dueDate
     ) external nonReentrant returns (uint256) {
@@ -247,7 +247,7 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         // griefing). 512 bytes is generous for any real invoice memo.
         require(bytes(description).length <= 512, "BusinessHub: description too long");
 
-        euint64 amount = FHE.asEuint64(encAmount);
+        euint64 amount = FHE.asEuint64(encAmount, proof);
         FHE.allowThis(amount);
         FHE.allow(amount, client);
         FHE.allowSender(amount);
@@ -287,7 +287,7 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
      * @param invoiceId The invoice to pay
      * @param encAmount Encrypted payment amount (MUST equal the invoice amount)
      */
-    function payInvoice(uint256 invoiceId, InEuint64 memory encAmount) external nonReentrant {
+    function payInvoice(uint256 invoiceId, externalEuint64 encAmount, bytes calldata proof) external nonReentrant {
         Invoice storage inv = _invoices[invoiceId];
         require(inv.status == InvoiceStatus.Pending, "BusinessHub: not pending");
         require(msg.sender == inv.client, "BusinessHub: not the client");
@@ -300,8 +300,7 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         invoicePaymentStartedBy[invoiceId] = msg.sender;
 
         // Verify encrypted input here (msg.sender = client) before cross-contract call
-        euint64 payment = FHE.asEuint64(encAmount);
-        FHE.allowTransient(payment, inv.vault);
+        euint64 payment = FHE.asEuint64(encAmount, proof);
 
         // Verify the encrypted payment matches the encrypted invoice amount exactly.
         // The client should decrypt the invoice amount off-chain first, then encrypt
@@ -312,7 +311,10 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         // Since we verified exactMatch, if true this transfers exactly the invoice amount.
         // If exactMatch is false, the transfer still happens but the invoice won't be
         // marked as paid — see payInvoiceFinalize().
-        euint64 vendorReceived = IFHERC20Vault(inv.vault).transferFromVerified(msg.sender, inv.vendor, payment);
+        euint64 vendorReceived = FHE.receiveEuint64FromCall(
+            IFHERC20Vault(inv.vault).transferFromVerified(msg.sender, inv.vendor, FHE.shareEuint64(payment, inv.vault)),
+            inv.vault
+        );
         FHE.allowSender(vendorReceived);
         FHE.allow(vendorReceived, inv.vendor);
 
@@ -427,20 +429,22 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     ///         balance until releaseInvoiceEscrow finalizes the match check.
     /// @param invoiceId Invoice id (must be Pending).
     /// @param encAmount Client's encrypted payment.
-    function payInvoiceEscrow(uint256 invoiceId, InEuint64 memory encAmount) external nonReentrant {
+    function payInvoiceEscrow(uint256 invoiceId, externalEuint64 encAmount, bytes calldata proof) external nonReentrant {
         Invoice storage inv = _invoices[invoiceId];
         require(inv.status == InvoiceStatus.Pending, "BusinessHub: not pending");
         require(invoicePaymentStartedBy[invoiceId] == address(0), "BusinessHub: already paying");
         invoicePaymentStartedBy[invoiceId] = msg.sender;
 
         // Verify the encrypted input in the client's (msg.sender) context.
-        euint64 payment = FHE.asEuint64(encAmount);
-        FHE.allowTransient(payment, inv.vault);
+        euint64 payment = FHE.asEuint64(encAmount, proof);
 
         // Pull funds INTO this contract (escrow). The vault's transferFrom-
         // Verified returns a verified handle of the actual amount transferred
         // — which we keep in storage until release.
-        euint64 held = IFHERC20Vault(inv.vault).transferFromVerified(msg.sender, address(this), payment);
+        euint64 held = FHE.receiveEuint64FromCall(
+            IFHERC20Vault(inv.vault).transferFromVerified(msg.sender, address(this), FHE.shareEuint64(payment, inv.vault)),
+            inv.vault
+        );
         FHE.allowThis(held);
         FHE.allowSender(held);
         _invoiceEscrowHeld[invoiceId] = held;
@@ -481,18 +485,17 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
         euint64 held = _invoiceEscrowHeld[invoiceId];
         // Authorize the vault to act on our held handle for this call.
-        FHE.allowTransient(held, inv.vault);
 
         if (matchResult) {
             // Match: release to vendor.
-            IFHERC20Vault(inv.vault).transferVerified(inv.vendor, held);
+            IFHERC20Vault(inv.vault).transferVerified(inv.vendor, FHE.shareEuint64(held, inv.vault));
             inv.status = InvoiceStatus.Paid;
             emit InvoicePaid(invoiceId, block.timestamp);
             try eventHub.emitActivity(inv.client, inv.vendor, "invoice_paid", inv.description, invoiceId) {} catch {}
         } else {
             // Mismatch: refund to the client (= msg.sender). No vendor
             // cooperation required — the funds never left this contract.
-            IFHERC20Vault(inv.vault).transferVerified(msg.sender, held);
+            IFHERC20Vault(inv.vault).transferVerified(msg.sender, FHE.shareEuint64(held, inv.vault));
             inv.status = InvoiceStatus.Cancelled;
             emit InvoiceCancelled(invoiceId, block.timestamp);
             try eventHub.emitActivity(inv.client, inv.vendor, "invoice_refunded", inv.description, invoiceId) {} catch {}
@@ -516,9 +519,8 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         // FHE.allowTransient grants the vault one-shot read access for the
         // upcoming transferFromVerified call.
         euint64 refund = inv.amount;
-        FHE.allowTransient(refund, inv.vault);
 
-        IFHERC20Vault(inv.vault).transferFromVerified(msg.sender, inv.client, refund);
+        IFHERC20Vault(inv.vault).transferFromVerified(msg.sender, inv.client, FHE.shareEuint64(refund, inv.vault));
 
         inv.status = InvoiceStatus.Cancelled;
         // Allow the same invoice id to never be replayed: clear the
@@ -573,7 +575,7 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         uint256 expectedUsdcOut,
         uint24 fee,
         address swapRouter,
-        InEuint64 memory encAmount
+        externalEuint64 encAmount, bytes calldata proof
     ) external nonReentrant {
         Invoice storage inv = _invoices[invoiceId];
         require(inv.status == InvoiceStatus.Pending, "BusinessHub: not pending");
@@ -598,7 +600,7 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         // -contract call. The match result is published for later off-chain
         // decryption + finalize, mirroring payInvoice exactly so the same
         // payInvoiceFinalize() handles both flows.
-        euint64 payment = FHE.asEuint64(encAmount);
+        euint64 payment = FHE.asEuint64(encAmount, proof);
         ebool exactMatch = _verifyEncryptedMatch(payment, inv.amount);
         FHE.allowPublic(exactMatch);
         _invoicePaymentValidation[invoiceId] = exactMatch;
@@ -759,7 +761,7 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         uint256 expiresAt,
         bytes32 nonce,
         bytes calldata signature,
-        InEuint64 memory encAmount
+        externalEuint64 encAmount, bytes calldata proof
     ) external nonReentrant {
         Invoice storage inv = _invoices[invoiceId];
         require(inv.status == InvoiceStatus.Pending, "BusinessHub: not pending");
@@ -827,7 +829,7 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         invoicePaymentStartedBy[invoiceId] = msg.sender;
 
         // ── FHE encrypted-match validation ─────────────────────────────
-        euint64 payment = FHE.asEuint64(encAmount);
+        euint64 payment = FHE.asEuint64(encAmount, proof);
         ebool exactMatch = _verifyEncryptedMatch(payment, inv.amount);
         FHE.allowPublic(exactMatch);
         _invoicePaymentValidation[invoiceId] = exactMatch;
@@ -864,11 +866,15 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     function runPayroll(
         address[] calldata employees,
         address vault,
-        InEuint64[] memory salaries
+        externalEuint64[] calldata salaries,
+        bytes calldata proof
     ) external nonReentrant {
         uint256 count = employees.length;
         require(count > 0 && count <= MAX_PAYROLL_SIZE, "BusinessHub: invalid batch size");
         require(count == salaries.length, "BusinessHub: length mismatch");
+
+        // One batch signature covers every salary in the run.
+        euint64[] memory verifiedSalaries = FHE.asEuint64s(salaries, proof);
 
         IFHERC20Vault v = IFHERC20Vault(vault);
         for (uint256 i = 0; i < count; i++) {
@@ -881,10 +887,14 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
             // payrolling themselves. Mirror sendPayment + batchSend
             // which already enforce recipient != msg.sender.
             require(employees[i] != msg.sender, "BusinessHub: cannot payroll self");
-            // Verify encrypted input here (msg.sender = employer) before cross-contract call
-            euint64 verifiedSalary = FHE.asEuint64(salaries[i]);
-            FHE.allowTransient(verifiedSalary, vault);
-            euint64 actual = v.transferFromVerified(msg.sender, employees[i], verifiedSalary);
+            euint64 actual = FHE.receiveEuint64FromCall(
+                v.transferFromVerified(
+                    msg.sender,
+                    employees[i],
+                    FHE.shareEuint64(verifiedSalaries[i], vault)
+                ),
+                vault
+            );
             FHE.allowSender(actual);
             FHE.allow(actual, employees[i]);
             FHE.allowThis(actual);
@@ -1107,14 +1117,12 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         if (paymentReceipts == address(0)) return;
         // Transient-allow the PaymentReceipts contract to read the amount
         // handle for the duration of this call frame.
-        FHE.allowTransient(amount, paymentReceipts);
-        try IPaymentReceipts(paymentReceipts).bumpUserReceived(recipient, amount) {} catch (bytes memory reason) {
+        try IPaymentReceipts(paymentReceipts).bumpUserReceived(recipient, FHE.shareEuint64(amount, paymentReceipts)) {} catch (bytes memory reason) {
             emit ReceiptsBumpFailed("user", reason);
         }
         // allowTransient is scoped to each external call, so re-authorize
         // for the global bump.
-        FHE.allowTransient(amount, paymentReceipts);
-        try IPaymentReceipts(paymentReceipts).bumpGlobal(amount) {} catch (bytes memory reason) {
+        try IPaymentReceipts(paymentReceipts).bumpGlobal(FHE.shareEuint64(amount, paymentReceipts)) {} catch (bytes memory reason) {
             emit ReceiptsBumpFailed("global", reason);
         }
     }

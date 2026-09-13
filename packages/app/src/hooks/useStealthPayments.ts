@@ -8,7 +8,6 @@ import { useCofheDecryptForTx } from "@/lib/cofhe-shim";
 import { Encryptable } from "@/lib/cofhe-shim";
 import toast from "react-hot-toast";
 import { log } from "@/lib/log";
-import { type EncryptedInput } from "@/lib/constants";
 import { useChain } from "@/providers/ChainProvider";
 import { StealthPaymentsAbi, TestUSDCAbi } from "@/lib/abis";
 import { insertActivity } from "@/lib/supabase";
@@ -381,9 +380,10 @@ export function useStealthPayments() {
         // Step 3: Encrypt the recipient address using FHE
         setState((s) => ({ ...s, step: "encrypting" }));
 
-        const [encRecipient] = await encryptInputsAsync([
+        const [encRecipient, encRecipientProof] = await encryptInputsAsync([
           Encryptable.address(recipient),
-        ]);
+        ],
+        contracts.StealthPayments as `0x${string}`);
 
         // Step 4: Send the stealth payment
         setState((s) => ({ ...s, step: "sending" }));
@@ -397,8 +397,8 @@ export function useStealthPayments() {
             amountWei,
             // Type assertion: cofhe SDK encrypt returns opaque encrypted input objects
             // whose shape doesn't match wagmi's strict ABI-inferred arg types
-            encRecipient as unknown as EncryptedInput,
-            claimCodeHash,
+            encRecipient,
+            encRecipientProof,claimCodeHash,
             vault as `0x${string}`,
             note,
           ],
@@ -669,7 +669,13 @@ export function useStealthPayments() {
 
   const claimStealth = useCallback(
     async (transferId: number, claimCode: string): Promise<string | null> => {
-      if (!address || !connected) {
+      // No `connected` gate: claimCode travels as a plain bytes32 secret,
+      // verified on-chain by hash comparison, not by FHE encryption — this
+      // call never touches the CoFHE client. Requiring it made Claim a
+      // silent no-op for every first-time recipient, whose smart account is
+      // undeployed and therefore never binds the client. The claim is
+      // itself the UserOp that deploys the account.
+      if (!address) {
         toast.error("Please connect your wallet");
         return null;
       }

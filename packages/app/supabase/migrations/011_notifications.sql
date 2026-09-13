@@ -13,8 +13,21 @@ create table if not exists push_subscriptions (
     auth       text not null,
     created_at timestamptz not null default now()
 );
-create index if not exists push_subs_handle on push_subscriptions(handle);
-create index if not exists push_subs_chain  on push_subscriptions(chain_id);
+-- 005_push_subscriptions already owns this table, and it keys rows by
+-- `address` rather than `handle` — which is what api/_lib/jobs/push-*.ts
+-- actually reads and writes. The `create table if not exists` above is
+-- therefore a no-op on any database where 005 ran first, leaving these
+-- indexes referencing a column that does not exist and aborting a fresh
+-- provision at this line. Guard them so the chain applies cleanly on both
+-- an existing database and a brand new one.
+do $$
+begin
+  if exists (select 1 from information_schema.columns
+             where table_name = 'push_subscriptions' and column_name = 'handle') then
+    create index if not exists push_subs_handle on push_subscriptions(handle);
+  end if;
+end $$;
+create index if not exists push_subs_chain on push_subscriptions(chain_id);
 
 -- 2. Notification ledger. Idempotency by event_id (deterministic hash
 -- of tx_hash + log_index + event_type + handle). Re-emitting the

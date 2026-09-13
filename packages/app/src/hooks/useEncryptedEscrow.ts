@@ -14,7 +14,7 @@ import { useFhePipeline } from "./useFhePipeline";
 import { useChain } from "@/providers/ChainProvider";
 import { useCofheEncrypt, useCofheConnection, Encryptable } from "@/lib/cofhe-shim";
 import { EncryptedEscrowAbi, FHERC20VaultAbi, InvoiceApprovalResolverAbi } from "@/lib/abis";
-import { MAX_UINT64, type EncryptedInput, getExplorerTxUrl } from "@/lib/constants";
+import { MAX_UINT64, getExplorerTxUrl } from "@/lib/constants";
 import { isVaultApproved, markVaultApproved } from "@/lib/approval";
 import { extractEventId } from "@/lib/event-parser";
 import { invalidateBalanceQueries } from "@/lib/query-invalidation";
@@ -149,8 +149,9 @@ export function useEncryptedEscrow() {
 
         setState((s) => ({ ...s, step: "encrypting" }));
         const amountUnits = parseUnits(params.amountTokens, params.decimals);
-        const [encAmount] = await encryptInputsAsync(
+        const [encAmount, encAmountProof] = await encryptInputsAsync(
           [Encryptable.uint64(amountUnits)],
+          ee,
           pipeline.onEncryptStep,
         );
 
@@ -163,8 +164,8 @@ export function useEncryptedEscrow() {
           args: [
             params.beneficiary,
             params.vault,
-            encAmount as unknown as EncryptedInput,
-            params.description,
+            encAmount,
+            encAmountProof,params.description,
             params.arbiter,
             BigInt(params.deadlineSeconds),
           ],
@@ -245,8 +246,9 @@ export function useEncryptedEscrow() {
 
         setState((s) => ({ ...s, step: "encrypting" }));
         const amountUnits = parseUnits(params.amountTokens, params.decimals);
-        const [encAmount] = await encryptInputsAsync(
+        const [encAmount, encAmountProof] = await encryptInputsAsync(
           [Encryptable.uint64(amountUnits)],
+          ee,
           pipeline.onEncryptStep,
         );
 
@@ -265,8 +267,8 @@ export function useEncryptedEscrow() {
           args: [
             params.beneficiary,
             params.vault,
-            encAmount as unknown as EncryptedInput,
-            params.description,
+            encAmount,
+            encAmountProof,params.description,
             resolver,
             resolverData,
             BigInt(params.deadlineSeconds),

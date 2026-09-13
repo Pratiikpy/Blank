@@ -210,9 +210,7 @@ beforeEach(() => {
   });
   useCofheConnectionMock.mockReturnValue({ connected: true });
   useCofheEncryptMock.mockReturnValue({ encryptInputsAsync: encryptInputsAsyncMock });
-  encryptInputsAsyncMock.mockResolvedValue([
-    { ctHash: 0x42n, securityZone: 0, utype: 5, signature: "0xenc" },
-  ]);
+  encryptInputsAsyncMock.mockResolvedValue(["0xhandle0", "0xbatchproof"]);
   toastLoadingMock.mockReturnValue("toast-id");
   isVaultApprovedMock.mockReturnValue(true);
   extractEventIdMock.mockReturnValue(42);
@@ -525,10 +523,10 @@ describe("useStorefront — createListing happy path (§15.x)", () => {
     expect(call.address).toBe(SF_ADDR);
     expect(call.args[0]).toBe(SALE_MODE.Auction);
     expect(call.args[1]).toBe(VAULT);
-    expect(call.args[3]).toBe(BigInt(86400));
-    expect(call.args[4]).toBe("Vintage poster");
-    expect(call.args[5]).toBe(CID_HASH);
-    expect(call.args[6]).toBe("ipfs://cid");
+    expect(call.args[4]).toBe(BigInt(86400));
+    expect(call.args[5]).toBe("Vintage poster");
+    expect(call.args[6]).toBe(CID_HASH);
+    expect(call.args[7]).toBe("ipfs://cid");
     expect(call.gas).toBe(5_000_000n);
   });
 
@@ -596,7 +594,7 @@ describe("useStorefront — createListing happy path (§15.x)", () => {
       await result.current.createListing(listingParams());
     });
     expect(startMock).toHaveBeenCalled();
-    expect(encryptInputsAsyncMock.mock.calls[0][1]).toBe(onEncryptStepMock);
+    expect(encryptInputsAsyncMock.mock.calls[0][2]).toBe(onEncryptStepMock);
     expect(markSubmittingMock).toHaveBeenCalled();
     expect(markDoneMock).toHaveBeenCalled();
     expect(invalidateBalanceQueriesMock).toHaveBeenCalledTimes(1);
@@ -672,7 +670,7 @@ describe("useStorefront — buyFixed (§15.x)", () => {
     const call = unifiedWriteAndWaitMock.mock.calls.at(-1)![0];
     expect(call.functionName).toBe("buyFixed");
     expect(call.args[0]).toBe(42n);
-    expect(call.args[2]).toBe(ZERO_BYTES32); // default delivery note hash
+    expect(call.args[3]).toBe(ZERO_BYTES32); // default delivery note hash
   });
 
   it("custom deliveryNoteHash passes through", async () => {
@@ -682,7 +680,7 @@ describe("useStorefront — buyFixed (§15.x)", () => {
       await result.current.buyFixed(buyParams({ deliveryNoteHash: customHash }));
     });
     const call = unifiedWriteAndWaitMock.mock.calls.at(-1)![0];
-    expect(call.args[2]).toBe(customHash);
+    expect(call.args[3]).toBe(customHash);
   });
 
   it("returns true on success + sets state.lastListingId + step=success", async () => {
@@ -782,7 +780,7 @@ describe("useStorefront — payPWYW (§15.x)", () => {
     const call = unifiedWriteAndWaitMock.mock.calls.at(-1)![0];
     expect(call.functionName).toBe("payPWYW");
     expect(call.args[0]).toBe(5n);
-    expect(call.args[2]).toBe(ZERO_BYTES32);
+    expect(call.args[3]).toBe(ZERO_BYTES32);
     const arr = encryptInputsAsyncMock.mock.calls[0][0] as Array<{ raw: bigint }>;
     expect(arr[0].raw).toBe(500_000n);
   });
@@ -794,7 +792,7 @@ describe("useStorefront — payPWYW (§15.x)", () => {
       await result.current.payPWYW(pwywParams({ deliveryNoteHash: customHash }));
     });
     const call = unifiedWriteAndWaitMock.mock.calls.at(-1)![0];
-    expect(call.args[2]).toBe(customHash);
+    expect(call.args[3]).toBe(customHash);
   });
 });
 

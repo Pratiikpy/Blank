@@ -1,7 +1,7 @@
 {
   "storage": [
     {
-      "astId": 70228,
+      "astId": 73153,
       "contract": "contracts/BusinessHub.sol:BusinessHub",
       "label": "_status",
       "offset": 0,
@@ -9,15 +9,15 @@
       "type": "t_uint256"
     },
     {
-      "astId": 42490,
+      "astId": 43448,
       "contract": "contracts/BusinessHub.sol:BusinessHub",
       "label": "eventHub",
       "offset": 0,
       "slot": "1",
-      "type": "t_contract(IEventHub)42406"
+      "type": "t_contract(IEventHub)43364"
     },
     {
-      "astId": 42495,
+      "astId": 43453,
       "contract": "contracts/BusinessHub.sol:BusinessHub",
       "label": "nextInvoiceId",
       "offset": 0,
@@ -25,15 +25,15 @@
       "type": "t_uint256"
     },
     {
-      "astId": 42500,
+      "astId": 43458,
       "contract": "contracts/BusinessHub.sol:BusinessHub",
       "label": "_invoices",
       "offset": 0,
       "slot": "3",
-      "type": "t_mapping(t_uint256,t_struct(Invoice)42462_storage)"
+      "type": "t_mapping(t_uint256,t_struct(Invoice)43420_storage)"
     },
     {
-      "astId": 42505,
+      "astId": 43463,
       "contract": "contracts/BusinessHub.sol:BusinessHub",
       "label": "_vendorInvoices",
       "offset": 0,
@@ -41,7 +41,7 @@
       "type": "t_mapping(t_address,t_array(t_uint256)dyn_storage)"
     },
     {
-      "astId": 42510,
+      "astId": 43468,
       "contract": "contracts/BusinessHub.sol:BusinessHub",
       "label": "_clientInvoices",
       "offset": 0,
@@ -49,7 +49,7 @@
       "type": "t_mapping(t_address,t_array(t_uint256)dyn_storage)"
     },
     {
-      "astId": 42512,
+      "astId": 43470,
       "contract": "contracts/BusinessHub.sol:BusinessHub",
       "label": "nextEscrowId",
       "offset": 0,
@@ -57,15 +57,15 @@
       "type": "t_uint256"
     },
     {
-      "astId": 42517,
+      "astId": 43475,
       "contract": "contracts/BusinessHub.sol:BusinessHub",
       "label": "_escrows",
       "offset": 0,
       "slot": "7",
-      "type": "t_mapping(t_uint256,t_struct(Escrow)42487_storage)"
+      "type": "t_mapping(t_uint256,t_struct(Escrow)43445_storage)"
     },
     {
-      "astId": 42522,
+      "astId": 43480,
       "contract": "contracts/BusinessHub.sol:BusinessHub",
       "label": "_userEscrows",
       "offset": 0,
@@ -73,7 +73,7 @@
       "type": "t_mapping(t_address,t_array(t_uint256)dyn_storage)"
     },
     {
-      "astId": 42528,
+      "astId": 43486,
       "contract": "contracts/BusinessHub.sol:BusinessHub",
       "label": "_invoicePaymentValidation",
       "offset": 0,
@@ -81,7 +81,7 @@
       "type": "t_mapping(t_uint256,t_userDefinedValueType(ebool)11789)"
     },
     {
-      "astId": 42530,
+      "astId": 43488,
       "contract": "contracts/BusinessHub.sol:BusinessHub",
       "label": "paymentReceipts",
       "offset": 0,
@@ -89,7 +89,7 @@
       "type": "t_address"
     },
     {
-      "astId": 42534,
+      "astId": 43492,
       "contract": "contracts/BusinessHub.sol:BusinessHub",
       "label": "invoicePaymentStartedBy",
       "offset": 0,
@@ -97,7 +97,7 @@
       "type": "t_mapping(t_uint256,t_address)"
     },
     {
-      "astId": 42538,
+      "astId": 43496,
       "contract": "contracts/BusinessHub.sol:BusinessHub",
       "label": "invoicePdfCidHash",
       "offset": 0,
@@ -105,7 +105,7 @@
       "type": "t_mapping(t_uint256,t_bytes32)"
     },
     {
-      "astId": 42542,
+      "astId": 43500,
       "contract": "contracts/BusinessHub.sol:BusinessHub",
       "label": "escrowAttachmentCidHash",
       "offset": 0,
@@ -113,7 +113,7 @@
       "type": "t_mapping(t_uint256,t_bytes32)"
     },
     {
-      "astId": 42544,
+      "astId": 43502,
       "contract": "contracts/BusinessHub.sol:BusinessHub",
       "label": "oracleAttestationAddress",
       "offset": 0,
@@ -121,7 +121,7 @@
       "type": "t_address"
     },
     {
-      "astId": 42551,
+      "astId": 43509,
       "contract": "contracts/BusinessHub.sol:BusinessHub",
       "label": "_oracleQuoteUsed",
       "offset": 0,
@@ -129,7 +129,7 @@
       "type": "t_mapping(t_address,t_mapping(t_bytes32,t_bool))"
     },
     {
-      "astId": 42557,
+      "astId": 43515,
       "contract": "contracts/BusinessHub.sol:BusinessHub",
       "label": "_invoiceEscrowHeld",
       "offset": 0,
@@ -137,7 +137,7 @@
       "type": "t_mapping(t_uint256,t_userDefinedValueType(euint64)11797)"
     },
     {
-      "astId": 45398,
+      "astId": 46356,
       "contract": "contracts/BusinessHub.sol:BusinessHub",
       "label": "approvedSwapRouters",
       "offset": 0,
@@ -145,7 +145,7 @@
       "type": "t_mapping(t_address,t_bool)"
     },
     {
-      "astId": 45403,
+      "astId": 46361,
       "contract": "contracts/BusinessHub.sol:BusinessHub",
       "label": "__gap",
       "offset": 0,
@@ -181,17 +181,17 @@
       "label": "bytes32",
       "numberOfBytes": "32"
     },
-    "t_contract(IEventHub)42406": {
+    "t_contract(IEventHub)43364": {
       "encoding": "inplace",
       "label": "contract IEventHub",
       "numberOfBytes": "20"
     },
-    "t_enum(EscrowStatus)42443": {
+    "t_enum(EscrowStatus)43401": {
       "encoding": "inplace",
       "label": "enum BusinessHub.EscrowStatus",
       "numberOfBytes": "1"
     },
-    "t_enum(InvoiceStatus)42438": {
+    "t_enum(InvoiceStatus)43396": {
       "encoding": "inplace",
       "label": "enum BusinessHub.InvoiceStatus",
       "numberOfBytes": "1"
@@ -238,19 +238,19 @@
       "numberOfBytes": "32",
       "value": "t_bytes32"
     },
-    "t_mapping(t_uint256,t_struct(Escrow)42487_storage)": {
+    "t_mapping(t_uint256,t_struct(Escrow)43445_storage)": {
       "encoding": "mapping",
       "key": "t_uint256",
       "label": "mapping(uint256 => struct BusinessHub.Escrow)",
       "numberOfBytes": "32",
-      "value": "t_struct(Escrow)42487_storage"
+      "value": "t_struct(Escrow)43445_storage"
     },
-    "t_mapping(t_uint256,t_struct(Invoice)42462_storage)": {
+    "t_mapping(t_uint256,t_struct(Invoice)43420_storage)": {
       "encoding": "mapping",
       "key": "t_uint256",
       "label": "mapping(uint256 => struct BusinessHub.Invoice)",
       "numberOfBytes": "32",
-      "value": "t_struct(Invoice)42462_storage"
+      "value": "t_struct(Invoice)43420_storage"
     },
     "t_mapping(t_uint256,t_userDefinedValueType(ebool)11789)": {
       "encoding": "mapping",
@@ -271,12 +271,12 @@
       "label": "string",
       "numberOfBytes": "32"
     },
-    "t_struct(Escrow)42487_storage": {
+    "t_struct(Escrow)43445_storage": {
       "encoding": "inplace",
       "label": "struct BusinessHub.Escrow",
       "members": [
         {
-          "astId": 42464,
+          "astId": 43422,
           "contract": "contracts/BusinessHub.sol:BusinessHub",
           "label": "depositor",
           "offset": 0,
@@ -284,7 +284,7 @@
           "type": "t_address"
         },
         {
-          "astId": 42466,
+          "astId": 43424,
           "contract": "contracts/BusinessHub.sol:BusinessHub",
           "label": "beneficiary",
           "offset": 0,
@@ -292,7 +292,7 @@
           "type": "t_address"
         },
         {
-          "astId": 42468,
+          "astId": 43426,
           "contract": "contracts/BusinessHub.sol:BusinessHub",
           "label": "arbiter",
           "offset": 0,
@@ -300,7 +300,7 @@
           "type": "t_address"
         },
         {
-          "astId": 42470,
+          "astId": 43428,
           "contract": "contracts/BusinessHub.sol:BusinessHub",
           "label": "vault",
           "offset": 0,
@@ -308,7 +308,7 @@
           "type": "t_address"
         },
         {
-          "astId": 42473,
+          "astId": 43431,
           "contract": "contracts/BusinessHub.sol:BusinessHub",
           "label": "amount",
           "offset": 0,
@@ -316,7 +316,7 @@
           "type": "t_userDefinedValueType(euint64)11797"
         },
         {
-          "astId": 42475,
+          "astId": 43433,
           "contract": "contracts/BusinessHub.sol:BusinessHub",
           "label": "plaintextAmount",
           "offset": 0,
@@ -324,7 +324,7 @@
           "type": "t_uint256"
         },
         {
-          "astId": 42477,
+          "astId": 43435,
           "contract": "contracts/BusinessHub.sol:BusinessHub",
           "label": "description",
           "offset": 0,
@@ -332,7 +332,7 @@
           "type": "t_string_storage"
         },
         {
-          "astId": 42479,
+          "astId": 43437,
           "contract": "contracts/BusinessHub.sol:BusinessHub",
           "label": "deadline",
           "offset": 0,
@@ -340,7 +340,7 @@
           "type": "t_uint256"
         },
         {
-          "astId": 42481,
+          "astId": 43439,
           "contract": "contracts/BusinessHub.sol:BusinessHub",
           "label": "depositorApproved",
           "offset": 0,
@@ -348,7 +348,7 @@
           "type": "t_bool"
         },
         {
-          "astId": 42483,
+          "astId": 43441,
           "contract": "contracts/BusinessHub.sol:BusinessHub",
           "label": "beneficiaryMarkedDelivered",
           "offset": 1,
@@ -356,22 +356,22 @@
           "type": "t_bool"
         },
         {
-          "astId": 42486,
+          "astId": 43444,
           "contract": "contracts/BusinessHub.sol:BusinessHub",
           "label": "status",
           "offset": 2,
           "slot": "8",
-          "type": "t_enum(EscrowStatus)42443"
+          "type": "t_enum(EscrowStatus)43401"
         }
       ],
       "numberOfBytes": "288"
     },
-    "t_struct(Invoice)42462_storage": {
+    "t_struct(Invoice)43420_storage": {
       "encoding": "inplace",
       "label": "struct BusinessHub.Invoice",
       "members": [
         {
-          "astId": 42445,
+          "astId": 43403,
           "contract": "contracts/BusinessHub.sol:BusinessHub",
           "label": "vendor",
           "offset": 0,
@@ -379,7 +379,7 @@
           "type": "t_address"
         },
         {
-          "astId": 42447,
+          "astId": 43405,
           "contract": "contracts/BusinessHub.sol:BusinessHub",
           "label": "client",
           "offset": 0,
@@ -387,7 +387,7 @@
           "type": "t_address"
         },
         {
-          "astId": 42449,
+          "astId": 43407,
           "contract": "contracts/BusinessHub.sol:BusinessHub",
           "label": "vault",
           "offset": 0,
@@ -395,7 +395,7 @@
           "type": "t_address"
         },
         {
-          "astId": 42452,
+          "astId": 43410,
           "contract": "contracts/BusinessHub.sol:BusinessHub",
           "label": "amount",
           "offset": 0,
@@ -403,7 +403,7 @@
           "type": "t_userDefinedValueType(euint64)11797"
         },
         {
-          "astId": 42454,
+          "astId": 43412,
           "contract": "contracts/BusinessHub.sol:BusinessHub",
           "label": "description",
           "offset": 0,
@@ -411,7 +411,7 @@
           "type": "t_string_storage"
         },
         {
-          "astId": 42456,
+          "astId": 43414,
           "contract": "contracts/BusinessHub.sol:BusinessHub",
           "label": "dueDate",
           "offset": 0,
@@ -419,7 +419,7 @@
           "type": "t_uint256"
         },
         {
-          "astId": 42458,
+          "astId": 43416,
           "contract": "contracts/BusinessHub.sol:BusinessHub",
           "label": "createdAt",
           "offset": 0,
@@ -427,12 +427,12 @@
           "type": "t_uint256"
         },
         {
-          "astId": 42461,
+          "astId": 43419,
           "contract": "contracts/BusinessHub.sol:BusinessHub",
           "label": "status",
           "offset": 0,
           "slot": "7",
-          "type": "t_enum(InvoiceStatus)42438"
+          "type": "t_enum(InvoiceStatus)43396"
         }
       ],
       "numberOfBytes": "256"

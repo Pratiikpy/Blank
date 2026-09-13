@@ -375,7 +375,7 @@ describe("Dashboard — monthActivityCount audit #9 (§15.x)", () => {
     });
     const { container } = render(<Dashboard />);
     // "This Month" = 1; "All-time" = 3
-    expect(container.textContent).toContain("1 transactions");
+    expect(container.textContent).toContain("1 transaction");
     expect(container.textContent).toContain("All-time");
     // The total "3" appears in the all-time card
     const allTimeLabel = Array.from(container.querySelectorAll("p"))

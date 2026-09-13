@@ -9,9 +9,9 @@ import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 
 interface IFHERC20Vault {
-    function transferFrom(address from, address to, InEuint64 memory encAmount) external returns (euint64);
-    function transferFromVerified(address from, address to, euint64 amount) external returns (euint64);
-    function transfer(address to, InEuint64 memory encAmount) external returns (euint64);
+    function transferFrom(address from, address to, externalEuint64 encAmount, bytes calldata proof) external returns (euint64);
+    function transferFromVerified(address from, address to, sharedEuint64 shared) external returns (sharedEuint64);
+    function transfer(address to, externalEuint64 encAmount, bytes calldata proof) external returns (euint64);
 }
 
 interface IEventHub {
@@ -25,8 +25,8 @@ interface IEventHub {
 }
 
 interface IPaymentReceipts {
-    function bumpGlobalVolume(euint64 amount) external;
-    function bumpUserReceived(address user, euint64 amount) external;
+    function bumpGlobalVolume(sharedEuint64 shared) external;
+    function bumpUserReceived(address user, sharedEuint64 shared) external;
 }
 
 /// @title PaymentHub — Core encrypted payment operations
@@ -148,7 +148,7 @@ contract PaymentHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     function sendPayment(
         address to,
         address vault,
-        InEuint64 memory encAmount,
+        externalEuint64 encAmount, bytes calldata proof,
         string calldata note
     ) external nonReentrant {
         require(to != address(0) && to != msg.sender, "PaymentHub: invalid recipient");
@@ -158,10 +158,12 @@ contract PaymentHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         // calls Impl.verifyInput(input, msg.sender), and the ZK proof signature
         // is bound to the user's address. If we let the vault call asEuint64(),
         // msg.sender would be this contract's address, causing InvalidSigner.
-        euint64 verifiedAmount = FHE.asEuint64(encAmount);
-        FHE.allowTransient(verifiedAmount, vault);
+        euint64 verifiedAmount = FHE.asEuint64(encAmount, proof);
 
-        euint64 actual = IFHERC20Vault(vault).transferFromVerified(msg.sender, to, verifiedAmount);
+        euint64 actual = FHE.receiveEuint64FromCall(
+            IFHERC20Vault(vault).transferFromVerified(msg.sender, to, FHE.shareEuint64(verifiedAmount, vault)),
+            vault
+        );
         FHE.allowSender(actual);  // Sender can verify transfer succeeded
         FHE.allowThis(actual);    // Required so we can pass to PaymentReceipts
         _bumpAggregate(to, actual);
@@ -182,12 +184,12 @@ contract PaymentHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     function createRequest(
         address from,
         address vault,
-        InEuint64 memory encAmount,
+        externalEuint64 encAmount, bytes calldata proof,
         string calldata note
     ) external nonReentrant returns (uint256) {
         require(from != address(0) && from != msg.sender, "PaymentHub: invalid payer");
 
-        euint64 amount = FHE.asEuint64(encAmount);
+        euint64 amount = FHE.asEuint64(encAmount, proof);
         FHE.allowThis(amount);
         FHE.allow(amount, from);      // Payer can see the amount
         FHE.allowSender(amount); // Creator can see the amount
@@ -218,17 +220,19 @@ contract PaymentHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     /// @param encAmount Encrypted amount to pay (should match the request)
     function fulfillRequest(
         uint256 requestId,
-        InEuint64 memory encAmount
+        externalEuint64 encAmount, bytes calldata proof
     ) external nonReentrant {
         PaymentRequest storage req = _requests[requestId];
         require(req.status == RequestStatus.Pending, "PaymentHub: not pending");
         require(msg.sender == req.from, "PaymentHub: not the payer");
 
         // Verify encrypted input here (msg.sender = user) before cross-contract call
-        euint64 verifiedAmount = FHE.asEuint64(encAmount);
-        FHE.allowTransient(verifiedAmount, req.vault);
+        euint64 verifiedAmount = FHE.asEuint64(encAmount, proof);
 
-        euint64 actual = IFHERC20Vault(req.vault).transferFromVerified(msg.sender, req.to, verifiedAmount);
+        euint64 actual = FHE.receiveEuint64FromCall(
+            IFHERC20Vault(req.vault).transferFromVerified(msg.sender, req.to, FHE.shareEuint64(verifiedAmount, req.vault)),
+            req.vault
+        );
         FHE.allowSender(actual);  // Payer can verify transfer succeeded
         FHE.allowThis(actual);    // Needed for _bumpAggregate
         req.status = RequestStatus.Fulfilled;
@@ -268,7 +272,8 @@ contract PaymentHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     function batchSend(
         address[] calldata recipients,
         address vault,
-        InEuint64[] memory amounts,
+        externalEuint64[] calldata amounts,
+        bytes calldata proof,
         string[] calldata notes
     ) external nonReentrant {
         uint256 count = recipients.length;
@@ -279,12 +284,19 @@ contract PaymentHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
         IFHERC20Vault vaultContract = IFHERC20Vault(vault);
 
+        // One batch signature covers every amount in the batch.
+        euint64[] memory verifiedAmounts = FHE.asEuint64s(amounts, proof);
+
         for (uint256 i = 0; i < count; i++) {
             require(recipients[i] != address(0) && recipients[i] != msg.sender, "PaymentHub: invalid recipient");
-            // Verify encrypted input here (msg.sender = user) before cross-contract call
-            euint64 verifiedAmount = FHE.asEuint64(amounts[i]);
-            FHE.allowTransient(verifiedAmount, vault);
-            euint64 actual = vaultContract.transferFromVerified(msg.sender, recipients[i], verifiedAmount);
+            euint64 actual = FHE.receiveEuint64FromCall(
+                vaultContract.transferFromVerified(
+                    msg.sender,
+                    recipients[i],
+                    FHE.shareEuint64(verifiedAmounts[i], vault)
+                ),
+                vault
+            );
             FHE.allowSender(actual);
             FHE.allow(actual, recipients[i]);
             FHE.allowThis(actual);
@@ -361,7 +373,7 @@ contract PaymentHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     function sendPaymentAsAgent(
         address to,
         address vault,
-        InEuint64 memory encAmount,
+        externalEuint64 encAmount, bytes calldata proof,
         string calldata note,
         address agent,
         bytes32 nonce,
@@ -387,9 +399,11 @@ contract PaymentHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         _usedAgentNonces[nonce] = true;
 
         // Identical settlement path to sendPayment — verify in caller context
-        euint64 verifiedAmount = FHE.asEuint64(encAmount);
-        FHE.allowTransient(verifiedAmount, vault);
-        euint64 actual = IFHERC20Vault(vault).transferFromVerified(msg.sender, to, verifiedAmount);
+        euint64 verifiedAmount = FHE.asEuint64(encAmount, proof);
+        euint64 actual = FHE.receiveEuint64FromCall(
+            IFHERC20Vault(vault).transferFromVerified(msg.sender, to, FHE.shareEuint64(verifiedAmount, vault)),
+            vault
+        );
         FHE.allowSender(actual);
         FHE.allowThis(actual);
         _bumpAggregate(to, actual);
@@ -433,16 +447,14 @@ contract PaymentHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     function _bumpAggregate(address recipient, euint64 amount) internal {
         if (paymentReceipts == address(0)) return;
         // Global aggregate (landing-page counter).
-        FHE.allowTransient(amount, paymentReceipts);
-        try IPaymentReceipts(paymentReceipts).bumpGlobalVolume(amount) {} catch (bytes memory reason) {
+        try IPaymentReceipts(paymentReceipts).bumpGlobalVolume(FHE.shareEuint64(amount, paymentReceipts)) {} catch (bytes memory reason) {
             emit ReceiptsBumpFailed("global", reason);
         }
         // Per-recipient income counter — enables proveIncomeAbove for anyone
         // who only ever receives via PaymentHub (sendPayment / batchSend /
         // fulfillRequest / sendPaymentAsAgent). Per #207.
         if (recipient == address(0)) return;
-        FHE.allowTransient(amount, paymentReceipts);
-        try IPaymentReceipts(paymentReceipts).bumpUserReceived(recipient, amount) {} catch (bytes memory reason) {
+        try IPaymentReceipts(paymentReceipts).bumpUserReceived(recipient, FHE.shareEuint64(amount, paymentReceipts)) {} catch (bytes memory reason) {
             emit ReceiptsBumpFailed("user", reason);
         }
     }

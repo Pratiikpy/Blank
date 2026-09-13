@@ -176,9 +176,7 @@ beforeEach(() => {
   });
   useCofheConnectionMock.mockReturnValue({ connected: true });
   useCofheEncryptMock.mockReturnValue({ encryptInputsAsync: encryptInputsAsyncMock });
-  encryptInputsAsyncMock.mockResolvedValue([
-    { ctHash: 0x42n, securityZone: 0, utype: 5, signature: "0xenc" },
-  ]);
+  encryptInputsAsyncMock.mockResolvedValue(["0xhandle0", "0xbatchproof"]);
   toastLoadingMock.mockReturnValue("toast-id");
   isVaultApprovedMock.mockReturnValue(true);
   extractEventIdMock.mockReturnValue(42);
@@ -403,9 +401,9 @@ describe("useCrowdfund — createCampaign happy path (§15.x)", () => {
     expect(call.functionName).toBe("createCampaign");
     expect(call.address).toBe(CF_ADDR);
     expect(call.args[0]).toBe(VAULT);
-    expect(call.args[2]).toBe(BigInt(params.durationSeconds));
-    expect(call.args[3]).toBe("Save the otters");
-    expect(call.args[4]).toBe(CID_HASH);
+    expect(call.args[3]).toBe(BigInt(params.durationSeconds));
+    expect(call.args[4]).toBe("Save the otters");
+    expect(call.args[5]).toBe(CID_HASH);
     expect(call.gas).toBe(5_000_000n);
   });
 
@@ -459,7 +457,7 @@ describe("useCrowdfund — createCampaign happy path (§15.x)", () => {
       await result.current.createCampaign(createParams());
     });
     expect(startMock).toHaveBeenCalled();
-    expect(encryptInputsAsyncMock.mock.calls[0][1]).toBe(onEncryptStepMock);
+    expect(encryptInputsAsyncMock.mock.calls[0][2]).toBe(onEncryptStepMock);
     expect(markSubmittingMock).toHaveBeenCalled();
     expect(markDoneMock).toHaveBeenCalled();
   });

@@ -7,8 +7,8 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
 interface IFHERC20Vault {
-    function transferFrom(address from, address to, InEuint64 memory encAmount) external returns (euint64);
-    function transferFromVerified(address from, address to, euint64 amount) external returns (euint64);
+    function transferFrom(address from, address to, externalEuint64 encAmount, bytes calldata proof) external returns (euint64);
+    function transferFromVerified(address from, address to, sharedEuint64 shared) external returns (sharedEuint64);
 }
 
 interface IEventHub {
@@ -227,11 +227,15 @@ contract GroupManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     /// @param shares Encrypted amount each person owes (pre-computed off-chain)
     /// @param totalPaid Encrypted total the payer paid (credited to payer)
     /// @param description Public expense description
+    /// @param proof One batch signature covering `shares` then `totalPaid`, in
+    ///        that exact order. The client must encrypt them as a single batch
+    ///        laid out the same way, or verification fails.
     function addExpense(
         uint256 groupId,
         address[] calldata splitWith,
-        InEuint64[] memory shares,
-        InEuint64 memory totalPaid,
+        externalEuint64[] calldata shares,
+        externalEuint64 totalPaid,
+        bytes calldata proof,
         string calldata description
     ) external nonReentrant {
         require(isMember[groupId][msg.sender], "GroupManager: not a member");
@@ -246,8 +250,17 @@ contract GroupManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
             }
         }
 
+        // One signature covers the whole batch, so every share and the total
+        // are verified together, in declaration order.
+        externalEuint64[] memory packed = new externalEuint64[](shares.length + 1);
+        for (uint256 i = 0; i < shares.length; i++) {
+            packed[i] = shares[i];
+        }
+        packed[shares.length] = totalPaid;
+        euint64[] memory verified = FHE.asEuint64s(packed, proof);
+
         // Credit the payer (reduce their debt)
-        euint64 total = FHE.asEuint64(totalPaid);
+        euint64 total = verified[shares.length];
         _debts[groupId][msg.sender] = FHE.sub(_debts[groupId][msg.sender], total);
         FHE.allowThis(_debts[groupId][msg.sender]);
         FHE.allowSender(_debts[groupId][msg.sender]);
@@ -255,7 +268,7 @@ contract GroupManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         // Debit each person's share (increase their debt)
         for (uint256 i = 0; i < splitWith.length; i++) {
             require(isMember[groupId][splitWith[i]], "GroupManager: not a member");
-            euint64 share = FHE.asEuint64(shares[i]);
+            euint64 share = verified[i];
             _debts[groupId][splitWith[i]] = FHE.add(_debts[groupId][splitWith[i]], share);
             FHE.allowThis(_debts[groupId][splitWith[i]]);
             FHE.allow(_debts[groupId][splitWith[i]], splitWith[i]);
@@ -293,7 +306,7 @@ contract GroupManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         uint256 groupId,
         address with_,
         address vault,
-        InEuint64 memory encAmount
+        externalEuint64 encAmount, bytes calldata proof
     ) external nonReentrant {
         require(isMember[groupId][msg.sender], "GroupManager: not a member");
         require(isMember[groupId][with_], "GroupManager: counterparty not a member");
@@ -321,13 +334,15 @@ contract GroupManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         lastSettleBlock[groupId][msg.sender][with_] = block.number;
 
         // Verify encrypted input here (msg.sender = user) before cross-contract call
-        euint64 amount = FHE.asEuint64(encAmount);
-        FHE.allowTransient(amount, vault);
+        euint64 amount = FHE.asEuint64(encAmount, proof);
 
         // Transfer tokens from sender to counterparty using pre-verified handle.
         // `actual` == min(balance, allowance, requested) — FHE.select in the vault
         // clamps silently. We MUST update debts using `actual`, not `amount`.
-        euint64 actual = IFHERC20Vault(vault).transferFromVerified(msg.sender, with_, amount);
+        euint64 actual = FHE.receiveEuint64FromCall(
+            IFHERC20Vault(vault).transferFromVerified(msg.sender, with_, FHE.shareEuint64(amount, vault)),
+            vault
+        );
 
         // Retain ACL for this contract — needed for the debt-update math and
         // because `transferFromVerified` only granted transient allowance.
@@ -387,13 +402,13 @@ contract GroupManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     function voteOnExpense(
         uint256 groupId,
         uint256 expenseId,
-        InEuint64 memory encVotes
+        externalEuint64 encVotes, bytes calldata proof
     ) external nonReentrant {
         require(isMember[groupId][msg.sender], "GroupManager: not a member");
         require(!_hasVoted[groupId][expenseId][msg.sender], "Already voted");
         _hasVoted[groupId][expenseId][msg.sender] = true;
 
-        euint64 votes = FHE.asEuint64(encVotes);
+        euint64 votes = FHE.asEuint64(encVotes, proof);
 
         // Quadratic cost: casting N votes costs N² (using FHE.square)
         // This prevents whale domination — 10 votes costs 100, not 10

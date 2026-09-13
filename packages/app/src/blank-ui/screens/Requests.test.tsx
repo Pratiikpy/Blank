@@ -34,6 +34,7 @@ const supabaseChannelMock = vi.hoisted(() => ({
   removeChannel: vi.fn(),
 }));
 
+const useOnChainRequestsMock = vi.hoisted(() => vi.fn());
 vi.mock("@/hooks/useEffectiveAddress", () => ({
   useEffectiveAddress: useEffectiveAddressMock,
 }));
@@ -54,6 +55,7 @@ vi.mock("@/lib/cross-tab", () => ({
 vi.mock("react-hot-toast", () => ({
   default: { success: toastSuccessMock, error: toastErrorMock },
 }));
+vi.mock("@/hooks/useOnChainRequests", () => ({ useOnChainRequests: useOnChainRequestsMock }));
 
 import Requests from "./Requests";
 
@@ -105,6 +107,8 @@ function setHook(overrides: Partial<{
 }
 
 beforeEach(() => {
+  useOnChainRequestsMock.mockReset();
+  useOnChainRequestsMock.mockReturnValue({ incoming: [], refresh: vi.fn() });
   useEffectiveAddressMock.mockReset();
   useNavigateMock.mockReset();
   useRequestPaymentMock.mockReset();
@@ -565,5 +569,58 @@ describe("Requests — audit #25 realtime channels (§15.x)", () => {
     handler("activity_added");
     await act(async () => { await Promise.resolve(); });
     expect(fetchIncomingRequestsMock.mock.calls.length).toBeGreaterThan(before);
+  });
+});
+
+describe("Requests — on-chain incoming fallback (§15.x)", () => {
+  // The incoming tab is where a payer decides whether to pay. It used to be
+  // built from Supabase alone, so a request that existed on chain but had no
+  // indexer row showed as an empty inbox and could never be paid from the UI.
+  it("CRITICAL an on-chain request is actionable with the indexer returning nothing", async () => {
+    fetchIncomingRequestsMock.mockResolvedValue([]);
+    fetchOutgoingRequestsMock.mockResolvedValue([]);
+    useOnChainRequestsMock.mockReturnValue({
+      incoming: [req({ request_id: 9, note: "read from the chain" })],
+      refresh: vi.fn(),
+    });
+    const { container, findByText } = render(<Requests />);
+    await findByText("Payment Requests");
+    await waitFor(() => {
+      expect(container.textContent).toContain("read from the chain");
+    });
+  });
+
+  it("does not duplicate a request the indexer already has", async () => {
+    fetchIncomingRequestsMock.mockResolvedValue([req({ request_id: 4, note: "indexed copy" })]);
+    fetchOutgoingRequestsMock.mockResolvedValue([]);
+    useOnChainRequestsMock.mockReturnValue({
+      incoming: [req({ request_id: 4, note: "chain copy" })],
+      refresh: vi.fn(),
+    });
+    const { container, findByText } = render(<Requests />);
+    await findByText("Payment Requests");
+    await waitFor(() => {
+      expect(container.textContent).toContain("indexed copy");
+    });
+    expect(container.textContent).not.toContain("chain copy");
+  });
+});
+
+describe("Requests — load failure (§15.x)", () => {
+  it("CRITICAL a rejected fetch clears the skeletons instead of hanging", async () => {
+    // The skeletons used to stay up forever on a rejection, which would hide
+    // the chain-sourced requests merged in below them.
+    fetchIncomingRequestsMock.mockRejectedValue(new Error("offline"));
+    fetchOutgoingRequestsMock.mockRejectedValue(new Error("offline"));
+    useOnChainRequestsMock.mockReturnValue({
+      incoming: [req({ request_id: 12, note: "still payable" })],
+      refresh: vi.fn(),
+    });
+    const { container, findByText } = render(<Requests />);
+    await findByText("Payment Requests");
+    await waitFor(() => {
+      expect(container.textContent).toContain("still payable");
+    });
+    expect(container.querySelector(".animate-pulse")).toBeNull();
   });
 });

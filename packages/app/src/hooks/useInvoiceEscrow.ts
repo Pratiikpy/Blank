@@ -5,7 +5,7 @@ import { useCofheEncrypt } from "@/lib/cofhe-shim";
 import { useCofheDecryptForTx } from "@/lib/cofhe-shim";
 import { Encryptable } from "@/lib/cofhe-shim";
 import toast from "react-hot-toast";
-import { type EncryptedInput, MAX_UINT64 } from "@/lib/constants";
+import { MAX_UINT64 } from "@/lib/constants";
 import { useEffectiveAddress } from "./useEffectiveAddress";
 import { useUnifiedWrite } from "./useUnifiedWrite";
 import { useChain } from "@/providers/ChainProvider";
@@ -124,16 +124,17 @@ export function useInvoiceEscrow() {
 
         setStep("encrypting");
         const amountWei = parseUnits(amount, 6);
-        const [encAmount] = await encryptInputsAsync([
+        const [encAmount, encAmountProof] = await encryptInputsAsync([
           Encryptable.uint64(amountWei),
-        ]);
+        ],
+        contracts.BusinessHub as `0x${string}`);
 
         setStep("paying");
         const result = await unifiedWriteAndWait({
           address: contracts.BusinessHub as `0x${string}`,
           abi: BusinessHubAbi,
           functionName: "payInvoiceEscrow",
-          args: [BigInt(invoiceId), encAmount as unknown as EncryptedInput],
+          args: [BigInt(invoiceId), encAmount, encAmountProof],
           gas: BigInt(5_000_000), // FHE: precompile can't be estimated
         });
         const hash = result.hash;

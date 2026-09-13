@@ -9,7 +9,7 @@ import { Encryptable } from "@/lib/cofhe-shim";
 import toast from "react-hot-toast";
 import { toastMappedError } from "@/lib/error-messages";
 import { log } from "@/lib/log";
-import { MAX_UINT64, type EncryptedInput } from "@/lib/constants";
+import { MAX_UINT64 } from "@/lib/constants";
 import { useChain } from "@/providers/ChainProvider";
 import { BusinessHubAbi, FHERC20VaultAbi, TestUSDCAbi } from "@/lib/abis";
 import { insertInvoice, insertEscrow, insertActivity, updateEscrowStatus, updateInvoiceStatus, setInvoicePdfCid } from "@/lib/supabase";
@@ -120,7 +120,8 @@ export function useBusinessHub() {
 
         setStep("encrypting");
         const amountWei = parseUnits(amount, 6);
-        const [encAmount] = await encryptInputsAsync([Encryptable.uint64(amountWei)]);
+        const [encAmount, encAmountProof] = await encryptInputsAsync([Encryptable.uint64(amountWei)],
+        contracts.BusinessHub as `0x${string}`);
 
         setStep("sending");
         const writeResult = await unifiedWriteAndWait({
@@ -132,8 +133,8 @@ export function useBusinessHub() {
             contracts.FHERC20Vault_USDC as `0x${string}`,
             // Type assertion: cofhe SDK encrypt returns opaque encrypted input objects
             // whose shape doesn't match wagmi's strict ABI-inferred arg types
-            encAmount as unknown as EncryptedInput,
-            description,
+            encAmount,
+            encAmountProof,description,
             BigInt(dueDate),
           ],
           gas: BigInt(5_000_000), // FHE: manual gas limit (precompile can't be estimated)
@@ -327,7 +328,8 @@ export function useBusinessHub() {
         setStep("encrypting");
         const encSalaries = await encryptInputsAsync(
           amounts.map((a) => Encryptable.uint64(parseUnits(a, 6)))
-        );
+        ,
+        contracts.BusinessHub as `0x${string}`);
 
         setStep("sending");
         const payrollResult = await unifiedWriteAndWait({
@@ -338,7 +340,8 @@ export function useBusinessHub() {
             employees as `0x${string}`[],
             contracts.FHERC20Vault_USDC as `0x${string}`,
             // Type assertion: cofhe SDK encrypt returns opaque encrypted input objects
-            encSalaries as unknown as EncryptedInput[],
+            encSalaries.slice(0, -1),
+            encSalaries[encSalaries.length - 1],
           ],
           // FHE precompile gas can't be estimated by the EVM. runPayroll
           // does ~13 FHE ops per recipient (gte + and + select + sub +
@@ -855,7 +858,8 @@ export function useBusinessHub() {
 
         setStep("encrypting");
         const amountWei = parseUnits(amount, 6);
-        const [encAmount] = await encryptInputsAsync([Encryptable.uint64(amountWei)]);
+        const [encAmount, encAmountProof] = await encryptInputsAsync([Encryptable.uint64(amountWei)],
+        contracts.BusinessHub as `0x${string}`);
 
         setStep("sending");
         // unifiedWriteAndWait forwards the relay-side receipt to skip the
@@ -866,8 +870,8 @@ export function useBusinessHub() {
           functionName: "payInvoice",
           args: [
             BigInt(invoiceId),
-            encAmount as unknown as EncryptedInput,
-          ],
+            encAmount,
+          encAmountProof,],
           gas: BigInt(5_000_000), // FHE: manual gas limit (precompile can't be estimated)
         });
         const hash = payResult.hash;
@@ -988,7 +992,8 @@ export function useBusinessHub() {
 
         setStep("encrypting");
         const expectedUsdcOut = parseUnits(params.amount, 6);
-        const [encAmount] = await encryptInputsAsync([Encryptable.uint64(expectedUsdcOut)]);
+        const [encAmount, encAmountProof] = await encryptInputsAsync([Encryptable.uint64(expectedUsdcOut)],
+        contracts.BusinessHub as `0x${string}`);
 
         setStep("sending");
         const payResult = await unifiedWriteAndWait({
@@ -1002,8 +1007,8 @@ export function useBusinessHub() {
             expectedUsdcOut,
             params.fee,
             params.swapRouter,
-            encAmount as unknown as EncryptedInput,
-          ],
+            encAmount,
+          encAmountProof,],
           // Higher gas budget than payInvoice — adds the Uniswap swap call
           // plus an extra safeTransfer. 8M is conservative; FHE precompile
           // can't be estimated so we have to pre-set.
@@ -1123,7 +1128,8 @@ export function useBusinessHub() {
             "amount mismatch — UI amount doesn't match the signed quote's expectedUsdcOut",
           );
         }
-        const [encAmount] = await encryptInputsAsync([Encryptable.uint64(expectedUsdcOut)]);
+        const [encAmount, encAmountProof] = await encryptInputsAsync([Encryptable.uint64(expectedUsdcOut)],
+        contracts.BusinessHub as `0x${string}`);
 
         setStep("sending");
         const payResult = await unifiedWriteAndWait({
@@ -1139,8 +1145,8 @@ export function useBusinessHub() {
             BigInt(params.expiresAt),
             params.nonce,
             params.signature,
-            encAmount as unknown as EncryptedInput,
-          ],
+            encAmount,
+          encAmountProof,],
           // Oracle path: ECDSA recover (~3k) + FHE encrypt (~3M) +
           // safeTransferFrom + safeTransfer + state writes. 8M is
           // conservative; the contract has no Uniswap dependency here

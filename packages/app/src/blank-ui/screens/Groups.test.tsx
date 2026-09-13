@@ -50,6 +50,7 @@ const toastSuccessMock = vi.hoisted(() => vi.fn());
 const toastLoadingMock = vi.hoisted(() => vi.fn());
 const toastDefaultMock = vi.hoisted(() => vi.fn());
 
+const useOnChainGroupsMock = vi.hoisted(() => vi.fn());
 vi.mock("@/hooks/useEffectiveAddress", () => ({
   useEffectiveAddress: useEffectiveAddressMock,
 }));
@@ -148,6 +149,8 @@ function setUseGroupSplit(isProcessing = false) {
 }
 
 beforeEach(() => {
+  useOnChainGroupsMock.mockReset();
+  useOnChainGroupsMock.mockReturnValue({ groups: [], members: {}, refresh: vi.fn() });
   useEffectiveAddressMock.mockReset();
   useChainMock.mockReset();
   useGroupSplitMock.mockReset();
@@ -223,6 +226,7 @@ describe("Groups — page chrome (§15.x)", () => {
 
   it("loading state renders 4 shimmer skeleton cards", () => {
     fetchUserGroupsMock.mockReturnValue(new Promise(() => {}));
+vi.mock("@/hooks/useOnChainGroups", () => ({ useOnChainGroups: useOnChainGroupsMock }));
     const { container } = render(<Groups />);
     expect(container.querySelectorAll(".animate-pulse").length).toBeGreaterThanOrEqual(4);
   });
@@ -953,5 +957,72 @@ describe("Groups — Splitwise import modal (§15.x)", () => {
     await flush();
     const modal = getByTestId("splitwise-import-modal");
     expect(modal.getAttribute("data-group-id")).toBe("11");
+  });
+});
+
+describe("Groups — on-chain membership fallback (§15.x)", () => {
+  // A group is a shared surface: one person creates it and adds an expense,
+  // the others settle. Membership used to come from Supabase alone, so a
+  // member who had just been added saw nothing to open and no debt to settle
+  // while their on-chain membership was already real.
+  it("CRITICAL an on-chain membership shows the group with no indexer row", async () => {
+    fetchUserGroupsMock.mockResolvedValue([]);
+    useOnChainGroupsMock.mockReturnValue({
+      groups: [
+        groupRow({ group_id: 8, group_name: "Read from the chain", is_admin: false }),
+      ],
+      members: { 8: [ME.toLowerCase(), ALICE.toLowerCase()] },
+      refresh: vi.fn(),
+    });
+    const { container } = render(<Groups />);
+    await flush();
+    expect(container.textContent).toContain("Read from the chain");
+  });
+
+  it("the indexer row wins when both sources have the group", async () => {
+    fetchUserGroupsMock.mockResolvedValue([
+      groupRow({ group_id: 8, group_name: "Indexed name" }),
+    ]);
+    useOnChainGroupsMock.mockReturnValue({
+      groups: [groupRow({ group_id: 8, group_name: "Chain name" })],
+      members: {},
+      refresh: vi.fn(),
+    });
+    const { container } = render(<Groups />);
+    await flush();
+    expect(container.textContent).toContain("Indexed name");
+    expect(container.textContent).not.toContain("Chain name");
+  });
+});
+
+describe("Groups — member chips (§15.x)", () => {
+  // The stack held exactly one chip built from the viewer's own address, so a
+  // group of four rendered a single coloured circle with two hex characters in
+  // it. It reads as a stray number, not as people.
+  it("CRITICAL shows every member the chain reported, with a count", () => {
+    fetchUserGroupsMock.mockResolvedValue([]);
+    useOnChainGroupsMock.mockReturnValue({
+      groups: [groupRow({ group_id: 3, group_name: "Flatmates" })],
+      members: { 3: [ME.toLowerCase(), ALICE.toLowerCase(), BOB.toLowerCase()] },
+      refresh: vi.fn(),
+    });
+    const { container } = render(<Groups />);
+    return flush().then(() => {
+      expect(container.textContent).toContain("3 members");
+    });
+  });
+
+  it("says 'member' for one", () => {
+    fetchUserGroupsMock.mockResolvedValue([]);
+    useOnChainGroupsMock.mockReturnValue({
+      groups: [groupRow({ group_id: 4, group_name: "Solo" })],
+      members: { 4: [ME.toLowerCase()] },
+      refresh: vi.fn(),
+    });
+    const { container } = render(<Groups />);
+    return flush().then(() => {
+      expect(container.textContent).toContain("1 member");
+      expect(container.textContent).not.toContain("1 members");
+    });
   });
 });

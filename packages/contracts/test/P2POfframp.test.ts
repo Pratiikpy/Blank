@@ -63,10 +63,19 @@ async function signReclaimMessage(
   return operator.signMessage(getBytes(messageHash));
 }
 
-async function encUint64(ctx: any, signer: any, value: bigint) {
+async function encUint64(ctx: any, signer: any, value: bigint, consuming: string) {
   await hre.cofhe.connectWithHardhatSigner(ctx.client, signer);
-  const [enc] = await ctx.client.encryptInputs([Encryptable.uint64(value)]).execute();
-  return enc;
+  return await ctx.client.encryptInputs([Encryptable.uint64(value)]).setConsumingContract(consuming).execute();
+}
+
+/// createOffer verifies encAmount and encMinFill under one batch signature, so
+/// they have to be encrypted together and passed in that order.
+async function encPair(ctx: any, signer: any, a: bigint, b: bigint, consuming: string) {
+  await hre.cofhe.connectWithHardhatSigner(ctx.client, signer);
+  return await ctx.client
+    .encryptInputs([Encryptable.uint64(a), Encryptable.uint64(b)])
+    .setConsumingContract(consuming)
+    .execute();
 }
 
 async function deployFixture() {
@@ -137,8 +146,7 @@ describe("P2POfframp", () => {
 
     // Encrypt the USDC amount + the min-fill (kept for storage but
     // not enforced in v1 since full-fill only).
-    const encAmount = await encUint64(ctx, ctx.alice, usdc(50));
-    const encMin    = await encUint64(ctx, ctx.alice, usdc(50));
+    const encAmount = await encPair(ctx, ctx.alice, usdc(50), usdc(50), await ctx.offramp.getAddress());
 
     const fiatAmountMicroUSD = 50_000_000n;       // $50 expressed in microUSD
     const fiatRateMicroUSD   = 83_000_000n;       // 1 USDC = 83 INR demo
@@ -147,8 +155,7 @@ describe("P2POfframp", () => {
     await expect(
       ctx.offramp.connect(ctx.alice).createOffer(
         await ctx.vault.getAddress(),
-        encAmount,
-        encMin,
+        ...encAmount,
         RAIL_UPI_PHONEPE,
         aliceHandleHash,
         fiatAmountMicroUSD,
@@ -188,11 +195,10 @@ describe("P2POfframp", () => {
   it("dispute path: maker disputes → arbiter resolves to maker → fill Refunded", async () => {
     const ctx = await loadFixture(deployFixture);
     const handleHash = keccak256(getBytes("0x" + Buffer.from("alice@upi").toString("hex")));
-    const encAmount = await encUint64(ctx, ctx.alice, usdc(50));
-    const encMin    = await encUint64(ctx, ctx.alice, usdc(50));
+    const encAmount = await encPair(ctx, ctx.alice, usdc(50), usdc(50), await ctx.offramp.getAddress());
     await ctx.offramp.connect(ctx.alice).createOffer(
       await ctx.vault.getAddress(),
-      encAmount, encMin, RAIL_UPI_PHONEPE, handleHash, 50_000_000n, 83_000_000n, 3600,
+      ...encAmount, RAIL_UPI_PHONEPE, handleHash, 50_000_000n, 83_000_000n, 3600,
     );
     await ctx.offramp.connect(ctx.bob).takeOffer(0);
 
@@ -220,21 +226,19 @@ describe("P2POfframp", () => {
   it("anti-replay: same Reclaim proof submitted twice reverts", async () => {
     const ctx = await loadFixture(deployFixture);
     const handleHash = keccak256(getBytes("0x" + Buffer.from("alice@upi").toString("hex")));
-    const encAmount = await encUint64(ctx, ctx.alice, usdc(50));
-    const encMin    = await encUint64(ctx, ctx.alice, usdc(50));
+    const encAmount = await encPair(ctx, ctx.alice, usdc(50), usdc(50), await ctx.offramp.getAddress());
 
     // Make TWO offers from alice. Second one's full-fill amount must
     // match the same proof to test replay rejection.
     await ctx.offramp.connect(ctx.alice).createOffer(
       await ctx.vault.getAddress(),
-      encAmount, encMin, RAIL_UPI_PHONEPE, handleHash, 50_000_000n, 83_000_000n, 3600,
+      ...encAmount, RAIL_UPI_PHONEPE, handleHash, 50_000_000n, 83_000_000n, 3600,
     );
 
-    const enc2 = await encUint64(ctx, ctx.alice, usdc(50));
-    const encMin2 = await encUint64(ctx, ctx.alice, usdc(50));
+    const enc2 = await encPair(ctx, ctx.alice, usdc(50), usdc(50), await ctx.offramp.getAddress());
     await ctx.offramp.connect(ctx.alice).createOffer(
       await ctx.vault.getAddress(),
-      enc2, encMin2, RAIL_UPI_PHONEPE, handleHash, 50_000_000n, 83_000_000n, 3600,
+      ...enc2, RAIL_UPI_PHONEPE, handleHash, 50_000_000n, 83_000_000n, 3600,
     );
 
     await ctx.offramp.connect(ctx.bob).takeOffer(0);
@@ -254,11 +258,10 @@ describe("P2POfframp", () => {
   it("guard: maker cannot self-take", async () => {
     const ctx = await loadFixture(deployFixture);
     const handleHash = keccak256(getBytes("0x" + Buffer.from("alice@upi").toString("hex")));
-    const encAmount = await encUint64(ctx, ctx.alice, usdc(50));
-    const encMin    = await encUint64(ctx, ctx.alice, usdc(50));
+    const encAmount = await encPair(ctx, ctx.alice, usdc(50), usdc(50), await ctx.offramp.getAddress());
     await ctx.offramp.connect(ctx.alice).createOffer(
       await ctx.vault.getAddress(),
-      encAmount, encMin, RAIL_UPI_PHONEPE, handleHash, 50_000_000n, 83_000_000n, 3600,
+      ...encAmount, RAIL_UPI_PHONEPE, handleHash, 50_000_000n, 83_000_000n, 3600,
     );
     await expect(
       ctx.offramp.connect(ctx.alice).takeOffer(0),
@@ -268,11 +271,10 @@ describe("P2POfframp", () => {
   it("guard: cancelOffer flips state and blocks subsequent take", async () => {
     const ctx = await loadFixture(deployFixture);
     const handleHash = keccak256(getBytes("0x" + Buffer.from("alice@upi").toString("hex")));
-    const encAmount = await encUint64(ctx, ctx.alice, usdc(50));
-    const encMin    = await encUint64(ctx, ctx.alice, usdc(50));
+    const encAmount = await encPair(ctx, ctx.alice, usdc(50), usdc(50), await ctx.offramp.getAddress());
     await ctx.offramp.connect(ctx.alice).createOffer(
       await ctx.vault.getAddress(),
-      encAmount, encMin, RAIL_UPI_PHONEPE, handleHash, 50_000_000n, 83_000_000n, 3600,
+      ...encAmount, RAIL_UPI_PHONEPE, handleHash, 50_000_000n, 83_000_000n, 3600,
     );
 
     await expect(ctx.offramp.connect(ctx.alice).cancelOffer(0))
@@ -286,11 +288,10 @@ describe("P2POfframp", () => {
   it("expire path: maker reclaims after 24h proof window", async () => {
     const ctx = await loadFixture(deployFixture);
     const handleHash = keccak256(getBytes("0x" + Buffer.from("alice@upi").toString("hex")));
-    const encAmount = await encUint64(ctx, ctx.alice, usdc(50));
-    const encMin    = await encUint64(ctx, ctx.alice, usdc(50));
+    const encAmount = await encPair(ctx, ctx.alice, usdc(50), usdc(50), await ctx.offramp.getAddress());
     await ctx.offramp.connect(ctx.alice).createOffer(
       await ctx.vault.getAddress(),
-      encAmount, encMin, RAIL_UPI_PHONEPE, handleHash, 50_000_000n, 83_000_000n, 24 * 3600 * 2,
+      ...encAmount, RAIL_UPI_PHONEPE, handleHash, 50_000_000n, 83_000_000n, 24 * 3600 * 2,
     );
     await ctx.offramp.connect(ctx.bob).takeOffer(0);
 
@@ -307,11 +308,10 @@ describe("P2POfframp", () => {
   it("guard: dispute after window closed reverts", async () => {
     const ctx = await loadFixture(deployFixture);
     const handleHash = keccak256(getBytes("0x" + Buffer.from("alice@upi").toString("hex")));
-    const encAmount = await encUint64(ctx, ctx.alice, usdc(50));
-    const encMin    = await encUint64(ctx, ctx.alice, usdc(50));
+    const encAmount = await encPair(ctx, ctx.alice, usdc(50), usdc(50), await ctx.offramp.getAddress());
     await ctx.offramp.connect(ctx.alice).createOffer(
       await ctx.vault.getAddress(),
-      encAmount, encMin, RAIL_UPI_PHONEPE, handleHash, 50_000_000n, 83_000_000n, 3600,
+      ...encAmount, RAIL_UPI_PHONEPE, handleHash, 50_000_000n, 83_000_000n, 3600,
     );
     await ctx.offramp.connect(ctx.bob).takeOffer(0);
 

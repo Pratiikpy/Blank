@@ -87,7 +87,10 @@ vi.mock("./useEffectiveAddress", () => ({
 }));
 vi.mock("@/providers/ChainProvider", () => ({ useChain: useChainMock }));
 vi.mock("./useUnifiedWrite", () => ({ useUnifiedWrite: useUnifiedWriteMock }));
+const NOT_READY = vi.hoisted(() => "encryption-not-ready");
 vi.mock("@/lib/cofhe-shim", () => ({
+  // Pins "the not-ready message is shown" without pinning the exact copy.
+  ENCRYPTION_NOT_READY: NOT_READY,
   useCofheEncrypt: useCofheEncryptMock,
   useCofheConnection: useCofheConnectionMock,
   useCofheDecryptForView: useCofheDecryptForViewMock,
@@ -197,9 +200,11 @@ beforeEach(() => {
     receipt: { status: "success", blockNumber: 1n, logs: [] },
   });
   extractEventIdMock.mockReturnValue(42);
-  encryptInputsAsyncMock.mockImplementation(async (inputs: unknown[]) =>
-    inputs.map((_, i) => ({ ctHash: BigInt(i + 1), signature: "0xenc" })),
-  );
+  // 0.7: one handle per input, then a single batch signature.
+  encryptInputsAsyncMock.mockImplementation(async (inputs: unknown[]) => [
+    ...inputs.map((_, i) => `0xhandle${i}`),
+    "0xbatchproof",
+  ]);
   insertGroupMembershipMock.mockResolvedValue(undefined);
   insertGroupExpenseMock.mockResolvedValue(undefined);
   insertActivityMock.mockResolvedValue(undefined);
@@ -253,13 +258,27 @@ describe("useGroupSplit — createGroup (§15.x)", () => {
     expect(unifiedWriteAndWaitMock).toHaveBeenCalledTimes(0);
   });
 
-  it("not connected (cofhe handshake pending) -> early return", async () => {
+  it("CRITICAL creates with the CoFHE handshake still pending", async () => {
+    // createGroup(name, members) carries no encrypted argument. Gating it on
+    // the CoFHE client made it a silent no-op for anyone whose smart account
+    // is not deployed yet, which is every brand new user.
     useCofheConnectionMock.mockReturnValue({ connected: false });
     const { result } = renderHook(() => useGroupSplit());
     await act(async () => {
       await result.current.createGroup("Trip", [ALICE]);
     });
+    expect(unifiedWriteAndWaitMock).toHaveBeenCalledTimes(1);
+    expect(unifiedWriteAndWaitMock.mock.calls[0][0].functionName).toBe("createGroup");
+  });
+
+  it("CRITICAL settleDebt does encrypt, so it refuses AND says why", async () => {
+    useCofheConnectionMock.mockReturnValue({ connected: false });
+    const { result } = renderHook(() => useGroupSplit());
+    await act(async () => {
+      await result.current.settleDebt(1, ALICE, "10");
+    });
     expect(unifiedWriteAndWaitMock).toHaveBeenCalledTimes(0);
+    expect(toastErrorMock).toHaveBeenCalledWith(NOT_READY);
   });
 
   it("no publicClient -> 'Connection lost' toast + no write", async () => {
@@ -445,19 +464,20 @@ describe("useGroupSplit — addExpense (§15.x)", () => {
     expect(unifiedWriteAndWaitMock).toHaveBeenCalledTimes(1);
   });
 
-  it("TWO encrypt calls in order: shares batch (N inputs) THEN total batch (1 input)", async () => {
+  it("ONE encrypt call: every share followed by the total, in that order", async () => {
+    // addExpense verifies the shares AND the total under a single batch
+    // signature, so two separate encrypt calls would produce two signatures
+    // and fail verification on chain.
     const { result } = renderHook(() => useGroupSplit());
     await act(async () => {
       await result.current.addExpense(1, "100", [ALICE, BOB], ["60", "40"], "Lunch");
     });
-    expect(encryptInputsAsyncMock).toHaveBeenCalledTimes(2);
-    const firstBatch = encryptInputsAsyncMock.mock.calls[0][0] as Array<{ raw: bigint }>;
-    const secondBatch = encryptInputsAsyncMock.mock.calls[1][0] as Array<{ raw: bigint }>;
-    expect(firstBatch).toHaveLength(2);
-    expect(firstBatch[0].raw).toBe(60_000_000n);
-    expect(firstBatch[1].raw).toBe(40_000_000n);
-    expect(secondBatch).toHaveLength(1);
-    expect(secondBatch[0].raw).toBe(100_000_000n);
+    expect(encryptInputsAsyncMock).toHaveBeenCalledTimes(1);
+    const batch = encryptInputsAsyncMock.mock.calls[0][0] as Array<{ raw: bigint }>;
+    expect(batch).toHaveLength(3);
+    expect(batch[0].raw).toBe(60_000_000n);
+    expect(batch[1].raw).toBe(40_000_000n);
+    expect(batch[2].raw).toBe(100_000_000n); // total last, matching the contract
   });
 
   it("addExpense args: [BigInt(groupId), members, encShares[], encTotal, description] + gas 5M", async () => {
@@ -472,7 +492,7 @@ describe("useGroupSplit — addExpense (§15.x)", () => {
     expect(call.args[1]).toEqual([ALICE, BOB]);
     expect(Array.isArray(call.args[2])).toBe(true);
     expect(call.args[2]).toHaveLength(2);
-    expect(call.args[4]).toBe("Lunch");
+    expect(call.args[5]).toBe("Lunch");
     expect(call.gas).toBe(5_000_000n);
   });
 

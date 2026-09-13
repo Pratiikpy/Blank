@@ -17,6 +17,7 @@ import { useGiftMoney } from "@/hooks/useGiftMoney";
 import { usePublicClient } from "wagmi";
 import { useEffectiveAddress } from "@/hooks/useEffectiveAddress";
 import { useActivityFeed } from "@/hooks/useActivityFeed";
+import { useReceivedEnvelopes } from "@/hooks/useReceivedEnvelopes";
 import { useChain } from "@/providers/ChainProvider";
 import { GiftMoneyAbi } from "@/lib/abis";
 import { formatUsdcInput } from "@/lib/format";
@@ -132,6 +133,8 @@ export default function Gifts() {
     reset,
   } = useGiftMoney();
   const { activities } = useActivityFeed();
+  const { rows: onChainReceived, refresh: refreshReceivedEnvelopes } =
+    useReceivedEnvelopes();
 
   // #255: track on-chain expiry per envelope so we can render an "EXPIRED"
   // badge and disable claim on stale envelopes. Map keyed by envelopeId.
@@ -140,7 +143,15 @@ export default function Gifts() {
   const [envelopeOpened, setEnvelopeOpened] = useState<Record<string, boolean>>({});
 
   const [activeTab, setActiveTab] = useState<TabValue>("received");
-  const [selectedTheme, setSelectedTheme] = useState<number | null>(null);
+  // Start on a theme rather than null. The whole submit block below is
+  // rendered behind `{selectedTheme && ...}`, so with no theme picked the
+  // "Send Gift Envelope" button did not exist at all — a user could fill in
+  // amount, recipients, message and expiry and simply have no way to send,
+  // with nothing on screen explaining why. The theme panel sits off to the
+  // side and is never marked required. Defaulting matches what
+  // lib/gift-themes.ts already calls the neutral fallback, and the user can
+  // still pick any other theme.
+  const [selectedTheme, setSelectedTheme] = useState<number | null>(4);
   const [giftAmount, setGiftAmount] = useState("");
   const [giftRecipient, setGiftRecipient] = useState("");
   const [giftMessage, setGiftMessage] = useState("");
@@ -160,22 +171,47 @@ export default function Gifts() {
   const [recipientInput, setRecipientInput] = useState("");
 
   // Filter gift activities from the activity feed.
-  const giftActivities = activities.filter(
-    (a) =>
-      a.activity_type === "gift_created" || a.activity_type === "gift_claimed"
+  const giftActivities = useMemo(
+    () =>
+      activities.filter(
+        (a) =>
+          a.activity_type === "gift_created" || a.activity_type === "gift_claimed"
+      ),
+    [activities]
   );
 
-  const receivedGifts = giftActivities.filter(
-    (a) =>
-      a.user_to === address?.toLowerCase() &&
-      a.user_from !== address?.toLowerCase() && // exclude sender-copy rows
-      a.activity_type === "gift_created"
-  );
-  const sentGifts = giftActivities.filter(
-    (a) =>
-      a.user_from === address?.toLowerCase() &&
-      a.user_to !== address?.toLowerCase() && // exclude sender-copy rows
-      a.activity_type === "gift_created"
+  // The feed above comes from the indexer. Envelopes addressed to this user are
+  // also readable straight from GiftMoney, so the received list is merged from
+  // both: whichever source has the envelope, the recipient can claim it. Before
+  // this, an indexer that was behind or unreachable left a real, funded gift
+  // completely unreachable from the UI.
+  const receivedGifts = useMemo(() => {
+    const me = address?.toLowerCase();
+    const fromFeed = giftActivities.filter(
+      (a) =>
+        a.user_to === me &&
+        a.user_from !== me && // exclude sender-copy rows
+        a.activity_type === "gift_created"
+    );
+    const known = new Set(
+      fromFeed.map((a) => parseEnvelopeId(a.note)).filter((id): id is number => id != null)
+    );
+    const fromChain = onChainReceived.filter((row) => {
+      const id = parseEnvelopeId(row.note);
+      return id != null && !known.has(id) && row.user_from !== me;
+    });
+    return [...fromFeed, ...fromChain];
+  }, [giftActivities, onChainReceived, address]);
+
+  const sentGifts = useMemo(
+    () =>
+      giftActivities.filter(
+        (a) =>
+          a.user_from === address?.toLowerCase() &&
+          a.user_to !== address?.toLowerCase() && // exclude sender-copy rows
+          a.activity_type === "gift_created"
+      ),
+    [giftActivities, address]
   );
 
   const filteredGifts = activeTab === "received" ? receivedGifts : sentGifts;
@@ -355,8 +391,11 @@ export default function Gifts() {
   const handleClaim = useCallback(
     async (envelopeId: number) => {
       await claimGift(envelopeId);
+      // Re-read from the chain so the row flips to "Claimed" even when the
+      // indexer has not written the claim row yet.
+      refreshReceivedEnvelopes();
     },
-    [claimGift]
+    [claimGift, refreshReceivedEnvelopes]
   );
 
   return (
@@ -738,7 +777,7 @@ export default function Gifts() {
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-pink-50 border border-pink-100">
               <Gift size={16} className="text-pink-600" />
               <span className="text-sm font-medium text-pink-600">
-                {filteredGifts.length} Gifts
+                {filteredGifts.length} {filteredGifts.length === 1 ? "Gift" : "Gifts"}
               </span>
             </div>
           </div>

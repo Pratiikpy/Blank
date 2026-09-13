@@ -12,7 +12,7 @@ import { useFhePipeline } from "./useFhePipeline";
 import { useChain } from "@/providers/ChainProvider";
 import { useCofheEncrypt, useCofheConnection, Encryptable } from "@/lib/cofhe-shim";
 import { EncryptedCrowdfundAbi, FHERC20VaultAbi } from "@/lib/abis";
-import { MAX_UINT64, type EncryptedInput, getExplorerTxUrl } from "@/lib/constants";
+import { MAX_UINT64, getExplorerTxUrl } from "@/lib/constants";
 import { isVaultApproved, markVaultApproved } from "@/lib/approval";
 import { extractEventId } from "@/lib/event-parser";
 import { invalidateBalanceQueries } from "@/lib/query-invalidation";
@@ -107,8 +107,9 @@ export function useCrowdfund() {
 
         setState((s) => ({ ...s, step: "encrypting" }));
         const goalUnits = parseUnits(params.goalTokens, params.decimals);
-        const [encGoal] = await encryptInputsAsync(
+        const [encGoal, encGoalProof] = await encryptInputsAsync(
           [Encryptable.uint64(goalUnits)],
+          cf,
           pipeline.onEncryptStep,
         );
 
@@ -120,8 +121,8 @@ export function useCrowdfund() {
           functionName: "createCampaign",
           args: [
             params.vault,
-            encGoal as unknown as EncryptedInput,
-            BigInt(params.durationSeconds),
+            encGoal,
+            encGoalProof,BigInt(params.durationSeconds),
             params.title,
             params.descriptionCidHash,
           ],
@@ -175,8 +176,9 @@ export function useCrowdfund() {
 
         setState((s) => ({ ...s, step: "encrypting" }));
         const amountUnits = parseUnits(params.amountTokens, params.decimals);
-        const [encAmount] = await encryptInputsAsync(
+        const [encAmount, encAmountProof] = await encryptInputsAsync(
           [Encryptable.uint64(amountUnits)],
+          cf,
           pipeline.onEncryptStep,
         );
 
@@ -186,7 +188,7 @@ export function useCrowdfund() {
           address: cf,
           abi: EncryptedCrowdfundAbi,
           functionName: "contribute",
-          args: [BigInt(params.campaignId), encAmount as unknown as EncryptedInput],
+          args: [BigInt(params.campaignId), encAmount, encAmountProof],
           gas: BigInt(5_000_000),
         });
         // §3.10: unifiedWriteAndWait already settled the receipt; skip flash.

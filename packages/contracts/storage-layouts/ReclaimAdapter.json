@@ -1,15 +1,15 @@
 {
   "storage": [
     {
-      "astId": 63870,
+      "astId": 66686,
       "contract": "contracts/ReclaimAdapter.sol:ReclaimAdapter",
       "label": "verifier",
       "offset": 0,
       "slot": "0",
-      "type": "t_contract(IReclaimVerifier)63843"
+      "type": "t_contract(IReclaimVerifier)66659"
     },
     {
-      "astId": 63875,
+      "astId": 66691,
       "contract": "contracts/ReclaimAdapter.sol:ReclaimAdapter",
       "label": "allowedProviders",
       "offset": 0,
@@ -17,7 +17,7 @@
       "type": "t_mapping(t_uint32,t_bool)"
     },
     {
-      "astId": 63880,
+      "astId": 66696,
       "contract": "contracts/ReclaimAdapter.sol:ReclaimAdapter",
       "label": "usedProofs",
       "offset": 0,
@@ -25,7 +25,7 @@
       "type": "t_mapping(t_bytes32,t_bool)"
     },
     {
-      "astId": 63885,
+      "astId": 66701,
       "contract": "contracts/ReclaimAdapter.sol:ReclaimAdapter",
       "label": "allowedCallers",
       "offset": 0,
@@ -49,7 +49,7 @@
       "label": "bytes32",
       "numberOfBytes": "32"
     },
-    "t_contract(IReclaimVerifier)63843": {
+    "t_contract(IReclaimVerifier)66659": {
       "encoding": "inplace",
       "label": "contract IReclaimVerifier",
       "numberOfBytes": "20"

@@ -104,10 +104,26 @@ async function approveHub(ctx: Awaited<ReturnType<typeof deployBlankFixture>>, s
 }
 
 // Helper: encrypt `amount` as uint64 for `signer` to consume
-async function encUint64(ctx: Awaited<ReturnType<typeof deployBlankFixture>>, signer: any, amount: bigint) {
+async function encUint64(ctx: Awaited<ReturnType<typeof deployBlankFixture>>, signer: any, amount: bigint, consuming: string) {
   await hre.cofhe.connectWithHardhatSigner(ctx.client, signer);
-  const [enc] = await ctx.client.encryptInputs([Encryptable.uint64(amount)]).execute();
-  return enc;
+  return await ctx.client.encryptInputs([Encryptable.uint64(amount)]).setConsumingContract(consuming).execute();
+}
+
+// Helper: several values under ONE batch signature. runPayroll, batchSend,
+// createEnvelope, finalizeClaim and addExpense all verify their encrypted
+// inputs as a single batch, so they cannot be assembled from separate calls.
+async function encBatch(
+  ctx: Awaited<ReturnType<typeof deployBlankFixture>>,
+  signer: any,
+  amounts: bigint[],
+  consuming: string,
+) {
+  await hre.cofhe.connectWithHardhatSigner(ctx.client, signer);
+  const r = await ctx.client
+    .encryptInputs(amounts.map((a) => Encryptable.uint64(a)))
+    .setConsumingContract(consuming)
+    .execute();
+  return { handles: r.slice(0, -1), proof: r[r.length - 1] };
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -136,8 +152,8 @@ describe("FHERC20Vault", () => {
     await shield(ctx, ctx.alice, usdc(100));
     // Bob's encrypted balance is lazily initialized by transfer (_ensureInitialized).
 
-    const enc = await encUint64(ctx, ctx.alice, usdc(30));
-    await ctx.vault.connect(ctx.alice).transfer(ctx.bob.address, enc);
+    const enc = await encUint64(ctx, ctx.alice, usdc(30), await ctx.vault.getAddress());
+    await ctx.vault.connect(ctx.alice).transfer(ctx.bob.address, ...enc);
 
     const aliceBal = await ctx.vault.balanceOf(ctx.alice.address);
     const bobBal = await ctx.vault.balanceOf(ctx.bob.address);
@@ -151,8 +167,8 @@ describe("FHERC20Vault", () => {
 
     // Attempt to transfer 100 from a 10-balance wallet — should NOT revert,
     // should transfer 0 instead (the core FHE.select invariant).
-    const enc = await encUint64(ctx, ctx.alice, usdc(100));
-    await ctx.vault.connect(ctx.alice).transfer(ctx.bob.address, enc);
+    const enc = await encUint64(ctx, ctx.alice, usdc(100), await ctx.vault.getAddress());
+    await ctx.vault.connect(ctx.alice).transfer(ctx.bob.address, ...enc);
 
     const aliceBal = await ctx.vault.balanceOf(ctx.alice.address);
     const bobBal = await ctx.vault.balanceOf(ctx.bob.address);
@@ -176,13 +192,13 @@ describe("FHERC20Vault", () => {
 
     // Alice approves the holder on the vault so transferFromVerified
     // succeeds when the holder pulls.
-    const encApprove = await encUint64(ctx, ctx.alice, usdc(40));
-    await ctx.vault.connect(ctx.alice).approve(holderAddr, encApprove);
+    const encApprove = await encUint64(ctx, ctx.alice, usdc(40), await ctx.vault.getAddress());
+    await ctx.vault.connect(ctx.alice).approve(holderAddr, ...encApprove);
 
     // Alice calls holder.pull(...) — msg.sender inside pull is alice, so
     // FHE.asEuint64 verifies the encrypted input under alice's signature.
-    const encPull = await encUint64(ctx, ctx.alice, usdc(40));
-    await holder.connect(ctx.alice).pull(ctx.alice.address, encPull);
+    const encPull = await encUint64(ctx, ctx.alice, usdc(40), await holder.getAddress());
+    await holder.connect(ctx.alice).pull(ctx.alice.address, ...encPull);
 
     // Holder forwards the held balance to Bob via the NEW transferVerified.
     await holder.forward(ctx.bob.address);
@@ -208,10 +224,10 @@ describe("FHERC20Vault", () => {
     // valid `_held` handle for forward(). The vault's require checks fire
     // BEFORE reading the held amount, so we just need the holder's
     // FHE.allowTransient to succeed.
-    const encApprove = await encUint64(ctx, ctx.alice, usdc(10));
-    await ctx.vault.connect(ctx.alice).approve(holderAddr, encApprove);
-    const encPull = await encUint64(ctx, ctx.alice, usdc(10));
-    await holder.connect(ctx.alice).pull(ctx.alice.address, encPull);
+    const encApprove = await encUint64(ctx, ctx.alice, usdc(10), await ctx.vault.getAddress());
+    await ctx.vault.connect(ctx.alice).approve(holderAddr, ...encApprove);
+    const encPull = await encUint64(ctx, ctx.alice, usdc(10), await holder.getAddress());
+    await holder.connect(ctx.alice).pull(ctx.alice.address, ...encPull);
 
     await expect(holder.forward(hre.ethers.ZeroAddress)).to.be.revertedWith(
       "FHERC20Vault: transfer to zero address",
@@ -225,8 +241,8 @@ describe("FHERC20Vault", () => {
     const ctx = await loadFixture(deployBlankFixture);
     await shield(ctx, ctx.alice, usdc(50));
 
-    const enc = await encUint64(ctx, ctx.alice, usdc(20));
-    await ctx.vault.connect(ctx.alice).requestUnshield(enc);
+    const enc = await encUint64(ctx, ctx.alice, usdc(20), await ctx.vault.getAddress());
+    await ctx.vault.connect(ctx.alice).requestUnshield(...enc);
 
     const pending = await ctx.vault.pendingUnshield(ctx.alice.address);
     await mock_expectPlaintext(ctx.alice.provider, pending, usdc(20));
@@ -238,15 +254,15 @@ describe("FHERC20Vault", () => {
 
     const beforePlaintext = await ctx.testUSDC.balanceOf(ctx.alice.address);
 
-    const enc = await encUint64(ctx, ctx.alice, usdc(20));
-    await ctx.vault.connect(ctx.alice).requestUnshield(enc);
+    const enc = await encUint64(ctx, ctx.alice, usdc(20), await ctx.vault.getAddress());
+    await ctx.vault.connect(ctx.alice).requestUnshield(...enc);
 
     // v0.1.3 flow: fetch the decryption proof (plaintext + TN signature)
     // via the SDK client — then submit it back to claimUnshield. The mock
     // TN returns a real ECDSA-verifiable signature over the plaintext.
     const pending = await ctx.vault.pendingUnshield(ctx.alice.address);
     await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.alice);
-    const proof = await ctx.client.decryptForTx(pending, FheTypes.Uint64).withoutPermit().execute();
+    const proof = await ctx.client.decryptForTx(pending, FheTypes.Uint64).withoutACP().execute();
 
     await ctx.vault.connect(ctx.alice).claimUnshield(proof.decryptedValue, proof.signature);
 
@@ -269,16 +285,16 @@ describe("FHERC20Vault", () => {
     await shield(ctx, ctx.alice, usdc(100));
 
     // First request — pending should be 30, balance reduced to 70.
-    const enc1 = await encUint64(ctx, ctx.alice, usdc(30));
-    await ctx.vault.connect(ctx.alice).requestUnshield(enc1);
+    const enc1 = await encUint64(ctx, ctx.alice, usdc(30), await ctx.vault.getAddress());
+    await ctx.vault.connect(ctx.alice).requestUnshield(...enc1);
     const pending1 = await ctx.vault.pendingUnshield(ctx.alice.address);
     await mock_expectPlaintext(ctx.alice.provider, pending1, usdc(30));
 
     // Second request BEFORE claiming — must be no-op.
     // Pre-fix: balance would drop to 50, pending overwritten to 20 — the
     // original 30 stuck in vault accounting with no path to claim.
-    const enc2 = await encUint64(ctx, ctx.alice, usdc(20));
-    await ctx.vault.connect(ctx.alice).requestUnshield(enc2);
+    const enc2 = await encUint64(ctx, ctx.alice, usdc(20), await ctx.vault.getAddress());
+    await ctx.vault.connect(ctx.alice).requestUnshield(...enc2);
     const pendingStillSame = await ctx.vault.pendingUnshield(ctx.alice.address);
     await mock_expectPlaintext(ctx.alice.provider, pendingStillSame, usdc(30)); // unchanged
     // Balance should also stay at 70 (second request didn't deduct).
@@ -287,12 +303,12 @@ describe("FHERC20Vault", () => {
 
     // First claim drains the 30 cleanly. User can then make a fresh request.
     await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.alice);
-    const proof = await ctx.client.decryptForTx(pendingStillSame, FheTypes.Uint64).withoutPermit().execute();
+    const proof = await ctx.client.decryptForTx(pendingStillSame, FheTypes.Uint64).withoutACP().execute();
     await ctx.vault.connect(ctx.alice).claimUnshield(proof.decryptedValue, proof.signature);
 
     // Now a NEW request works (pending was reset to encrypted zero).
-    const enc3 = await encUint64(ctx, ctx.alice, usdc(20));
-    await ctx.vault.connect(ctx.alice).requestUnshield(enc3);
+    const enc3 = await encUint64(ctx, ctx.alice, usdc(20), await ctx.vault.getAddress());
+    await ctx.vault.connect(ctx.alice).requestUnshield(...enc3);
     const pending3 = await ctx.vault.pendingUnshield(ctx.alice.address);
     await mock_expectPlaintext(ctx.alice.provider, pending3, usdc(20));
   });
@@ -308,11 +324,11 @@ describe("PaymentHub", () => {
     await shield(ctx, ctx.alice, usdc(100));
     await approveHub(ctx, ctx.alice, await ctx.paymentHub.getAddress());
 
-    const enc = await encUint64(ctx, ctx.alice, usdc(25));
+    const enc = await encUint64(ctx, ctx.alice, usdc(25), await ctx.paymentHub.getAddress());
     await ctx.paymentHub.connect(ctx.alice).sendPayment(
       ctx.bob.address,
       await ctx.vault.getAddress(),
-      enc,
+      ...enc,
       "lunch",
     );
 
@@ -327,12 +343,12 @@ describe("PaymentHub", () => {
     await shield(ctx, ctx.alice, usdc(100));
     await approveHub(ctx, ctx.alice, await ctx.paymentHub.getAddress());
 
-    const enc = await encUint64(ctx, ctx.alice, usdc(1));
+    const enc = await encUint64(ctx, ctx.alice, usdc(1), await ctx.paymentHub.getAddress());
     await expect(
       ctx.paymentHub.connect(ctx.alice).sendPayment(
         ctx.alice.address,
         await ctx.vault.getAddress(),
-        enc,
+        ...enc,
         "",
       ),
     ).to.be.revertedWith("PaymentHub: invalid recipient");
@@ -343,11 +359,11 @@ describe("PaymentHub", () => {
     await shield(ctx, ctx.alice, usdc(5));
     await approveHub(ctx, ctx.alice, await ctx.paymentHub.getAddress());
 
-    const enc = await encUint64(ctx, ctx.alice, usdc(100));
+    const enc = await encUint64(ctx, ctx.alice, usdc(100), await ctx.paymentHub.getAddress());
     await ctx.paymentHub.connect(ctx.alice).sendPayment(
       ctx.bob.address,
       await ctx.vault.getAddress(),
-      enc,
+      ...enc,
       "",
     );
 
@@ -367,13 +383,13 @@ describe("BusinessHub", () => {
     const ctx = await loadFixture(deployBlankFixture);
     await shield(ctx, ctx.alice, usdc(500));
 
-    const enc = await encUint64(ctx, ctx.alice, usdc(250));
+    const enc = await encUint64(ctx, ctx.alice, usdc(250), await ctx.businessHub.getAddress());
     await ctx.businessHub
       .connect(ctx.alice)
       .createInvoice(
         ctx.bob.address,
         await ctx.vault.getAddress(),
-        enc,
+        ...enc,
         "Design work — March",
         Math.floor(Date.now() / 1000) + 7 * 24 * 3600,
       );
@@ -390,24 +406,24 @@ describe("BusinessHub", () => {
     await approveHub(ctx, ctx.bob, await ctx.businessHub.getAddress());
 
     // Alice creates invoice for 100 USDC
-    const encInvoiceAmt = await encUint64(ctx, ctx.alice, usdc(100));
+    const encInvoiceAmt = await encUint64(ctx, ctx.alice, usdc(100), await ctx.businessHub.getAddress());
     await ctx.businessHub.connect(ctx.alice).createInvoice(
       ctx.bob.address,
       await ctx.vault.getAddress(),
-      encInvoiceAmt,
+      ...encInvoiceAmt,
       "Consulting",
       Math.floor(Date.now() / 1000) + 7 * 24 * 3600,
     );
 
     // Bob pays exactly 100 USDC (matches)
-    const encPayment = await encUint64(ctx, ctx.bob, usdc(100));
-    await ctx.businessHub.connect(ctx.bob).payInvoice(0, encPayment);
+    const encPayment = await encUint64(ctx, ctx.bob, usdc(100), await ctx.businessHub.getAddress());
+    await ctx.businessHub.connect(ctx.bob).payInvoice(0, ...encPayment);
 
     // Fetch the TN proof for the ebool validation handle, then submit to finalize.
     // #213: only the client (bob) — not the vendor (alice) — may finalize.
     const handle = await ctx.businessHub.getInvoiceValidationHandle(0);
     await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.bob);
-    const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutPermit().execute();
+    const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutACP().execute();
     await ctx.businessHub
       .connect(ctx.bob)
       .payInvoiceFinalize(0, Boolean(proof.decryptedValue), proof.signature);
@@ -426,18 +442,18 @@ describe("BusinessHub", () => {
     await shield(ctx, ctx.bob, usdc(500));
     await approveHub(ctx, ctx.bob, await ctx.businessHub.getAddress());
 
-    const encInvoiceAmt = await encUint64(ctx, ctx.alice, usdc(75));
+    const encInvoiceAmt = await encUint64(ctx, ctx.alice, usdc(75), await ctx.businessHub.getAddress());
     await ctx.businessHub.connect(ctx.alice).createInvoice(
       ctx.bob.address,
       await ctx.vault.getAddress(),
-      encInvoiceAmt,
+      ...encInvoiceAmt,
       "Escrow consulting",
       Math.floor(Date.now() / 1000) + 7 * 24 * 3600,
     );
 
     // Bob funds the escrow with the matching amount.
-    const encPay = await encUint64(ctx, ctx.bob, usdc(75));
-    await ctx.businessHub.connect(ctx.bob).payInvoiceEscrow(0, encPay);
+    const encPay = await encUint64(ctx, ctx.bob, usdc(75), await ctx.businessHub.getAddress());
+    await ctx.businessHub.connect(ctx.bob).payInvoiceEscrow(0, ...encPay);
 
     // Status moved to PaymentPending; funds now held by BusinessHub.
     expect((await ctx.businessHub.getInvoice(0)).status).to.equal(3); // PaymentPending
@@ -448,7 +464,7 @@ describe("BusinessHub", () => {
     // Decrypt the validation flag off-chain, finalize.
     const handle = await ctx.businessHub.getInvoiceValidationHandle(0);
     await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.bob);
-    const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutPermit().execute();
+    const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutACP().execute();
     expect(Boolean(proof.decryptedValue)).to.equal(true);
     await ctx.businessHub.connect(ctx.bob)
       .releaseInvoiceEscrow(0, Boolean(proof.decryptedValue), proof.signature);
@@ -466,23 +482,23 @@ describe("BusinessHub", () => {
     await shield(ctx, ctx.bob, usdc(500));
     await approveHub(ctx, ctx.bob, await ctx.businessHub.getAddress());
 
-    const encInvoiceAmt = await encUint64(ctx, ctx.alice, usdc(100));
+    const encInvoiceAmt = await encUint64(ctx, ctx.alice, usdc(100), await ctx.businessHub.getAddress());
     await ctx.businessHub.connect(ctx.alice).createInvoice(
       ctx.bob.address,
       await ctx.vault.getAddress(),
-      encInvoiceAmt,
+      ...encInvoiceAmt,
       "Wrong amount test",
       Math.floor(Date.now() / 1000) + 7 * 24 * 3600,
     );
 
     // Bob underpays — funds go into escrow.
-    const encUnder = await encUint64(ctx, ctx.bob, usdc(80));
-    await ctx.businessHub.connect(ctx.bob).payInvoiceEscrow(0, encUnder);
+    const encUnder = await encUint64(ctx, ctx.bob, usdc(80), await ctx.businessHub.getAddress());
+    await ctx.businessHub.connect(ctx.bob).payInvoiceEscrow(0, ...encUnder);
 
     // Decrypt + finalize. Mismatch → automatic refund.
     const handle = await ctx.businessHub.getInvoiceValidationHandle(0);
     await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.bob);
-    const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutPermit().execute();
+    const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutACP().execute();
     expect(Boolean(proof.decryptedValue)).to.equal(false);
     await ctx.businessHub.connect(ctx.bob)
       .releaseInvoiceEscrow(0, Boolean(proof.decryptedValue), proof.signature);
@@ -515,26 +531,26 @@ describe("BusinessHub", () => {
     await shield(ctx, ctx.charlie, usdc(500));
     await approveHub(ctx, ctx.charlie, await ctx.businessHub.getAddress());
 
-    const encAmt = await encUint64(ctx, ctx.alice, usdc(50));
+    const encAmt = await encUint64(ctx, ctx.alice, usdc(50), await ctx.businessHub.getAddress());
     await ctx.businessHub.connect(ctx.alice).createInvoice(
       ctx.bob.address,
       await ctx.vault.getAddress(),
-      encAmt,
+      ...encAmt,
       "Race-test",
       Math.floor(Date.now() / 1000) + 7 * 24 * 3600,
     );
 
-    const encBob = await encUint64(ctx, ctx.bob, usdc(50));
-    await ctx.businessHub.connect(ctx.bob).payInvoiceEscrow(0, encBob);
+    const encBob = await encUint64(ctx, ctx.bob, usdc(50), await ctx.businessHub.getAddress());
+    await ctx.businessHub.connect(ctx.bob).payInvoiceEscrow(0, ...encBob);
 
     // Charlie tries to pay the same invoice. Must be rejected — once
     // Bob's call succeeds, `inv.status` flips to PaymentPending and the
     // `not pending` guard fires first. (`already paying` is the second
     // guard, kept as defense-in-depth for future state-machine changes
     // that might bring an invoice back to Pending.)
-    const encCharlie = await encUint64(ctx, ctx.charlie, usdc(50));
+    const encCharlie = await encUint64(ctx, ctx.charlie, usdc(50), await ctx.businessHub.getAddress());
     await expect(
-      ctx.businessHub.connect(ctx.charlie).payInvoiceEscrow(0, encCharlie),
+      ctx.businessHub.connect(ctx.charlie).payInvoiceEscrow(0, ...encCharlie),
     ).to.be.revertedWith("BusinessHub: not pending");
   });
 
@@ -543,22 +559,22 @@ describe("BusinessHub", () => {
     await shield(ctx, ctx.bob, usdc(500));
     await approveHub(ctx, ctx.bob, await ctx.businessHub.getAddress());
 
-    const encAmt = await encUint64(ctx, ctx.alice, usdc(40));
+    const encAmt = await encUint64(ctx, ctx.alice, usdc(40), await ctx.businessHub.getAddress());
     await ctx.businessHub.connect(ctx.alice).createInvoice(
       ctx.bob.address,
       await ctx.vault.getAddress(),
-      encAmt,
+      ...encAmt,
       "Auth-test",
       Math.floor(Date.now() / 1000) + 7 * 24 * 3600,
     );
-    const encPay = await encUint64(ctx, ctx.bob, usdc(40));
-    await ctx.businessHub.connect(ctx.bob).payInvoiceEscrow(0, encPay);
+    const encPay = await encUint64(ctx, ctx.bob, usdc(40), await ctx.businessHub.getAddress());
+    await ctx.businessHub.connect(ctx.bob).payInvoiceEscrow(0, ...encPay);
 
     // Off-chain decryption signed under Bob's identity — but submitted
     // by Charlie, who is neither the named client nor the payment-starter.
     const handle = await ctx.businessHub.getInvoiceValidationHandle(0);
     await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.bob);
-    const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutPermit().execute();
+    const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutACP().execute();
     await expect(
       ctx.businessHub.connect(ctx.charlie)
         .releaseInvoiceEscrow(0, Boolean(proof.decryptedValue), proof.signature),
@@ -570,20 +586,20 @@ describe("BusinessHub", () => {
     await shield(ctx, ctx.bob, usdc(500));
     await approveHub(ctx, ctx.bob, await ctx.businessHub.getAddress());
 
-    const encAmt = await encUint64(ctx, ctx.alice, usdc(60));
+    const encAmt = await encUint64(ctx, ctx.alice, usdc(60), await ctx.businessHub.getAddress());
     await ctx.businessHub.connect(ctx.alice).createInvoice(
       ctx.bob.address,
       await ctx.vault.getAddress(),
-      encAmt,
+      ...encAmt,
       "Replay-test",
       Math.floor(Date.now() / 1000) + 7 * 24 * 3600,
     );
-    const encPay = await encUint64(ctx, ctx.bob, usdc(60));
-    await ctx.businessHub.connect(ctx.bob).payInvoiceEscrow(0, encPay);
+    const encPay = await encUint64(ctx, ctx.bob, usdc(60), await ctx.businessHub.getAddress());
+    await ctx.businessHub.connect(ctx.bob).payInvoiceEscrow(0, ...encPay);
 
     const handle = await ctx.businessHub.getInvoiceValidationHandle(0);
     await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.bob);
-    const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutPermit().execute();
+    const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutACP().execute();
     await ctx.businessHub.connect(ctx.bob)
       .releaseInvoiceEscrow(0, Boolean(proof.decryptedValue), proof.signature);
 
@@ -599,11 +615,11 @@ describe("BusinessHub", () => {
   it("releaseInvoiceEscrow rejects when invoice was never funded", async () => {
     const ctx = await loadFixture(deployBlankFixture);
 
-    const encAmt = await encUint64(ctx, ctx.alice, usdc(20));
+    const encAmt = await encUint64(ctx, ctx.alice, usdc(20), await ctx.businessHub.getAddress());
     await ctx.businessHub.connect(ctx.alice).createInvoice(
       ctx.bob.address,
       await ctx.vault.getAddress(),
-      encAmt,
+      ...encAmt,
       "Never-funded",
       Math.floor(Date.now() / 1000) + 7 * 24 * 3600,
     );
@@ -625,24 +641,24 @@ describe("BusinessHub", () => {
     await shield(ctx, ctx.bob, usdc(500));
     await approveHub(ctx, ctx.bob, await ctx.businessHub.getAddress());
 
-    const encAmt = await encUint64(ctx, ctx.alice, usdc(33));
+    const encAmt = await encUint64(ctx, ctx.alice, usdc(33), await ctx.businessHub.getAddress());
     await ctx.businessHub.connect(ctx.alice).createInvoice(
       ctx.bob.address,
       await ctx.vault.getAddress(),
-      encAmt,
+      ...encAmt,
       "Event-test",
       Math.floor(Date.now() / 1000) + 7 * 24 * 3600,
     );
 
     // payInvoiceEscrow → InvoicePaymentInitiated(0, …)
-    const encPay = await encUint64(ctx, ctx.bob, usdc(33));
-    await expect(ctx.businessHub.connect(ctx.bob).payInvoiceEscrow(0, encPay))
+    const encPay = await encUint64(ctx, ctx.bob, usdc(33), await ctx.businessHub.getAddress());
+    await expect(ctx.businessHub.connect(ctx.bob).payInvoiceEscrow(0, ...encPay))
       .to.emit(ctx.businessHub, "InvoicePaymentInitiated")
       .withArgs(0n, anyValue);
 
     const handle = await ctx.businessHub.getInvoiceValidationHandle(0);
     await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.bob);
-    const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutPermit().execute();
+    const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutACP().execute();
 
     // releaseInvoiceEscrow on match → InvoicePaid(0, …)
     await expect(
@@ -658,22 +674,22 @@ describe("BusinessHub", () => {
     await shield(ctx, ctx.bob, usdc(500));
     await approveHub(ctx, ctx.bob, await ctx.businessHub.getAddress());
 
-    const encInvoiceAmt = await encUint64(ctx, ctx.alice, usdc(100));
+    const encInvoiceAmt = await encUint64(ctx, ctx.alice, usdc(100), await ctx.businessHub.getAddress());
     await ctx.businessHub.connect(ctx.alice).createInvoice(
       ctx.bob.address,
       await ctx.vault.getAddress(),
-      encInvoiceAmt,
+      ...encInvoiceAmt,
       "Consulting",
       Math.floor(Date.now() / 1000) + 7 * 24 * 3600,
     );
 
     // Bob underpays (80 instead of 100) — amount mismatch on finalize
-    const encUnder = await encUint64(ctx, ctx.bob, usdc(80));
-    await ctx.businessHub.connect(ctx.bob).payInvoice(0, encUnder);
+    const encUnder = await encUint64(ctx, ctx.bob, usdc(80), await ctx.businessHub.getAddress());
+    await ctx.businessHub.connect(ctx.bob).payInvoice(0, ...encUnder);
 
     const handle = await ctx.businessHub.getInvoiceValidationHandle(0);
     await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.alice);
-    const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutPermit().execute();
+    const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutACP().execute();
     expect(Boolean(proof.decryptedValue)).to.equal(false);
   });
 
@@ -689,20 +705,20 @@ describe("BusinessHub", () => {
     await approveHub(ctx, ctx.bob, await ctx.businessHub.getAddress());
 
     // Alice invoices Bob for 100; Bob underpays 80; finalize marks Disputed.
-    const encInvoiceAmt = await encUint64(ctx, ctx.alice, usdc(100));
+    const encInvoiceAmt = await encUint64(ctx, ctx.alice, usdc(100), await ctx.businessHub.getAddress());
     await ctx.businessHub.connect(ctx.alice).createInvoice(
       ctx.bob.address,
       await ctx.vault.getAddress(),
-      encInvoiceAmt,
+      ...encInvoiceAmt,
       "Consulting",
       Math.floor(Date.now() / 1000) + 7 * 24 * 3600,
     );
-    const encUnder = await encUint64(ctx, ctx.bob, usdc(80));
-    await ctx.businessHub.connect(ctx.bob).payInvoice(0, encUnder);
+    const encUnder = await encUint64(ctx, ctx.bob, usdc(80), await ctx.businessHub.getAddress());
+    await ctx.businessHub.connect(ctx.bob).payInvoice(0, ...encUnder);
 
     const handle = await ctx.businessHub.getInvoiceValidationHandle(0);
     await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.bob);
-    const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutPermit().execute();
+    const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutACP().execute();
     await ctx.businessHub.connect(ctx.bob)
       .payInvoiceFinalize(0, Boolean(proof.decryptedValue), proof.signature);
 
@@ -742,11 +758,11 @@ describe("BusinessHub", () => {
   it("cancelInvoice marks status cancelled (vendor only)", async () => {
     const ctx = await loadFixture(deployBlankFixture);
 
-    const enc = await encUint64(ctx, ctx.alice, usdc(50));
+    const enc = await encUint64(ctx, ctx.alice, usdc(50), await ctx.businessHub.getAddress());
     await ctx.businessHub.connect(ctx.alice).createInvoice(
       ctx.bob.address,
       await ctx.vault.getAddress(),
-      enc,
+      ...enc,
       "",
       Math.floor(Date.now() / 1000) + 3600,
     );
@@ -774,12 +790,12 @@ describe("BusinessHub", () => {
     await ctx.businessHub.setPaymentReceipts(await ctx.paymentReceipts.getAddress());
 
     // Alice runs a payroll to bob (100) + charlie (50)
-    const encBob = await encUint64(ctx, ctx.alice, usdc(100));
-    const encCharlie = await encUint64(ctx, ctx.alice, usdc(50));
+    const payroll = await encBatch(ctx, ctx.alice, [usdc(100), usdc(50)], await ctx.businessHub.getAddress());
     await ctx.businessHub.connect(ctx.alice).runPayroll(
       [ctx.bob.address, ctx.charlie.address],
       await ctx.vault.getAddress(),
-      [encBob, encCharlie],
+      payroll.handles,
+      payroll.proof,
     );
 
     // Bob now proves income >= 0 (trivially true) — the key is that the
@@ -796,7 +812,7 @@ describe("BusinessHub", () => {
     // Anyone publishes bob's verdict.
     const handle = await ctx.paymentReceipts.getProofHandle(proofId);
     await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.bob);
-    const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutPermit().execute();
+    const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutACP().execute();
     await ctx.paymentReceipts
       .connect(ctx.bob)
       .publishProof(proofId, Boolean(proof.decryptedValue), proof.signature);
@@ -905,23 +921,24 @@ describe("BusinessHub", () => {
     await approveHub(ctx, ctx.alice, await ctx.businessHub.getAddress());
 
     // Self-only batch must revert.
-    const encSelf = await encUint64(ctx, ctx.alice, usdc(100));
+    const encSelf = await encBatch(ctx, ctx.alice, [usdc(100)], await ctx.businessHub.getAddress());
     await expect(
       ctx.businessHub.connect(ctx.alice).runPayroll(
         [ctx.alice.address],
         await ctx.vault.getAddress(),
-        [encSelf],
+        encSelf.handles,
+        encSelf.proof,
       ),
     ).to.be.revertedWith("BusinessHub: cannot payroll self");
 
     // Mixed batch with self in any position must also revert (per-iteration check).
-    const encA = await encUint64(ctx, ctx.alice, usdc(50));
-    const encB = await encUint64(ctx, ctx.alice, usdc(50));
+    const mixed = await encBatch(ctx, ctx.alice, [usdc(50), usdc(50)], await ctx.businessHub.getAddress());
     await expect(
       ctx.businessHub.connect(ctx.alice).runPayroll(
         [ctx.bob.address, ctx.alice.address],
         await ctx.vault.getAddress(),
-        [encA, encB],
+        mixed.handles,
+        mixed.proof,
       ),
     ).to.be.revertedWith("BusinessHub: cannot payroll self");
   });
@@ -937,24 +954,24 @@ describe("BusinessHub", () => {
     await approveHub(ctx, ctx.bob, await ctx.businessHub.getAddress());
 
     // Alice creates invoice for Bob (100 USDC)
-    const encInvoiceAmt = await encUint64(ctx, ctx.alice, usdc(100));
+    const encInvoiceAmt = await encUint64(ctx, ctx.alice, usdc(100), await ctx.businessHub.getAddress());
     await ctx.businessHub.connect(ctx.alice).createInvoice(
       ctx.bob.address,
       await ctx.vault.getAddress(),
-      encInvoiceAmt,
+      ...encInvoiceAmt,
       "Consulting",
       Math.floor(Date.now() / 1000) + 7 * 24 * 3600,
     );
 
     // Bob (the client) pays exactly 100 USDC — invoice now PaymentPending
-    const encPayment = await encUint64(ctx, ctx.bob, usdc(100));
-    await ctx.businessHub.connect(ctx.bob).payInvoice(0, encPayment);
+    const encPayment = await encUint64(ctx, ctx.bob, usdc(100), await ctx.businessHub.getAddress());
+    await ctx.businessHub.connect(ctx.bob).payInvoice(0, ...encPayment);
 
     // Charlie (random third-party) fetches the validation handle + decryption
     // proof. With the old code this would have been enough to finalize.
     const handle = await ctx.businessHub.getInvoiceValidationHandle(0);
     await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.charlie);
-    const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutPermit().execute();
+    const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutACP().execute();
 
     // Charlie tries to finalize — must revert with the #213 message
     await expect(
@@ -1027,11 +1044,11 @@ describe("BusinessHub", () => {
     await approveHub(ctx, ctx.bob, await ctx.businessHub.getAddress());
 
     // Alice creates invoice for Bob
-    const encInvoiceAmt = await encUint64(ctx, ctx.alice, usdc(100));
+    const encInvoiceAmt = await encUint64(ctx, ctx.alice, usdc(100), await ctx.businessHub.getAddress());
     await ctx.businessHub.connect(ctx.alice).createInvoice(
       ctx.bob.address,
       await ctx.vault.getAddress(),
-      encInvoiceAmt,
+      ...encInvoiceAmt,
       "Consulting",
       Math.floor(Date.now() / 1000) + 7 * 24 * 3600,
     );
@@ -1039,28 +1056,28 @@ describe("BusinessHub", () => {
     // Charlie (NOT the named client) tries to pay — already-existing client
     // gate rejects with "not the client". Confirms multi-payer race at the
     // named-client level is impossible.
-    const encCharlie = await encUint64(ctx, ctx.charlie, usdc(100));
+    const encCharlie = await encUint64(ctx, ctx.charlie, usdc(100), await ctx.businessHub.getAddress());
     await expect(
-      ctx.businessHub.connect(ctx.charlie).payInvoice(0, encCharlie),
+      ctx.businessHub.connect(ctx.charlie).payInvoice(0, ...encCharlie),
     ).to.be.revertedWith("BusinessHub: not the client");
 
     // Bob (the named client) pays — succeeds, invoice → PaymentPending,
     // invoicePaymentStartedBy[0] = bob.
-    const encPayment = await encUint64(ctx, ctx.bob, usdc(100));
-    await ctx.businessHub.connect(ctx.bob).payInvoice(0, encPayment);
+    const encPayment = await encUint64(ctx, ctx.bob, usdc(100), await ctx.businessHub.getAddress());
+    await ctx.businessHub.connect(ctx.bob).payInvoice(0, ...encPayment);
     expect(await ctx.businessHub.invoicePaymentStartedBy(0)).to.equal(ctx.bob.address);
 
     // Bob may NOT retry payInvoice once status = PaymentPending — the
     // status-check rejects first. (The dedup matters for re-entry windows
     // a future status reset could open.)
     await expect(
-      ctx.businessHub.connect(ctx.bob).payInvoice(0, encPayment),
+      ctx.businessHub.connect(ctx.bob).payInvoice(0, ...encPayment),
     ).to.be.revertedWith("BusinessHub: not pending");
 
     // Bob can finalize — he's both the client AND the payment-starter
     const handle = await ctx.businessHub.getInvoiceValidationHandle(0);
     await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.bob);
-    const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutPermit().execute();
+    const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutACP().execute();
     await ctx.businessHub
       .connect(ctx.bob)
       .payInvoiceFinalize(0, Boolean(proof.decryptedValue), proof.signature);
@@ -1076,11 +1093,11 @@ describe("BusinessHub", () => {
     const ctx = await loadFixture(deployBlankFixture);
 
     // Alice creates an invoice for Bob.
-    const encAmt = await encUint64(ctx, ctx.alice, usdc(50));
+    const encAmt = await encUint64(ctx, ctx.alice, usdc(50), await ctx.businessHub.getAddress());
     await ctx.businessHub.connect(ctx.alice).createInvoice(
       ctx.bob.address,
       await ctx.vault.getAddress(),
-      encAmt,
+      ...encAmt,
       "Design work",
       Math.floor(Date.now() / 1000) + 7 * 24 * 3600,
     );
@@ -1187,16 +1204,16 @@ describe("GroupManager", () => {
     await ctx.groupManager.connect(ctx.alice).createGroup("Close friends", [ctx.bob.address]);
 
     // Charlie is NOT in the group
-    const encShare = await encUint64(ctx, ctx.charlie, usdc(10));
-    const encTotal = await encUint64(ctx, ctx.charlie, usdc(20));
+    const nonMember = await encBatch(ctx, ctx.charlie, [usdc(10), usdc(10), usdc(20)], await ctx.groupManager.getAddress());
     await expect(
       ctx.groupManager
         .connect(ctx.charlie)
         .addExpense(
           0,
           [ctx.alice.address, ctx.bob.address],
-          [encShare, encShare],
-          encTotal,
+          [nonMember.handles[0], nonMember.handles[1]],
+          nonMember.handles[2],
+          nonMember.proof,
           "Dinner",
         ),
     ).to.be.revertedWith("GroupManager: not a member");
@@ -1223,15 +1240,15 @@ describe("GroupManager", () => {
     // Bob pays a 100-USDC expense, alice owes 100. After addExpense:
     //   _debts[alice] = +100 (she owes 100)
     //   _debts[bob]   = -100 via underflow (he's owed 100)
-    const encAliceShare = await encUint64(ctx, ctx.bob, usdc(100));
-    const encTotalPaid = await encUint64(ctx, ctx.bob, usdc(100));
+    const rent = await encBatch(ctx, ctx.bob, [usdc(100), usdc(100)], await ctx.groupManager.getAddress());
     await ctx.groupManager
       .connect(ctx.bob)
       .addExpense(
         0,
         [ctx.alice.address],
-        [encAliceShare],
-        encTotalPaid,
+        [rent.handles[0]],
+        rent.handles[1],
+        rent.proof,
         "Rent",
       );
 
@@ -1246,14 +1263,14 @@ describe("GroupManager", () => {
     //          underflows to 2^64-1 and silently breaks the accounting (debtor
     //          thinks paid, creditor still short).
     // Post-fix: vault transfers 0, debt subtracts 0 → alice still owes 100.
-    const encSettleAmount = await encUint64(ctx, ctx.alice, usdc(100));
+    const encSettleAmount = await encUint64(ctx, ctx.alice, usdc(100), await ctx.groupManager.getAddress());
     const tx = await ctx.groupManager
       .connect(ctx.alice)
       .settleDebt(
         0,
         ctx.bob.address,
         await ctx.vault.getAddress(),
-        encSettleAmount,
+        ...encSettleAmount,
       );
     const receipt = await tx.wait();
 
@@ -1293,17 +1310,16 @@ describe("GroupManager", () => {
 
     await ctx.groupManager.connect(ctx.alice).createGroup("Roommates", [ctx.bob.address]);
 
-    const encAliceShare = await encUint64(ctx, ctx.bob, usdc(100));
-    const encTotalPaid = await encUint64(ctx, ctx.bob, usdc(100));
+    const expenseRent = await encBatch(ctx, ctx.bob, [usdc(100), usdc(100)], await ctx.groupManager.getAddress());
     await ctx.groupManager
       .connect(ctx.bob)
-      .addExpense(0, [ctx.alice.address], [encAliceShare], encTotalPaid, "Rent");
+      .addExpense(0, [ctx.alice.address], [expenseRent.handles[0]], expenseRent.handles[1], expenseRent.proof, "Rent");
 
     // Alice settles the full 100
-    const encSettle = await encUint64(ctx, ctx.alice, usdc(100));
+    const encSettle = await encUint64(ctx, ctx.alice, usdc(100), await ctx.groupManager.getAddress());
     const tx = await ctx.groupManager
       .connect(ctx.alice)
-      .settleDebt(0, ctx.bob.address, await ctx.vault.getAddress(), encSettle);
+      .settleDebt(0, ctx.bob.address, await ctx.vault.getAddress(), ...encSettle);
     const receipt = await tx.wait();
 
     // Vault moved 100
@@ -1349,11 +1365,11 @@ describe("GroupManager", () => {
     await shield(ctx, ctx.alice, usdc(200));
     await approveHub(ctx, ctx.alice, await ctx.groupManager.getAddress());
     await ctx.groupManager.connect(ctx.alice).createGroup("Solo test", [ctx.bob.address]);
-    const encSelf = await encUint64(ctx, ctx.alice, usdc(50));
+    const encSelf = await encUint64(ctx, ctx.alice, usdc(50), await ctx.groupManager.getAddress());
     await expect(
       ctx.groupManager
         .connect(ctx.alice)
-        .settleDebt(0, ctx.alice.address, await ctx.vault.getAddress(), encSelf),
+        .settleDebt(0, ctx.alice.address, await ctx.vault.getAddress(), ...encSelf),
     ).to.be.revertedWith("GroupManager: cannot settle with yourself");
   });
 
@@ -1365,11 +1381,10 @@ describe("GroupManager", () => {
 
     // Group with alice + bob; bob pays, alice owes.
     await ctx.groupManager.connect(ctx.alice).createGroup("Roommates", [ctx.bob.address]);
-    const encShare = await encUint64(ctx, ctx.bob, usdc(50));
-    const encTotal = await encUint64(ctx, ctx.bob, usdc(50));
+    const expenseUtil = await encBatch(ctx, ctx.bob, [usdc(50), usdc(50)], await ctx.groupManager.getAddress());
     await ctx.groupManager
       .connect(ctx.bob)
-      .addExpense(0, [ctx.alice.address], [encShare], encTotal, "Utilities");
+      .addExpense(0, [ctx.alice.address], [expenseUtil.handles[0]], expenseUtil.handles[1], expenseUtil.proof, "Utilities");
 
     // Compute the storage slot for lastSettleBlock[0][alice][bob].
     // Storage layout (slot 13 per storage-layouts/GroupManager.json):
@@ -1407,22 +1422,22 @@ describe("GroupManager", () => {
     expect(actualStored).to.equal(seedValue);
 
     // Attempt the settle — same edge, seeded slot > block.number → MUST revert.
-    const encSettle = await encUint64(ctx, ctx.alice, usdc(20));
+    const encSettle = await encUint64(ctx, ctx.alice, usdc(20), await ctx.groupManager.getAddress());
     await expect(
       ctx.groupManager
         .connect(ctx.alice)
-        .settleDebt(0, ctx.bob.address, await ctx.vault.getAddress(), encSettle),
+        .settleDebt(0, ctx.bob.address, await ctx.vault.getAddress(), ...encSettle),
     ).to.be.revertedWith("GroupManager: already settling this debt this block");
 
     // Sanity: a DIFFERENT edge (alice → charlie) is NOT affected by the
     // seeded (alice, bob) slot. Add charlie to the group first so he's
     // a valid counterparty, then confirm the settle runs to completion.
     await ctx.groupManager.connect(ctx.alice).addMember(0, ctx.charlie.address);
-    const encSettle2 = await encUint64(ctx, ctx.alice, usdc(5));
+    const encSettle2 = await encUint64(ctx, ctx.alice, usdc(5), await ctx.groupManager.getAddress());
     await expect(
       ctx.groupManager
         .connect(ctx.alice)
-        .settleDebt(0, ctx.charlie.address, await ctx.vault.getAddress(), encSettle2),
+        .settleDebt(0, ctx.charlie.address, await ctx.vault.getAddress(), ...encSettle2),
     ).to.not.be.reverted;
   });
 
@@ -1494,8 +1509,8 @@ describe("InheritanceManager finalizeClaim mutex (#185)", () => {
     // First finalize call — succeeds. Drains vault by requesting MAX (the
     // vault's FHE.select clamps at available balance).
     const MAX = (1n << 64n) - 1n;
-    const encMax1 = await encUint64(ctx, heir, MAX);
-    await ctx.inheritanceManager.connect(heir).finalizeClaim(principal.address, [encMax1]);
+    const encMax1 = await encUint64(ctx, heir, MAX, await ctx.inheritanceManager.getAddress());
+    await ctx.inheritanceManager.connect(heir).finalizeClaim(principal.address, [encMax1[0]], encMax1[1]);
 
     // #185 assertion — claim flag flipped.
     expect(await ctx.inheritanceManager.claimFinalized(principal.address)).to.equal(true);
@@ -1503,9 +1518,9 @@ describe("InheritanceManager finalizeClaim mutex (#185)", () => {
     // Second finalize call — MUST revert with the mutex message, not the
     // generic "no plan" (which would also fire because plan.active was
     // flipped false). The require(!claimFinalized[...], ...) runs FIRST.
-    const encMax2 = await encUint64(ctx, heir, MAX);
+    const encMax2 = await encUint64(ctx, heir, MAX, await ctx.inheritanceManager.getAddress());
     await expect(
-      ctx.inheritanceManager.connect(heir).finalizeClaim(principal.address, [encMax2]),
+      ctx.inheritanceManager.connect(heir).finalizeClaim(principal.address, [encMax2[0]], encMax2[1]),
     ).to.be.revertedWith("InheritanceManager: claim already finalized");
   });
 
@@ -1538,8 +1553,8 @@ describe("InheritanceManager finalizeClaim mutex (#185)", () => {
     await ctx.inheritanceManager.connect(heir1).startClaim(principal.address);
     await hre.network.provider.send("evm_increaseTime", [CHALLENGE + 1]);
     await hre.network.provider.send("evm_mine", []);
-    const enc1 = await encUint64(ctx, heir1, MAX);
-    await ctx.inheritanceManager.connect(heir1).finalizeClaim(principal.address, [enc1]);
+    const enc1 = await encUint64(ctx, heir1, MAX, await ctx.inheritanceManager.getAddress());
+    await ctx.inheritanceManager.connect(heir1).finalizeClaim(principal.address, [enc1[0]], enc1[1]);
     expect(await ctx.inheritanceManager.claimFinalized(principal.address)).to.equal(true);
 
     // ─── Principal receives fresh funds + creates a new plan with heir2. ──
@@ -1558,10 +1573,10 @@ describe("InheritanceManager finalizeClaim mutex (#185)", () => {
     await ctx.inheritanceManager.connect(heir2).startClaim(principal.address);
     await hre.network.provider.send("evm_increaseTime", [CHALLENGE + 1]);
     await hre.network.provider.send("evm_mine", []);
-    const enc2 = await encUint64(ctx, heir2, MAX);
+    const enc2 = await encUint64(ctx, heir2, MAX, await ctx.inheritanceManager.getAddress());
     // CRITICAL: pre-fix this would revert with "claim already finalized".
     await expect(
-      ctx.inheritanceManager.connect(heir2).finalizeClaim(principal.address, [enc2]),
+      ctx.inheritanceManager.connect(heir2).finalizeClaim(principal.address, [enc2[0]], enc2[1]),
     ).to.not.be.reverted;
 
     // Heir2's claim succeeds; the mutex flips again for the new plan.
@@ -1616,12 +1631,12 @@ describe("PaymentHub agent attestations", () => {
     );
     const sig = await agent.signMessage(hre.ethers.getBytes(innerHash));
 
-    const enc = await encUint64(ctx, ctx.alice, usdc(15));
+    const enc = await encUint64(ctx, ctx.alice, usdc(15), await ctx.paymentHub.getAddress());
     await expect(
       ctx.paymentHub.connect(ctx.alice).sendPaymentAsAgent(
         ctx.bob.address,
         await ctx.vault.getAddress(),
-        enc,
+        ...enc,
         "AI-derived payroll line",
         agent.address,
         nonce,
@@ -1664,12 +1679,12 @@ describe("PaymentHub agent attestations", () => {
     );
     const sig = await attacker.signMessage(hre.ethers.getBytes(innerHash));
 
-    const enc = await encUint64(ctx, ctx.alice, usdc(5));
+    const enc = await encUint64(ctx, ctx.alice, usdc(5), await ctx.paymentHub.getAddress());
     await expect(
       ctx.paymentHub.connect(ctx.alice).sendPaymentAsAgent(
         ctx.bob.address,
         await ctx.vault.getAddress(),
-        enc,
+        ...enc,
         "",
         realAgent.address, // claiming this — but signature was by attacker
         nonce,
@@ -1702,14 +1717,15 @@ describe("GiftMoney expiry enforcement (#241)", () => {
     // Short-lived envelope — expires 60s from now.
     const now = (await hre.ethers.provider.getBlock("latest"))!.timestamp;
     const expiry = now + 60;
-    const encShare = await encUint64(ctx, ctx.alice, usdc(10));
+    const encShare = await encUint64(ctx, ctx.alice, usdc(10), await ctx.giftMoney.getAddress());
 
     await ctx.giftMoney
       .connect(ctx.alice)
       .createEnvelope(
         await ctx.vault.getAddress(),
         [ctx.bob.address],
-        [encShare],
+        [encShare[0]],
+        encShare[1],
         "Happy new year",
         expiry,
       );
@@ -1733,13 +1749,14 @@ describe("GiftMoney expiry enforcement (#241)", () => {
     await shield(ctx, ctx.alice, usdc(100));
     await approveHub(ctx, ctx.alice, await ctx.giftMoney.getAddress());
 
-    const encShare = await encUint64(ctx, ctx.alice, usdc(10));
+    const encShare = await encUint64(ctx, ctx.alice, usdc(10), await ctx.giftMoney.getAddress());
     await ctx.giftMoney
       .connect(ctx.alice)
       .createEnvelope(
         await ctx.vault.getAddress(),
         [ctx.bob.address],
-        [encShare],
+        [encShare[0]],
+        encShare[1],
         "Forever gift",
         0, // 0 = no expiry
       );
@@ -1811,12 +1828,11 @@ describe("P2PExchange expiry enforcement (#242)", () => {
     await hre.network.provider.send("evm_increaseTime", [120]);
     await hre.network.provider.send("evm_mine", []);
 
-    const encTakerPayment = await encUint64(ctx, ctx.bob, usdc(50));
-    const encMakerPayment = await encUint64(ctx, ctx.bob, usdc(50));
+    const fill = await encBatch(ctx, ctx.bob, [usdc(50), usdc(50)], await ctx.p2pExchange.getAddress());
     await expect(
       ctx.p2pExchange
         .connect(ctx.bob)
-        .fillOffer(0, encTakerPayment, encMakerPayment),
+        .fillOffer(0, fill.handles[0], fill.handles[1], fill.proof),
     ).to.be.revertedWith("P2PExchange: offer expired");
   });
 });
@@ -1848,12 +1864,12 @@ describe("PaymentHub agent attestation expiry enforcement (#245)", () => {
     );
     const sig = await agent.signMessage(hre.ethers.getBytes(innerHash));
 
-    const enc = await encUint64(ctx, ctx.alice, usdc(10));
+    const enc = await encUint64(ctx, ctx.alice, usdc(10), await ctx.paymentHub.getAddress());
     await expect(
       ctx.paymentHub.connect(ctx.alice).sendPaymentAsAgent(
         ctx.bob.address,
         await ctx.vault.getAddress(),
-        enc,
+        ...enc,
         "expired attestation",
         agent.address,
         nonce,
@@ -1885,7 +1901,7 @@ describe("PaymentReceipts qualification proofs", () => {
     // Anyone fetches the TN proof and publishes it.
     const handle = await ctx.paymentReceipts.getProofHandle(proofId);
     await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.bob);
-    const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutPermit().execute();
+    const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutACP().execute();
     await ctx.paymentReceipts
       .connect(ctx.bob)
       .publishProof(proofId, Boolean(proof.decryptedValue), proof.signature);
@@ -1913,7 +1929,7 @@ describe("PaymentReceipts qualification proofs", () => {
     // FHE.allowGlobal in initialize. Charlie just needs any self-permit
     // (decryptForView requires one for the SDK plumbing).
     await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.charlie);
-    await ctx.client.permits.createSelf({
+    await ctx.client.acp.createSelf({
       issuer: ctx.charlie.address,
       name: "Public global decrypt",
     });
@@ -1933,7 +1949,7 @@ describe("PaymentReceipts qualification proofs", () => {
 
     const handle = await ctx.paymentReceipts.getProofHandle(proofId);
     await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.bob);
-    const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutPermit().execute();
+    const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutACP().execute();
     await ctx.paymentReceipts
       .connect(ctx.bob)
       .publishProof(proofId, Boolean(proof.decryptedValue), proof.signature);
@@ -1955,13 +1971,13 @@ describe("Cross-contract invariants", () => {
     await shield(ctx, ctx.alice, usdc(100));
     // NOTE: no approveHub call — PaymentHub has zero allowance on alice's vault balance
 
-    const enc = await encUint64(ctx, ctx.alice, usdc(25));
+    const enc = await encUint64(ctx, ctx.alice, usdc(25), await ctx.paymentHub.getAddress());
     // The send should succeed at the call level but transfer 0 (FHE.select
     // guards the allowance check too — same no-revert privacy invariant).
     await ctx.paymentHub.connect(ctx.alice).sendPayment(
       ctx.bob.address,
       await ctx.vault.getAddress(),
-      enc,
+      ...enc,
       "",
     );
 
@@ -1980,11 +1996,11 @@ describe("Cross-contract invariants", () => {
     await shield(ctx, ctx.alice, usdc(100));
     await approveHub(ctx, ctx.alice, await ctx.paymentHub.getAddress());
 
-    const enc = await encUint64(ctx, ctx.alice, usdc(5));
+    const enc = await encUint64(ctx, ctx.alice, usdc(5), await ctx.paymentHub.getAddress());
     await expect(
       ctx.paymentHub
         .connect(ctx.alice)
-        .sendPayment(ctx.bob.address, await ctx.vault.getAddress(), enc, ""),
+        .sendPayment(ctx.bob.address, await ctx.vault.getAddress(), ...enc, ""),
     ).to.not.be.reverted;
   });
 });
@@ -2010,10 +2026,10 @@ describe("PaymentHub per-recipient receipts (#207)", () => {
     await ctx.paymentHub.setPaymentReceipts(await ctx.paymentReceipts.getAddress());
 
     // Alice sends 75 USDC to Bob.
-    const enc = await encUint64(ctx, ctx.alice, usdc(75));
+    const enc = await encUint64(ctx, ctx.alice, usdc(75), await ctx.paymentHub.getAddress());
     await ctx.paymentHub
       .connect(ctx.alice)
-      .sendPayment(ctx.bob.address, await ctx.vault.getAddress(), enc, "consulting fee");
+      .sendPayment(ctx.bob.address, await ctx.vault.getAddress(), ...enc, "consulting fee");
 
     // Bob's encrypted total received should decrypt to exactly 75 USDC.
     // Pre-#207 this would either revert (uninitialized handle) or decrypt to 0.
@@ -2033,7 +2049,7 @@ describe("PaymentHub per-recipient receipts (#207)", () => {
     await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.bob);
     const proof = await ctx.client
       .decryptForTx(handle, FheTypes.Bool)
-      .withoutPermit()
+      .withoutACP()
       .execute();
     await ctx.paymentReceipts
       .connect(ctx.bob)
@@ -2073,14 +2089,13 @@ describe("GiftMoney receipts wiring (#204)", () => {
     await approveHub(ctx, ctx.alice, await ctx.giftMoney.getAddress());
 
     // 3-recipient gift with distinct encrypted shares: bob 30, charlie 50, dave 20.
-    const encBob = await encUint64(ctx, ctx.alice, usdc(30));
-    const encCharlie = await encUint64(ctx, ctx.alice, usdc(50));
-    const encDave = await encUint64(ctx, ctx.alice, usdc(20));
+    const gift3 = await encBatch(ctx, ctx.alice, [usdc(30), usdc(50), usdc(20)], await ctx.giftMoney.getAddress());
 
     await ctx.giftMoney.connect(ctx.alice).createEnvelope(
       await ctx.vault.getAddress(),
       [ctx.bob.address, ctx.charlie.address, dave.address],
-      [encBob, encCharlie, encDave],
+      gift3.handles,
+      gift3.proof,
       "team bonus",
       0,
     );
@@ -2099,7 +2114,7 @@ describe("GiftMoney receipts wiring (#204)", () => {
     // disinterested third party — proves the FHE.allowGlobal path works.
     const volHandle = await ctx.paymentReceipts.getGlobalVolumeHandle();
     await hre.cofhe.connectWithHardhatSigner(ctx.client, erin);
-    await ctx.client.permits.createSelf({
+    await ctx.client.acp.createSelf({
       issuer: erin.address,
       name: "Public global decrypt — gift volume",
     });
@@ -2153,7 +2168,7 @@ describe("StealthPayments refund decrement (#199)", () => {
     const FAR_FUTURE_TS = nowTs + 365 * 24 * 3600;
     const volHandleBefore = await ctx.paymentReceipts.getGlobalVolumeHandle();
     await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.charlie);
-    await ctx.client.permits.createSelf({
+    await ctx.client.acp.createSelf({
       issuer: ctx.charlie.address,
       name: "Public global decrypt — stealth refund",
       expiration: FAR_FUTURE_TS,
@@ -2164,8 +2179,9 @@ describe("StealthPayments refund decrement (#199)", () => {
 
     // Encrypt the recipient address (bob) and prepare a claim code bound to bob.
     await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.alice);
-    const [encBob] = await ctx.client
+    const encBob = await ctx.client
       .encryptInputs([Encryptable.address(ctx.bob.address)])
+      .setConsumingContract(await ctx.stealthPayments.getAddress())
       .execute();
     const claimCode = hre.ethers.hexlify(hre.ethers.randomBytes(32));
     const claimCodeHash = hre.ethers.keccak256(
@@ -2178,7 +2194,7 @@ describe("StealthPayments refund decrement (#199)", () => {
       .connect(ctx.alice)
       .sendStealth(
         STEALTH_AMOUNT,
-        encBob,
+        ...encBob,
         claimCodeHash,
         await ctx.vault.getAddress(),
         "for groceries",
@@ -2210,7 +2226,7 @@ describe("StealthPayments refund decrement (#199)", () => {
     // 31-day time jump — the original would have expired (default permit TTL).
     const volHandleAfter = await ctx.paymentReceipts.getGlobalVolumeHandle();
     await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.charlie);
-    await ctx.client.permits.createSelf({
+    await ctx.client.acp.createSelf({
       issuer: ctx.charlie.address,
       name: "Public global decrypt — stealth refund (post-jump)",
       expiration: FAR_FUTURE_TS,

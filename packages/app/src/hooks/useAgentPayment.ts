@@ -3,7 +3,6 @@ import { usePublicClient } from "wagmi";
 import { useEffectiveAddress } from "./useEffectiveAddress";
 import { Encryptable } from "@/lib/cofhe-shim";
 import toast from "react-hot-toast";
-import { type EncryptedInput } from "@/lib/constants";
 import { useChain } from "@/providers/ChainProvider";
 import { PaymentHubAbi } from "@/lib/abis";
 import { useCofheEncrypt } from "@/lib/cofhe-shim";
@@ -211,7 +210,8 @@ export function useAgentPayment() {
         }
 
         setStep("encrypting");
-        const [encAmount] = await encryptInputsAsync([Encryptable.uint64(attestation.amount)]);
+        const [encAmount, encAmountProof] = await encryptInputsAsync([Encryptable.uint64(attestation.amount)],
+        contracts.PaymentHub as `0x${string}`);
 
         setStep("sending");
         const agentPayResult = await unifiedWriteAndWait({
@@ -221,8 +221,8 @@ export function useAgentPayment() {
           args: [
             to,
             contracts.FHERC20Vault_USDC,
-            encAmount as unknown as EncryptedInput,
-            note,
+            encAmount,
+            encAmountProof,note,
             attestation.agent,
             attestation.nonce,
             BigInt(attestation.expiry),

@@ -256,14 +256,11 @@ beforeEach(() => {
     hash: "0xtxhash" as `0x${string}`,
     receipt: { status: "success", blockNumber: 5n, logs: [] },
   });
-  encryptInputsAsyncMock.mockImplementation(async (inputs: unknown[]) =>
-    inputs.map((_, i) => ({
-      ctHash: BigInt(i + 1),
-      securityZone: 0,
-      utype: 5,
-      signature: "0xenc",
-    })),
-  );
+  // 0.7: one handle per input, then a single batch signature.
+  encryptInputsAsyncMock.mockImplementation(async (inputs: unknown[]) => [
+    ...inputs.map((_, i) => `0xhandle${i}`),
+    "0xbatchproof",
+  ]);
   extractEventIdMock.mockReturnValue(42);
   waitForTransactionReceiptMock.mockResolvedValue({
     status: "success",
@@ -363,8 +360,8 @@ describe("useBusinessHub — createInvoice (§15.x)", () => {
     expect(call![0].address).toBe(HUB);
     expect(call![0].args[0]).toBe(ALICE);
     expect(call![0].args[1]).toBe(VAULT);
-    expect(call![0].args[3]).toBe("Web work");
-    expect(call![0].args[4]).toBe(1735689600n);
+    expect(call![0].args[4]).toBe("Web work");
+    expect(call![0].args[5]).toBe(1735689600n);
     expect(call![0].gas).toBe(5_000_000n);
     const encBatch = encryptInputsAsyncMock.mock.calls[0][0] as Array<{ raw: bigint }>;
     expect(encBatch[0].raw).toBe(100_000_000n);

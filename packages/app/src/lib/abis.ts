@@ -11,27 +11,24 @@ export const TestUSDCAbi = [
   { type: "function", name: "symbol", inputs: [], outputs: [{ name: "", type: "string" }], stateMutability: "view" },
 ] as const;
 
-// ─── Encrypted input tuple component (shared across functions) ───────
-// The internalType annotations are critical for @cofhe/abi:
-//   - Input tuples with internalType "struct InEuint64" tell extractEncryptableValues
-//     to auto-encrypt those args via the SDK (ZK proof + ciphertext)
-//   - Output uint256 with internalType "euint64" tells transformEncryptedReturnTypes
-//     to convert the raw ctHash into { ctHash, utype: FheTypes.Uint64 } for decryption
-const InEuint64Components = [
-  { name: "ctHash", type: "uint256", internalType: "uint256" },
-  { name: "securityZone", type: "uint8", internalType: "uint8" },
-  { name: "utype", type: "uint8", internalType: "uint8" },
-  { name: "signature", type: "bytes", internalType: "bytes" },
-] as const;
+// ─── Encrypted input encoding ────────────────────────────────────────
+// cofhe-contracts 0.2.0 deleted the InEuintXX structs. An encrypted input
+// arriving from a user is now an `externalEuintXX` handle (bytes32) followed
+// by the `bytes` batch signature that authenticates it. One signature covers
+// every handle produced by a single encryptInputs() batch, so the handles a
+// function takes must be adjacent and passed in the order they were encrypted.
+//
+// Output `uint256` carrying internalType "euint64" still marks a ciphertext
+// handle the caller can decrypt.
 
 export const FHERC20VaultAbi = [
   { type: "function", name: "shield", inputs: [{ name: "amount", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
-  { type: "function", name: "requestUnshield", inputs: [{ name: "encAmount", type: "tuple", internalType: "struct InEuint64", components: InEuint64Components }], outputs: [{ name: "", type: "uint256" }], stateMutability: "nonpayable" },
+  { type: "function", name: "requestUnshield", inputs: [{ name: "encAmount", type: "bytes32", internalType: "externalEuint64" }, { name: "proof", type: "bytes" }], outputs: [{ name: "", type: "uint256" }], stateMutability: "nonpayable" },
   { type: "function", name: "claimUnshield", inputs: [{ name: "plaintext", type: "uint64" }, { name: "signature", type: "bytes" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "pendingUnshield", inputs: [{ name: "account", type: "address" }], outputs: [{ name: "", type: "uint256", internalType: "euint64" }], stateMutability: "view" },
-  { type: "function", name: "transfer", inputs: [{ name: "to", type: "address" }, { name: "encAmount", type: "tuple", internalType: "struct InEuint64", components: InEuint64Components }], outputs: [{ name: "", type: "uint256" }], stateMutability: "nonpayable" },
-  { type: "function", name: "transferFrom", inputs: [{ name: "from", type: "address" }, { name: "to", type: "address" }, { name: "encAmount", type: "tuple", internalType: "struct InEuint64", components: InEuint64Components }], outputs: [{ name: "", type: "uint256" }], stateMutability: "nonpayable" },
-  { type: "function", name: "approve", inputs: [{ name: "spender", type: "address" }, { name: "encAmount", type: "tuple", internalType: "struct InEuint64", components: InEuint64Components }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "transfer", inputs: [{ name: "to", type: "address" }, { name: "encAmount", type: "bytes32", internalType: "externalEuint64" }, { name: "proof", type: "bytes" }], outputs: [{ name: "", type: "uint256" }], stateMutability: "nonpayable" },
+  { type: "function", name: "transferFrom", inputs: [{ name: "from", type: "address" }, { name: "to", type: "address" }, { name: "encAmount", type: "bytes32", internalType: "externalEuint64" }, { name: "proof", type: "bytes" }], outputs: [{ name: "", type: "uint256" }], stateMutability: "nonpayable" },
+  { type: "function", name: "approve", inputs: [{ name: "spender", type: "address" }, { name: "encAmount", type: "bytes32", internalType: "externalEuint64" }, { name: "proof", type: "bytes" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "approvePlaintext", inputs: [{ name: "spender", type: "address" }, { name: "amount", type: "uint64" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "allowBalanceReader", inputs: [{ name: "reader", type: "address" }], outputs: [], stateMutability: "nonpayable" },
   // balanceOf returns an encrypted euint64 handle on-chain.
@@ -45,15 +42,15 @@ export const FHERC20VaultAbi = [
 ] as const;
 
 export const PaymentHubAbi = [
-  { type: "function", name: "sendPayment", inputs: [{ name: "to", type: "address" }, { name: "vault", type: "address" }, { name: "encAmount", type: "tuple", internalType: "struct InEuint64", components: InEuint64Components }, { name: "note", type: "string" }], outputs: [], stateMutability: "nonpayable" },
-  { type: "function", name: "createRequest", inputs: [{ name: "from", type: "address" }, { name: "vault", type: "address" }, { name: "encAmount", type: "tuple", internalType: "struct InEuint64", components: InEuint64Components }, { name: "note", type: "string" }], outputs: [{ name: "", type: "uint256" }], stateMutability: "nonpayable" },
-  { type: "function", name: "fulfillRequest", inputs: [{ name: "requestId", type: "uint256" }, { name: "encAmount", type: "tuple", internalType: "struct InEuint64", components: InEuint64Components }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "sendPayment", inputs: [{ name: "to", type: "address" }, { name: "vault", type: "address" }, { name: "encAmount", type: "bytes32", internalType: "externalEuint64" }, { name: "proof", type: "bytes" }, { name: "note", type: "string" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "createRequest", inputs: [{ name: "from", type: "address" }, { name: "vault", type: "address" }, { name: "encAmount", type: "bytes32", internalType: "externalEuint64" }, { name: "proof", type: "bytes" }, { name: "note", type: "string" }], outputs: [{ name: "", type: "uint256" }], stateMutability: "nonpayable" },
+  { type: "function", name: "fulfillRequest", inputs: [{ name: "requestId", type: "uint256" }, { name: "encAmount", type: "bytes32", internalType: "externalEuint64" }, { name: "proof", type: "bytes" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "cancelRequest", inputs: [{ name: "requestId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "getIncomingRequests", inputs: [{ name: "user", type: "address" }], outputs: [{ name: "", type: "uint256[]" }], stateMutability: "view" },
   { type: "function", name: "getOutgoingRequests", inputs: [{ name: "user", type: "address" }], outputs: [{ name: "", type: "uint256[]" }], stateMutability: "view" },
   { type: "function", name: "getPendingIncomingCount", inputs: [{ name: "user", type: "address" }], outputs: [{ name: "", type: "uint256" }], stateMutability: "view" },
   { type: "function", name: "getRequest", inputs: [{ name: "requestId", type: "uint256" }], outputs: [{ name: "from", type: "address" }, { name: "to", type: "address" }, { name: "vault", type: "address" }, { name: "amount", type: "uint256", internalType: "euint64" }, { name: "note", type: "string" }, { name: "status", type: "uint8" }, { name: "createdAt", type: "uint256" }], stateMutability: "view" },
-  { type: "function", name: "batchSend", inputs: [{ name: "recipients", type: "address[]" }, { name: "vault", type: "address" }, { name: "amounts", type: "tuple[]", internalType: "struct InEuint64[]", components: InEuint64Components }, { name: "notes", type: "string[]" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "batchSend", inputs: [{ name: "recipients", type: "address[]" }, { name: "vault", type: "address" }, { name: "amounts", type: "bytes32[]", internalType: "externalEuint64[]" }, { name: "proof", type: "bytes" }, { name: "notes", type: "string[]" }], outputs: [], stateMutability: "nonpayable" },
   { type: "event", name: "PaymentSent", inputs: [{ name: "from", type: "address", indexed: true }, { name: "to", type: "address", indexed: true }, { name: "vault", type: "address", indexed: false }, { name: "note", type: "string", indexed: false }, { name: "timestamp", type: "uint256", indexed: false }] },
   { type: "event", name: "RequestCreated", inputs: [{ name: "requestId", type: "uint256", indexed: true }, { name: "from", type: "address", indexed: true }, { name: "to", type: "address", indexed: true }, { name: "vault", type: "address", indexed: false }, { name: "note", type: "string", indexed: false }, { name: "timestamp", type: "uint256", indexed: false }] },
   { type: "event", name: "RequestFulfilled", inputs: [{ name: "requestId", type: "uint256", indexed: true }, { name: "vault", type: "address", indexed: true }, { name: "timestamp", type: "uint256", indexed: false }] },
@@ -61,7 +58,7 @@ export const PaymentHubAbi = [
   { type: "event", name: "BatchPaymentSent", inputs: [{ name: "from", type: "address", indexed: true }, { name: "vault", type: "address", indexed: false }, { name: "recipientCount", type: "uint256", indexed: false }, { name: "timestamp", type: "uint256", indexed: false }] },
   // Agent attestations (v0.1.3) — ECDSA-verified provenance for AI-derived payments
   { type: "function", name: "agentDigest", inputs: [{ name: "user", type: "address" }, { name: "nonce", type: "bytes32" }, { name: "expiry", type: "uint256" }], outputs: [{ name: "", type: "bytes32" }], stateMutability: "view" },
-  { type: "function", name: "sendPaymentAsAgent", inputs: [{ name: "to", type: "address" }, { name: "vault", type: "address" }, { name: "encAmount", type: "tuple", internalType: "struct InEuint64", components: InEuint64Components }, { name: "note", type: "string" }, { name: "agent", type: "address" }, { name: "nonce", type: "bytes32" }, { name: "expiry", type: "uint256" }, { name: "agentSignature", type: "bytes" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "sendPaymentAsAgent", inputs: [{ name: "to", type: "address" }, { name: "vault", type: "address" }, { name: "encAmount", type: "bytes32", internalType: "externalEuint64" }, { name: "proof", type: "bytes" }, { name: "note", type: "string" }, { name: "agent", type: "address" }, { name: "nonce", type: "bytes32" }, { name: "expiry", type: "uint256" }, { name: "agentSignature", type: "bytes" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "isAgentNonceUsed", inputs: [{ name: "nonce", type: "bytes32" }], outputs: [{ name: "", type: "bool" }], stateMutability: "view" },
   { type: "event", name: "AgentPaymentSubmission", inputs: [{ name: "user", type: "address", indexed: true }, { name: "agent", type: "address", indexed: true }, { name: "nonce", type: "bytes32", indexed: true }, { name: "expiry", type: "uint256", indexed: false }, { name: "timestamp", type: "uint256", indexed: false }] },
 ] as const;
@@ -100,22 +97,15 @@ export const TokenRegistryAbi = [
   { type: "function", name: "getActiveTokens", inputs: [], outputs: [{ name: "", type: "tuple[]", components: [{ name: "vault", type: "address" }, { name: "underlying", type: "address" }, { name: "name", type: "string" }, { name: "symbol", type: "string" }, { name: "decimals", type: "uint8" }, { name: "active", type: "bool" }] }], stateMutability: "view" },
 ] as const;
 
-// ─── Encrypted input tuple type (reused across ABIs) ────────────────
-// MUST match the actual InEuint64 struct from @fhenixprotocol/cofhe-contracts/ICofhe.sol:
-// struct InEuint64 { uint256 ctHash; uint8 securityZone; uint8 utype; bytes signature; }
-// The internalType "struct InEuint64" enables @cofhe/abi's extractEncryptableValues
-// to auto-identify and encrypt these parameters.
-const InEuint64Tuple = { name: "encAmount", type: "tuple", internalType: "struct InEuint64" as const, components: InEuint64Components } as const;
-
 export const GroupManagerAbi = [
   { type: "function", name: "createGroup", inputs: [{ name: "name", type: "string" }, { name: "members", type: "address[]" }], outputs: [{ name: "", type: "uint256" }], stateMutability: "nonpayable" },
-  { type: "function", name: "addExpense", inputs: [{ name: "groupId", type: "uint256" }, { name: "splitWith", type: "address[]" }, { name: "shares", type: "tuple[]", internalType: "struct InEuint64[]", components: InEuint64Components }, { name: "totalPaid", type: "tuple", internalType: "struct InEuint64", components: InEuint64Components }, { name: "description", type: "string" }], outputs: [], stateMutability: "nonpayable" },
-  { type: "function", name: "settleDebt", inputs: [{ name: "groupId", type: "uint256" }, { name: "with_", type: "address" }, { name: "vault", type: "address" }, InEuint64Tuple], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "addExpense", inputs: [{ name: "groupId", type: "uint256" }, { name: "splitWith", type: "address[]" }, { name: "shares", type: "bytes32[]", internalType: "externalEuint64[]" }, { name: "totalPaid", type: "bytes32", internalType: "externalEuint64" }, { name: "proof", type: "bytes" }, { name: "description", type: "string" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "settleDebt", inputs: [{ name: "groupId", type: "uint256" }, { name: "with_", type: "address" }, { name: "vault", type: "address" }, { name: "encAmount", type: "bytes32", internalType: "externalEuint64" }, { name: "proof", type: "bytes" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "getMyDebt", inputs: [{ name: "groupId", type: "uint256" }], outputs: [{ name: "", type: "uint256" }], stateMutability: "view" },
   { type: "function", name: "getGroup", inputs: [{ name: "groupId", type: "uint256" }], outputs: [{ name: "name", type: "string" }, { name: "members", type: "address[]" }, { name: "expenseCount", type: "uint256" }, { name: "active", type: "bool" }], stateMutability: "view" },
   { type: "function", name: "getUserGroups", inputs: [{ name: "user", type: "address" }], outputs: [{ name: "", type: "uint256[]" }], stateMutability: "view" },
   { type: "event", name: "GroupCreated", inputs: [{ name: "groupId", type: "uint256", indexed: true }, { name: "name", type: "string", indexed: false }, { name: "members", type: "address[]", indexed: false }, { name: "timestamp", type: "uint256", indexed: false }] },
-  { type: "function", name: "voteOnExpense", inputs: [{ name: "groupId", type: "uint256" }, { name: "expenseId", type: "uint256" }, { name: "encVotes", type: "tuple", internalType: "struct InEuint64", components: InEuint64Components }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "voteOnExpense", inputs: [{ name: "groupId", type: "uint256" }, { name: "expenseId", type: "uint256" }, { name: "encVotes", type: "bytes32", internalType: "externalEuint64" }, { name: "proof", type: "bytes" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "getExpenseVotes", inputs: [{ name: "groupId", type: "uint256" }, { name: "expenseId", type: "uint256" }], outputs: [{ name: "", type: "uint256", internalType: "euint64" }], stateMutability: "view" },
   { type: "function", name: "addMember", inputs: [{ name: "groupId", type: "uint256" }, { name: "member", type: "address" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "addAdmin", inputs: [{ name: "groupId", type: "uint256" }, { name: "admin", type: "address" }], outputs: [], stateMutability: "nonpayable" },
@@ -135,7 +125,7 @@ export const GroupManagerAbi = [
 
 export const CreatorHubAbi = [
   { type: "function", name: "setProfile", inputs: [{ name: "name", type: "string" }, { name: "bio", type: "string" }, { name: "tier1", type: "uint64" }, { name: "tier2", type: "uint64" }, { name: "tier3", type: "uint64" }], outputs: [], stateMutability: "nonpayable" },
-  { type: "function", name: "support", inputs: [{ name: "creator", type: "address" }, { name: "vault", type: "address" }, InEuint64Tuple, { name: "message", type: "string" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "support", inputs: [{ name: "creator", type: "address" }, { name: "vault", type: "address" }, { name: "encAmount", type: "bytes32", internalType: "externalEuint64" }, { name: "proof", type: "bytes" }, { name: "message", type: "string" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "checkMyTier", inputs: [{ name: "creator", type: "address" }], outputs: [{ name: "bronze", type: "uint256" }, { name: "silver", type: "uint256" }, { name: "gold", type: "uint256" }], stateMutability: "nonpayable" },
   { type: "function", name: "getProfile", inputs: [{ name: "creator", type: "address" }], outputs: [{ name: "name", type: "string" }, { name: "bio", type: "string" }, { name: "tier1", type: "uint64" }, { name: "tier2", type: "uint64" }, { name: "tier3", type: "uint64" }, { name: "supporterCount", type: "uint256" }, { name: "active", type: "bool" }], stateMutability: "view" },
   { type: "function", name: "getMyContribution", inputs: [{ name: "creator", type: "address" }], outputs: [{ name: "", type: "uint256" }], stateMutability: "view" },
@@ -143,18 +133,18 @@ export const CreatorHubAbi = [
 ] as const;
 
 export const BusinessHubAbi = [
-  { type: "function", name: "createInvoice", inputs: [{ name: "client", type: "address" }, { name: "vault", type: "address" }, InEuint64Tuple, { name: "description", type: "string" }, { name: "dueDate", type: "uint256" }], outputs: [{ name: "", type: "uint256" }], stateMutability: "nonpayable" },
-  { type: "function", name: "payInvoice", inputs: [{ name: "invoiceId", type: "uint256" }, InEuint64Tuple], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "createInvoice", inputs: [{ name: "client", type: "address" }, { name: "vault", type: "address" }, { name: "encAmount", type: "bytes32", internalType: "externalEuint64" }, { name: "proof", type: "bytes" }, { name: "description", type: "string" }, { name: "dueDate", type: "uint256" }], outputs: [{ name: "", type: "uint256" }], stateMutability: "nonpayable" },
+  { type: "function", name: "payInvoice", inputs: [{ name: "invoiceId", type: "uint256" }, { name: "encAmount", type: "bytes32", internalType: "externalEuint64" }, { name: "proof", type: "bytes" }], outputs: [], stateMutability: "nonpayable" },
   // PR-C step 2 — trustless escrow path. Funds sit in BusinessHub until
   // releaseInvoiceEscrow finalizes the encrypted-amount match check.
-  { type: "function", name: "payInvoiceEscrow", inputs: [{ name: "invoiceId", type: "uint256" }, InEuint64Tuple], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "payInvoiceEscrow", inputs: [{ name: "invoiceId", type: "uint256" }, { name: "encAmount", type: "bytes32", internalType: "externalEuint64" }, { name: "proof", type: "bytes" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "releaseInvoiceEscrow", inputs: [{ name: "invoiceId", type: "uint256" }, { name: "matchPlaintext", type: "bool" }, { name: "signature", type: "bytes" }], outputs: [], stateMutability: "nonpayable" },
   // PR-A vendor-cooperative refund for legacy payInvoice mismatches.
   // §354 fix: amount param dropped; refund is protocol-enforced to the
   // original invoice amount so the vendor cannot shortchange the client.
   { type: "function", name: "refundDisputedInvoice", inputs: [{ name: "invoiceId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "cancelInvoice", inputs: [{ name: "invoiceId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
-  { type: "function", name: "runPayroll", inputs: [{ name: "employees", type: "address[]" }, { name: "vault", type: "address" }, { name: "salaries", type: "tuple[]", internalType: "struct InEuint64[]", components: InEuint64Components }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "runPayroll", inputs: [{ name: "employees", type: "address[]" }, { name: "vault", type: "address" }, { name: "salaries", type: "bytes32[]", internalType: "externalEuint64[]" }, { name: "proof", type: "bytes" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "createEscrow", inputs: [{ name: "beneficiary", type: "address" }, { name: "vault", type: "address" }, { name: "plaintextAmount", type: "uint256" }, { name: "description", type: "string" }, { name: "arbiter", type: "address" }, { name: "deadline", type: "uint256" }], outputs: [{ name: "", type: "uint256" }], stateMutability: "nonpayable" },
   { type: "function", name: "markDelivered", inputs: [{ name: "escrowId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "approveRelease", inputs: [{ name: "escrowId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
@@ -192,7 +182,7 @@ export const BusinessHubAbi = [
 
 export const P2PExchangeAbi = [
   { type: "function", name: "createOffer", inputs: [{ name: "tokenGive", type: "address" }, { name: "tokenWant", type: "address" }, { name: "amountGive", type: "uint256" }, { name: "amountWant", type: "uint256" }, { name: "expiry", type: "uint256" }], outputs: [{ name: "", type: "uint256" }], stateMutability: "nonpayable" },
-  { type: "function", name: "fillOffer", inputs: [{ name: "offerId", type: "uint256" }, { name: "encTakerPayment", type: "tuple", internalType: "struct InEuint64", components: InEuint64Components }, { name: "encMakerPayment", type: "tuple", internalType: "struct InEuint64", components: InEuint64Components }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "fillOffer", inputs: [{ name: "offerId", type: "uint256" }, { name: "encTakerPayment", type: "bytes32", internalType: "externalEuint64" }, { name: "encMakerPayment", type: "bytes32", internalType: "externalEuint64" }, { name: "proof", type: "bytes" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "cancelOffer", inputs: [{ name: "offerId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "getActiveOffers", inputs: [{ name: "offset", type: "uint256" }, { name: "limit", type: "uint256" }], outputs: [{ name: "", type: "tuple[]", components: [{ name: "maker", type: "address" }, { name: "tokenGive", type: "address" }, { name: "tokenWant", type: "address" }, { name: "amountGive", type: "uint256" }, { name: "amountWant", type: "uint256" }, { name: "expiry", type: "uint256" }, { name: "active", type: "bool" }, { name: "filled", type: "bool" }] }], stateMutability: "view" },
   { type: "function", name: "getTradeValidation", inputs: [{ name: "offerId", type: "uint256" }], outputs: [{ name: "isValid", type: "bool" }, { name: "isReady", type: "bool" }], stateMutability: "view" },
@@ -205,7 +195,7 @@ export const P2PExchangeAbi = [
 ] as const;
 
 export const GiftMoneyAbi = [
-  { type: "function", name: "createEnvelope", inputs: [{ name: "vault", type: "address" }, { name: "recipients", type: "address[]" }, { name: "shares", type: "tuple[]", internalType: "struct InEuint64[]", components: [{ name: "ctHash", type: "uint256" }, { name: "securityZone", type: "uint8" }, { name: "utype", type: "uint8" }, { name: "signature", type: "bytes" }] }, { name: "note", type: "string" }, { name: "expiryTimestamp", type: "uint256" }], outputs: [{ name: "", type: "uint256" }], stateMutability: "nonpayable" },
+  { type: "function", name: "createEnvelope", inputs: [{ name: "vault", type: "address" }, { name: "recipients", type: "address[]" }, { name: "shares", type: "bytes32[]", internalType: "externalEuint64[]" }, { name: "proof", type: "bytes" }, { name: "note", type: "string" }, { name: "expiryTimestamp", type: "uint256" }], outputs: [{ name: "", type: "uint256" }], stateMutability: "nonpayable" },
   { type: "function", name: "claimGift", inputs: [{ name: "envelopeId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "getMyGift", inputs: [{ name: "envelopeId", type: "uint256" }], outputs: [{ name: "", type: "uint256" }], stateMutability: "view" },
   { type: "function", name: "getEnvelope", inputs: [{ name: "envelopeId", type: "uint256" }], outputs: [{ name: "sender", type: "address" }, { name: "vault", type: "address" }, { name: "recipientCount", type: "uint256" }, { name: "claimedCount", type: "uint256" }, { name: "note", type: "string" }, { name: "timestamp", type: "uint256" }, { name: "active", type: "bool" }, { name: "expiryTimestamp", type: "uint256" }], stateMutability: "view" },
@@ -230,7 +220,7 @@ export const InheritanceManagerAbi = [
   { type: "function", name: "heartbeat", inputs: [], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "setVaults", inputs: [{ name: "_vaults", type: "address[]" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "startClaim", inputs: [{ name: "owner_", type: "address" }], outputs: [], stateMutability: "nonpayable" },
-  { type: "function", name: "finalizeClaim", inputs: [{ name: "owner_", type: "address" }, { name: "encAmounts", type: "tuple[]", internalType: "struct InEuint64[]", components: InEuint64Components }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "finalizeClaim", inputs: [{ name: "owner_", type: "address" }, { name: "encAmounts", type: "bytes32[]", internalType: "externalEuint64[]" }, { name: "proof", type: "bytes" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "getPlan", inputs: [{ name: "owner_", type: "address" }], outputs: [{ name: "heir", type: "address" }, { name: "inactivityPeriod", type: "uint256" }, { name: "lastHeartbeat", type: "uint256" }, { name: "claimStartedAt", type: "uint256" }, { name: "active", type: "bool" }, { name: "vaults", type: "address[]" }], stateMutability: "view" },
   { type: "function", name: "isClaimable", inputs: [{ name: "owner_", type: "address" }], outputs: [{ name: "", type: "bool" }], stateMutability: "view" },
   { type: "event", name: "VaultsUpdated", inputs: [{ name: "owner", type: "address", indexed: true }, { name: "vaults", type: "address[]", indexed: false }, { name: "timestamp", type: "uint256", indexed: false }] },
@@ -242,28 +232,12 @@ export const InheritanceManagerAbi = [
   { type: "event", name: "ClaimFinalized", inputs: [{ name: "owner", type: "address", indexed: true }, { name: "heir", type: "address", indexed: true }, { name: "timestamp", type: "uint256", indexed: false }] },
 ] as const;
 
-// ─── Encrypted input tuple for InEaddress (same struct layout as InEuint64) ──
-const InEaddressComponents = [
-  { name: "ctHash", type: "uint256", internalType: "uint256" },
-  { name: "securityZone", type: "uint8", internalType: "uint8" },
-  { name: "utype", type: "uint8", internalType: "uint8" },
-  { name: "signature", type: "bytes", internalType: "bytes" },
-] as const;
-
-// ─── Encrypted input tuple for InEuint8 (same struct layout as InEuint64) ────
-const InEuint8Components = [
-  { name: "ctHash", type: "uint256", internalType: "uint256" },
-  { name: "securityZone", type: "uint8", internalType: "uint8" },
-  { name: "utype", type: "uint8", internalType: "uint8" },
-  { name: "signature", type: "bytes", internalType: "bytes" },
-] as const;
-
 // ─── PrivacyRouter — Encrypted token swap router ─────────────────────────────
 // Source: contracts/PrivacyRouter.sol
 // Flow: initiateSwap (encrypted amount) → async decrypt → executeSwap (DEX swap)
 export const PrivacyRouterAbi = [
   // Swap lifecycle
-  { type: "function", name: "initiateSwap", inputs: [{ name: "vaultIn", type: "address" }, { name: "vaultOut", type: "address" }, { name: "encAmount", type: "tuple", internalType: "struct InEuint64", components: InEuint64Components }, { name: "minAmountOut", type: "uint256" }], outputs: [{ name: "", type: "uint256" }], stateMutability: "nonpayable" },
+  { type: "function", name: "initiateSwap", inputs: [{ name: "vaultIn", type: "address" }, { name: "vaultOut", type: "address" }, { name: "encAmount", type: "bytes32", internalType: "externalEuint64" }, { name: "proof", type: "bytes" }, { name: "minAmountOut", type: "uint256" }], outputs: [{ name: "", type: "uint256" }], stateMutability: "nonpayable" },
   { type: "function", name: "executeSwap", inputs: [{ name: "swapId", type: "uint256" }, { name: "plaintext", type: "uint64" }, { name: "signature", type: "bytes" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "cancelSwap", inputs: [{ name: "swapId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "claimCancelledSwap", inputs: [{ name: "swapId", type: "uint256" }, { name: "plaintext", type: "uint64" }, { name: "signature", type: "bytes" }], outputs: [], stateMutability: "nonpayable" },
@@ -290,7 +264,7 @@ export const PrivacyRouterAbi = [
 // Flow: sendStealth (plaintext ERC20 deposit + encrypted recipient) → claimStealth (verify claim code + FHE identity check) → finalizeClaim (after async decrypt)
 export const StealthPaymentsAbi = [
   // Send stealth payment
-  { type: "function", name: "sendStealth", inputs: [{ name: "plaintextAmount", type: "uint256" }, { name: "encRecipient", type: "tuple", internalType: "struct InEaddress", components: InEaddressComponents }, { name: "claimCodeHash", type: "bytes32" }, { name: "vault", type: "address" }, { name: "note", type: "string" }], outputs: [{ name: "", type: "uint256" }], stateMutability: "nonpayable" },
+  { type: "function", name: "sendStealth", inputs: [{ name: "plaintextAmount", type: "uint256" }, { name: "encRecipient", type: "bytes32", internalType: "externalEaddress" }, { name: "proof", type: "bytes" }, { name: "claimCodeHash", type: "bytes32" }, { name: "vault", type: "address" }, { name: "note", type: "string" }], outputs: [{ name: "", type: "uint256" }], stateMutability: "nonpayable" },
   // Claim lifecycle
   { type: "function", name: "claimStealth", inputs: [{ name: "transferId", type: "uint256" }, { name: "claimCode", type: "bytes32" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "finalizeClaim", inputs: [{ name: "transferId", type: "uint256" }, { name: "decryptedAmount", type: "uint64" }, { name: "signature", type: "bytes" }], outputs: [], stateMutability: "nonpayable" },
@@ -319,11 +293,11 @@ export const EncryptedFlagsAbi = [
   { type: "function", name: "canSend", inputs: [{ name: "user", type: "address" }], outputs: [{ name: "", type: "uint256", internalType: "ebool" }], stateMutability: "nonpayable" },
   { type: "function", name: "canReceive", inputs: [{ name: "user", type: "address" }], outputs: [{ name: "", type: "uint256", internalType: "ebool" }], stateMutability: "nonpayable" },
   // Fee calculation (returns encrypted fee + netAmount handles)
-  { type: "function", name: "calculateFee", inputs: [{ name: "encAmount", type: "tuple", internalType: "struct InEuint64", components: InEuint64Components }], outputs: [{ name: "fee", type: "uint256", internalType: "euint64" }, { name: "netAmount", type: "uint256", internalType: "euint64" }], stateMutability: "nonpayable" },
-  { type: "function", name: "calculateMerchantFee", inputs: [{ name: "encAmount", type: "tuple", internalType: "struct InEuint64", components: InEuint64Components }, { name: "merchant", type: "address" }], outputs: [{ name: "fee", type: "uint256", internalType: "euint64" }, { name: "netAmount", type: "uint256", internalType: "euint64" }], stateMutability: "nonpayable" },
+  { type: "function", name: "calculateFee", inputs: [{ name: "encAmount", type: "bytes32", internalType: "externalEuint64" }, { name: "proof", type: "bytes" }], outputs: [{ name: "fee", type: "uint256", internalType: "euint64" }, { name: "netAmount", type: "uint256", internalType: "euint64" }], stateMutability: "nonpayable" },
+  { type: "function", name: "calculateMerchantFee", inputs: [{ name: "encAmount", type: "bytes32", internalType: "externalEuint64" }, { name: "proof", type: "bytes" }, { name: "merchant", type: "address" }], outputs: [{ name: "fee", type: "uint256", internalType: "euint64" }, { name: "netAmount", type: "uint256", internalType: "euint64" }], stateMutability: "nonpayable" },
   // Audit scope management
-  { type: "function", name: "setAuditScope", inputs: [{ name: "auditor", type: "address" }, { name: "encScope", type: "tuple", internalType: "struct InEuint8", components: InEuint8Components }], outputs: [], stateMutability: "nonpayable" },
-  { type: "function", name: "checkAuditScope", inputs: [{ name: "user", type: "address" }, { name: "auditor", type: "address" }, { name: "encBitMask", type: "tuple", internalType: "struct InEuint8", components: InEuint8Components }], outputs: [{ name: "", type: "uint256", internalType: "ebool" }], stateMutability: "nonpayable" },
+  { type: "function", name: "setAuditScope", inputs: [{ name: "auditor", type: "address" }, { name: "encScope", type: "bytes32", internalType: "externalEuint8" }, { name: "proof", type: "bytes" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "checkAuditScope", inputs: [{ name: "user", type: "address" }, { name: "auditor", type: "address" }, { name: "encBitMask", type: "bytes32", internalType: "externalEuint8" }, { name: "proof", type: "bytes" }], outputs: [{ name: "", type: "uint256", internalType: "ebool" }], stateMutability: "nonpayable" },
   // View functions (return encrypted handles — caller must unseal)
   { type: "function", name: "getMyVerifiedStatus", inputs: [], outputs: [{ name: "", type: "uint256", internalType: "ebool" }], stateMutability: "view" },
   { type: "function", name: "getMyActiveStatus", inputs: [], outputs: [{ name: "", type: "uint256", internalType: "ebool" }], stateMutability: "view" },
@@ -341,7 +315,7 @@ export const EncryptedFlagsAbi = [
 // Uses: FHE.randomEuint64 for unique IDs, encrypted running totals, eq/min/max comparisons
 export const PaymentReceiptsAbi = [
   // Issue receipt
-  { type: "function", name: "issueReceipt", inputs: [{ name: "payer", type: "address" }, { name: "payee", type: "address" }, { name: "encAmount", type: "tuple", internalType: "struct InEuint64", components: InEuint64Components }, { name: "token", type: "address" }], outputs: [{ name: "", type: "bytes32" }], stateMutability: "nonpayable" },
+  { type: "function", name: "issueReceipt", inputs: [{ name: "payer", type: "address" }, { name: "payee", type: "address" }, { name: "encAmount", type: "bytes32", internalType: "externalEuint64" }, { name: "proof", type: "bytes" }, { name: "token", type: "address" }], outputs: [{ name: "", type: "bytes32" }], stateMutability: "nonpayable" },
   // Verify receipt (public)
   { type: "function", name: "verifyReceipt", inputs: [{ name: "receiptHash", type: "bytes32" }], outputs: [{ name: "exists", type: "bool" }, { name: "payer", type: "address" }, { name: "payee", type: "address" }, { name: "token", type: "address" }, { name: "timestamp", type: "uint256" }], stateMutability: "view" },
   // Encrypted data accessors (return handles — caller must unseal)
@@ -444,15 +418,7 @@ export const ERC6538RegistryAbi = [
 // Source: contracts/ClaimLinks.sol
 // Modes: 0 = Bearer, 1 = EmailBound, 2 = AddressBound
 export const ClaimLinksAbi = [
-  { type: "function", name: "createLink", inputs: [
-    { name: "vault", type: "address" },
-    { name: "encAmount", type: "tuple", internalType: "struct InEuint64", components: InEuint64Components },
-    { name: "secretHash", type: "bytes32" },
-    { name: "mode", type: "uint8" },
-    { name: "boundAddress", type: "address" },
-    { name: "expirySeconds", type: "uint256" },
-    { name: "note", type: "string" },
-  ], outputs: [{ name: "linkId", type: "uint256" }], stateMutability: "nonpayable" },
+  { type: "function", name: "createLink", inputs: [{ name: "vault", type: "address" }, { name: "encAmount", type: "bytes32", internalType: "externalEuint64" }, { name: "proof", type: "bytes" }, { name: "secretHash", type: "bytes32" }, { name: "mode", type: "uint8", internalType: "enum ClaimLinks.LinkMode" }, { name: "boundAddress", type: "address" }, { name: "expirySeconds", type: "uint256" }, { name: "note", type: "string" }], outputs: [{ name: "linkId", type: "uint256" }], stateMutability: "nonpayable" },
   { type: "function", name: "claimBearer", inputs: [
     { name: "linkId", type: "uint256" },
     { name: "secret", type: "bytes32" },
@@ -509,24 +475,9 @@ export const ClaimLinksAbi = [
 // Source: contracts/Storefront.sol
 // Modes: 0=FixedPrice, 1=Auction, 2=PayWhatYouWant
 export const StorefrontAbi = [
-  { type: "function", name: "createListing", inputs: [
-    { name: "mode", type: "uint8" },
-    { name: "vault", type: "address" },
-    { name: "encPrice", type: "tuple", internalType: "struct InEuint64", components: InEuint64Components },
-    { name: "auctionSeconds", type: "uint256" },
-    { name: "title", type: "string" },
-    { name: "descriptionCidHash", type: "bytes32" },
-    { name: "deliveryChannel", type: "string" },
-  ], outputs: [{ name: "listingId", type: "uint256" }], stateMutability: "nonpayable" },
-  { type: "function", name: "buyFixed", inputs: [
-    { name: "listingId", type: "uint256" },
-    { name: "encAmount", type: "tuple", internalType: "struct InEuint64", components: InEuint64Components },
-    { name: "deliveryNoteHash", type: "bytes32" },
-  ], outputs: [], stateMutability: "nonpayable" },
-  { type: "function", name: "placeBid", inputs: [
-    { name: "listingId", type: "uint256" },
-    { name: "encAmount", type: "tuple", internalType: "struct InEuint64", components: InEuint64Components },
-  ], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "createListing", inputs: [{ name: "mode", type: "uint8", internalType: "enum Storefront.SaleMode" }, { name: "vault", type: "address" }, { name: "encPrice", type: "bytes32", internalType: "externalEuint64" }, { name: "proof", type: "bytes" }, { name: "auctionSeconds", type: "uint256" }, { name: "title", type: "string" }, { name: "descriptionCidHash", type: "bytes32" }, { name: "deliveryChannel", type: "string" }], outputs: [{ name: "listingId", type: "uint256" }], stateMutability: "nonpayable" },
+  { type: "function", name: "buyFixed", inputs: [{ name: "listingId", type: "uint256" }, { name: "encAmount", type: "bytes32", internalType: "externalEuint64" }, { name: "proof", type: "bytes" }, { name: "deliveryNoteHash", type: "bytes32" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "placeBid", inputs: [{ name: "listingId", type: "uint256" }, { name: "encAmount", type: "bytes32", internalType: "externalEuint64" }, { name: "proof", type: "bytes" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "closeAuction", inputs: [{ name: "listingId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "claimAuctionWin", inputs: [
     { name: "listingId", type: "uint256" },
@@ -536,11 +487,7 @@ export const StorefrontAbi = [
     { name: "listingId", type: "uint256" },
     { name: "bidIndex", type: "uint256" },
   ], outputs: [], stateMutability: "nonpayable" },
-  { type: "function", name: "payPWYW", inputs: [
-    { name: "listingId", type: "uint256" },
-    { name: "encAmount", type: "tuple", internalType: "struct InEuint64", components: InEuint64Components },
-    { name: "deliveryNoteHash", type: "bytes32" },
-  ], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "payPWYW", inputs: [{ name: "listingId", type: "uint256" }, { name: "encAmount", type: "bytes32", internalType: "externalEuint64" }, { name: "proof", type: "bytes" }, { name: "deliveryNoteHash", type: "bytes32" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "deactivateListing", inputs: [{ name: "listingId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "getListing", inputs: [{ name: "listingId", type: "uint256" }], outputs: [
     { name: "seller", type: "address" },
@@ -612,17 +559,8 @@ export const StorefrontAbi = [
 // Source: contracts/EncryptedCrowdfund.sol
 // Status: 0=Open, 1=Closed, 2=Released, 3=Refunding
 export const EncryptedCrowdfundAbi = [
-  { type: "function", name: "createCampaign", inputs: [
-    { name: "vault", type: "address" },
-    { name: "encGoal", type: "tuple", internalType: "struct InEuint64", components: InEuint64Components },
-    { name: "durationSeconds", type: "uint256" },
-    { name: "title", type: "string" },
-    { name: "descriptionCidHash", type: "bytes32" },
-  ], outputs: [{ name: "campaignId", type: "uint256" }], stateMutability: "nonpayable" },
-  { type: "function", name: "contribute", inputs: [
-    { name: "campaignId", type: "uint256" },
-    { name: "encAmount", type: "tuple", internalType: "struct InEuint64", components: InEuint64Components },
-  ], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "createCampaign", inputs: [{ name: "vault", type: "address" }, { name: "encGoal", type: "bytes32", internalType: "externalEuint64" }, { name: "proof", type: "bytes" }, { name: "durationSeconds", type: "uint256" }, { name: "title", type: "string" }, { name: "descriptionCidHash", type: "bytes32" }], outputs: [{ name: "campaignId", type: "uint256" }], stateMutability: "nonpayable" },
+  { type: "function", name: "contribute", inputs: [{ name: "campaignId", type: "uint256" }, { name: "encAmount", type: "bytes32", internalType: "externalEuint64" }, { name: "proof", type: "bytes" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "closeCampaign", inputs: [{ name: "campaignId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "publishCloseResult", inputs: [
     { name: "campaignId", type: "uint256" },
@@ -691,14 +629,7 @@ export const EncryptedCrowdfundAbi = [
 // Source: contracts/EncryptedEscrow.sol
 // Status: 0=Active, 1=Disputed, 2=Released, 3=Refunded
 export const EncryptedEscrowAbi = [
-  { type: "function", name: "createEscrow", inputs: [
-    { name: "beneficiary", type: "address" },
-    { name: "vault", type: "address" },
-    { name: "encAmount", type: "tuple", internalType: "struct InEuint64", components: InEuint64Components },
-    { name: "description", type: "string" },
-    { name: "arbiter", type: "address" },
-    { name: "deadline", type: "uint256" },
-  ], outputs: [{ name: "escrowId", type: "uint256" }], stateMutability: "nonpayable" },
+  { type: "function", name: "createEscrow", inputs: [{ name: "beneficiary", type: "address" }, { name: "vault", type: "address" }, { name: "encAmount", type: "bytes32", internalType: "externalEuint64" }, { name: "proof", type: "bytes" }, { name: "description", type: "string" }, { name: "arbiter", type: "address" }, { name: "deadline", type: "uint256" }], outputs: [{ name: "escrowId", type: "uint256" }], stateMutability: "nonpayable" },
   { type: "function", name: "markDelivered", inputs: [{ name: "escrowId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "approveRelease", inputs: [{ name: "escrowId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "disputeEscrow", inputs: [{ name: "escrowId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
@@ -721,15 +652,7 @@ export const EncryptedEscrowAbi = [
   ], stateMutability: "view" },
   { type: "function", name: "getEncryptedAmount", inputs: [{ name: "escrowId", type: "uint256" }], outputs: [{ name: "", type: "uint256", internalType: "euint64" }], stateMutability: "view" },
   { type: "function", name: "getUserEscrows", inputs: [{ name: "user", type: "address" }], outputs: [{ name: "", type: "uint256[]" }], stateMutability: "view" },
-  { type: "function", name: "createConditionalEscrow", inputs: [
-    { name: "beneficiary", type: "address" },
-    { name: "vault", type: "address" },
-    { name: "encAmount", type: "tuple", internalType: "struct InEuint64", components: InEuint64Components },
-    { name: "description", type: "string" },
-    { name: "resolver", type: "address" },
-    { name: "resolverData", type: "bytes" },
-    { name: "deadline", type: "uint256" },
-  ], outputs: [{ name: "escrowId", type: "uint256" }], stateMutability: "nonpayable" },
+  { type: "function", name: "createConditionalEscrow", inputs: [{ name: "beneficiary", type: "address" }, { name: "vault", type: "address" }, { name: "encAmount", type: "bytes32", internalType: "externalEuint64" }, { name: "proof", type: "bytes" }, { name: "description", type: "string" }, { name: "resolver", type: "address" }, { name: "resolverData", type: "bytes" }, { name: "deadline", type: "uint256" }], outputs: [{ name: "escrowId", type: "uint256" }], stateMutability: "nonpayable" },
   { type: "function", name: "releaseIfConditionMet", inputs: [{ name: "escrowId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
   { type: "event", name: "EscrowCreated", inputs: [
     { name: "escrowId", type: "uint256", indexed: true },
@@ -802,16 +725,7 @@ export const InvoiceApprovalResolverAbi = [
 // fallbacks. v1 is full-fill only; partial fills are Wave 6.
 
 export const P2POfframpAbi = [
-  { type: "function", name: "createOffer", inputs: [
-    { name: "vault", type: "address" },
-    { name: "encAmount", type: "tuple", internalType: "struct InEuint64", components: InEuint64Components },
-    { name: "encMinFill", type: "tuple", internalType: "struct InEuint64", components: InEuint64Components },
-    { name: "fiatRail", type: "uint32" },
-    { name: "makerHandleHash", type: "bytes32" },
-    { name: "fiatAmountMicroUSD", type: "uint64" },
-    { name: "fiatRateMicroUSD", type: "uint64" },
-    { name: "expirySeconds", type: "uint32" },
-  ], outputs: [{ name: "offerId", type: "uint64" }], stateMutability: "nonpayable" },
+  { type: "function", name: "createOffer", inputs: [{ name: "vault", type: "address" }, { name: "encAmount", type: "bytes32", internalType: "externalEuint64" }, { name: "encMinFill", type: "bytes32", internalType: "externalEuint64" }, { name: "proof", type: "bytes" }, { name: "fiatRail", type: "uint32" }, { name: "makerHandleHash", type: "bytes32" }, { name: "fiatAmountMicroUSD", type: "uint64" }, { name: "fiatRateMicroUSD", type: "uint64" }, { name: "expirySeconds", type: "uint32" }], outputs: [{ name: "offerId", type: "uint64" }], stateMutability: "nonpayable" },
 
   { type: "function", name: "takeOffer", inputs: [{ name: "offerId", type: "uint64" }], outputs: [{ name: "fillId", type: "uint64" }], stateMutability: "nonpayable" },
 
@@ -977,10 +891,7 @@ export const GuardianModuleAbi = [
 // who wants to build that surface against the live deploys.
 
 export const ProofOfBalanceAbi = [
-  { type: "function", name: "createProof", inputs: [
-    { name: "encBalance", type: "tuple", internalType: "struct InEuint64", components: InEuint64Components },
-    { name: "thresholdMicroUSD", type: "uint64" },
-  ], outputs: [{ name: "proofId", type: "uint256" }], stateMutability: "nonpayable" },
+  { type: "function", name: "createProof", inputs: [{ name: "encBalance", type: "bytes32", internalType: "externalEuint64" }, { name: "proof", type: "bytes" }, { name: "thresholdMicroUSD", type: "uint64" }], outputs: [{ name: "proofId", type: "uint256" }], stateMutability: "nonpayable" },
 
   { type: "function", name: "revealProof", inputs: [
     { name: "proofId", type: "uint256" },

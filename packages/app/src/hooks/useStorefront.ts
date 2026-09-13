@@ -15,7 +15,7 @@ import { useFhePipeline } from "./useFhePipeline";
 import { useChain } from "@/providers/ChainProvider";
 import { useCofheEncrypt, useCofheConnection, Encryptable } from "@/lib/cofhe-shim";
 import { StorefrontAbi, FHERC20VaultAbi } from "@/lib/abis";
-import { MAX_UINT64, type EncryptedInput, getExplorerTxUrl } from "@/lib/constants";
+import { MAX_UINT64, getExplorerTxUrl } from "@/lib/constants";
 import { isVaultApproved, markVaultApproved } from "@/lib/approval";
 import { extractEventId } from "@/lib/event-parser";
 import { invalidateBalanceQueries } from "@/lib/query-invalidation";
@@ -161,8 +161,9 @@ export function useStorefront() {
 
         setState((s) => ({ ...s, step: "encrypting" }));
         const priceUnits = parseUnits(params.priceTokens || "0", params.decimals);
-        const [encPrice] = await encryptInputsAsync(
+        const [encPrice, encPriceProof] = await encryptInputsAsync(
           [Encryptable.uint64(priceUnits)],
+          sf,
           pipeline.onEncryptStep,
         );
 
@@ -175,8 +176,8 @@ export function useStorefront() {
           args: [
             params.mode,
             params.vault,
-            encPrice as unknown as EncryptedInput,
-            BigInt(params.auctionSeconds),
+            encPrice,
+            encPriceProof,BigInt(params.auctionSeconds),
             params.title,
             params.descriptionCidHash,
             params.deliveryChannel,
@@ -252,8 +253,9 @@ export function useStorefront() {
 
         setState((s) => ({ ...s, step: "encrypting" }));
         const offerUnits = parseUnits(params.offerTokens, params.decimals);
-        const [encOffer] = await encryptInputsAsync(
+        const [encOffer, encOfferProof] = await encryptInputsAsync(
           [Encryptable.uint64(offerUnits)],
+          sf,
           pipeline.onEncryptStep,
         );
 
@@ -265,8 +267,8 @@ export function useStorefront() {
           functionName: "buyFixed",
           args: [
             BigInt(params.listingId),
-            encOffer as unknown as EncryptedInput,
-            params.deliveryNoteHash ?? ZERO_BYTES32,
+            encOffer,
+            encOfferProof,params.deliveryNoteHash ?? ZERO_BYTES32,
           ],
           gas: BigInt(5_000_000),
         });
@@ -320,8 +322,9 @@ export function useStorefront() {
 
         setState((s) => ({ ...s, step: "encrypting" }));
         const bidUnits = parseUnits(params.bidTokens, params.decimals);
-        const [encBid] = await encryptInputsAsync(
+        const [encBid, encBidProof] = await encryptInputsAsync(
           [Encryptable.uint64(bidUnits)],
+          sf,
           pipeline.onEncryptStep,
         );
 
@@ -331,7 +334,7 @@ export function useStorefront() {
           address: sf,
           abi: StorefrontAbi,
           functionName: "placeBid",
-          args: [BigInt(params.listingId), encBid as unknown as EncryptedInput],
+          args: [BigInt(params.listingId), encBid, encBidProof],
           gas: BigInt(5_000_000),
         });
         // §3.10: unifiedWriteAndWait settled the receipt; skip confirm flash.
@@ -438,8 +441,9 @@ export function useStorefront() {
 
         setState((s) => ({ ...s, step: "encrypting" }));
         const amountUnits = parseUnits(params.amountTokens, params.decimals);
-        const [encAmount] = await encryptInputsAsync(
+        const [encAmount, encAmountProof] = await encryptInputsAsync(
           [Encryptable.uint64(amountUnits)],
+          sf,
           pipeline.onEncryptStep,
         );
 
@@ -451,8 +455,8 @@ export function useStorefront() {
           functionName: "payPWYW",
           args: [
             BigInt(params.listingId),
-            encAmount as unknown as EncryptedInput,
-            params.deliveryNoteHash ?? ZERO_BYTES32,
+            encAmount,
+            encAmountProof,params.deliveryNoteHash ?? ZERO_BYTES32,
           ],
           gas: BigInt(5_000_000),
         });

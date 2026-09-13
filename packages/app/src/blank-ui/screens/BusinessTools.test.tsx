@@ -59,6 +59,7 @@ const useEffectiveAddressMock = vi.hoisted(() => vi.fn());
 const useChainMock = vi.hoisted(() => vi.fn());
 const useBusinessHubMock = vi.hoisted(() => vi.fn());
 const useActivityFeedMock = vi.hoisted(() => vi.fn());
+const useOnChainBusinessRecordsMock = vi.hoisted(() => vi.fn());
 const useRealtimeMock = vi.hoisted(() => vi.fn());
 const usePublicClientMock = vi.hoisted(() => vi.fn());
 const fetchVendorInvoicesMock = vi.hoisted(() => vi.fn());
@@ -74,6 +75,9 @@ vi.mock("@/hooks/useEffectiveAddress", () => ({
 vi.mock("@/providers/ChainProvider", () => ({ useChain: useChainMock }));
 vi.mock("@/hooks/useBusinessHub", () => ({ useBusinessHub: useBusinessHubMock }));
 vi.mock("@/hooks/useActivityFeed", () => ({ useActivityFeed: useActivityFeedMock }));
+vi.mock("@/hooks/useOnChainBusinessRecords", () => ({
+  useOnChainBusinessRecords: useOnChainBusinessRecordsMock,
+}));
 vi.mock("@/providers/RealtimeProvider", () => ({ useRealtime: useRealtimeMock }));
 vi.mock("@/lib/supabase", () => ({
   fetchVendorInvoices: fetchVendorInvoicesMock,
@@ -197,6 +201,12 @@ beforeEach(() => {
   useChainMock.mockReset();
   useBusinessHubMock.mockReset();
   useActivityFeedMock.mockReset();
+  useOnChainBusinessRecordsMock.mockReset();
+  useOnChainBusinessRecordsMock.mockReturnValue({
+    invoices: [],
+    escrows: [],
+    refresh: vi.fn(),
+  });
   useRealtimeMock.mockReset();
   usePublicClientMock.mockReset();
   fetchVendorInvoicesMock.mockReset();
@@ -1158,5 +1168,114 @@ describe("BusinessTools — Escrow modal validation (§15.x)", () => {
     expect(args[2]).toBe("Build X");
     expect(args[3]).toBe(""); // empty arbiter
     expect(typeof args[4]).toBe("number"); // deadline unix seconds
+  });
+});
+
+describe("BusinessTools — on-chain fallback (§15.x)", () => {
+  // The screen loaded invoices and escrows from Supabase alone, so a client
+  // named on a real on-chain invoice saw "No invoices yet" and had no Pay
+  // button whenever the indexer was behind or unreachable. BusinessHub's own
+  // getClientInvoices / getVendorInvoices / getUserEscrows close that gap.
+  it("CRITICAL an on-chain invoice is listed with the indexer returning nothing", async () => {
+    fetchVendorInvoicesMock.mockResolvedValue([]);
+    fetchClientInvoicesMock.mockResolvedValue([]);
+    fetchUserEscrowsMock.mockResolvedValue([]);
+    useOnChainBusinessRecordsMock.mockReturnValue({
+      invoices: [invoiceRow({ invoice_id: 31, description: "Read from the chain" })],
+      escrows: [],
+      refresh: vi.fn(),
+    });
+    const { container } = render(<BusinessTools />);
+    await flush();
+    expect(container.textContent).toContain("Read from the chain");
+    expect(container.textContent).not.toContain("No invoices yet");
+  });
+
+  it("does not duplicate an invoice the indexer already has", async () => {
+    fetchVendorInvoicesMock.mockResolvedValue([
+      invoiceRow({ invoice_id: 7, description: "Indexed copy" }),
+    ]);
+    fetchClientInvoicesMock.mockResolvedValue([]);
+    fetchUserEscrowsMock.mockResolvedValue([]);
+    useOnChainBusinessRecordsMock.mockReturnValue({
+      invoices: [invoiceRow({ invoice_id: 7, description: "Chain copy" })],
+      escrows: [],
+      refresh: vi.fn(),
+    });
+    const { container } = render(<BusinessTools />);
+    await flush();
+    expect(container.textContent).toContain("Indexed copy");
+    expect(container.textContent).not.toContain("Chain copy");
+  });
+
+  it("CRITICAL a failed indexer fetch does not hide chain-sourced invoices", async () => {
+    // Was: dataError replaced the whole list with a retry button, which hid a
+    // payable invoice at exactly the moment the fallback existed to surface it.
+    fetchVendorInvoicesMock.mockRejectedValue(new Error("offline"));
+    useOnChainBusinessRecordsMock.mockReturnValue({
+      invoices: [invoiceRow({ invoice_id: 31, description: "Still payable" })],
+      escrows: [],
+      refresh: vi.fn(),
+    });
+    const { container } = render(<BusinessTools />);
+    await flush();
+    expect(container.textContent).toContain("Still payable");
+    expect(container.textContent).toContain("read from the chain");
+  });
+
+  it("with nothing from either source the honest error still shows", async () => {
+    fetchVendorInvoicesMock.mockRejectedValue(new Error("offline"));
+    useOnChainBusinessRecordsMock.mockReturnValue({
+      invoices: [],
+      escrows: [],
+      refresh: vi.fn(),
+    });
+    const { container } = render(<BusinessTools />);
+    await flush();
+    expect(container.textContent).toContain("Failed to load data");
+  });
+});
+
+describe("BusinessTools — invoice row identity (§15.x)", () => {
+  // The row always printed the client address. For the vendor that reads as
+  // "billed to X"; for the client it is their own address, which tells them
+  // nothing about who wants paying. It went unnoticed while clients could not
+  // see their invoices at all.
+  it("CRITICAL the client sees who is billing them, not themselves", async () => {
+    fetchVendorInvoicesMock.mockResolvedValue([]);
+    fetchClientInvoicesMock.mockResolvedValue([
+      invoiceRow({ invoice_id: 5, vendor_address: BOB, client_address: ME }),
+    ]);
+    fetchUserEscrowsMock.mockResolvedValue([]);
+    const { container } = render(<BusinessTools />);
+    await flush();
+    expect(container.textContent).toContain(`From ${BOB.slice(0, 6)}`);
+    expect(container.textContent).not.toContain(`To ${ME.slice(0, 6)}`);
+  });
+
+  it("the vendor sees who they billed", async () => {
+    fetchVendorInvoicesMock.mockResolvedValue([
+      invoiceRow({ invoice_id: 6, vendor_address: ME, client_address: ALICE }),
+    ]);
+    fetchClientInvoicesMock.mockResolvedValue([]);
+    fetchUserEscrowsMock.mockResolvedValue([]);
+    const { container } = render(<BusinessTools />);
+    await flush();
+    expect(container.textContent).toContain(`To ${ALICE.slice(0, 6)}`);
+  });
+
+  it("an invoice with no creation date does not print 'No date'", async () => {
+    fetchVendorInvoicesMock.mockResolvedValue([]);
+    fetchClientInvoicesMock.mockResolvedValue([]);
+    fetchUserEscrowsMock.mockResolvedValue([]);
+    useOnChainBusinessRecordsMock.mockReturnValue({
+      invoices: [{ ...invoiceRow({ invoice_id: 7 }), created_at: "" }],
+      escrows: [],
+      refresh: vi.fn(),
+    });
+    const { container } = render(<BusinessTools />);
+    await flush();
+    expect(container.textContent).toContain("Due");
+    expect(container.textContent).not.toContain("No date");
   });
 });

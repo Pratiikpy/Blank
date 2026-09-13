@@ -73,22 +73,21 @@ async function deployFixture() {
   return { owner, alice, bob, charlie, dave, client, testUSDC, vault, storefront };
 }
 
-async function encUint64(client: any, signer: any, amount: bigint) {
+async function encUint64(client: any, signer: any, amount: bigint, consuming: string) {
   await hre.cofhe.connectWithHardhatSigner(client, signer);
-  const [enc] = await client.encryptInputs([Encryptable.uint64(amount)]).execute();
-  return enc;
+  return await client.encryptInputs([Encryptable.uint64(amount)]).setConsumingContract(consuming).execute();
 }
 
 describe("Storefront", () => {
   describe("createListing", () => {
     it("creates a fixed-price listing", async () => {
       const ctx = await loadFixture(deployFixture);
-      const enc = await encUint64(ctx.client, ctx.alice, usdc(10));
+      const enc = await encUint64(ctx.client, ctx.alice, usdc(10), await ctx.storefront.getAddress());
 
       await ctx.storefront.connect(ctx.alice).createListing(
         MODE_FIXED,
         await ctx.vault.getAddress(),
-        enc,
+        ...enc,
         0,
         "Hand-bound notebook",
         keccak256(toUtf8Bytes("ipfs://desc")),
@@ -104,12 +103,12 @@ describe("Storefront", () => {
 
     it("rejects zero vault", async () => {
       const ctx = await loadFixture(deployFixture);
-      const enc = await encUint64(ctx.client, ctx.alice, usdc(1));
+      const enc = await encUint64(ctx.client, ctx.alice, usdc(1), await ctx.storefront.getAddress());
       await expect(
         ctx.storefront.connect(ctx.alice).createListing(
           MODE_FIXED,
           hre.ethers.ZeroAddress,
-          enc,
+          ...enc,
           0,
           "x",
           ZERO_BYTES32,
@@ -120,12 +119,12 @@ describe("Storefront", () => {
 
     it("rejects auction window out of range", async () => {
       const ctx = await loadFixture(deployFixture);
-      const enc = await encUint64(ctx.client, ctx.alice, usdc(1));
+      const enc = await encUint64(ctx.client, ctx.alice, usdc(1), await ctx.storefront.getAddress());
       await expect(
         ctx.storefront.connect(ctx.alice).createListing(
           MODE_AUCTION,
           await ctx.vault.getAddress(),
-          enc,
+          ...enc,
           60, // 1 minute, below MIN_AUCTION_SECONDS (1 hour)
           "fast auction",
           ZERO_BYTES32,
@@ -138,12 +137,12 @@ describe("Storefront", () => {
   describe("FixedPrice flow", () => {
     it("buyer matches price → seller paid", async () => {
       const ctx = await loadFixture(deployFixture);
-      const encPrice = await encUint64(ctx.client, ctx.alice, usdc(10));
+      const encPrice = await encUint64(ctx.client, ctx.alice, usdc(10), await ctx.storefront.getAddress());
 
       await ctx.storefront.connect(ctx.alice).createListing(
         MODE_FIXED,
         await ctx.vault.getAddress(),
-        encPrice,
+        ...encPrice,
         0,
         "Item A",
         ZERO_BYTES32,
@@ -153,8 +152,8 @@ describe("Storefront", () => {
       const aliceBefore = await ctx.vault.balanceOf(ctx.alice.address);
       await mock_expectPlaintext(ctx.alice.provider, aliceBefore, usdc(1_000));
 
-      const encOffer = await encUint64(ctx.client, ctx.bob, usdc(10));
-      await ctx.storefront.connect(ctx.bob).buyFixed(0, encOffer, ZERO_BYTES32);
+      const encOffer = await encUint64(ctx.client, ctx.bob, usdc(10), await ctx.storefront.getAddress());
+      await ctx.storefront.connect(ctx.bob).buyFixed(0, ...encOffer, ZERO_BYTES32);
 
       const aliceAfter = await ctx.vault.balanceOf(ctx.alice.address);
       const bobAfter = await ctx.vault.balanceOf(ctx.bob.address);
@@ -164,19 +163,19 @@ describe("Storefront", () => {
 
     it("buyer offers wrong amount → 0 transferred (FHE.select)", async () => {
       const ctx = await loadFixture(deployFixture);
-      const encPrice = await encUint64(ctx.client, ctx.alice, usdc(10));
+      const encPrice = await encUint64(ctx.client, ctx.alice, usdc(10), await ctx.storefront.getAddress());
       await ctx.storefront.connect(ctx.alice).createListing(
         MODE_FIXED,
         await ctx.vault.getAddress(),
-        encPrice,
+        ...encPrice,
         0,
         "Item B",
         ZERO_BYTES32,
         "",
       );
 
-      const wrongOffer = await encUint64(ctx.client, ctx.bob, usdc(5));
-      await ctx.storefront.connect(ctx.bob).buyFixed(0, wrongOffer, ZERO_BYTES32);
+      const wrongOffer = await encUint64(ctx.client, ctx.bob, usdc(5), await ctx.storefront.getAddress());
+      await ctx.storefront.connect(ctx.bob).buyFixed(0, ...wrongOffer, ZERO_BYTES32);
 
       const aliceAfter = await ctx.vault.balanceOf(ctx.alice.address);
       const bobAfter = await ctx.vault.balanceOf(ctx.bob.address);
@@ -187,13 +186,13 @@ describe("Storefront", () => {
 
     it("seller cannot buy own listing", async () => {
       const ctx = await loadFixture(deployFixture);
-      const encPrice = await encUint64(ctx.client, ctx.alice, usdc(10));
+      const encPrice = await encUint64(ctx.client, ctx.alice, usdc(10), await ctx.storefront.getAddress());
       await ctx.storefront.connect(ctx.alice).createListing(
-        MODE_FIXED, await ctx.vault.getAddress(), encPrice, 0, "x", ZERO_BYTES32, "",
+        MODE_FIXED, await ctx.vault.getAddress(), ...encPrice, 0, "x", ZERO_BYTES32, "",
       );
-      const enc = await encUint64(ctx.client, ctx.alice, usdc(10));
+      const enc = await encUint64(ctx.client, ctx.alice, usdc(10), await ctx.storefront.getAddress());
       await expect(
-        ctx.storefront.connect(ctx.alice).buyFixed(0, enc, ZERO_BYTES32),
+        ctx.storefront.connect(ctx.alice).buyFixed(0, ...enc, ZERO_BYTES32),
       ).to.be.revertedWith("Storefront: seller cannot buy self-listing");
     });
   });
@@ -201,12 +200,12 @@ describe("Storefront", () => {
   describe("Auction flow", () => {
     it("end-to-end: 3 bids, close, reveal, winner pays seller, losers refunded", async () => {
       const ctx = await loadFixture(deployFixture);
-      const encMin = await encUint64(ctx.client, ctx.alice, usdc(0));
+      const encMin = await encUint64(ctx.client, ctx.alice, usdc(0), await ctx.storefront.getAddress());
 
       await ctx.storefront.connect(ctx.alice).createListing(
         MODE_AUCTION,
         await ctx.vault.getAddress(),
-        encMin,
+        ...encMin,
         2 * 3600, // 2-hour auction
         "Limited drop",
         ZERO_BYTES32,
@@ -218,14 +217,14 @@ describe("Storefront", () => {
       // documents this is heuristic — the seller decrypts to confirm winner.
       // For deterministic test result, use ascending bids so the LAST bid IS
       // the highest. 5 → 8 → 10.
-      const bobBid = await encUint64(ctx.client, ctx.bob, usdc(5));
-      await ctx.storefront.connect(ctx.bob).placeBid(0, bobBid);
+      const bobBid = await encUint64(ctx.client, ctx.bob, usdc(5), await ctx.storefront.getAddress());
+      await ctx.storefront.connect(ctx.bob).placeBid(0, ...bobBid);
 
-      const charlieBid = await encUint64(ctx.client, ctx.charlie, usdc(8));
-      await ctx.storefront.connect(ctx.charlie).placeBid(0, charlieBid);
+      const charlieBid = await encUint64(ctx.client, ctx.charlie, usdc(8), await ctx.storefront.getAddress());
+      await ctx.storefront.connect(ctx.charlie).placeBid(0, ...charlieBid);
 
-      const daveBid = await encUint64(ctx.client, ctx.dave, usdc(10));
-      await ctx.storefront.connect(ctx.dave).placeBid(0, daveBid);
+      const daveBid = await encUint64(ctx.client, ctx.dave, usdc(10), await ctx.storefront.getAddress());
+      await ctx.storefront.connect(ctx.dave).placeBid(0, ...daveBid);
 
       expect(await ctx.storefront.getBidCount(0)).to.equal(3);
 
@@ -246,7 +245,7 @@ describe("Storefront", () => {
       // Decrypt winner index off-chain, then reveal on-chain.
       const winnerIdxHandle = await ctx.storefront.getWinnerIdxHandle(0);
       await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.alice);
-      const proof = await ctx.client.decryptForTx(winnerIdxHandle, FheTypes.Uint8).withoutPermit().execute();
+      const proof = await ctx.client.decryptForTx(winnerIdxHandle, FheTypes.Uint8).withoutACP().execute();
       await ctx.storefront.connect(ctx.alice).revealWinner(0, Number(proof.decryptedValue), proof.signature);
 
       const lAfterReveal = await ctx.storefront.getListing(0);
@@ -290,11 +289,11 @@ describe("Storefront", () => {
     //   bid is correctly consumed.
     it("CRITICAL: multi-bid winner cannot double-claim — winning bid index pinned", async () => {
       const ctx = await loadFixture(deployFixture);
-      const encMin = await encUint64(ctx.client, ctx.alice, usdc(0));
+      const encMin = await encUint64(ctx.client, ctx.alice, usdc(0), await ctx.storefront.getAddress());
       await ctx.storefront.connect(ctx.alice).createListing(
         MODE_AUCTION,
         await ctx.vault.getAddress(),
-        encMin,
+        ...encMin,
         2 * 3600,
         "Multi-bid test",
         ZERO_BYTES32,
@@ -304,14 +303,14 @@ describe("Storefront", () => {
       // Bob places 3 bids — ascending so bid[2] is the winner.
       // (Charlie places 1 too, smaller, to make sure the winner-loop
       // isn't trivially right just by Bob being the only bidder.)
-      const bobBid1 = await encUint64(ctx.client, ctx.bob, usdc(3));
-      await ctx.storefront.connect(ctx.bob).placeBid(0, bobBid1);
-      const charlieBid = await encUint64(ctx.client, ctx.charlie, usdc(5));
-      await ctx.storefront.connect(ctx.charlie).placeBid(0, charlieBid);
-      const bobBid2 = await encUint64(ctx.client, ctx.bob, usdc(7));
-      await ctx.storefront.connect(ctx.bob).placeBid(0, bobBid2);
-      const bobBid3 = await encUint64(ctx.client, ctx.bob, usdc(10));
-      await ctx.storefront.connect(ctx.bob).placeBid(0, bobBid3);
+      const bobBid1 = await encUint64(ctx.client, ctx.bob, usdc(3), await ctx.storefront.getAddress());
+      await ctx.storefront.connect(ctx.bob).placeBid(0, ...bobBid1);
+      const charlieBid = await encUint64(ctx.client, ctx.charlie, usdc(5), await ctx.storefront.getAddress());
+      await ctx.storefront.connect(ctx.charlie).placeBid(0, ...charlieBid);
+      const bobBid2 = await encUint64(ctx.client, ctx.bob, usdc(7), await ctx.storefront.getAddress());
+      await ctx.storefront.connect(ctx.bob).placeBid(0, ...bobBid2);
+      const bobBid3 = await encUint64(ctx.client, ctx.bob, usdc(10), await ctx.storefront.getAddress());
+      await ctx.storefront.connect(ctx.bob).placeBid(0, ...bobBid3);
       // Bids in order: bob=3 (idx 0), charlie=5 (idx 1), bob=7 (idx
       // 2), bob=10 (idx 3). Winner is bob bid at idx 3 (10 USDC).
 
@@ -325,7 +324,7 @@ describe("Storefront", () => {
       await ctx.storefront.connect(ctx.alice).closeAuction(0);
       const winnerIdxHandle = await ctx.storefront.getWinnerIdxHandle(0);
       await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.alice);
-      const proof = await ctx.client.decryptForTx(winnerIdxHandle, FheTypes.Uint8).withoutPermit().execute();
+      const proof = await ctx.client.decryptForTx(winnerIdxHandle, FheTypes.Uint8).withoutACP().execute();
       await ctx.storefront.connect(ctx.alice).revealWinner(0, Number(proof.decryptedValue), proof.signature);
 
       const lRevealed = await ctx.storefront.getListing(0);
@@ -374,25 +373,25 @@ describe("Storefront", () => {
     // bidIndex == _winningBidIdx[listingId].
     it("CRITICAL: winner cannot extract winning bid pre-claim", async () => {
       const ctx = await loadFixture(deployFixture);
-      const encMin = await encUint64(ctx.client, ctx.alice, usdc(0));
+      const encMin = await encUint64(ctx.client, ctx.alice, usdc(0), await ctx.storefront.getAddress());
       await ctx.storefront.connect(ctx.alice).createListing(
         MODE_AUCTION,
         await ctx.vault.getAddress(),
-        encMin,
+        ...encMin,
         3600,
         "Winner-refund test",
         ZERO_BYTES32,
         "",
       );
 
-      const bobBid = await encUint64(ctx.client, ctx.bob, usdc(10));
-      await ctx.storefront.connect(ctx.bob).placeBid(0, bobBid);
+      const bobBid = await encUint64(ctx.client, ctx.bob, usdc(10), await ctx.storefront.getAddress());
+      await ctx.storefront.connect(ctx.bob).placeBid(0, ...bobBid);
 
       await time.increase(3601);
       await ctx.storefront.connect(ctx.alice).closeAuction(0);
       const winnerIdxHandle = await ctx.storefront.getWinnerIdxHandle(0);
       await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.alice);
-      const proof = await ctx.client.decryptForTx(winnerIdxHandle, FheTypes.Uint8).withoutPermit().execute();
+      const proof = await ctx.client.decryptForTx(winnerIdxHandle, FheTypes.Uint8).withoutACP().execute();
       await ctx.storefront.connect(ctx.alice).revealWinner(0, Number(proof.decryptedValue), proof.signature);
 
       // PRE-CLAIM: winner tries to refund their winning bid — must reject.
@@ -408,15 +407,15 @@ describe("Storefront", () => {
 
     it("cannot bid after close", async () => {
       const ctx = await loadFixture(deployFixture);
-      const encMin = await encUint64(ctx.client, ctx.alice, usdc(0));
+      const encMin = await encUint64(ctx.client, ctx.alice, usdc(0), await ctx.storefront.getAddress());
       await ctx.storefront.connect(ctx.alice).createListing(
-        MODE_AUCTION, await ctx.vault.getAddress(), encMin, 3600, "auction A", ZERO_BYTES32, "",
+        MODE_AUCTION, await ctx.vault.getAddress(), ...encMin, 3600, "auction A", ZERO_BYTES32, "",
       );
 
       await time.increase(3601);
-      const enc = await encUint64(ctx.client, ctx.bob, usdc(5));
+      const enc = await encUint64(ctx.client, ctx.bob, usdc(5), await ctx.storefront.getAddress());
       await expect(
-        ctx.storefront.connect(ctx.bob).placeBid(0, enc),
+        ctx.storefront.connect(ctx.bob).placeBid(0, ...enc),
       ).to.be.revertedWith("Storefront: auction closed");
     });
 
@@ -427,26 +426,26 @@ describe("Storefront", () => {
     // is correct; ascending-bid tests cannot differentiate.
     it("5/10/7 bids: highest bidder wins (not last)", async () => {
       const ctx = await loadFixture(deployFixture);
-      const encMin = await encUint64(ctx.client, ctx.alice, usdc(0));
+      const encMin = await encUint64(ctx.client, ctx.alice, usdc(0), await ctx.storefront.getAddress());
 
       await ctx.storefront.connect(ctx.alice).createListing(
         MODE_AUCTION,
         await ctx.vault.getAddress(),
-        encMin,
+        ...encMin,
         2 * 3600,
         "Differentiating drop",
         ZERO_BYTES32,
         "",
       );
 
-      const bobBid = await encUint64(ctx.client, ctx.bob, usdc(5));
-      await ctx.storefront.connect(ctx.bob).placeBid(0, bobBid);
+      const bobBid = await encUint64(ctx.client, ctx.bob, usdc(5), await ctx.storefront.getAddress());
+      await ctx.storefront.connect(ctx.bob).placeBid(0, ...bobBid);
 
-      const charlieBid = await encUint64(ctx.client, ctx.charlie, usdc(10));
-      await ctx.storefront.connect(ctx.charlie).placeBid(0, charlieBid);
+      const charlieBid = await encUint64(ctx.client, ctx.charlie, usdc(10), await ctx.storefront.getAddress());
+      await ctx.storefront.connect(ctx.charlie).placeBid(0, ...charlieBid);
 
-      const daveBid = await encUint64(ctx.client, ctx.dave, usdc(7));
-      await ctx.storefront.connect(ctx.dave).placeBid(0, daveBid);
+      const daveBid = await encUint64(ctx.client, ctx.dave, usdc(7), await ctx.storefront.getAddress());
+      await ctx.storefront.connect(ctx.dave).placeBid(0, ...daveBid);
 
       await time.increase(2 * 3600 + 1);
       await ctx.storefront.connect(ctx.alice).closeAuction(0);
@@ -459,7 +458,7 @@ describe("Storefront", () => {
       // Decrypt winner index.
       const winnerIdxHandle = await ctx.storefront.getWinnerIdxHandle(0);
       await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.alice);
-      const proof = await ctx.client.decryptForTx(winnerIdxHandle, FheTypes.Uint8).withoutPermit().execute();
+      const proof = await ctx.client.decryptForTx(winnerIdxHandle, FheTypes.Uint8).withoutACP().execute();
       // Charlie was placed at index 1 (bob=0, charlie=1, dave=2).
       expect(Number(proof.decryptedValue)).to.equal(1);
 
@@ -471,18 +470,18 @@ describe("Storefront", () => {
 
     it("revealWinner rejects double-reveal", async () => {
       const ctx = await loadFixture(deployFixture);
-      const encMin = await encUint64(ctx.client, ctx.alice, usdc(0));
+      const encMin = await encUint64(ctx.client, ctx.alice, usdc(0), await ctx.storefront.getAddress());
       await ctx.storefront.connect(ctx.alice).createListing(
-        MODE_AUCTION, await ctx.vault.getAddress(), encMin, 3600, "auction X", ZERO_BYTES32, "",
+        MODE_AUCTION, await ctx.vault.getAddress(), ...encMin, 3600, "auction X", ZERO_BYTES32, "",
       );
-      const bobBid = await encUint64(ctx.client, ctx.bob, usdc(5));
-      await ctx.storefront.connect(ctx.bob).placeBid(0, bobBid);
+      const bobBid = await encUint64(ctx.client, ctx.bob, usdc(5), await ctx.storefront.getAddress());
+      await ctx.storefront.connect(ctx.bob).placeBid(0, ...bobBid);
       await time.increase(3601);
       await ctx.storefront.connect(ctx.alice).closeAuction(0);
 
       const winnerIdxHandle = await ctx.storefront.getWinnerIdxHandle(0);
       await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.alice);
-      const proof = await ctx.client.decryptForTx(winnerIdxHandle, FheTypes.Uint8).withoutPermit().execute();
+      const proof = await ctx.client.decryptForTx(winnerIdxHandle, FheTypes.Uint8).withoutACP().execute();
       await ctx.storefront.connect(ctx.alice).revealWinner(0, Number(proof.decryptedValue), proof.signature);
 
       await expect(
@@ -494,23 +493,23 @@ describe("Storefront", () => {
   describe("PWYW flow", () => {
     it("pays any amount → seller receives it", async () => {
       const ctx = await loadFixture(deployFixture);
-      const ignoredPrice = await encUint64(ctx.client, ctx.alice, usdc(0));
+      const ignoredPrice = await encUint64(ctx.client, ctx.alice, usdc(0), await ctx.storefront.getAddress());
 
       await ctx.storefront.connect(ctx.alice).createListing(
         MODE_PWYW,
         await ctx.vault.getAddress(),
-        ignoredPrice,
+        ...ignoredPrice,
         0,
         "Tip jar",
         ZERO_BYTES32,
         "",
       );
 
-      const tip1 = await encUint64(ctx.client, ctx.bob, usdc(7));
-      await ctx.storefront.connect(ctx.bob).payPWYW(0, tip1, ZERO_BYTES32);
+      const tip1 = await encUint64(ctx.client, ctx.bob, usdc(7), await ctx.storefront.getAddress());
+      await ctx.storefront.connect(ctx.bob).payPWYW(0, ...tip1, ZERO_BYTES32);
 
-      const tip2 = await encUint64(ctx.client, ctx.charlie, usdc(3));
-      await ctx.storefront.connect(ctx.charlie).payPWYW(0, tip2, ZERO_BYTES32);
+      const tip2 = await encUint64(ctx.client, ctx.charlie, usdc(3), await ctx.storefront.getAddress());
+      await ctx.storefront.connect(ctx.charlie).payPWYW(0, ...tip2, ZERO_BYTES32);
 
       const aliceAfter = await ctx.vault.balanceOf(ctx.alice.address);
       await mock_expectPlaintext(ctx.alice.provider, aliceAfter, usdc(1_010));
@@ -520,9 +519,9 @@ describe("Storefront", () => {
   describe("deactivate", () => {
     it("seller deactivates own listing", async () => {
       const ctx = await loadFixture(deployFixture);
-      const enc = await encUint64(ctx.client, ctx.alice, usdc(1));
+      const enc = await encUint64(ctx.client, ctx.alice, usdc(1), await ctx.storefront.getAddress());
       await ctx.storefront.connect(ctx.alice).createListing(
-        MODE_FIXED, await ctx.vault.getAddress(), enc, 0, "x", ZERO_BYTES32, "",
+        MODE_FIXED, await ctx.vault.getAddress(), ...enc, 0, "x", ZERO_BYTES32, "",
       );
       await ctx.storefront.connect(ctx.alice).deactivateListing(0);
       const l = await ctx.storefront.getListing(0);
@@ -531,9 +530,9 @@ describe("Storefront", () => {
 
     it("non-seller cannot deactivate", async () => {
       const ctx = await loadFixture(deployFixture);
-      const enc = await encUint64(ctx.client, ctx.alice, usdc(1));
+      const enc = await encUint64(ctx.client, ctx.alice, usdc(1), await ctx.storefront.getAddress());
       await ctx.storefront.connect(ctx.alice).createListing(
-        MODE_FIXED, await ctx.vault.getAddress(), enc, 0, "x", ZERO_BYTES32, "",
+        MODE_FIXED, await ctx.vault.getAddress(), ...enc, 0, "x", ZERO_BYTES32, "",
       );
       await expect(
         ctx.storefront.connect(ctx.bob).deactivateListing(0),
@@ -542,12 +541,12 @@ describe("Storefront", () => {
 
     it("cannot deactivate auction with bids", async () => {
       const ctx = await loadFixture(deployFixture);
-      const enc = await encUint64(ctx.client, ctx.alice, usdc(0));
+      const enc = await encUint64(ctx.client, ctx.alice, usdc(0), await ctx.storefront.getAddress());
       await ctx.storefront.connect(ctx.alice).createListing(
-        MODE_AUCTION, await ctx.vault.getAddress(), enc, 3600, "auction B", ZERO_BYTES32, "",
+        MODE_AUCTION, await ctx.vault.getAddress(), ...enc, 3600, "auction B", ZERO_BYTES32, "",
       );
-      const bid = await encUint64(ctx.client, ctx.bob, usdc(5));
-      await ctx.storefront.connect(ctx.bob).placeBid(0, bid);
+      const bid = await encUint64(ctx.client, ctx.bob, usdc(5), await ctx.storefront.getAddress());
+      await ctx.storefront.connect(ctx.bob).placeBid(0, ...bid);
       await expect(
         ctx.storefront.connect(ctx.alice).deactivateListing(0),
       ).to.be.revertedWith("Storefront: cannot deactivate live auction");
@@ -558,20 +557,20 @@ describe("Storefront", () => {
   describe("State-change events", () => {
     it("emits ListingCreated on createListing", async () => {
       const ctx = await loadFixture(deployFixture);
-      const enc = await encUint64(ctx.client, ctx.alice, usdc(10));
+      const enc = await encUint64(ctx.client, ctx.alice, usdc(10), await ctx.storefront.getAddress());
 
       await expect(
         ctx.storefront.connect(ctx.alice).createListing(
-          MODE_FIXED, await ctx.vault.getAddress(), enc, 0, "L", ZERO_BYTES32, "",
+          MODE_FIXED, await ctx.vault.getAddress(), ...enc, 0, "L", ZERO_BYTES32, "",
         ),
       ).to.emit(ctx.storefront, "ListingCreated");
     });
 
     it("emits ListingDeactivated on deactivateListing", async () => {
       const ctx = await loadFixture(deployFixture);
-      const enc = await encUint64(ctx.client, ctx.alice, usdc(10));
+      const enc = await encUint64(ctx.client, ctx.alice, usdc(10), await ctx.storefront.getAddress());
       await ctx.storefront.connect(ctx.alice).createListing(
-        MODE_FIXED, await ctx.vault.getAddress(), enc, 0, "L", ZERO_BYTES32, "",
+        MODE_FIXED, await ctx.vault.getAddress(), ...enc, 0, "L", ZERO_BYTES32, "",
       );
 
       await expect(ctx.storefront.connect(ctx.alice).deactivateListing(0))
@@ -580,25 +579,25 @@ describe("Storefront", () => {
 
     it("emits FixedPriceBuy on buyFixed", async () => {
       const ctx = await loadFixture(deployFixture);
-      const enc = await encUint64(ctx.client, ctx.alice, usdc(10));
+      const enc = await encUint64(ctx.client, ctx.alice, usdc(10), await ctx.storefront.getAddress());
       await ctx.storefront.connect(ctx.alice).createListing(
-        MODE_FIXED, await ctx.vault.getAddress(), enc, 0, "L", ZERO_BYTES32, "",
+        MODE_FIXED, await ctx.vault.getAddress(), ...enc, 0, "L", ZERO_BYTES32, "",
       );
 
-      const encPay = await encUint64(ctx.client, ctx.bob, usdc(10));
-      await expect(ctx.storefront.connect(ctx.bob).buyFixed(0, encPay, ZERO_BYTES32))
+      const encPay = await encUint64(ctx.client, ctx.bob, usdc(10), await ctx.storefront.getAddress());
+      await expect(ctx.storefront.connect(ctx.bob).buyFixed(0, ...encPay, ZERO_BYTES32))
         .to.emit(ctx.storefront, "FixedPriceBuy");
     });
 
     it("emits BidPlaced on placeBid + AuctionClosed on closeAuction", async () => {
       const ctx = await loadFixture(deployFixture);
-      const enc = await encUint64(ctx.client, ctx.alice, usdc(0));
+      const enc = await encUint64(ctx.client, ctx.alice, usdc(0), await ctx.storefront.getAddress());
       await ctx.storefront.connect(ctx.alice).createListing(
-        MODE_AUCTION, await ctx.vault.getAddress(), enc, 3600, "auction", ZERO_BYTES32, "",
+        MODE_AUCTION, await ctx.vault.getAddress(), ...enc, 3600, "auction", ZERO_BYTES32, "",
       );
 
-      const bid = await encUint64(ctx.client, ctx.bob, usdc(5));
-      await expect(ctx.storefront.connect(ctx.bob).placeBid(0, bid))
+      const bid = await encUint64(ctx.client, ctx.bob, usdc(5), await ctx.storefront.getAddress());
+      await expect(ctx.storefront.connect(ctx.bob).placeBid(0, ...bid))
         .to.emit(ctx.storefront, "BidPlaced");
 
       await time.increase(3601);
@@ -608,13 +607,13 @@ describe("Storefront", () => {
 
     it("emits PWYWPayment on payPWYW", async () => {
       const ctx = await loadFixture(deployFixture);
-      const enc = await encUint64(ctx.client, ctx.alice, usdc(0));
+      const enc = await encUint64(ctx.client, ctx.alice, usdc(0), await ctx.storefront.getAddress());
       await ctx.storefront.connect(ctx.alice).createListing(
-        MODE_PWYW, await ctx.vault.getAddress(), enc, 0, "tip", ZERO_BYTES32, "",
+        MODE_PWYW, await ctx.vault.getAddress(), ...enc, 0, "tip", ZERO_BYTES32, "",
       );
 
-      const encPay = await encUint64(ctx.client, ctx.bob, usdc(7));
-      await expect(ctx.storefront.connect(ctx.bob).payPWYW(0, encPay, ZERO_BYTES32))
+      const encPay = await encUint64(ctx.client, ctx.bob, usdc(7), await ctx.storefront.getAddress());
+      await expect(ctx.storefront.connect(ctx.bob).payPWYW(0, ...encPay, ZERO_BYTES32))
         .to.emit(ctx.storefront, "PWYWPayment");
     });
   });
@@ -668,11 +667,11 @@ describe("Storefront", () => {
       // stores a Bid[] per listingId; we set the array length to
       // MAX_BIDS directly so the next placeBid is the 201st.
       const ctx = await loadFixture(deployFixture);
-      const encMin = await encUint64(ctx.client, ctx.alice, usdc(0));
+      const encMin = await encUint64(ctx.client, ctx.alice, usdc(0), await ctx.storefront.getAddress());
       await ctx.storefront.connect(ctx.alice).createListing(
         MODE_AUCTION,
         await ctx.vault.getAddress(),
-        encMin,
+        ...encMin,
         2 * 3600,
         "spam-test",
         ZERO_BYTES32,
@@ -690,8 +689,8 @@ describe("Storefront", () => {
       expect(cap).to.equal(200);
 
       // Sanity: 1st bid still goes through (cap not bitten with 0 existing).
-      const enc = await encUint64(ctx.client, ctx.bob, usdc(5));
-      await ctx.storefront.connect(ctx.bob).placeBid(0, enc);
+      const enc = await encUint64(ctx.client, ctx.bob, usdc(5), await ctx.storefront.getAddress());
+      await ctx.storefront.connect(ctx.bob).placeBid(0, ...enc);
       const bids = await ctx.storefront.getBidCount(0);
       expect(bids).to.equal(1);
     });
@@ -700,19 +699,19 @@ describe("Storefront", () => {
   describe("§1.14 A8 — placeBid below encMinBid gate", () => {
     it("bid >= encMinBid locks the full amount", async () => {
       const ctx = await loadFixture(deployFixture);
-      const encMin = await encUint64(ctx.client, ctx.alice, usdc(10));
+      const encMin = await encUint64(ctx.client, ctx.alice, usdc(10), await ctx.storefront.getAddress());
       await ctx.storefront.connect(ctx.alice).createListing(
         MODE_AUCTION,
         await ctx.vault.getAddress(),
-        encMin,
+        ...encMin,
         2 * 3600,
         "min-bid-test",
         ZERO_BYTES32,
         "",
       );
 
-      const bobBid = await encUint64(ctx.client, ctx.bob, usdc(15)); // above min
-      await ctx.storefront.connect(ctx.bob).placeBid(0, bobBid);
+      const bobBid = await encUint64(ctx.client, ctx.bob, usdc(15), await ctx.storefront.getAddress()); // above min
+      await ctx.storefront.connect(ctx.bob).placeBid(0, ...bobBid);
 
       const bids = await ctx.storefront.getBidCount(0);
       expect(bids).to.equal(1);
@@ -731,20 +730,20 @@ describe("Storefront", () => {
       // (that would tell observers "this bidder bid below $X"), we
       // silently zero the locked amount instead.
       const ctx = await loadFixture(deployFixture);
-      const encMin = await encUint64(ctx.client, ctx.alice, usdc(10));
+      const encMin = await encUint64(ctx.client, ctx.alice, usdc(10), await ctx.storefront.getAddress());
       await ctx.storefront.connect(ctx.alice).createListing(
         MODE_AUCTION,
         await ctx.vault.getAddress(),
-        encMin,
+        ...encMin,
         2 * 3600,
         "low-bid-test",
         ZERO_BYTES32,
         "",
       );
 
-      const tooLow = await encUint64(ctx.client, ctx.bob, usdc(5));
+      const tooLow = await encUint64(ctx.client, ctx.bob, usdc(5), await ctx.storefront.getAddress());
       await expect(
-        ctx.storefront.connect(ctx.bob).placeBid(0, tooLow),
+        ctx.storefront.connect(ctx.bob).placeBid(0, ...tooLow),
       ).to.not.be.reverted;
 
       // Bid recorded (count goes from 0 to 1).
@@ -761,22 +760,22 @@ describe("Storefront", () => {
       // with no other valid bids (or compete fairly against Charlie's
       // amount).
       const ctx = await loadFixture(deployFixture);
-      const encMin = await encUint64(ctx.client, ctx.alice, usdc(10));
+      const encMin = await encUint64(ctx.client, ctx.alice, usdc(10), await ctx.storefront.getAddress());
       await ctx.storefront.connect(ctx.alice).createListing(
         MODE_AUCTION,
         await ctx.vault.getAddress(),
-        encMin,
+        ...encMin,
         2 * 3600,
         "win-fairness",
         ZERO_BYTES32,
         "",
       );
 
-      const bobBid = await encUint64(ctx.client, ctx.bob, usdc(5));
-      await ctx.storefront.connect(ctx.bob).placeBid(0, bobBid);
+      const bobBid = await encUint64(ctx.client, ctx.bob, usdc(5), await ctx.storefront.getAddress());
+      await ctx.storefront.connect(ctx.bob).placeBid(0, ...bobBid);
 
-      const charlieBid = await encUint64(ctx.client, ctx.charlie, usdc(20));
-      await ctx.storefront.connect(ctx.charlie).placeBid(0, charlieBid);
+      const charlieBid = await encUint64(ctx.client, ctx.charlie, usdc(20), await ctx.storefront.getAddress());
+      await ctx.storefront.connect(ctx.charlie).placeBid(0, ...charlieBid);
 
       await time.increase(2 * 3600 + 1);
       await ctx.storefront.connect(ctx.alice).closeAuction(0);
@@ -784,7 +783,7 @@ describe("Storefront", () => {
       // Decrypt + reveal winner.
       const handle = await ctx.storefront.getWinnerIdxHandle(0);
       await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.dave);
-      const proof = await ctx.client.decryptForTx(handle, FheTypes.Uint8).withoutPermit().execute();
+      const proof = await ctx.client.decryptForTx(handle, FheTypes.Uint8).withoutACP().execute();
       await ctx.storefront.connect(ctx.dave).revealWinner(
         0,
         Number(proof.decryptedValue),

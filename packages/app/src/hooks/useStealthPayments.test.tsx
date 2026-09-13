@@ -213,9 +213,7 @@ beforeEach(() => {
     blockNumber: 5n,
     logs: [],
   });
-  encryptInputsAsyncMock.mockResolvedValue([
-    { ctHash: 0x42n, securityZone: 0, utype: 12, signature: "0xenc" },
-  ]);
+  encryptInputsAsyncMock.mockResolvedValue(["0xhandle0", "0xbatchproof"]);
   decryptForTxMock.mockResolvedValue({
     decryptedValue: 10_000_000n,
     signature: ("0x" + "01".repeat(65)) as `0x${string}`,
@@ -485,8 +483,8 @@ describe("useStealthPayments — sendStealth (§15.x)", () => {
     expect(sendCall.functionName).toBe("sendStealth");
     expect(sendCall.address).toBe(STEALTH);
     expect(sendCall.args[0]).toBe(100_000_000n);
-    expect(sendCall.args[3]).toBe(VAULT);
-    expect(sendCall.args[4]).toBe("secret");
+    expect(sendCall.args[4]).toBe(VAULT);
+    expect(sendCall.args[5]).toBe("secret");
     expect(sendCall.gas).toBe(5_000_000n);
 
     // encryptInputsAsync called with Encryptable.address(recipient)
@@ -597,6 +595,24 @@ describe("useStealthPayments — sendStealth (§15.x)", () => {
 // ───────────────────────────────────────────────────────────
 
 describe("useStealthPayments — claimStealth (§15.x)", () => {
+  // Found by driving two real wallets: the recipient's smart account is
+  // undeployed until their first UserOp, so the CoFHE binder never binds and
+  // `connected` stays false. claimCode travels as a plain bytes32 secret
+  // verified by hash comparison, not FHE-encrypted, so claimStealth never
+  // needed the CoFHE client — the old `!connected` gate made Claim a silent
+  // no-op for every first-time recipient.
+  it("CRITICAL claims with the CoFHE client unconnected (undeployed account)", async () => {
+    useCofheConnectionMock.mockReturnValue({ connected: false });
+    const { result } = renderHook(() => useStealthPayments());
+    let r: unknown;
+    await act(async () => {
+      r = await result.current.claimStealth(42, CLAIM_CODE);
+    });
+    expect(r).toBe("0xtxhash");
+    expect(unifiedWriteAndWaitMock).toHaveBeenCalledTimes(1);
+    expect(unifiedWriteAndWaitMock.mock.calls[0][0].functionName).toBe("claimStealth");
+  });
+
   it("no address -> 'Please connect your wallet' + null", async () => {
     useEffectiveAddressMock.mockReturnValue({ effectiveAddress: null });
     const { result } = renderHook(() => useStealthPayments());
