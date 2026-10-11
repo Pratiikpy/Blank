@@ -304,17 +304,17 @@ Both fixed: the gate removed from `claimStealth`, and the catch now shows
 
 ## What is NOT verified
 
-- Only Base Sepolia was driven through the browser for the receive path.
-  Every view the new hooks call answers on all three chains (above), and the
-  frontend is the same build, but no second-person browser journey has been run
-  on Arbitrum or Ethereum Sepolia.
 - The group settle was confirmed by the modal closing after the transaction
   went out, not by a status field: `settleDebt` moves encrypted balances and
-  leaves no plaintext flag to read. The other three were judged on a chain
-  value that changed.
-- The Ethereum Sepolia feature sweep is still incomplete for the reason
-  recorded in `COFHE_0_7_MIGRATION_PROOF.md`: it needs roughly 0.2 ETH and the
-  deployer holds 0.025.
+  leaves no plaintext flag to read. The other flows were judged on a chain
+  value that changed. Gift claim and stealth claim (§6) were also re-driven on
+  Arbitrum and Ethereum Sepolia; group settle, invoice pay, request pay and
+  claim link were only driven on Base.
+- The Ethereum Sepolia *hardhat multi-wallet sweep* (`multi-wallet-feature-sweep.ts`,
+  16 features, raw deployer gas) is still incomplete: it needs roughly 0.2 ETH
+  and the deployer holds 0.025. This is unrelated to the sponsored-AA browser
+  proofs above, which draw from `BlankPaymaster`'s own EntryPoint deposit
+  (§6) and are not money-blocked.
 ### 6. Both fixed bugs confirmed on all three chains
 
 The paymaster-target fix and the two `!connected`-gate fixes (gift claim,
@@ -335,7 +335,21 @@ these browser proofs run through the sponsored AA path, and
 0.17 and well above Arbitrum's 0.045. The sweep and the browser proofs draw
 from different pools.
 
-- The ERC-5564/6538 stealth-address feature (Settings -> Stealth Meta-Address,
+- ERC-5564/6538 meta-stealth, driven as two people on Base Sepolia: Bob
+  publishes a meta-address, Alice sends from the normal Send screen and opts in
+  with "Send to stealth address", the announcement lands on chain, and Bob's
+  `/app/stealth/inbox` auto-discovers it. **Sweep is NOT verified.** It funds
+  the one-time address with gas from Bob's own smart account (see
+  `useStealthSweep.ts`), and a fresh wallet holds no ETH, so nothing was sent:
+  the stealth address stayed at 5 USDC, 0 ETH, nonce 0. A new recipient cannot
+  collect a meta-stealth payment without first topping up ETH. Needs a product
+  decision (relayer-funded gas), not a test fix.
+- Found while driving it: the registry lookup (`useStealthMetaAddressLookup`)
+  and eight other `useReadContract` calls omitted `chainId`, so a passkey-only
+  user (no wagmi connected chain) read from Ethereum Sepolia. The lookup missed
+  a recipient who had published on Base, so the stealth option never appeared.
+  Fixed with an explicit `chainId`, pinned by a test.
+- (superseded note) The ERC-5564/6538 stealth-address feature (Settings -> Stealth Meta-Address,
   `/app/stealth/setup` + `/app/stealth/inbox`) is real and reachable, not
   orphaned: `SendConfirm.tsx` auto-routes a normal send through it whenever
   the recipient has a published meta-address. Publishing was confirmed

@@ -164,6 +164,20 @@ describe("useStealthMetaAddressLookup — registry read (§15.x)", () => {
     expect(call.functionName).toBe("stealthMetaAddressOf");
   });
 
+  // Found by driving two wallets on Base Sepolia: a recipient who had
+  // published a meta-address on chain showed no "Send to stealth address"
+  // option, because the read carried no chainId. A passkey-only user has no
+  // wagmi "connected" chain, so it went to the config default (Ethereum
+  // Sepolia) where nothing was registered.
+  it("CRITICAL reads the ACTIVE chain, not the wagmi default", () => {
+    useChainMock.mockReturnValue({
+      activeChainId: 84532,
+      contracts: { ERC6538Registry: REGISTRY, ERC5564Announcer: ANNOUNCER },
+    });
+    renderHook(() => useStealthMetaAddressLookup(RECIPIENT));
+    expect(useReadContractMock.mock.calls[0][0].chainId).toBe(84532);
+  });
+
   it("registry === zero-addr -> enabled=false (chain has no deployment)", () => {
     useChainMock.mockReturnValue({
       activeChainId: 11155111,

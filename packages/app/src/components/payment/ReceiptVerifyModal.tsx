@@ -188,7 +188,7 @@ function MyReceiptsList({
 
 export function ReceiptVerifyModal({ isOpen, onClose }: ReceiptVerifyModalProps) {
   const { address } = useAccount();
-  const { contracts } = useChain();
+  const { contracts, activeChainId } = useChain();
   const [receiptHash, setReceiptHash] = useState("");
   const [submittedHash, setSubmittedHash] = useState<`0x${string}` | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
@@ -208,6 +208,7 @@ export function ReceiptVerifyModal({ isOpen, onClose }: ReceiptVerifyModalProps)
     abi: verifyReceiptAbi,
     functionName: "verifyReceipt",
     args: submittedHash ? [submittedHash] : undefined,
+    chainId: activeChainId,
     query: {
       enabled: !!submittedHash,
     },
@@ -222,6 +223,7 @@ export function ReceiptVerifyModal({ isOpen, onClose }: ReceiptVerifyModalProps)
     abi: PaymentReceiptsAbi,
     functionName: "getUserReceipts",
     args: address ? [address] : undefined,
+    chainId: activeChainId,
     query: {
       enabled: !!address && isOpen,
     },

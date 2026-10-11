@@ -74,6 +74,7 @@ export function useInheritance() {
     functionName: "getPlan",
     args: address ? [address] : undefined,
     blockTag: "pending",
+    chainId: activeChainId,
     query: { enabled: !!address, refetchInterval: 60_000 },
   });
 

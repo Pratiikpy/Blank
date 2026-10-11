@@ -100,14 +100,18 @@ export function useStealthMetaAddressLookup(recipient: Address | undefined | nul
   // chain switch reaches the new chain's registry. ERC-6538 is a canonical
   // singleton so values are identical across chains today, but consistency
   // matters and shields us from any per-chain override later.
-  const { contracts } = useChain();
+  const { contracts, activeChainId } = useChain();
   const registry = contracts.ERC6538Registry as Address;
   const enabled = Boolean(recipient && registry && registry !== "0x0000000000000000000000000000000000000000");
   const { data, isLoading, isFetched } = useReadContract({
     address: registry,
     abi: ERC6538RegistryAbi,
     functionName: "stealthMetaAddressOf",
+    // chainId explicit: a passkey-only user has no wagmi "connected" chain, so a
+    // read without it goes to the config default (Ethereum Sepolia), not the
+    // chain the app is on.
     args: enabled ? [recipient as Address, SCHEME_ID] : undefined,
+    chainId: activeChainId,
     query: { enabled },
   });
   const metaAddress = data ? decodeRegistryBlob(data as Hex) : null;

@@ -245,6 +245,7 @@ function HeirAssignmentCard({
     abi: InheritanceManagerAbi,
     functionName: "getPlan",
     args: [principal as `0x${string}`],
+    chainId: activeChainId,
     query: { enabled: /^0x[a-fA-F0-9]{40}$/.test(principal), refetchInterval: 60_000 },
   });
 
@@ -341,7 +342,7 @@ function HeirAssignmentCard({
 
 export default function InheritancePlanning() {
   const { plan, setHeir, setVaults, heartbeat, removeHeir, startClaim, finalizeClaim, isProcessing, blockTimestamp } = useInheritance();
-  const { contracts } = useChain();
+  const { contracts, activeChainId } = useChain();
   const { effectiveAddress } = useEffectiveAddress();
   const availableVaults = buildAvailableVaults(contracts);
 
@@ -408,6 +409,7 @@ export default function InheritancePlanning() {
     abi: InheritanceManagerAbi,
     functionName: "getPlan",
     args: isValidClaimOwner ? [claimOwner as `0x${string}`] : undefined,
+    chainId: activeChainId,
     query: { enabled: isValidClaimOwner },
   });
   const ownerPlanTuple = ownerPlanData as readonly [string, bigint, bigint, bigint, boolean, readonly string[]] | undefined;

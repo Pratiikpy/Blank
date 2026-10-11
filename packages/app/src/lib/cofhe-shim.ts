@@ -759,6 +759,7 @@ export function useCofheReadContractAndDecrypt(
     abi: config.abi,
     functionName: config.functionName,
     args: config.args as readonly unknown[] | undefined,
+    chainId: _activeChainIdForShim,
     query: {
       enabled: readEnabled,
       refetchOnMount: options.readQueryOptions?.refetchOnMount ?? true,

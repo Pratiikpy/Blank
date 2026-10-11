@@ -409,6 +409,7 @@ export function useShield() {
     abi: FHERC20VaultAbi,
     functionName: "pendingUnshield",
     args: address ? [address] : undefined,
+    chainId: activeChainId,
     query: {
       enabled: !!address && !!contracts.FHERC20Vault_USDC,
       refetchInterval: 8000,

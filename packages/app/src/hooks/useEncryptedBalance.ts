@@ -120,6 +120,7 @@ export function useEncryptedBalance(vaultAddress?: string, decimals = 6) {
     abi: FHERC20VaultAbi,
     functionName: "balanceOf",
     args: address ? [address] : undefined,
+    chainId: activeChainId,
     query: {
       enabled: !!address && !canUseRealDecrypt,
       refetchInterval: 30_000,
@@ -133,6 +134,7 @@ export function useEncryptedBalance(vaultAddress?: string, decimals = 6) {
     address: vault,
     abi: FHERC20VaultAbi,
     functionName: "totalDeposited",
+    chainId: activeChainId,
     query: {
       enabled: !!address,
       refetchInterval: 30_000,
@@ -146,6 +148,7 @@ export function useEncryptedBalance(vaultAddress?: string, decimals = 6) {
     abi: FHERC20VaultAbi,
     functionName: "isInitialized",
     args: address ? [address] : undefined,
+    chainId: activeChainId,
     query: {
       enabled: !!address,
       refetchInterval: 60_000,
