@@ -61,4 +61,5 @@ import "./deploy-upgrade-conditional-escrow";
 import "./lifecycle-conditional-escrow";
 import "./decrypt-once";
 import "./deploy-upgrade-cofhe-0-7";
+import "./deploy-upgrade-cofhe-1-0";
 import "./verify-cofhe-0-7";

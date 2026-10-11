@@ -1933,6 +1933,9 @@ describe("PaymentReceipts qualification proofs", () => {
       issuer: ctx.charlie.address,
       name: "Public global decrypt",
     });
+    // 0.8 ACPs carry their creation time; the mock revoker rejects one dated
+    // after the latest block, so mine a block before the view call.
+    await hre.network.provider.send("hardhat_mine", ["0x1"]);
     const volPublic = await ctx.client.decryptForView(volHandle, FheTypes.Uint64).execute();
     expect(volPublic).to.equal(0n); // fresh deploy — nothing transacted yet
   });
@@ -2118,6 +2121,9 @@ describe("GiftMoney receipts wiring (#204)", () => {
       issuer: erin.address,
       name: "Public global decrypt — gift volume",
     });
+    // 0.8 ACPs carry their creation time; the mock revoker rejects one dated
+    // after the latest block, so mine a block before the view call.
+    await hre.network.provider.send("hardhat_mine", ["0x1"]);
     const volPublic = await ctx.client
       .decryptForView(volHandle, FheTypes.Uint64)
       .execute();
