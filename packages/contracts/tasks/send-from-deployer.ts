@@ -92,20 +92,23 @@ task("send-from-deployer", "Send N encrypted USDC from the deployer via PaymentH
     await client.connect(publicClient as any, walletClient as any);
 
     console.log(`Encrypting ${amount} USDC against the threshold network...`);
-    const [encAmount] = await client.encryptInputs([Encryptable.uint64(amountUnits)]).execute();
-    console.log(`  encrypted handle: ${encAmount.ctHash}`);
+    const [encHandle, encProof] = await client
+      .encryptInputs([Encryptable.uint64(amountUnits)])
+      .setConsumingContract(hubAddr as `0x${string}`)
+      .execute();
+    console.log(`  encrypted handle: ${encHandle}`);
 
     // ── PaymentHub.sendPayment ────────────────────────────────────────────
     const hub = new hre.ethers.Contract(
       hubAddr,
       [
-        "function sendPayment(address to, address token, (uint256 ctHash, uint8 securityZone, uint8 utype, bytes signature) encAmount, string note)",
+        "function sendPayment(address to, address token, bytes32 encAmount, bytes proof, string note)",
       ],
       signer,
     );
 
     console.log(`\nSending payment...`);
-    const sendTx = await hub.sendPayment(to, vaultAddr, encAmount, note);
+    const sendTx = await hub.sendPayment(to, vaultAddr, encHandle, encProof, note);
     console.log(`  send tx: ${sendTx.hash}`);
     const receipt = await sendTx.wait();
 

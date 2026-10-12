@@ -109,8 +109,11 @@ task("test-claim-link-flow", "Create a real bearer claim-link from the deployer 
     await client.connect(publicClient as any, walletClient as any);
 
     console.log(`      Encrypting ${amount} USDC...`);
-    const [encAmount] = await client.encryptInputs([Encryptable.uint64(amountUnits)]).execute();
-    console.log(`      ctHash: ${encAmount.ctHash}`);
+    const [encHandle, encProof] = await client
+      .encryptInputs([Encryptable.uint64(amountUnits)])
+      .setConsumingContract(claimLinksAddr as `0x${string}`)
+      .execute();
+    console.log(`      handle: ${encHandle}`);
 
     // ── 3. Generate secret + bearer hash ───────────────────────────────
     // DOMAIN = keccak256("BLANK_CLAIM_v1")
@@ -129,7 +132,7 @@ task("test-claim-link-flow", "Create a real bearer claim-link from the deployer 
     const claimLinks = new hre.ethers.Contract(
       claimLinksAddr,
       [
-        "function createLink(address vault, (uint256 ctHash, uint8 securityZone, uint8 utype, bytes signature) encAmount, bytes32 secretHash, uint8 mode, address boundAddress, uint256 expirySeconds, string note) returns (uint256)",
+        "function createLink(address vault, bytes32 encAmount, bytes proof, bytes32 secretHash, uint8 mode, address boundAddress, uint256 expirySeconds, string note) returns (uint256)",
         "event LinkCreated(uint256 indexed linkId, address indexed sender, address vault, uint8 mode, address indexed boundAddress, uint256 expiryTimestamp, string note)",
       ],
       signer,
@@ -138,7 +141,7 @@ task("test-claim-link-flow", "Create a real bearer claim-link from the deployer 
     console.log("\n[4/5] Calling createLink...");
     const createTx = await claimLinks.createLink(
       vaultAddr,
-      encAmount,
+      encHandle, encProof,
       secretHash,
       0, // BEARER
       ZERO_ADDRESS,

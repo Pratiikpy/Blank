@@ -78,8 +78,11 @@ task("lifecycle-conditional-escrow", "Real Arb Sepolia: create conditional escro
     const client = createCofheClient(createCofheConfig({ supportedChains: [arbSepolia] }));
     await client.connect(publicClient as any, walletClient as any);
     console.log(`Encrypting ${amount} USDC...`);
-    const [encAmount] = await client.encryptInputs([Encryptable.uint64(amountUnits)]).execute();
-    console.log(`  handle: ${encAmount.ctHash}`);
+    const [encHandle, encProof] = await client
+      .encryptInputs([Encryptable.uint64(amountUnits)])
+      .setConsumingContract(escrowAddr as `0x${string}`)
+      .execute();
+    console.log(`  handle: ${encHandle}`);
 
     // ── createConditionalEscrow ───────────────────────────────────────────
     const deadline = Math.floor(Date.now() / 1000) + 2 * 86400;
@@ -88,7 +91,7 @@ task("lifecycle-conditional-escrow", "Real Arb Sepolia: create conditional escro
       [depositor as `0x${string}`, BigInt(deadline)],
     );
     const escrow = new hre.ethers.Contract(escrowAddr, [
-      "function createConditionalEscrow(address beneficiary, address vault, (uint256 ctHash, uint8 securityZone, uint8 utype, bytes signature) encAmount, string description, address resolver, bytes resolverData, uint256 deadline) returns (uint256)",
+      "function createConditionalEscrow(address beneficiary, address vault, bytes32 encAmount, bytes proof, string description, address resolver, bytes resolverData, uint256 deadline) returns (uint256)",
       "function releaseIfConditionMet(uint256 escrowId)",
       "function getEscrow(uint256 escrowId) view returns (address,address,address,address,uint256,bool,bool,uint8,string,uint256)",
       "function nextEscrowId() view returns (uint256)",
@@ -101,7 +104,7 @@ task("lifecycle-conditional-escrow", "Real Arb Sepolia: create conditional escro
 
     console.log(`\ncreateConditionalEscrow...`);
     const createTx = await escrow.createConditionalEscrow(
-      vendor, vaultAddr, encAmount, "Hackathon conditional invoice", resolverAddr, resolverData, deadline,
+      vendor, vaultAddr, encHandle, encProof, "Hackathon conditional invoice", resolverAddr, resolverData, deadline,
     );
     const createRcpt = await createTx.wait();
     let escrowId: bigint | null = null;
