@@ -45,6 +45,9 @@ const config: HardhatUserConfig = {
       url: process.env.SEPOLIA_RPC_URL || "https://ethereum-sepolia.publicnode.com",
       accounts,
       chainId: 11155111,
+      // Sepolia's base fee is ~0.00000002 gwei but public RPCs suggest a 1 gwei
+      // tip, which made one 20M-gas impl deploy cost 0.02 ETH. 0.01 gwei lands.
+      gasPrice: Number(process.env.SEPOLIA_GAS_PRICE_WEI || 10_000_000),
       gasMultiplier: 1.2,
       timeout: 60000,
     },
