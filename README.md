@@ -133,6 +133,8 @@ The core contract set is deployed on all three supported testnets. The condition
 
 The encrypted-vault FHE path is proven on Arbitrum Sepolia by a real shield transaction: [`0xc623...9585`](https://sepolia.arbiscan.io/tx/0xc623277ed8a44895b149d7b29e8854da5a967e131f463c91e4dca5bb3aa09585). The feature set has since been driven through the UI on Arbitrum Sepolia with a real browser wallet, including multi-wallet send and consume flows, each with an on-chain transaction.
 
+All three testnets run `cofhe-contracts` 1.0.0 and `@cofhe/sdk` 0.8.0. The move was an in-place upgrade of 19 proxies per chain: no address changed and all state was kept. Two-wallet browser runs on 1.0.0, judged from chain state: gift claim, invoice pay, group settle, request pay, claim link and stealth claim on Base Sepolia; gift claim and stealth claim on Arbitrum Sepolia. The Ethereum Sepolia browser flows have not been re-run on 1.0.0. Its upgrade is proven by a live shield and unshield.
+
 Complete machine-readable deployment manifests:
 
 - [Base Sepolia deployment](packages/contracts/deployments/base-sepolia.json)

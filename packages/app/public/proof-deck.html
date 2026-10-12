@@ -562,6 +562,22 @@ footer { margin-top: 96px; padding-top: 24px; border-top: 1px solid var(--border
     </ul>
   </div>
 </section>
+
+<div class="divider"></div>
+
+<section class="section" id="cofhe-1-0">
+  <h2>9. CoFHE 1.0.0 upgrade</h2>
+  <p class="lede">October 2026. Every proxy was upgraded in place to <code>cofhe-contracts</code> 1.0.0 (SDK 0.8.0): 19 proxies on each of Base, Arbitrum and Ethereum Sepolia, no address changed, owner and counters unchanged across each upgrade. After each chain, a live shield, client-side encrypt and <code>requestUnshield</code> was run against the real verifier. Two-wallet browser runs on 1.0.0 were judged from chain state: gift claim, invoice pay, group settle, request pay, claim link and stealth claim on Base Sepolia; gift claim and stealth claim on Arbitrum Sepolia. Ethereum Sepolia browser flows were not re-run on 1.0.0.</p>
+
+  <div class="tx">
+    <h3>Live encrypted-input check after the upgrade</h3>
+    <ul>
+      <li><span class="label"><span class="chain base">Base</span></span><a href="https://sepolia.basescan.org/tx/0xfcad40f0feb65aca5ca10459becf767206e4fe20ba803ac9cc566d685e17f3ec" target="_blank" rel="noopener">0xfcad40f0…</a> shield · <a href="https://sepolia.basescan.org/tx/0xe45b1a29861cc09b0596912bd85f2c0d676a77e78509e434d52139b9c75dab9a" target="_blank" rel="noopener">0xe45b1a29…</a> requestUnshield</li>
+      <li><span class="label"><span class="chain">Arb</span></span><a href="https://sepolia.arbiscan.io/tx/0xc978c5f51c7bbf48834bbdb70ab671badfa01cf4980b134e11b2fb95865e4679" target="_blank" rel="noopener">0xc978c5f5…</a> shield · <a href="https://sepolia.arbiscan.io/tx/0xd3c8a1ca74b523c2e92e085df4e12ef6f1c931683834d0fe803e62d972a55df5" target="_blank" rel="noopener">0xd3c8a1ca…</a> requestUnshield</li>
+      <li><span class="label"><span class="chain eth">Eth</span></span><a href="https://sepolia.etherscan.io/tx/0x098c673fa76f30230e5f4aff58df194b0e72cf9b94e124e0fb6e16cb982af5df" target="_blank" rel="noopener">0x098c673f…</a> shield · <a href="https://sepolia.etherscan.io/tx/0x56297453d49462d7fbbf52dbce206c8d48233ba1ece9d819e673aa490764c72b" target="_blank" rel="noopener">0x56297453…</a> requestUnshield</li>
+    </ul>
+  </div>
+</section>
 </main>
 
 <footer>

@@ -751,8 +751,18 @@
         The same contract set is deployed on all three testnets. The
         encrypted-vault FHE path is proven on Arbitrum Sepolia by a real
         <a href="https://sepolia.arbiscan.io/tx/0xc623277ed8a44895b149d7b29e8854da5a967e131f463c91e4dca5bb3aa09585">shield transaction</a>
-        (status 1, no InvalidSigner). A full per-flow UI sweep on Arbitrum
-        Sepolia is still pending.
+        (status 1, no InvalidSigner). Per-flow UI sweeps have since been run
+        on Arbitrum Sepolia.
+      </p>
+      <p class="small muted">
+        In October 2026 the contracts moved to cofhe-contracts 1.0.0 and SDK
+        0.8.0 on all three testnets, in place: 19 proxies per chain, no
+        address changed, all state kept. Two-wallet browser runs on 1.0.0,
+        judged from chain state: gift claim, invoice pay, group settle,
+        request pay, claim link and stealth claim on Base Sepolia; gift claim
+        and stealth claim on Arbitrum Sepolia. The Ethereum Sepolia browser
+        flows have not been re-run on 1.0.0; its upgrade is proven by a live
+        shield and unshield.
       </p>
       <table>
         <tbody>
