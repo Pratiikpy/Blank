@@ -151,4 +151,31 @@ describe("useOnChainGroups (§15.x)", () => {
     await waitFor(() => expect(readContractMock.mock.calls.length).toBeGreaterThan(before));
     expect(result.current.groups).toBe(first);
   });
+
+  it("CRITICAL a first read from a lagging node is corrected by the next poll", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let chainKnowsGroup = false;
+      readContractMock = vi.fn(
+        async ({ functionName }: { functionName: string }) => {
+          if (functionName === "getUserGroups") return chainKnowsGroup ? [3n] : [];
+          return group();
+        },
+      );
+      usePublicClientMock.mockReturnValue({ readContract: readContractMock });
+
+      const { result } = renderHook(() => useOnChainGroups());
+      await waitFor(() => expect(readContractMock).toHaveBeenCalled());
+      expect(result.current.groups).toHaveLength(0);
+
+      chainKnowsGroup = true;
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(15_000);
+      });
+      await waitFor(() => expect(result.current.groups).toHaveLength(1));
+      expect(result.current.groups[0].group_id).toBe(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

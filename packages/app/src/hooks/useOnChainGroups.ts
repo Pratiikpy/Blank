@@ -6,6 +6,9 @@ import { useChain } from "@/providers/ChainProvider";
 import { useEffectiveAddress } from "./useEffectiveAddress";
 import { log } from "@/lib/log";
 
+/** Re-read interval for chain-sourced lists. */
+const ONCHAIN_POLL_MS = 15_000;
+
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
 /** getGroup() return tuple, in declaration order. */
@@ -53,6 +56,16 @@ export function useOnChainGroups() {
   }, [effectiveAddress, eoa]);
 
   const refresh = useCallback(() => setTick((t) => t + 1), []);
+
+  // A recipient can open the screen on an RPC node that has not seen the
+  // block yet and get an empty read. Re-read while the tab is visible so the
+  // list fills in without a manual refresh.
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (document.visibilityState === "visible") refresh();
+    }, ONCHAIN_POLL_MS);
+    return () => clearInterval(id);
+  }, [refresh]);
   const lastSerialized = useRef("");
 
   useEffect(() => {
