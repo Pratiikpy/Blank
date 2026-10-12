@@ -41,7 +41,7 @@ export const CHAINS: Record<SupportedChainId, ChainInfo> = {
     name: "Ethereum Sepolia",
     shortName: "Eth Sepolia",
     network: "eth-sepolia",
-    rpcUrl: "https://1rpc.io/sepolia",
+    rpcUrl: "https://ethereum-sepolia-rpc.publicnode.com",
     explorerUrl: "https://sepolia.etherscan.io",
     coFheUrl: "https://testnet-cofhe.fhenix.zone",
     verifierUrl: "https://testnet-cofhe-vrf.fhenix.zone",

@@ -40,12 +40,15 @@ import { ETH_SEPOLIA_ID, BASE_SEPOLIA_ID, ARB_SEPOLIA_ID, type SupportedChainId 
 // 2026-05-18 update: rpc.sepolia.org started failing CORS preflight from
 // browser origins (observed in Playwright + manual repro). Removed from
 // the browser-side fallback list; viem's fallback still has publicnode +
-// 1rpc covering the same chain. Server-side relay (api/relay.ts) keeps
+// drpc covering the same chain. Server-side relay (api/relay.ts) keeps
 // the wider provider pool because Node fetch is CORS-exempt.
 const PUBLIC_RPCS: Record<SupportedChainId, string[]> = {
   [ETH_SEPOLIA_ID]: [
     "https://ethereum-sepolia-rpc.publicnode.com",
-    "https://1rpc.io/sepolia",
+    // 2026-10-12: 1rpc.io answers browser preflights with 503, so every page
+    // load logged blocked requests. drpc returns chain id 0xaa36a7 and allows
+    // browser origins. Tenderly is left out: its reads lag after a block.
+    "https://sepolia.drpc.org",
   ],
   [BASE_SEPOLIA_ID]: [
     "https://base-sepolia-rpc.publicnode.com",
