@@ -76,10 +76,48 @@ function deploymentsPath(networkName: string): string {
   return resolve(__dirname, "..", "deployments", file);
 }
 
+/**
+ * Campaigns that may have been swept before the upgrade. claimRelease needs
+ * resultPublished && goalMet, so only those campaigns can have been swept.
+ * Whether a sweep actually happened is only visible in CampaignReleased logs,
+ * which public testnet RPCs no longer serve for old blocks. So: if no
+ * campaign is a candidate, the list is provably empty. Otherwise the operator
+ * must pass the swept ids explicitly (from an explorer), and we refuse to guess.
+ */
+async function releasedCampaignIds(
+  hre: HardhatRuntimeEnvironment,
+  addr: string,
+  explicit?: string,
+): Promise<bigint[]> {
+  const cf = await hre.ethers.getContractAt("EncryptedCrowdfund", addr);
+  const n: bigint = await cf.nextCampaignId();
+  const candidates: bigint[] = [];
+  for (let i = 0n; i < n; i++) {
+    const c = await cf.getCampaign(i);
+    if (c.resultPublished && c.goalMet) candidates.push(i);
+  }
+  console.log(`   crowdfund: ${n} campaigns, ${candidates.length} could have been swept`);
+  if (explicit !== undefined) {
+    const ids = explicit.split(",").filter(Boolean).map((s) => BigInt(s.trim()));
+    for (const id of ids) {
+      if (!candidates.includes(id)) throw new Error(`crowdfund: id ${id} was never releasable`);
+    }
+    return ids;
+  }
+  if (candidates.length > 0) {
+    throw new Error(
+      `crowdfund: campaigns [${candidates.join(", ")}] may have been swept. ` +
+      `Pass the ids that emitted CampaignReleased with --crowdfund-released (empty string for none).`,
+    );
+  }
+  return [];
+}
+
 task("deploy-upgrade-security-v1", "Ship the pre-mainnet audit fixes to a testnet")
   .addFlag("dryRun", "Print the plan without sending txs")
   .addOptionalParam("only", "Comma-separated step names to run")
-  .setAction(async (args: { dryRun: boolean; only?: string }, hre: HardhatRuntimeEnvironment) => {
+  .addOptionalParam("crowdfundReleased", "Comma-separated campaign ids swept before the upgrade")
+  .setAction(async (args: { dryRun: boolean; only?: string; crowdfundReleased?: string }, hre: HardhatRuntimeEnvironment) => {
     const path = deploymentsPath(hre.network.name);
     const d: Record<string, string> = JSON.parse(readFileSync(path, "utf8"));
     const save = () => writeFileSync(path, JSON.stringify(d, null, 2) + "\n");
@@ -152,9 +190,17 @@ task("deploy-upgrade-security-v1", "Ship the pre-mainnet audit fixes to a testne
       const impl = await Factory.deploy();
       await impl.deploymentTransaction()?.wait(2);
       const implAddr = await impl.getAddress();
-      const initData = WIRE_REGISTRY.includes(u.key)
+      let initData = WIRE_REGISTRY.includes(u.key)
         ? Factory.interface.encodeFunctionData("setTokenRegistry", [d.TokenRegistry!])
         : "0x";
+      if (u.key === "EncryptedCrowdfund") {
+        // Campaigns swept before this upgrade have releasePaid == false. Mark
+        // them in the upgrade call itself; claimRelease stays closed until
+        // finishLegacyMigration, and setTokenRegistry follows right after.
+        const ids = await releasedCampaignIds(hre, d.EncryptedCrowdfund!, args.crowdfundReleased);
+        console.log(`   legacy released campaigns: [${ids.join(", ")}]`);
+        initData = Factory.interface.encodeFunctionData("markLegacyReleased", [ids]);
+      }
       await wait(
         await proxy.upgradeToAndCall(implAddr, initData),
         initData === "0x" ? "upgradeToAndCall" : "upgradeToAndCall + setTokenRegistry",
@@ -196,6 +242,12 @@ task("deploy-upgrade-security-v1", "Ship the pre-mainnet audit fixes to a testne
           }
           await wait(await bh.accountLegacyEscrows(25), `BusinessHub.accountLegacyEscrows ${cursor}/${next}`);
         }
+      }
+      if (d.EncryptedCrowdfund) {
+        const cf = await hre.ethers.getContractAt("EncryptedCrowdfund", d.EncryptedCrowdfund, deployer);
+        if (!(await cf.legacyMigrationDone())) {
+          await wait(await cf.finishLegacyMigration(), "EncryptedCrowdfund.finishLegacyMigration");
+        } else console.log(`   EncryptedCrowdfund legacy migration already closed`);
       }
       if (d.PaymentReceipts) {
         const pr = await hre.ethers.getContractAt("PaymentReceipts", d.PaymentReceipts, deployer);
