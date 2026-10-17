@@ -571,7 +571,7 @@ describe("EncryptedEscrow", () => {
         ctx.escrow.connect(ctx.bob).releaseIfConditionMet(0),
       ).to.be.revertedWith("EncryptedEscrow: condition not met");
 
-      await ctx.resolver.connect(ctx.alice).approve(0);
+      await ctx.resolver.connect(ctx.alice).approve(await ctx.escrow.getAddress(), 0);
       await ctx.escrow.connect(ctx.bob).releaseIfConditionMet(0);
 
       const e = await ctx.escrow.getEscrow(0);

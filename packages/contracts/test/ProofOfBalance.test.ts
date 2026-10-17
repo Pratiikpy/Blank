@@ -1,34 +1,21 @@
 import { expect } from "chai";
 import hre from "hardhat";
 import { loadFixture } from "@nomicfoundation/hardhat-network-helpers";
-import { Encryptable, FheTypes } from "@cofhe/sdk";
+import { Encryptable } from "@cofhe/sdk";
 
-// Wave 5 Block 10 — ProofOfBalance.
-//
-// Locks the contract invariants:
-//   - threshold>0 required
-//   - per-proof identity preserved
-//   - FHE.gte verdict reveals correctly via publishDecryptResult
-//   - replay-reveal blocked (revealed flag)
+// ProofOfBalance is retired: the "balance" was a value the prover encrypted
+// themselves, so a true verdict proved nothing about funds.
 
-async function deployProxy(name: string, initArgs: unknown[] = []) {
+async function deployProxy(name: string) {
   const Factory = await hre.ethers.getContractFactory(name);
   const impl = await Factory.deploy();
   await impl.waitForDeployment();
-  const initData = initArgs.length > 0
-    ? Factory.interface.encodeFunctionData("initialize", initArgs)
-    : Factory.interface.encodeFunctionData("initialize");
   const ProxyFactory = await hre.ethers.getContractFactory(
     "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol:ERC1967Proxy",
   );
-  const proxy = await ProxyFactory.deploy(await impl.getAddress(), initData);
+  const proxy = await ProxyFactory.deploy(await impl.getAddress(), Factory.interface.encodeFunctionData("initialize"));
   await proxy.waitForDeployment();
   return Factory.attach(await proxy.getAddress()) as any;
-}
-
-async function encUint64(ctx: any, signer: any, value: bigint, consuming: string) {
-  await hre.cofhe.connectWithHardhatSigner(ctx.client, signer);
-  return await ctx.client.encryptInputs([Encryptable.uint64(value)]).setConsumingContract(consuming).execute();
 }
 
 async function deployFixture() {
@@ -38,64 +25,29 @@ async function deployFixture() {
   return { owner, alice, client, proof };
 }
 
-describe("ProofOfBalance", () => {
-  it("rejects threshold=0", async () => {
+describe("ProofOfBalance (retired)", () => {
+  it("createProof reverts, even for a self-chosen balance that would have 'proven' $1B", async () => {
     const ctx = await loadFixture(deployFixture);
-    const enc = await encUint64(ctx, ctx.alice, 1000n, await ctx.proof.getAddress());
-    await expect(ctx.proof.connect(ctx.alice).createProof(...enc, 0))
-      .to.be.revertedWith("ProofOfBalance: threshold=0");
+    await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.alice);
+    const enc = await ctx.client
+      .encryptInputs([Encryptable.uint64((1n << 64n) - 1n)])
+      .setConsumingContract(await ctx.proof.getAddress())
+      .execute();
+    await expect(ctx.proof.connect(ctx.alice).createProof(...enc, 1_000_000_000_000_000n))
+      .to.be.revertedWith("ProofOfBalance: retired");
+    expect(await ctx.proof.nextProofId()).to.equal(0n);
   });
 
-  it("creates proof, emits ProofCreated, getProof returns initial state", async () => {
+  it("revealProof reverts", async () => {
     const ctx = await loadFixture(deployFixture);
-    const enc = await encUint64(ctx, ctx.alice, 5_000_000n, await ctx.proof.getAddress());
-    await expect(ctx.proof.connect(ctx.alice).createProof(...enc, 1_000_000))
-      .to.emit(ctx.proof, "ProofCreated");
+    await expect(ctx.proof.connect(ctx.alice).revealProof(0, true, "0x"))
+      .to.be.revertedWith("ProofOfBalance: retired");
+  });
+
+  it("getProof still reads (empty) records", async () => {
+    const ctx = await loadFixture(deployFixture);
     const p = await ctx.proof.getProof(0);
-    expect(p.prover).to.equal(ctx.alice.address);
-    expect(p.thresholdMicroUSD).to.equal(1_000_000);
+    expect(p.prover).to.equal(hre.ethers.ZeroAddress);
     expect(p.revealed).to.equal(false);
-  });
-
-  it("balance >= threshold reveals true; replay reveal reverts", async () => {
-    const ctx = await loadFixture(deployFixture);
-    const enc = await encUint64(ctx, ctx.alice, 5_000_000n, await ctx.proof.getAddress()); // 5 microUSD
-    await ctx.proof.connect(ctx.alice).createProof(...enc, 1_000_000); // threshold 1
-
-    const handle = (await ctx.proof.proofs(0)).met;
-    await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.alice);
-    const decrypted = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutACP().execute();
-    expect(Boolean(decrypted.decryptedValue)).to.equal(true);
-
-    await expect(
-      ctx.proof.connect(ctx.alice).revealProof(0, Boolean(decrypted.decryptedValue), decrypted.signature),
-    ).to.emit(ctx.proof, "ProofRevealed").withArgs(0, true);
-
-    const p = await ctx.proof.getProof(0);
-    expect(p.revealed).to.equal(true);
-    expect(p.revealedValue).to.equal(true);
-
-    await expect(
-      ctx.proof.connect(ctx.alice).revealProof(0, Boolean(decrypted.decryptedValue), decrypted.signature),
-    ).to.be.revertedWith("ProofOfBalance: already revealed");
-  });
-
-  it("balance < threshold reveals false", async () => {
-    const ctx = await loadFixture(deployFixture);
-    const enc = await encUint64(ctx, ctx.alice, 500_000n, await ctx.proof.getAddress()); // half a microUSD
-    await ctx.proof.connect(ctx.alice).createProof(...enc, 1_000_000);
-
-    const handle = (await ctx.proof.proofs(0)).met;
-    await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.alice);
-    const decrypted = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutACP().execute();
-    expect(Boolean(decrypted.decryptedValue)).to.equal(false);
-    await ctx.proof.connect(ctx.alice).revealProof(0, Boolean(decrypted.decryptedValue), decrypted.signature);
-    expect((await ctx.proof.getProof(0)).revealedValue).to.equal(false);
-  });
-
-  it("unknown proofId revealProof reverts", async () => {
-    const ctx = await loadFixture(deployFixture);
-    await expect(ctx.proof.connect(ctx.alice).revealProof(999, false, "0x"))
-      .to.be.revertedWith("ProofOfBalance: unknown proof");
   });
 });

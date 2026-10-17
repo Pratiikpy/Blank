@@ -326,6 +326,96 @@ describe("EncryptedFlags — canSend + canReceive boolean composition", () => {
   });
 });
 
+// Audit M1 / L2. Handles are deterministic in the cofhe mock, so a
+// staticCall followed by the real tx yields readable result handles.
+describe("EncryptedFlags: audit fixes", () => {
+  async function feeOf(ctx: any, signer: any, amount: bigint, merchant?: string) {
+    const enc = await encryptUint64For(ctx.client, signer, amount, await ctx.flags.getAddress());
+    const c = ctx.flags.connect(signer);
+    if (merchant) {
+      const r = await c.calculateMerchantFee.staticCall(...enc, merchant);
+      await c.calculateMerchantFee(...enc, merchant);
+      return r;
+    }
+    const r = await c.calculateFee.staticCall(...enc);
+    await c.calculateFee(...enc);
+    return r;
+  }
+
+  it("calculateFee divides by 10000, not 16384", async () => {
+    const ctx = await loadFixture(deployFixture);
+    const [fee, net] = await feeOf(ctx, ctx.alice, 1_000_000n);
+    // Old >> 14 gave 6103.
+    await mock_expectPlaintext(ctx.alice.provider, fee, 10_000n);
+    await mock_expectPlaintext(ctx.alice.provider, net, 990_000n);
+  });
+
+  it("calculateFee does not overflow on large amounts", async () => {
+    const ctx = await loadFixture(deployFixture);
+    const amount = (1n << 63n) + 12_345n;
+    const [fee, net] = await feeOf(ctx, ctx.alice, amount);
+    const expected = (amount * BASE_FEE_RATE) / 10_000n;
+    await mock_expectPlaintext(ctx.alice.provider, fee, expected);
+    await mock_expectPlaintext(ctx.alice.provider, net, amount - expected);
+  });
+
+  it("calculateMerchantFee applies the discount share of the base fee", async () => {
+    const ctx = await loadFixture(deployFixture);
+    await ctx.flags.setMerchant(ctx.alice.address, true);
+    const [fee] = await feeOf(ctx, ctx.alice, 1_000_000n, ctx.alice.address);
+    await mock_expectPlaintext(ctx.alice.provider, fee, 5_000n);
+  });
+
+  it("calculateMerchantFee is not a merchant-status oracle for strangers", async () => {
+    const ctx = await loadFixture(deployFixture);
+    const enc = await encryptUint64For(ctx.client, ctx.bob, 1000n, await ctx.flags.getAddress());
+    await expect(ctx.flags.connect(ctx.bob).calculateMerchantFee(...enc, ctx.alice.address))
+      .to.be.revertedWith("EncryptedFlags: not authorized");
+  });
+
+  it("canSend / canReceive reject third parties unless authorized", async () => {
+    const ctx = await loadFixture(deployFixture);
+    await ctx.flags.setVerified(ctx.alice.address, true);
+    await expect(ctx.flags.connect(ctx.bob).canSend(ctx.alice.address))
+      .to.be.revertedWith("EncryptedFlags: not authorized");
+    await expect(ctx.flags.connect(ctx.bob).canReceive(ctx.alice.address))
+      .to.be.revertedWith("EncryptedFlags: not authorized");
+
+    await expect(ctx.flags.connect(ctx.bob).setAuthorizedCaller(ctx.bob.address, true))
+      .to.be.revertedWithCustomError(ctx.flags, "OwnableUnauthorizedAccount");
+    await expect(ctx.flags.setAuthorizedCaller(ctx.bob.address, true))
+      .to.emit(ctx.flags, "AuthorizedCallerSet").withArgs(ctx.bob.address, true);
+    await expect(ctx.flags.connect(ctx.bob).canSend(ctx.alice.address)).to.not.be.reverted;
+  });
+
+  it("checkAuditScope is limited to the user and the auditor", async () => {
+    const ctx = await loadFixture(deployFixture);
+    await ctx.flags.connect(ctx.alice).setAuditScope(
+      ctx.auditor.address,
+      ...(await encryptUint8For(ctx.client, ctx.alice, 2n, await ctx.flags.getAddress())),
+    );
+    await expect(
+      ctx.flags.connect(ctx.bob).checkAuditScope(
+        ctx.alice.address,
+        ctx.auditor.address,
+        ...(await encryptUint8For(ctx.client, ctx.bob, 2n, await ctx.flags.getAddress())),
+      ),
+    ).to.be.revertedWith("EncryptedFlags: not user or auditor");
+  });
+
+  it("fee rates above 10000 bps are rejected; setFeeRates is owner-only", async () => {
+    const ctx = await loadFixture(deployFixture);
+    await expect(ctx.flags.setFeeRates(10_001, 0)).to.be.revertedWith("EncryptedFlags: rate above 10000");
+    await expect(ctx.flags.setFeeRates(0, 10_001)).to.be.revertedWith("EncryptedFlags: rate above 10000");
+    await expect(ctx.flags.connect(ctx.alice).setFeeRates(1, 1))
+      .to.be.revertedWithCustomError(ctx.flags, "OwnableUnauthorizedAccount");
+    await expect(ctx.flags.setFeeRates(250, 0)).to.emit(ctx.flags, "FeeRatesSet").withArgs(250, 0);
+    const [fee] = await feeOf(ctx, ctx.alice, 1_000_000n);
+    await mock_expectPlaintext(ctx.alice.provider, fee, 25_000n);
+    await expect(deployProxy("EncryptedFlags", [20_000n, 0n])).to.be.reverted;
+  });
+});
+
 describe("EncryptedFlags — UUPS upgrade gate", () => {
   it("non-owner cannot upgrade", async () => {
     const ctx = await loadFixture(deployFixture);
