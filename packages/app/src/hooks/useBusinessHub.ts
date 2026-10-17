@@ -27,6 +27,18 @@ import { extractEventId } from "@/lib/event-parser";
 import { broadcastAction } from "@/lib/cross-tab";
 import { invalidateBalanceQueries } from "@/lib/query-invalidation";
 import { isVaultApproved, markVaultApproved, clearVaultApproval } from "@/lib/approval";
+import {
+  INVOICE_STATUS,
+  PAYMENT_MODE,
+  chooseFinalizeAction,
+  formatWait,
+  pollDecryptBool,
+  readInvoiceSettlement,
+  secondsUntilOpenRelease,
+  type InvoiceSettlementState,
+} from "@/lib/invoice-settlement";
+
+import { escrowArbiterError } from "@/lib/escrow-rules";
 
 async function ensureVaultApproval(
   unifiedWrite: ReturnType<typeof useUnifiedWrite>["unifiedWrite"],
@@ -49,7 +61,7 @@ async function ensureVaultApproval(
   }
 }
 
-type Step = "idle" | "encrypting" | "approving" | "sending" | "success" | "error";
+type Step = "idle" | "encrypting" | "approving" | "sending" | "decrypting" | "success" | "error";
 
 export function useBusinessHub() {
   const { effectiveAddress: address } = useEffectiveAddress();
@@ -425,6 +437,13 @@ export function useBusinessHub() {
           toast.error("Enter an amount");
           return;
         }
+        // Mirrors the contract: an arbiter must be a third party, or it
+        // could decide its own dispute.
+        const arbiterErr = escrowArbiterError(arbiter, address, beneficiary);
+        if (arbiterErr) {
+          toast.error(arbiterErr);
+          return;
+        }
 
         clearTimeout(resetTimerRef.current);
         // Step 1: Approve BusinessHub to spend the underlying ERC20 (TestUSDC)
@@ -577,91 +596,173 @@ export function useBusinessHub() {
     [address, connected, step, unifiedWrite, unifiedWriteAndWait, publicClient, contracts]
   );
 
+  /** Payment mode, paid-at and refund state for one invoice. Null on read failure. */
+  const getInvoiceSettlement = useCallback(
+    async (invoiceId: number): Promise<InvoiceSettlementState | null> => {
+      if (!publicClient) return null;
+      try {
+        return await readInvoiceSettlement(publicClient, contracts.BusinessHub as `0x${string}`, invoiceId);
+      } catch (err) {
+        log.warn("useBusinessHub.getInvoiceSettlement.failed", err instanceof Error ? err : new Error(String(err)));
+        return null;
+      }
+    },
+    [publicClient, contracts],
+  );
+
+  /** When a BusinessHub escrow dispute opened (0 for disputes opened before
+   *  the timestamp was recorded; those count from the escrow deadline). */
+  const getEscrowDisputedAt = useCallback(
+    async (escrowId: number): Promise<number | null> => {
+      if (!publicClient) return null;
+      try {
+        const at = (await publicClient.readContract({
+          address: contracts.BusinessHub as `0x${string}`,
+          abi: BusinessHubAbi,
+          functionName: "escrowDisputedAt",
+          args: [BigInt(escrowId)],
+        })) as bigint;
+        return Number(at);
+      } catch {
+        return null;
+      }
+    },
+    [publicClient, contracts],
+  );
+
+  /**
+   * Settle a PaymentPending invoice with the finalize its payment mode
+   * accepts (see lib/invoice-settlement.ts). Direct: client calls
+   * payInvoiceFinalize. Escrow: client, or anyone after 7 days, calls
+   * releaseInvoiceEscrow. Legacy escrow: revalidate first. Other legacy
+   * payments: vendor calls payInvoiceFinalize.
+   */
   const finalizeInvoice = useCallback(
     async (invoiceId: number) => {
-      log.debug("useBusinessHub.finalizeInvoice.entry", { invoiceId, step, hasAddress: !!address, hasPublicClient: !!publicClient });
       if (!address || !publicClient) {
         toast.error("Connection lost");
         return;
       }
-      if (step !== "idle") {
-        log.debug("useBusinessHub.finalizeInvoice.bail", { step });
-        return;
-      }
+      if (step !== "idle") return;
 
       clearTimeout(resetTimerRef.current);
       setStep("sending");
+      const hub = contracts.BusinessHub as `0x${string}`;
       try {
-        // v0.1.3 finalize flow:
-        // 1. Read the validation handle (ebool) from the contract
-        // 2. Fetch off-chain decryption + Threshold Network signature
-        // 3. Submit (matchPlaintext, signature) to payInvoiceFinalize
-        log.debug("useBusinessHub.finalizeInvoice.readingHandle", { invoiceId });
+        const inv = (await publicClient.readContract({
+          address: hub,
+          abi: BusinessHubAbi,
+          functionName: "getInvoice",
+          args: [BigInt(invoiceId)],
+        })) as readonly [string, string, string, bigint, string, bigint, number];
+        if (Number(inv[6]) !== INVOICE_STATUS.PaymentPending) {
+          throw new Error("This invoice is not waiting to be finalized.");
+        }
+        const me = address.toLowerCase();
+        const isVendor = inv[0].toLowerCase() === me;
+        const isClient = inv[1].toLowerCase() === me;
+
+        const settlement = await readInvoiceSettlement(publicClient, hub, invoiceId);
+        let isLegacyEscrow = false;
+        if (settlement.mode === PAYMENT_MODE.Legacy) {
+          try {
+            await publicClient.simulateContract({
+              account: address as `0x${string}`,
+              address: hub,
+              abi: BusinessHubAbi,
+              functionName: "revalidateLegacyInvoiceEscrow",
+              args: [BigInt(invoiceId)],
+            });
+            isLegacyEscrow = true;
+          } catch {
+            isLegacyEscrow = false;
+          }
+        }
+        const block = await publicClient.getBlock();
+        const action = chooseFinalizeAction({
+          mode: settlement.mode,
+          paidAt: settlement.paidAt,
+          nowSeconds: Number(block.timestamp),
+          isClient,
+          isVendor,
+          isLegacyEscrow,
+        });
+        if (action.kind === "blocked") throw new Error(action.reason);
+
+        let viaEscrow = action.kind !== "payInvoiceFinalize";
+        if (action.kind === "revalidateThenRelease") {
+          const reval = await unifiedWriteAndWait({
+            address: hub,
+            abi: BusinessHubAbi,
+            functionName: "revalidateLegacyInvoiceEscrow",
+            args: [BigInt(invoiceId)],
+            gas: BigInt(3_000_000),
+          });
+          if (reval.receipt?.status === "reverted") throw new Error("Revalidation reverted on-chain");
+          if (!isClient) {
+            const after = await readInvoiceSettlement(publicClient, hub, invoiceId);
+            const wait = secondsUntilOpenRelease(after.paidAt, Number(block.timestamp));
+            if (wait > 0) {
+              throw new Error(`Payment check refreshed. Anyone can release it in ${formatWait(wait)}.`);
+            }
+          }
+          viaEscrow = true;
+        }
+
+        setStep("decrypting");
         const validationHandle = (await publicClient.readContract({
-          address: contracts.BusinessHub as `0x${string}`,
+          address: hub,
           abi: BusinessHubAbi,
           functionName: "getInvoiceValidationHandle",
           args: [BigInt(invoiceId)],
         })) as bigint;
-        log.debug("useBusinessHub.finalizeInvoice.validationHandle", { handle: validationHandle.toString() });
         if (!validationHandle || validationHandle === 0n) {
-          throw new Error("Invoice not paid yet — nothing to finalize");
+          throw new Error("Invoice not paid yet. Nothing to finalize.");
         }
+        const { value: matched, signature } = await pollDecryptBool(decryptForTx, validationHandle);
 
-        // Poll Threshold Network for the decrypted result (~10s typical)
-        const TIMEOUT_MS = 60_000;
-        const startedAt = Date.now();
-        let result: { decryptedValue: bigint | boolean; signature: `0x${string}` } | null = null;
-        while (Date.now() - startedAt < TIMEOUT_MS) {
-          result = await decryptForTx(validationHandle, "ebool");
-          if (result) break;
-          await new Promise((r) => setTimeout(r, 5000));
-        }
-        if (!result) {
-          throw new Error("Decryption timed out — try Finalize again in a moment");
-        }
-        const matchPlaintext =
-          typeof result.decryptedValue === "boolean"
-            ? result.decryptedValue
-            : result.decryptedValue !== 0n;
-
+        setStep("sending");
         const finalizeAaResult = await unifiedWriteAndWait({
-          address: contracts.BusinessHub as `0x${string}`,
+          address: hub,
           abi: BusinessHubAbi,
-          functionName: "payInvoiceFinalize",
-          args: [BigInt(invoiceId), matchPlaintext, result.signature],
+          functionName: viaEscrow ? "releaseInvoiceEscrow" : "payInvoiceFinalize",
+          args: [BigInt(invoiceId), matched, signature],
           gas: BigInt(5_000_000), // CoFHE: manual gas limit (precompile breaks estimation)
         });
         const hash = finalizeAaResult.hash;
         const finalizeReceipt = finalizeAaResult.receipt
           ? finalizeAaResult.receipt
-          : await publicClient.waitForTransactionReceipt({
-              hash, confirmations: 1, timeout: 300_000,
-            });
+          : await publicClient.waitForTransactionReceipt({ hash, confirmations: 1, timeout: 300_000 });
         if (finalizeReceipt.status === "reverted") {
           throw new Error("Transaction reverted on-chain");
         }
 
+        // Escrow mismatch refunds the payer (Cancelled). Direct mismatch
+        // leaves the funds with the vendor and marks the invoice Disputed.
+        const nextStatus = matched ? "paid" : viaEscrow ? "refunded" : "disputed";
         await insertActivity({
           tx_hash: hash,
           user_from: address.toLowerCase(),
           user_to: address.toLowerCase(),
           activity_type: ACTIVITY_TYPES.INVOICE_FINALIZED,
           contract_address: contracts.BusinessHub,
-          note: matchPlaintext
+          note: matched
             ? `Finalized invoice #${invoiceId}`
-            : `Finalized invoice #${invoiceId} (refunded — amount mismatch)`,
+            : viaEscrow
+              ? `Finalized invoice #${invoiceId} (refunded, amount mismatch)`
+              : `Finalized invoice #${invoiceId} (disputed, amount mismatch)`,
           token_address: contracts.FHERC20Vault_USDC,
           block_number: Number(finalizeReceipt.blockNumber),
         });
-
-        await updateInvoiceStatus(invoiceId, matchPlaintext ? "paid" : "refunded");
+        await updateInvoiceStatus(invoiceId, nextStatus);
 
         broadcastAction("balance_changed");
         broadcastAction("activity_added");
         invalidateBalanceQueries();
 
-        toast.success(matchPlaintext ? "Invoice finalized!" : "Invoice refunded. Amount mismatch.");
+        if (matched) toast.success("Invoice finalized. The vendor is paid.");
+        else if (viaEscrow) toast.success("Amount did not match. The payment went back to the payer.");
+        else toast.error("Amount did not match. The invoice is disputed and the vendor must refund it.");
         setStepWithReset("success", 6000);
       } catch (err) {
         log.error("useBusinessHub.finalizeInvoice.error", err instanceof Error ? err : new Error(String(err)));
@@ -669,7 +770,164 @@ export function useBusinessHub() {
         setStepWithReset("error", 5000);
       }
     },
+    [address, publicClient, unifiedWriteAndWait, step, decryptForTx, contracts]
+  );
+
+  /**
+   * Vendor refunds a Disputed direct payment. Two on-chain steps:
+   * refundDisputedInvoice moves what the vendor received back to the client,
+   * then finalizeDisputedRefund publishes the decrypted refunded == paid
+   * check. If a previous attempt stopped after step one, this resumes at
+   * step two. A false check (vendor balance or allowance short) leaves the
+   * invoice Disputed so the vendor can retry.
+   */
+  const refundDisputedInvoice = useCallback(
+    async (invoiceId: number) => {
+      if (!address || !publicClient) {
+        toast.error("Connection lost");
+        return;
+      }
+      if (step !== "idle") return;
+
+      clearTimeout(resetTimerRef.current);
+      const hub = contracts.BusinessHub as `0x${string}`;
+      try {
+        setStep("sending");
+        const inv = (await publicClient.readContract({
+          address: hub,
+          abi: BusinessHubAbi,
+          functionName: "getInvoice",
+          args: [BigInt(invoiceId)],
+        })) as readonly [string, string, string, bigint, string, bigint, number];
+        if (Number(inv[6]) !== INVOICE_STATUS.Disputed) throw new Error("This invoice is not disputed.");
+        if (inv[0].toLowerCase() !== address.toLowerCase()) throw new Error("Only the vendor can refund this invoice.");
+
+        const settlement = await readInvoiceSettlement(publicClient, hub, invoiceId);
+        if (!settlement.refundPending) {
+          setStep("approving");
+          if (!isVaultApproved(contracts.BusinessHub)) {
+            await ensureVaultApproval(unifiedWrite, inv[2] as `0x${string}`, hub);
+            markVaultApproved(contracts.BusinessHub);
+          }
+          setStep("sending");
+          const refund = await unifiedWriteAndWait({
+            address: hub,
+            abi: BusinessHubAbi,
+            functionName: "refundDisputedInvoice",
+            args: [BigInt(invoiceId)],
+            gas: BigInt(5_000_000),
+          });
+          const r1 = refund.receipt
+            ? refund.receipt
+            : await publicClient.waitForTransactionReceipt({ hash: refund.hash, confirmations: 1, timeout: 300_000 });
+          if (r1.status === "reverted") throw new Error("Refund reverted on-chain");
+        }
+
+        setStep("decrypting");
+        const checkHandle = (await publicClient.readContract({
+          address: hub,
+          abi: BusinessHubAbi,
+          functionName: "getInvoiceRefundCheckHandle",
+          args: [BigInt(invoiceId)],
+        })) as bigint;
+        if (!checkHandle || checkHandle === 0n) throw new Error("Refund check not found. Try the refund again.");
+        const { value: ok, signature } = await pollDecryptBool(decryptForTx, checkHandle);
+
+        setStep("sending");
+        const fin = await unifiedWriteAndWait({
+          address: hub,
+          abi: BusinessHubAbi,
+          functionName: "finalizeDisputedRefund",
+          args: [BigInt(invoiceId), ok, signature],
+          gas: BigInt(3_000_000),
+        });
+        const r2 = fin.receipt
+          ? fin.receipt
+          : await publicClient.waitForTransactionReceipt({ hash: fin.hash, confirmations: 1, timeout: 300_000 });
+        if (r2.status === "reverted") throw new Error("Refund finalize reverted on-chain");
+
+        if (ok) {
+          await updateInvoiceStatus(invoiceId, "refunded");
+          await insertActivity({
+            tx_hash: fin.hash,
+            user_from: address.toLowerCase(),
+            user_to: inv[1].toLowerCase(),
+            activity_type: ACTIVITY_TYPES.INVOICE_CANCELLED,
+            contract_address: contracts.BusinessHub,
+            note: `Refunded disputed invoice #${invoiceId}`,
+            token_address: contracts.FHERC20Vault_USDC,
+            block_number: Number(r2.blockNumber),
+          });
+          broadcastAction("balance_changed");
+          broadcastAction("activity_added");
+          invalidateBalanceQueries();
+          toast.success("Refund confirmed. The client has the full payment back.");
+          setStepWithReset("success", 6000);
+        } else {
+          // The vault moved 0: vendor balance or allowance was short.
+          clearVaultApproval(contracts.BusinessHub);
+          broadcastAction("balance_changed");
+          invalidateBalanceQueries();
+          toast.error("Refund did not go through. Your private balance or allowance was short. Top up, then refund again.");
+          setStepWithReset("error", 6000);
+        }
+      } catch (err) {
+        log.error("useBusinessHub.refundDisputedInvoice.error", err instanceof Error ? err : new Error(String(err)));
+        toastMappedError(err);
+        setStepWithReset("error", 5000);
+      }
+    },
     [address, publicClient, unifiedWrite, unifiedWriteAndWait, step, decryptForTx, contracts]
+  );
+
+  /** Disputed BusinessHub escrow the arbiter never decided: returns the
+   *  deposit to the depositor ESCROW_DISPUTE_TIMEOUT after the dispute.
+   *  Anyone may trigger it. */
+  const claimDisputeTimeout = useCallback(
+    async (escrowId: number) => {
+      if (!address || !publicClient) {
+        toast.error("Connection lost");
+        return;
+      }
+      if (step !== "idle") return;
+
+      clearTimeout(resetTimerRef.current);
+      setStep("sending");
+      try {
+        const res = await unifiedWriteAndWait({
+          address: contracts.BusinessHub as `0x${string}`,
+          abi: BusinessHubAbi,
+          functionName: "claimDisputeTimeout",
+          args: [BigInt(escrowId)],
+          gas: BigInt(1_000_000),
+        });
+        const receipt = res.receipt
+          ? res.receipt
+          : await publicClient.waitForTransactionReceipt({ hash: res.hash, confirmations: 1, timeout: 300_000 });
+        if (receipt.status === "reverted") throw new Error("Transaction reverted on-chain");
+
+        await updateEscrowStatus(escrowId, "expired");
+        await insertActivity({
+          tx_hash: res.hash,
+          user_from: address.toLowerCase(),
+          user_to: address.toLowerCase(),
+          activity_type: ACTIVITY_TYPES.ESCROW_EXPIRED_CLAIMED,
+          contract_address: contracts.BusinessHub,
+          note: `Dispute timed out, escrow #${escrowId} returned to depositor`,
+          token_address: contracts.FHERC20Vault_USDC,
+          block_number: Number(receipt.blockNumber),
+        });
+        broadcastAction("balance_changed");
+        broadcastAction("activity_added");
+        invalidateBalanceQueries();
+        toast.success("Dispute timed out. The deposit went back to the depositor.");
+        setStepWithReset("success", 6000);
+      } catch (err) {
+        toastMappedError(err);
+        setStepWithReset("error", 5000);
+      }
+    },
+    [address, publicClient, unifiedWriteAndWait, step, contracts],
   );
 
   const markDelivered = useCallback(
@@ -709,9 +967,27 @@ export function useBusinessHub() {
           block_number: Number(receipt.blockNumber),
         });
 
+        // If the depositor already approved, delivery releases the funds.
+        let released = false;
+        try {
+          const e = (await publicClient.readContract({
+            address: contracts.BusinessHub as `0x${string}`,
+            abi: BusinessHubAbi,
+            functionName: "getEscrow",
+            args: [BigInt(escrowId)],
+          })) as readonly [string, string, string, string, bigint, string, bigint, number];
+          released = Number(e[7]) === 1;
+        } catch {
+          released = false;
+        }
+        if (released) {
+          await updateEscrowStatus(escrowId, "released");
+          broadcastAction("balance_changed");
+          invalidateBalanceQueries();
+        }
         broadcastAction("activity_added");
 
-        toast.success("Marked as delivered!");
+        toast.success(released ? "Delivered. The escrow released to you." : "Marked as delivered!");
         setStepWithReset("success", 6000);
       } catch (err) {
         toastMappedError(err);
@@ -747,24 +1023,43 @@ export function useBusinessHub() {
           throw new Error("Transaction reverted on-chain");
         }
 
-        await updateEscrowStatus(escrowId, "released");
-
-        await insertActivity({
-          tx_hash: hash,
-          user_from: address.toLowerCase(),
-          user_to: address.toLowerCase(),
-          activity_type: ACTIVITY_TYPES.ESCROW_RELEASED,
-          contract_address: contracts.BusinessHub,
-          note: `Released escrow #${escrowId}`,
-          token_address: contracts.FHERC20Vault_USDC,
-          block_number: Number(receipt.blockNumber),
-        });
+        // approveRelease only pays out once the beneficiary has also marked
+        // delivery. Read the status instead of assuming it released.
+        let released = false;
+        try {
+          const e = (await publicClient.readContract({
+            address: contracts.BusinessHub as `0x${string}`,
+            abi: BusinessHubAbi,
+            functionName: "getEscrow",
+            args: [BigInt(escrowId)],
+          })) as readonly [string, string, string, string, bigint, string, bigint, number];
+          released = Number(e[7]) === 1;
+        } catch {
+          released = false;
+        }
+        if (released) {
+          await updateEscrowStatus(escrowId, "released");
+          await insertActivity({
+            tx_hash: hash,
+            user_from: address.toLowerCase(),
+            user_to: address.toLowerCase(),
+            activity_type: ACTIVITY_TYPES.ESCROW_RELEASED,
+            contract_address: contracts.BusinessHub,
+            note: `Released escrow #${escrowId}`,
+            token_address: contracts.FHERC20Vault_USDC,
+            block_number: Number(receipt.blockNumber),
+          });
+        }
 
         broadcastAction("balance_changed");
         broadcastAction("activity_added");
         invalidateBalanceQueries();
 
-        toast.success("Escrow funds released!");
+        toast.success(
+          released
+            ? "Escrow funds released!"
+            : "Release approved. Funds move when the beneficiary marks delivery.",
+        );
         setStepWithReset("success", 6000);
       } catch (err) {
         toastMappedError(err);
@@ -908,284 +1203,6 @@ export function useBusinessHub() {
         if (msg.includes("allowance") || msg.includes("approve") || msg.includes("insufficient") || msg.includes("transfer amount exceeds")) {
           clearVaultApproval(contracts.BusinessHub);
         }
-        setStepWithReset("error", 5000);
-        toast.error(msg);
-      }
-    },
-    [address, connected, step, encryptInputsAsync, unifiedWrite, unifiedWriteAndWait, publicClient, contracts]
-  );
-
-  /**
-   * Phase 5.6 — pay an invoice using ANY ERC-20 (USDT, WETH, etc.) by routing
-   * through Uniswap v3 SwapRouter02 to the invoice's underlying token (USDC).
-   * Mirrors `payInvoice` for the FHE encrypted-match flow — caller still
-   * provides `amount` (the invoice's USDC amount, off-chain decrypted) so
-   * the encryption verification gate is identical. Subsequent
-   * `payInvoiceFinalize` flips Paid/Disputed based on the FHE match result.
-   *
-   * Same-token short-circuit: if `payToken == FHERC20Vault_USDC.underlying()`
-   * (i.e. payer is paying USDC for a USDC invoice), the contract skips the
-   * Uniswap call entirely. We mirror that here by passing `payAmountInMax
-   * == expectedUsdcOut` — the contract enforces equality.
-   *
-   * Privacy trade-off: during the swap window the amount is publicly visible
-   * on Uniswap, AND the vendor receives plaintext USDC. Documented in the UI.
-   */
-  const payInvoiceWithSwap = useCallback(
-    async (params: {
-      invoiceId: number;
-      /** Caller's pay-token address (USDT / WETH / etc.). */
-      payToken: `0x${string}`;
-      /** Upper bound on payToken to spend. Sized as
-       *  `expectedUsdcOut * (current rate) * (1 + slippage)`. */
-      payAmountInMax: bigint;
-      /** Off-chain decrypted invoice amount in USDC (6 decimals). */
-      amount: string;
-      /** Uniswap v3 pool fee tier (3000 = 0.3% etc.). Ignored for same-token. */
-      fee: number;
-      /** SwapRouter02 address — caller passes UNISWAP_SWAP_ROUTER_02[chainId]. */
-      swapRouter: `0x${string}`;
-    }) => {
-      if (!address || !connected) {
-        toast.error("Please connect your wallet");
-        return;
-      }
-      if (step === "approving" || step === "encrypting" || step === "sending") return;
-      if (!publicClient) {
-        toast.error("Connection lost. Please refresh.");
-        return;
-      }
-      if (!params.amount || params.amount.trim() === "") {
-        toast.error("Enter the invoice amount");
-        return;
-      }
-
-      try {
-        clearTimeout(resetTimerRef.current);
-        setStep("approving");
-
-        // Approve BusinessHub to pull payToken from the user. Unlike the
-        // standard payInvoice which uses encrypted-vault approval, this path
-        // pulls plaintext payToken directly because the swap is on a public
-        // DEX. ERC-20 approve is exact (not max-uint64) — caller passes the
-        // upper bound that already includes the slippage budget.
-        const erc20Abi = [
-          {
-            type: "function",
-            name: "approve",
-            stateMutability: "nonpayable",
-            inputs: [
-              { name: "spender", type: "address" },
-              { name: "amount", type: "uint256" },
-            ],
-            outputs: [{ name: "", type: "bool" }],
-          },
-        ] as const;
-        const approveTx = await unifiedWrite({
-          address: params.payToken,
-          abi: erc20Abi,
-          functionName: "approve",
-          args: [contracts.BusinessHub as `0x${string}`, params.payAmountInMax],
-          gas: BigInt(120_000),
-        });
-        await publicClient.waitForTransactionReceipt({ hash: approveTx, confirmations: 1 });
-
-        setStep("encrypting");
-        const expectedUsdcOut = parseUnits(params.amount, 6);
-        const [encAmount, encAmountProof] = await encryptInputsAsync([Encryptable.uint64(expectedUsdcOut)],
-        contracts.BusinessHub as `0x${string}`);
-
-        setStep("sending");
-        const payResult = await unifiedWriteAndWait({
-          address: contracts.BusinessHub as `0x${string}`,
-          abi: BusinessHubAbi,
-          functionName: "payInvoiceWithSwap",
-          args: [
-            BigInt(params.invoiceId),
-            params.payToken,
-            params.payAmountInMax,
-            expectedUsdcOut,
-            params.fee,
-            params.swapRouter,
-            encAmount,
-          encAmountProof,],
-          // Higher gas budget than payInvoice — adds the Uniswap swap call
-          // plus an extra safeTransfer. 8M is conservative; FHE precompile
-          // can't be estimated so we have to pre-set.
-          gas: BigInt(8_000_000),
-        });
-        const hash = payResult.hash;
-        const receipt = payResult.receipt
-          ? payResult.receipt
-          : await publicClient.waitForTransactionReceipt({
-              hash, confirmations: 1, timeout: 300_000,
-            });
-        if (receipt.status === "reverted") {
-          throw new Error("Transaction reverted on-chain");
-        }
-
-        await updateInvoiceStatus(params.invoiceId, "payment_pending");
-
-        await insertActivity({
-          tx_hash: hash,
-          user_from: address.toLowerCase(),
-          user_to: address.toLowerCase(),
-          activity_type: ACTIVITY_TYPES.INVOICE_PAYMENT,
-          contract_address: contracts.BusinessHub,
-          note: `Paid invoice #${params.invoiceId} via swap`,
-          token_address: params.payToken,
-          block_number: Number(receipt.blockNumber),
-        });
-
-        broadcastAction("balance_changed");
-        broadcastAction("activity_added");
-        invalidateBalanceQueries();
-
-        setStepWithReset("success", 6000);
-        toast.success("Invoice payment submitted via swap!");
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : "Payment failed";
-        setStepWithReset("error", 5000);
-        toast.error(msg);
-      }
-    },
-    [address, connected, step, encryptInputsAsync, unifiedWrite, unifiedWriteAndWait, publicClient, contracts]
-  );
-
-  /**
-   * Phase 5.7 — pay an invoice using a token Uniswap doesn't have a
-   * pool for, via a backend-signed price quote. Caller fetches the
-   * quote from /api/oracle/quote, then passes the entire quote tuple
-   * + the signed bytes to this hook. Mirrors `payInvoiceWithSwap` in
-   * lifecycle (approve + encrypt + send + payment-pending).
-   */
-  const payInvoiceWithOracleQuote = useCallback(
-    async (params: {
-      invoiceId: number;
-      payToken: `0x${string}`;
-      /** Exact amount the caller is spending in payToken (smallest unit). */
-      payAmountIn: bigint;
-      /** USDC base units (6 decimals) that the contract will deliver to vendor. */
-      expectedUsdcOut: bigint;
-      /** Quote rate × 1e6 — must match what the backend signed. */
-      ratePpm: bigint;
-      /** Unix seconds quote expiry. */
-      expiresAt: number;
-      /** 32-byte hex nonce from the backend. */
-      nonce: `0x${string}`;
-      /** ECDSA signature from the backend (EIP-191 prefixed digest). */
-      signature: `0x${string}`;
-      /** Off-chain decrypted invoice amount in USDC (mirrors `payInvoice.amount`). */
-      amount: string;
-    }) => {
-      if (!address || !connected) {
-        toast.error("Please connect your wallet");
-        return;
-      }
-      if (step === "approving" || step === "encrypting" || step === "sending") return;
-      if (!publicClient) {
-        toast.error("Connection lost. Please refresh.");
-        return;
-      }
-      if (!params.amount || params.amount.trim() === "") {
-        toast.error("Enter the invoice amount");
-        return;
-      }
-
-      try {
-        clearTimeout(resetTimerRef.current);
-        setStep("approving");
-
-        // Approve BusinessHub to pull the EXACT payAmountIn — oracle
-        // path is no-refund (the contract pulls and uses precisely the
-        // signed amount; differential goes to the operator's payToken
-        // float, which is recouped via withdrawAccumulated).
-        const erc20Abi = [
-          {
-            type: "function",
-            name: "approve",
-            stateMutability: "nonpayable",
-            inputs: [
-              { name: "spender", type: "address" },
-              { name: "amount", type: "uint256" },
-            ],
-            outputs: [{ name: "", type: "bool" }],
-          },
-        ] as const;
-        const approveTx = await unifiedWrite({
-          address: params.payToken,
-          abi: erc20Abi,
-          functionName: "approve",
-          args: [contracts.BusinessHub as `0x${string}`, params.payAmountIn],
-          gas: BigInt(120_000),
-        });
-        await publicClient.waitForTransactionReceipt({ hash: approveTx, confirmations: 1 });
-
-        setStep("encrypting");
-        const expectedUsdcOut = parseUnits(params.amount, 6);
-        if (expectedUsdcOut !== params.expectedUsdcOut) {
-          throw new Error(
-            "amount mismatch — UI amount doesn't match the signed quote's expectedUsdcOut",
-          );
-        }
-        const [encAmount, encAmountProof] = await encryptInputsAsync([Encryptable.uint64(expectedUsdcOut)],
-        contracts.BusinessHub as `0x${string}`);
-
-        setStep("sending");
-        const payResult = await unifiedWriteAndWait({
-          address: contracts.BusinessHub as `0x${string}`,
-          abi: BusinessHubAbi,
-          functionName: "payInvoiceWithOracleQuote",
-          args: [
-            BigInt(params.invoiceId),
-            params.payToken,
-            params.payAmountIn,
-            params.expectedUsdcOut,
-            params.ratePpm,
-            BigInt(params.expiresAt),
-            params.nonce,
-            params.signature,
-            encAmount,
-          encAmountProof,],
-          // Oracle path: ECDSA recover (~3k) + FHE encrypt (~3M) +
-          // safeTransferFrom + safeTransfer + state writes. 8M is
-          // conservative; the contract has no Uniswap dependency here
-          // so most of the budget is the FHE precompile.
-          gas: BigInt(8_000_000),
-        });
-        const hash = payResult.hash;
-        const receipt = payResult.receipt
-          ? payResult.receipt
-          : await publicClient.waitForTransactionReceipt({
-              hash,
-              confirmations: 1,
-              timeout: 300_000,
-            });
-        if (receipt.status === "reverted") {
-          throw new Error("Transaction reverted on-chain");
-        }
-
-        await updateInvoiceStatus(params.invoiceId, "payment_pending");
-
-        await insertActivity({
-          tx_hash: hash,
-          user_from: address.toLowerCase(),
-          user_to: address.toLowerCase(),
-          activity_type: ACTIVITY_TYPES.INVOICE_PAYMENT,
-          contract_address: contracts.BusinessHub,
-          note: `Paid invoice #${params.invoiceId} via oracle-signed quote`,
-          token_address: params.payToken,
-          block_number: Number(receipt.blockNumber),
-        });
-
-        broadcastAction("balance_changed");
-        broadcastAction("activity_added");
-        invalidateBalanceQueries();
-
-        setStepWithReset("success", 6000);
-        toast.success("Invoice payment submitted via oracle quote!");
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : "Payment failed";
         setStepWithReset("error", 5000);
         toast.error(msg);
       }
@@ -1410,5 +1427,23 @@ export function useBusinessHub() {
 
   const reset = useCallback(() => setStep("idle"), []);
 
-  return { step, createInvoice, runPayroll, createEscrow, finalizeInvoice, markDelivered, approveRelease, disputeEscrow, payInvoice, payInvoiceWithSwap, payInvoiceWithOracleQuote, cancelInvoice, arbiterDecide, claimExpiredEscrow, reset };
+  return {
+    step,
+    createInvoice,
+    runPayroll,
+    createEscrow,
+    finalizeInvoice,
+    refundDisputedInvoice,
+    getInvoiceSettlement,
+    getEscrowDisputedAt,
+    markDelivered,
+    approveRelease,
+    disputeEscrow,
+    claimDisputeTimeout,
+    payInvoice,
+    cancelInvoice,
+    arbiterDecide,
+    claimExpiredEscrow,
+    reset,
+  };
 }

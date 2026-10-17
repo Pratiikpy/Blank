@@ -34,7 +34,13 @@ export default function Proofs() {
     useQualificationProof();
 
   const [thresholdInput, setThresholdInput] = useState<string>("");
-  const [proofKind, setProofKind] = useState<"income" | "balance">("income");
+  // ?kind=balance preselects the balance proof (the retired
+  // /app/proof-of-balance screen links here).
+  const [proofKind, setProofKind] = useState<"income" | "balance">(() =>
+    typeof window !== "undefined" && new URLSearchParams(window.location.search).get("kind") === "balance"
+      ? "balance"
+      : "income",
+  );
   // Auto-publish-on-create defaults ON so a fresh share link unfurls as
   // "Verified on-chain" instead of "Pending verification". The downside
   // is a second tx (the prover pays ~0.0001 ETH for publish on top of the

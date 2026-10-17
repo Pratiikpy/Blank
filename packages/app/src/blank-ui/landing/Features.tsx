@@ -327,9 +327,9 @@ const FEATURES: Feature[] = [
   {
     tag: "21. Privacy",
     name: "Balance proof",
-    pitch: "Prove your balance meets a threshold without revealing the amount. The chain stores an encrypted bool, and only the yes/no verdict gets published when you choose to reveal.",
+    pitch: "Prove your shielded balance meets a threshold without revealing the amount. The chain compares your encrypted vault balance to the threshold and publishes only the yes/no verdict.",
     scenario: "Rena proves she has at least $10K to a rental application without telling the landlord she actually has $73K.",
-    route: "/app/proof-of-balance",
+    route: "/app/proofs?kind=balance",
     preview: {
       kind: "badge",
       tier: "PASS",

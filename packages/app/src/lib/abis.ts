@@ -139,10 +139,22 @@ export const BusinessHubAbi = [
   // releaseInvoiceEscrow finalizes the encrypted-amount match check.
   { type: "function", name: "payInvoiceEscrow", inputs: [{ name: "invoiceId", type: "uint256" }, { name: "encAmount", type: "bytes32", internalType: "externalEuint64" }, { name: "proof", type: "bytes" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "releaseInvoiceEscrow", inputs: [{ name: "invoiceId", type: "uint256" }, { name: "matchPlaintext", type: "bool" }, { name: "signature", type: "bytes" }], outputs: [], stateMutability: "nonpayable" },
-  // PR-A vendor-cooperative refund for legacy payInvoice mismatches.
-  // §354 fix: amount param dropped; refund is protocol-enforced to the
-  // original invoice amount so the vendor cannot shortchange the client.
+  { type: "function", name: "revalidateLegacyInvoiceEscrow", inputs: [{ name: "invoiceId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
+  // Disputed direct payment refund, two steps: refundDisputedInvoice moves
+  // what the vendor received back to the client, then finalizeDisputedRefund
+  // publishes the decrypted refunded == paid check (Cancelled on true).
   { type: "function", name: "refundDisputedInvoice", inputs: [{ name: "invoiceId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "finalizeDisputedRefund", inputs: [{ name: "invoiceId", type: "uint256" }, { name: "okPlaintext", type: "bool" }, { name: "signature", type: "bytes" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "getInvoiceRefundCheckHandle", inputs: [{ name: "invoiceId", type: "uint256" }], outputs: [{ name: "", type: "uint256", internalType: "ebool" }], stateMutability: "view" },
+  { type: "function", name: "invoicePaymentMode", inputs: [{ name: "", type: "uint256" }], outputs: [{ name: "", type: "uint8", internalType: "enum BusinessHub.PaymentMode" }], stateMutability: "view" },
+  { type: "function", name: "invoicePaidAt", inputs: [{ name: "", type: "uint256" }], outputs: [{ name: "", type: "uint256" }], stateMutability: "view" },
+  { type: "function", name: "invoiceRefundPending", inputs: [{ name: "", type: "uint256" }], outputs: [{ name: "", type: "bool" }], stateMutability: "view" },
+  { type: "function", name: "invoicePaymentStartedBy", inputs: [{ name: "", type: "uint256" }], outputs: [{ name: "", type: "address" }], stateMutability: "view" },
+  { type: "function", name: "INVOICE_ESCROW_RELEASE_DELAY", inputs: [], outputs: [{ name: "", type: "uint256" }], stateMutability: "view" },
+  { type: "function", name: "ESCROW_DISPUTE_TIMEOUT", inputs: [], outputs: [{ name: "", type: "uint256" }], stateMutability: "view" },
+  { type: "function", name: "escrowToken", inputs: [{ name: "", type: "uint256" }], outputs: [{ name: "", type: "address" }], stateMutability: "view" },
+  { type: "function", name: "escrowDisputedAt", inputs: [{ name: "", type: "uint256" }], outputs: [{ name: "", type: "uint256" }], stateMutability: "view" },
+  { type: "function", name: "claimDisputeTimeout", inputs: [{ name: "escrowId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "cancelInvoice", inputs: [{ name: "invoiceId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "runPayroll", inputs: [{ name: "employees", type: "address[]" }, { name: "vault", type: "address" }, { name: "salaries", type: "bytes32[]", internalType: "externalEuint64[]" }, { name: "proof", type: "bytes" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "createEscrow", inputs: [{ name: "beneficiary", type: "address" }, { name: "vault", type: "address" }, { name: "plaintextAmount", type: "uint256" }, { name: "description", type: "string" }, { name: "arbiter", type: "address" }, { name: "deadline", type: "uint256" }], outputs: [{ name: "", type: "uint256" }], stateMutability: "nonpayable" },
@@ -178,6 +190,10 @@ export const BusinessHubAbi = [
   { type: "event", name: "EscrowDisputed", inputs: [{ name: "id", type: "uint256", indexed: true }, { name: "disputer", type: "address", indexed: true }, { name: "timestamp", type: "uint256", indexed: false }] },
   { type: "event", name: "EscrowExpiryClaimed", inputs: [{ name: "id", type: "uint256", indexed: true }, { name: "timestamp", type: "uint256", indexed: false }] },
   { type: "event", name: "EscrowArbiterDecided", inputs: [{ name: "id", type: "uint256", indexed: true }, { name: "releasedToBeneficiary", type: "bool", indexed: false }, { name: "timestamp", type: "uint256", indexed: false }] },
+  { type: "event", name: "EscrowDisputeTimedOut", inputs: [{ name: "id", type: "uint256", indexed: true }, { name: "timestamp", type: "uint256", indexed: false }] },
+  { type: "event", name: "InvoiceRefundInitiated", inputs: [{ name: "id", type: "uint256", indexed: true }, { name: "timestamp", type: "uint256", indexed: false }] },
+  { type: "event", name: "InvoiceRefundFailed", inputs: [{ name: "id", type: "uint256", indexed: true }, { name: "timestamp", type: "uint256", indexed: false }] },
+  { type: "event", name: "InvoiceEscrowRevalidated", inputs: [{ name: "id", type: "uint256", indexed: true }, { name: "timestamp", type: "uint256", indexed: false }] },
 ] as const;
 
 export const P2PExchangeAbi = [
@@ -288,7 +304,12 @@ export const StealthPaymentsAbi = [
 // ─── EncryptedFlags — Encrypted compliance flags, fee engine, access control ──
 // Source: contracts/EncryptedFlags.sol
 // Uses: ebool for encrypted booleans, euint8 for bitmasks, euint64 for fee calculations
+// Access: canSend / canReceive / calculateMerchantFee only for the user
+// themselves or an owner-authorized contract; checkAuditScope only for the
+// user or the auditor. No app screen calls these today.
 export const EncryptedFlagsAbi = [
+  { type: "function", name: "authorizedCallers", inputs: [{ name: "", type: "address" }], outputs: [{ name: "", type: "bool" }], stateMutability: "view" },
+  { type: "function", name: "BPS", inputs: [], outputs: [{ name: "", type: "uint64" }], stateMutability: "view" },
   // Encrypted boolean flag checks (returns ebool handle)
   { type: "function", name: "canSend", inputs: [{ name: "user", type: "address" }], outputs: [{ name: "", type: "uint256", internalType: "ebool" }], stateMutability: "nonpayable" },
   { type: "function", name: "canReceive", inputs: [{ name: "user", type: "address" }], outputs: [{ name: "", type: "uint256", internalType: "ebool" }], stateMutability: "nonpayable" },
@@ -308,6 +329,8 @@ export const EncryptedFlagsAbi = [
   { type: "event", name: "FlagSet", inputs: [{ name: "user", type: "address", indexed: true }, { name: "flagType", type: "string", indexed: false }, { name: "timestamp", type: "uint256", indexed: false }] },
   { type: "event", name: "AuditScopeSet", inputs: [{ name: "user", type: "address", indexed: true }, { name: "auditor", type: "address", indexed: true }, { name: "timestamp", type: "uint256", indexed: false }] },
   { type: "event", name: "FeeCalculated", inputs: [{ name: "user", type: "address", indexed: true }, { name: "timestamp", type: "uint256", indexed: false }] },
+  { type: "event", name: "AuthorizedCallerSet", inputs: [{ name: "caller", type: "address", indexed: true }, { name: "authorized", type: "bool", indexed: false }] },
+  { type: "event", name: "FeeRatesSet", inputs: [{ name: "baseFeeRate", type: "uint64", indexed: false }, { name: "merchantDiscount", type: "uint64", indexed: false }] },
 ] as const;
 
 // ─── PaymentReceipts — Cryptographic encrypted receipts for payments ──────────
@@ -654,6 +677,13 @@ export const EncryptedEscrowAbi = [
   { type: "function", name: "getUserEscrows", inputs: [{ name: "user", type: "address" }], outputs: [{ name: "", type: "uint256[]" }], stateMutability: "view" },
   { type: "function", name: "createConditionalEscrow", inputs: [{ name: "beneficiary", type: "address" }, { name: "vault", type: "address" }, { name: "encAmount", type: "bytes32", internalType: "externalEuint64" }, { name: "proof", type: "bytes" }, { name: "description", type: "string" }, { name: "resolver", type: "address" }, { name: "resolverData", type: "bytes" }, { name: "deadline", type: "uint256" }], outputs: [{ name: "escrowId", type: "uint256" }], stateMutability: "nonpayable" },
   { type: "function", name: "releaseIfConditionMet", inputs: [{ name: "escrowId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "claimDisputeTimeout", inputs: [{ name: "escrowId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "getDisputedAt", inputs: [{ name: "escrowId", type: "uint256" }], outputs: [{ name: "", type: "uint256" }], stateMutability: "view" },
+  { type: "function", name: "DISPUTE_TIMEOUT", inputs: [], outputs: [{ name: "", type: "uint256" }], stateMutability: "view" },
+  { type: "event", name: "EscrowRefunded", inputs: [
+    { name: "escrowId", type: "uint256", indexed: true },
+    { name: "depositor", type: "address", indexed: true },
+  ] },
   { type: "event", name: "EscrowCreated", inputs: [
     { name: "escrowId", type: "uint256", indexed: true },
     { name: "depositor", type: "address", indexed: true },
@@ -695,10 +725,43 @@ export const EncryptedEscrowAbi = [
 // ─── Conditional invoice — InvoiceApprovalResolver (Reineira standard) ──
 // Release rule for createConditionalEscrow: the escrow releases to the vendor
 // when the buyer (depositor) calls approve, or after autoReleaseDeadline.
+// Conditions are keyed by (escrow contract, escrowId). onConditionSet and
+// isConditionMet are called by the escrow itself, never by the app.
 export const InvoiceApprovalResolverAbi = [
-  { type: "function", name: "approve", inputs: [{ name: "escrowId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "approve", inputs: [{ name: "escrow", type: "address" }, { name: "escrowId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "approved", inputs: [{ name: "", type: "address" }, { name: "", type: "uint256" }], outputs: [{ name: "", type: "bool" }], stateMutability: "view" },
+  { type: "function", name: "getCondition", inputs: [{ name: "escrow", type: "address" }, { name: "escrowId", type: "uint256" }], outputs: [
+    { name: "buyer", type: "address" },
+    { name: "autoReleaseDeadline", type: "uint64" },
+    { name: "isApproved", type: "bool" },
+    { name: "deadlinePassed", type: "bool" },
+    { name: "set", type: "bool" },
+  ], stateMutability: "view" },
   { type: "function", name: "isConditionMet", inputs: [{ name: "escrowId", type: "uint256" }], outputs: [{ name: "", type: "bool" }], stateMutability: "view" },
-  { type: "function", name: "approved", inputs: [{ name: "escrowId", type: "uint256" }], outputs: [{ name: "", type: "bool" }], stateMutability: "view" },
+  { type: "function", name: "supportsInterface", inputs: [{ name: "interfaceId", type: "bytes4" }], outputs: [{ name: "", type: "bool" }], stateMutability: "view" },
+  { type: "event", name: "ConditionSet", inputs: [
+    { name: "escrow", type: "address", indexed: true },
+    { name: "escrowId", type: "uint256", indexed: true },
+    { name: "buyer", type: "address", indexed: true },
+    { name: "autoReleaseDeadline", type: "uint64", indexed: false },
+  ] },
+  { type: "event", name: "Approved", inputs: [
+    { name: "escrow", type: "address", indexed: true },
+    { name: "escrowId", type: "uint256", indexed: true },
+    { name: "buyer", type: "address", indexed: true },
+  ] },
+  { type: "error", name: "AlreadyConfigured", inputs: [{ name: "escrowId", type: "uint256" }] },
+  { type: "error", name: "NotConfigured", inputs: [{ name: "escrowId", type: "uint256" }] },
+  { type: "error", name: "InvalidBuyer", inputs: [] },
+  { type: "error", name: "InvalidDeadline", inputs: [] },
+  { type: "error", name: "NotBuyer", inputs: [{ name: "escrowId", type: "uint256" }] },
+] as const;
+
+// The resolver deployed before conditions were keyed by escrow contract.
+// EncryptedEscrow stores each escrow's resolver, so conditional invoices
+// created against this one are still approved through it.
+export const InvoiceApprovalResolverLegacyAbi = [
+  { type: "function", name: "approve", inputs: [{ name: "escrowId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "getCondition", inputs: [{ name: "escrowId", type: "uint256" }], outputs: [
     { name: "buyer", type: "address" },
     { name: "autoReleaseDeadline", type: "uint64" },
@@ -706,16 +769,6 @@ export const InvoiceApprovalResolverAbi = [
     { name: "deadlinePassed", type: "bool" },
     { name: "set", type: "bool" },
   ], stateMutability: "view" },
-  { type: "function", name: "boundEscrow", inputs: [{ name: "escrowId", type: "uint256" }], outputs: [{ name: "", type: "address" }], stateMutability: "view" },
-  { type: "event", name: "ConditionSet", inputs: [
-    { name: "escrowId", type: "uint256", indexed: true },
-    { name: "buyer", type: "address", indexed: true },
-    { name: "autoReleaseDeadline", type: "uint64", indexed: false },
-  ] },
-  { type: "event", name: "Approved", inputs: [
-    { name: "escrowId", type: "uint256", indexed: true },
-    { name: "buyer", type: "address", indexed: true },
-  ] },
 ] as const;
 
 // ─── Wave 5 Block 1 — Encrypted P2P offramp ────────────────────────────
@@ -884,21 +937,12 @@ export const GuardianModuleAbi = [
 
 // ─── Wave 5 Block 10 — ProofOfBalance ──────────────────────────────────
 //
-// Prove your encrypted balance is at or above a public threshold without
-// revealing the underlying value. Contract is live on Eth + Base Sepolia,
-// hardhat-tested, on-chain bytecode verified. Frontend hook + screen are
-// deferred to Wave 5.5 (operator-pending); this ABI export unblocks anyone
-// who wants to build that surface against the live deploys.
+// Retired. The "balance" was an encrypted input the prover chose, so a
+// verdict proved nothing about funds. createProof and revealProof revert;
+// only reads of records made before retirement remain. New balance proofs
+// use PaymentReceipts.proveBalanceAbove, which reads the vault balance.
 
 export const ProofOfBalanceAbi = [
-  { type: "function", name: "createProof", inputs: [{ name: "encBalance", type: "bytes32", internalType: "externalEuint64" }, { name: "proof", type: "bytes" }, { name: "thresholdMicroUSD", type: "uint64" }], outputs: [{ name: "proofId", type: "uint256" }], stateMutability: "nonpayable" },
-
-  { type: "function", name: "revealProof", inputs: [
-    { name: "proofId", type: "uint256" },
-    { name: "plaintext", type: "bool" },
-    { name: "signature", type: "bytes" },
-  ], outputs: [], stateMutability: "nonpayable" },
-
   { type: "function", name: "getProof", inputs: [{ name: "proofId", type: "uint256" }], outputs: [
     { name: "prover", type: "address" },
     { name: "thresholdMicroUSD", type: "uint64" },

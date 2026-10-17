@@ -189,14 +189,17 @@ resolves.`,
 
 Client side:
 
-1. Open the invoice link.
-2. Press Pay. Two paths:
-   - Direct pay (cheaper, less safe; vendor controls refund)
-   - Escrow pay (safer; funds released by vendor or refunded if
-     amount mismatch)
+1. Open the invoice link and press Pay via escrow. Funds sit in
+   BusinessHub until the encrypted amount check is decrypted.
+2. Press Finalize. On a match the vendor is paid; on a mismatch you
+   are refunded. If you never finalize, the vendor can after 7 days.
 
-Wave 4 anti-cheat fix: vendor refund can no longer pass a partial
-amount; the contract enforces the full original invoice amount.`,
+Paying from Business Tools is direct: funds go straight to the
+vendor. A mismatch marks the invoice disputed, and the vendor refunds
+what they received in two steps (refund, then confirm). It only counts
+as refunded once the chain confirms the full amount went back.
+
+Paying in another token (swap or oracle quote) is retired.`,
     cta: { label: "Open business tools", href: "/app/business" },
   },
 
@@ -206,21 +209,22 @@ amount; the contract enforces the full original invoice amount.`,
     category: "Wave 5",
     keywords: ["escrow", "milestone", "freelance", "arbiter", "release"],
     body:
-`Two-party encrypted escrow with optional arbiter. /app/escrow.
+`Two-party escrow with an optional arbiter, in Business Tools ->
+Escrow.
 
 Flow:
 
-1. Depositor creates an escrow with vault, beneficiary, encrypted
-   amount, deadline, optional arbiter.
-2. Beneficiary delivers off-chain and calls markDelivered.
-3. Depositor calls approveRelease -> funds release to beneficiary.
-4. Disputes route to arbiter (if set) or claimable by depositor
-   after deadline.
+1. Depositor creates an escrow with beneficiary, amount, deadline and
+   an optional arbiter. The arbiter must be a third party.
+2. Beneficiary delivers off-chain and marks it delivered.
+3. Depositor approves -> funds release to beneficiary.
+4. A dispute needs an arbiter. If the arbiter does not decide within
+   30 days, anyone can return the deposit to the depositor. Without
+   an arbiter, the depositor reclaims after the deadline.
 
-The legacy BusinessHub escrow stored amounts in plaintext. The new
-EncryptedEscrow stores everything as FHE handles. BusinessTools
-banner points to the new path.`,
-    cta: { label: "Open escrow", href: "/app/escrow" },
+Business Tools escrow amounts are public on chain. For an encrypted
+amount, use a conditional invoice (EncryptedEscrow, Arbitrum Sepolia).`,
+    cta: { label: "Open business tools", href: "/app/business" },
   },
 ];
 
