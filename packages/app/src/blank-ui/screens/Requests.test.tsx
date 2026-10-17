@@ -89,17 +89,19 @@ function req(over: Partial<PaymentRequestRow> = {}): PaymentRequestRow {
 let createRequestMock: ReturnType<typeof vi.fn>;
 let fulfillRequestMock: ReturnType<typeof vi.fn>;
 let cancelRequestMock: ReturnType<typeof vi.fn>;
+let finalizeRequestMock: ReturnType<typeof vi.fn>;
 let resetMock: ReturnType<typeof vi.fn>;
 let crossTabUnsubMock: ReturnType<typeof vi.fn>;
 
 function setHook(overrides: Partial<{
-  step: "idle" | "encrypting" | "sending" | "success" | "error";
+  step: "idle" | "encrypting" | "sending" | "settling" | "success" | "error";
   error: string | null;
 }> = {}) {
   useRequestPaymentMock.mockReturnValue({
     createRequest: createRequestMock,
     fulfillRequest: fulfillRequestMock,
     cancelRequest: cancelRequestMock,
+    finalizeRequest: finalizeRequestMock,
     step: overrides.step ?? "idle",
     error: overrides.error ?? null,
     reset: resetMock,
@@ -108,7 +110,7 @@ function setHook(overrides: Partial<{
 
 beforeEach(() => {
   useOnChainRequestsMock.mockReset();
-  useOnChainRequestsMock.mockReturnValue({ incoming: [], refresh: vi.fn() });
+  useOnChainRequestsMock.mockReturnValue({ incoming: [], settlingIds: new Set(), refresh: vi.fn() });
   useEffectiveAddressMock.mockReset();
   useNavigateMock.mockReset();
   useRequestPaymentMock.mockReset();
@@ -124,6 +126,7 @@ beforeEach(() => {
   createRequestMock = vi.fn().mockResolvedValue(undefined);
   fulfillRequestMock = vi.fn().mockResolvedValue(undefined);
   cancelRequestMock = vi.fn().mockResolvedValue(undefined);
+  finalizeRequestMock = vi.fn().mockResolvedValue("fulfilled");
   resetMock = vi.fn();
   setHook();
 
@@ -581,6 +584,7 @@ describe("Requests — on-chain incoming fallback (§15.x)", () => {
     fetchOutgoingRequestsMock.mockResolvedValue([]);
     useOnChainRequestsMock.mockReturnValue({
       incoming: [req({ request_id: 9, note: "read from the chain" })],
+      settlingIds: new Set(),
       refresh: vi.fn(),
     });
     const { container, findByText } = render(<Requests />);
@@ -595,6 +599,7 @@ describe("Requests — on-chain incoming fallback (§15.x)", () => {
     fetchOutgoingRequestsMock.mockResolvedValue([]);
     useOnChainRequestsMock.mockReturnValue({
       incoming: [req({ request_id: 4, note: "chain copy" })],
+      settlingIds: new Set(),
       refresh: vi.fn(),
     });
     const { container, findByText } = render(<Requests />);
@@ -614,6 +619,7 @@ describe("Requests — load failure (§15.x)", () => {
     fetchOutgoingRequestsMock.mockRejectedValue(new Error("offline"));
     useOnChainRequestsMock.mockReturnValue({
       incoming: [req({ request_id: 12, note: "still payable" })],
+      settlingIds: new Set(),
       refresh: vi.fn(),
     });
     const { container, findByText } = render(<Requests />);
@@ -622,5 +628,38 @@ describe("Requests — load failure (§15.x)", () => {
       expect(container.textContent).toContain("still payable");
     });
     expect(container.querySelector(".animate-pulse")).toBeNull();
+  });
+});
+
+describe("Requests: two-step settlement", () => {
+  it("CRITICAL a Settling request shows 'Finish payment' (not Pay) and finalizes without a new payment", async () => {
+    const refresh = vi.fn();
+    useOnChainRequestsMock.mockReturnValue({
+      incoming: [req({ request_id: 21, note: "half paid" })],
+      settlingIds: new Set([21]),
+      refresh,
+    });
+    const { findByText, queryByText } = render(<Requests />);
+    const btn = await findByText("Finish payment");
+    expect(queryByText(/^Pay$/)).toBeNull();
+    await act(async () => {
+      fireEvent.click(btn);
+      await Promise.resolve();
+    });
+    expect(finalizeRequestMock).toHaveBeenCalledWith(21, ALICE);
+    expect(fulfillRequestMock).not.toHaveBeenCalled();
+    expect(refresh).toHaveBeenCalled();
+  });
+
+  it("a Pending request still shows Pay", async () => {
+    useOnChainRequestsMock.mockReturnValue({
+      incoming: [req({ request_id: 22, note: "open" })],
+      settlingIds: new Set(),
+      refresh: vi.fn(),
+    });
+    const { container, queryByText } = render(<Requests />);
+    await waitFor(() => expect(container.textContent).toContain("open"));
+    expect(queryByText("Finish payment")).toBeNull();
+    expect(Array.from(container.querySelectorAll("button")).some((b) => b.textContent?.trim() === "Pay")).toBe(true);
   });
 });

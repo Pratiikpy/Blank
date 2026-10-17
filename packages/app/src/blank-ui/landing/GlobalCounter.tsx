@@ -4,23 +4,29 @@ import { Lock, Loader2 } from "lucide-react";
 import { useChain } from "@/providers/ChainProvider";
 import { PaymentReceiptsAbi } from "@/lib/abis";
 import { useCofheDecryptForView, useCofheConnection } from "@/lib/cofhe-shim";
+import { useUnifiedWrite } from "@/hooks/useUnifiedWrite";
 import { log } from "@/lib/log";
+import toast from "react-hot-toast";
 import "./global-counter.css";
 
 // ─────────────────────────────────────────────────────────────────────
 //  GlobalCounter — landing-page "$X moved encrypted" counter.
 //
 //  Reads PaymentReceipts.getGlobalVolumeHandle() and getGlobalTxCountHandle()
-//  on the active chain, decrypts both publicly via FHE.allowGlobal (no
-//  permit required — the SDK plumbing creates one transparently for the
-//  connected wallet, but the values themselves are public).
+//  on the active chain. Those return a daily public snapshot of the live
+//  totals (a live public total would leak each payment as the difference of
+//  two reads). The snapshot is the zero handle until the first
+//  publishGlobalSnapshot call, and anyone may publish a new one once per
+//  SNAPSHOT_INTERVAL. When it is missing or stale, the viewer can publish it.
 //
-//  Polls every 30s. Falls back to "—" if cofhe SDK isn't ready or the
+//  Polls every 30s. Falls back to a dash if the cofhe SDK isn't ready or the
 //  decrypt fails (e.g. wallet not connected, RPC blip).
 // ─────────────────────────────────────────────────────────────────────
 
 const POLL_MS = 30_000;
 const TOKEN_DECIMALS = 6;
+/** Matches PaymentReceipts.SNAPSHOT_INTERVAL (1 day). */
+const SNAPSHOT_INTERVAL_S = 86_400;
 
 export function GlobalCounter() {
   const { isConnected } = useAccount();
@@ -29,6 +35,7 @@ export function GlobalCounter() {
   const { activeChain, activeChainId, contracts, availableChains, setActiveChain } = useChain();
   const { connected: cofheReady } = useCofheConnection();
   const { decryptForView } = useCofheDecryptForView();
+  const { unifiedWriteAndWait } = useUnifiedWrite();
 
   // Force the public client onto the *active* chain (the tab the user
   // selected), not whatever the wallet happens to be on. Otherwise we
@@ -40,6 +47,9 @@ export function GlobalCounter() {
   const [volume, setVolume] = useState<bigint | null>(null);
   const [txCount, setTxCount] = useState<bigint | null>(null);
   const [loading, setLoading] = useState(true);
+  /** Unix seconds of the last public snapshot; 0 = none yet; null = unknown. */
+  const [snapshotAt, setSnapshotAt] = useState<number | null>(null);
+  const [publishing, setPublishing] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!publicClient) return;
@@ -51,6 +61,14 @@ export function GlobalCounter() {
       return;
     }
     try {
+      // Pre-snapshot deployments lack the view; keep the counter working.
+      const lastAt = await (publicClient.readContract({
+        address: contracts.PaymentReceipts,
+        abi: PaymentReceiptsAbi,
+        functionName: "lastSnapshotAt",
+      }) as Promise<bigint>).catch(() => null);
+      setSnapshotAt(lastAt === null ? null : Number(lastAt));
+
       const [volHandle, cntHandle] = await Promise.all([
         publicClient.readContract({
           address: contracts.PaymentReceipts,
@@ -64,8 +82,10 @@ export function GlobalCounter() {
         }) as Promise<bigint>,
       ]);
 
-      // Both handles must be non-zero — they are after init.
+      // Zero handle = no snapshot published yet. Show that, not a spinner.
       if (!volHandle || !cntHandle) {
+        setVolume(null);
+        setTxCount(null);
         setLoading(false);
         return;
       }
@@ -105,6 +125,32 @@ export function GlobalCounter() {
   const volumeUSD =
     volume !== null ? Number(volume) / 10 ** TOKEN_DECIMALS : null;
 
+  const nowS = Math.floor(Date.now() / 1000);
+  const noSnapshot = snapshotAt === 0;
+  const snapshotStale = snapshotAt !== null && (snapshotAt === 0 || nowS >= snapshotAt + SNAPSHOT_INTERVAL_S);
+
+  const publishSnapshot = useCallback(async () => {
+    if (publishing) return;
+    setPublishing(true);
+    const toastId = toast.loading("Publishing today's totals...");
+    try {
+      await unifiedWriteAndWait({
+        address: contracts.PaymentReceipts,
+        abi: PaymentReceiptsAbi,
+        functionName: "publishGlobalSnapshot",
+        args: [],
+        gas: BigInt(1_000_000),
+      });
+      toast.success("Totals published", { id: toastId });
+      await refresh();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      toast.error(msg.includes("too soon") ? "Already published in the last 24 hours" : "Could not publish totals", { id: toastId });
+    } finally {
+      setPublishing(false);
+    }
+  }, [publishing, unifiedWriteAndWait, contracts, refresh]);
+
   return (
     <section className="gc-section" aria-label="Live encrypted volume">
       <div className="gc-eyebrow">Live · {activeChain.shortName}</div>
@@ -142,6 +188,8 @@ export function GlobalCounter() {
               <span className="gc-hint">Switch wallet to {activeChain.name}</span>
             ) : loading && volumeUSD === null ? (
               <Loader2 size={28} className="animate-spin opacity-30" />
+            ) : noSnapshot ? (
+              <span className="gc-hint">No totals published yet</span>
             ) : volumeUSD !== null ? (
               <>
                 <span className="gc-currency">$</span>
@@ -176,6 +224,17 @@ export function GlobalCounter() {
         </div>
       </div>
 
+      {isConnected && !chainMismatch && snapshotStale && (
+        <button
+          type="button"
+          className="gc-switch-cta"
+          onClick={publishSnapshot}
+          disabled={publishing}
+        >
+          {publishing ? "Publishing..." : noSnapshot ? "Publish the first totals" : "Publish today's totals"}
+        </button>
+      )}
+
       {chainMismatch && (
         <button
           type="button"
@@ -188,9 +247,12 @@ export function GlobalCounter() {
 
       <p className="gc-caption">
         <Lock size={13} className="inline-block -mt-0.5 mr-1 opacity-60" />
-        Per-transaction amounts are encrypted on-chain. The aggregate is
-        published publicly via <code>FHE.allowGlobal</code>: anyone can
-        verify the total without learning any individual amount.
+        Per-transaction amounts are encrypted on-chain. The totals are
+        published at most once a day via <code>FHE.allowGlobal</code>, so a
+        difference between two snapshots covers a whole day, not one payment.
+        {snapshotAt !== null && snapshotAt > 0 && (
+          <> Last published {new Date(snapshotAt * 1000).toLocaleString()}.</>
+        )}
         {!isConnected && (
           <span className="gc-hint"> · Connect a wallet to see live data.</span>
         )}

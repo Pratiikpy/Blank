@@ -36,6 +36,7 @@ const useUnifiedWriteMock = vi.hoisted(() => vi.fn());
 const useBurnerAccountsMock = vi.hoisted(() => vi.fn());
 const encryptBlobMock = vi.hoisted(() => vi.fn());
 const recoverBurnersFromEventsMock = vi.hoisted(() => vi.fn());
+const deriveBackupTagMock = vi.hoisted(() => vi.fn());
 const toastErrorMock = vi.hoisted(() => vi.fn());
 const toastSuccessMock = vi.hoisted(() => vi.fn());
 
@@ -51,6 +52,7 @@ vi.mock("@/hooks/useUnifiedWrite", () => ({ useUnifiedWrite: useUnifiedWriteMock
 vi.mock("@/lib/burner-registry", () => ({
   BurnerRegistryAbi: [],
   encryptBlob: encryptBlobMock,
+  deriveBackupTag: deriveBackupTagMock,
   recoverBurnersFromEvents: recoverBurnersFromEventsMock,
 }));
 vi.mock("qrcode.react", () => ({
@@ -157,6 +159,8 @@ beforeEach(() => {
   useUnifiedWriteMock.mockReturnValue({ unifiedWrite: unifiedWriteMock });
   usePublicClientMock.mockReturnValue({});
   encryptBlobMock.mockResolvedValue("0xciphertext");
+  deriveBackupTagMock.mockReset();
+  deriveBackupTagMock.mockResolvedValue("0x" + "7a".repeat(32));
   recoverBurnersFromEventsMock.mockResolvedValue({ records: [], failedCount: 0 });
 
   // Stub clipboard for copy tests.
@@ -621,6 +625,27 @@ describe("Burners — backup modal (§15.x)", () => {
     expect(payload.salt).toBe("0x" + "ee".repeat(32));
     expect(payload.label).toBe("My burner");
     expect(payload.createdAt).toBe(1700000000);
+    // v2: the burner address travels inside the ciphertext only.
+    expect(payload.burner).toBe(burner.address);
+  });
+
+  it("CRITICAL setMetadata is keyed by the opaque tag, never the burner address", async () => {
+    const burner = buildBurner({ id: "b1", label: "Private" });
+    setBurners([burner]);
+    const { getByTestId } = render(<Burners />);
+    fireEvent.click(getByTestId("burner-backup-b1"));
+    fireEvent.change(getByTestId("burner-backup-passphrase"), { target: { value: "longpassphrase12" } });
+    await act(async () => {
+      fireEvent.click(getByTestId("burner-backup-confirm"));
+      for (let i = 0; i < 5; i++) await Promise.resolve();
+    });
+    expect(deriveBackupTagMock).toHaveBeenCalledWith("longpassphrase12", expect.any(String), "b1");
+    expect(unifiedWriteMock).toHaveBeenCalledTimes(1);
+    const call = unifiedWriteMock.mock.calls[0][0];
+    expect(call.functionName).toBe("setMetadata");
+    expect(call.args[0]).toBe("0x" + "7a".repeat(32));
+    expect(call.args[1]).toBe("0xciphertext");
+    expect(JSON.stringify(call.args).toLowerCase()).not.toContain(String(burner.address).slice(2).toLowerCase());
   });
 });
 

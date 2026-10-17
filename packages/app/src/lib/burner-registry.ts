@@ -19,27 +19,28 @@
 // they forget it, the backup is unrecoverable (but the on-chain ciphertext
 // stays useless). Localized in a single modal, surfaced once per session.
 //
+// On-chain shape (BurnerRegistry v2): records are keyed by (owner, tag).
+// The tag is HMAC-SHA256(tagKey, burnerId) where tagKey is derived from
+// the passphrase and the owner address, so only the passphrase holder can
+// link a tag to a burner. The burner address lives only inside the
+// encrypted blob. Observers see that the owner keeps N backups, nothing more.
+//
 // Recovery flow (fresh device):
 //   1. User enters passphrase (same one they used at backup time).
-//   2. Filter `MetadataSet` events by their main address → list of
-//      (burner, ciphertext) pairs across history. The contract events
-//      include the FULL ciphertext as event data, so we never re-read
-//      storage during recovery.
-//   3. For each event, decrypt the ciphertext envelope to recover
-//      { label, salt, notes, createdAt }.
-//   4. Reconstruct the local burners[] list. Most-recent event wins for
-//      each burner (handles re-set / clear-then-reset cycles).
-//   5. Apply MetadataCleared events to remove burners cleared since.
+//   2. Filter `BackupSet` events by their main address. Each event carries
+//      the full ciphertext, so storage is never re-read.
+//   3. Latest event per tag wins; a later `BackupCleared` removes the tag.
+//   4. Decrypt each surviving blob to { id, salt, label, burner, createdAt }.
 
 import { type Address, type PublicClient, parseAbiItem } from "viem";
 
 // Inline event types for viem's getLogs typing — `getLogs({ event: ... })`
 // only narrows args correctly when the event is a literal AbiItem.
-const METADATA_SET_EVENT = parseAbiItem(
-  "event MetadataSet(address indexed owner, address indexed burner, bytes encryptedBlob, uint256 timestamp)",
+const BACKUP_SET_EVENT = parseAbiItem(
+  "event BackupSet(address indexed owner, bytes32 indexed tag, bytes encryptedBlob, uint256 timestamp)",
 );
-const METADATA_CLEARED_EVENT = parseAbiItem(
-  "event MetadataCleared(address indexed owner, address indexed burner, uint256 timestamp)",
+const BACKUP_CLEARED_EVENT = parseAbiItem(
+  "event BackupCleared(address indexed owner, bytes32 indexed tag, uint256 timestamp)",
 );
 
 /** Stored format of a burner record on-chain (after decrypt). Mirrors the
@@ -54,6 +55,9 @@ export interface BurnerBackupPayload {
   label: string;
   /** Unix ms. */
   createdAt: number;
+  /** Burner AA address. Kept inside the ciphertext only; never on-chain in
+   *  the clear. Optional for type compatibility with older payloads. */
+  burner?: string;
   /** Optional free-form notes — reserved for future UI. */
   notes?: string;
 }
@@ -65,14 +69,14 @@ const PBKDF2_ITERATIONS = 200_000;
 const KEY_BITS = 256;
 const ENC_VERSION = 0x01;
 
-/** BurnerRegistry minimal ABI surface — just what the lib calls. */
+/** BurnerRegistry v2 ABI surface. Source: contracts/BurnerRegistry.sol. */
 export const BurnerRegistryAbi = [
   {
     type: "function",
     name: "setMetadata",
     stateMutability: "nonpayable",
     inputs: [
-      { name: "burner", type: "address" },
+      { name: "tag", type: "bytes32" },
       { name: "encryptedBlob", type: "bytes" },
     ],
     outputs: [],
@@ -81,25 +85,45 @@ export const BurnerRegistryAbi = [
     type: "function",
     name: "clearMetadata",
     stateMutability: "nonpayable",
-    inputs: [{ name: "burner", type: "address" }],
+    inputs: [{ name: "tag", type: "bytes32" }],
     outputs: [],
   },
   {
+    type: "function",
+    name: "getMetadata",
+    stateMutability: "view",
+    inputs: [
+      { name: "owner", type: "address" },
+      { name: "tag", type: "bytes32" },
+    ],
+    outputs: [{ name: "", type: "bytes" }],
+  },
+  {
+    type: "function",
+    name: "hasMetadata",
+    stateMutability: "view",
+    inputs: [
+      { name: "owner", type: "address" },
+      { name: "tag", type: "bytes32" },
+    ],
+    outputs: [{ name: "", type: "bool" }],
+  },
+  {
     type: "event",
-    name: "MetadataSet",
+    name: "BackupSet",
     inputs: [
       { name: "owner", type: "address", indexed: true },
-      { name: "burner", type: "address", indexed: true },
+      { name: "tag", type: "bytes32", indexed: true },
       { name: "encryptedBlob", type: "bytes", indexed: false },
       { name: "timestamp", type: "uint256", indexed: false },
     ],
   },
   {
     type: "event",
-    name: "MetadataCleared",
+    name: "BackupCleared",
     inputs: [
       { name: "owner", type: "address", indexed: true },
-      { name: "burner", type: "address", indexed: true },
+      { name: "tag", type: "bytes32", indexed: true },
       { name: "timestamp", type: "uint256", indexed: false },
     ],
   },
@@ -170,6 +194,38 @@ function fromHex(hex: string): Uint8Array {
 }
 
 // ─── Public surface ──────────────────────────────────────────────────────
+
+const TAG_DOMAIN = "BLANK_BURNER_TAG_v1";
+
+/** Opaque registry tag for one burner: HMAC-SHA256(tagKey, burnerId), where
+ *  tagKey = PBKDF2(passphrase, SHA-256(domain || owner)). Deterministic for
+ *  the same (passphrase, owner, burnerId), so a re-backup overwrites the
+ *  same slot and a clear can find it. Unlinkable to the burner without the
+ *  passphrase. */
+export async function deriveBackupTag(
+  passphrase: string,
+  owner: string,
+  burnerId: string,
+): Promise<`0x${string}`> {
+  if (!passphrase || passphrase.length < 12) {
+    throw new Error("Passphrase must be at least 12 characters");
+  }
+  const subtle = getCrypto();
+  const enc = new TextEncoder();
+  const salt = new Uint8Array(
+    await subtle.digest("SHA-256", enc.encode(`${TAG_DOMAIN}:${owner.toLowerCase()}`) as BufferSource),
+  );
+  const baseKey = await subtle.importKey("raw", enc.encode(passphrase), "PBKDF2", false, ["deriveKey"]);
+  const hmacKey = await subtle.deriveKey(
+    { name: "PBKDF2", salt: salt as BufferSource, iterations: PBKDF2_ITERATIONS, hash: "SHA-256" },
+    baseKey,
+    { name: "HMAC", hash: "SHA-256", length: 256 },
+    false,
+    ["sign"],
+  );
+  const mac = new Uint8Array(await subtle.sign("HMAC", hmacKey, enc.encode(burnerId) as BufferSource));
+  return toHex(mac);
+}
 
 /** Encrypt a backup payload. Returns a hex string suitable for passing
  *  directly to BurnerRegistry.setMetadata. Each call generates a fresh
@@ -274,12 +330,12 @@ export async function recoverBurnersFromEvents(args: {
     throw new Error("BurnerRegistry not deployed on this chain yet");
   }
 
-  // Latest-write-wins keyed by burner address. We track both blockNumber
+  // Latest-write-wins keyed by tag. We track both blockNumber
   // and logIndex so that two events in the SAME block (e.g. a paymaster
   // batch that re-set the same burner twice) order by log position the
   // way the chain itself orders them — strict > on blockNumber alone
   // would silently drop the later event in the same block.
-  const latestByBurner = new Map<
+  const latestByTag = new Map<
     string,
     | { kind: "set"; ciphertext: `0x${string}`; blockNumber: bigint; logIndex: number }
     | { kind: "cleared"; blockNumber: bigint; logIndex: number }
@@ -298,44 +354,44 @@ export async function recoverBurnersFromEvents(args: {
 
   const setLogs = await args.publicClient.getLogs({
     address: args.registryAddress,
-    event: METADATA_SET_EVENT,
+    event: BACKUP_SET_EVENT,
     args: { owner: args.mainAddress },
     fromBlock: args.fromBlock ?? "earliest",
     toBlock: args.toBlock ?? "latest",
   });
   for (const log of setLogs) {
-    const burnerRaw = log.args.burner;
+    const tagRaw = log.args.tag;
     const blob = log.args.encryptedBlob;
-    if (!burnerRaw || !blob) continue;
-    const burner = burnerRaw.toLowerCase();
+    if (!tagRaw || !blob) continue;
+    const tag = tagRaw.toLowerCase();
     const blockNumber = log.blockNumber ?? 0n;
     const logIndex = log.logIndex ?? 0;
-    if (isLater(latestByBurner.get(burner), blockNumber, logIndex)) {
-      latestByBurner.set(burner, { kind: "set", ciphertext: blob, blockNumber, logIndex });
+    if (isLater(latestByTag.get(tag), blockNumber, logIndex)) {
+      latestByTag.set(tag, { kind: "set", ciphertext: blob, blockNumber, logIndex });
     }
   }
 
   const clearLogs = await args.publicClient.getLogs({
     address: args.registryAddress,
-    event: METADATA_CLEARED_EVENT,
+    event: BACKUP_CLEARED_EVENT,
     args: { owner: args.mainAddress },
     fromBlock: args.fromBlock ?? "earliest",
     toBlock: args.toBlock ?? "latest",
   });
   for (const log of clearLogs) {
-    const burnerRaw = log.args.burner;
-    if (!burnerRaw) continue;
-    const burner = burnerRaw.toLowerCase();
+    const tagRaw = log.args.tag;
+    if (!tagRaw) continue;
+    const tag = tagRaw.toLowerCase();
     const blockNumber = log.blockNumber ?? 0n;
     const logIndex = log.logIndex ?? 0;
-    if (isLater(latestByBurner.get(burner), blockNumber, logIndex)) {
-      latestByBurner.set(burner, { kind: "cleared", blockNumber, logIndex });
+    if (isLater(latestByTag.get(tag), blockNumber, logIndex)) {
+      latestByTag.set(tag, { kind: "cleared", blockNumber, logIndex });
     }
   }
 
   const records: BurnerBackupPayload[] = [];
   let failedCount = 0;
-  for (const entry of latestByBurner.values()) {
+  for (const entry of latestByTag.values()) {
     if (entry.kind === "cleared") continue;
     try {
       const payload = await decryptBlob(entry.ciphertext, args.passphrase);

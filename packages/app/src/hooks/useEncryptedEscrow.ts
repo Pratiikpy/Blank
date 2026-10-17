@@ -46,6 +46,7 @@ const FRIENDLY_LABEL: Record<string, string> = {
   disputeEscrow: "Dispute opened",
   claimExpiredEscrow: "Escrow refunded after deadline",
   arbiterDecide: "Arbiter decision recorded",
+  claimDisputeTimeout: "Dispute timed out. Funds returned to you",
   releaseIfConditionMet: "Funds released",
 };
 
@@ -308,6 +309,7 @@ export function useEncryptedEscrow() {
         | "approveRelease"
         | "disputeEscrow"
         | "claimExpiredEscrow"
+        | "claimDisputeTimeout"
         | "arbiterDecide"
         | "releaseIfConditionMet",
       args: readonly unknown[],
@@ -352,6 +354,30 @@ export function useEncryptedEscrow() {
   const arbiterDecide = useCallback(
     (id: number, releaseToBeneficiary: boolean) => callSimple("arbiterDecide", [BigInt(id), releaseToBeneficiary]),
     [callSimple],
+  );
+  // Depositor exit when the arbiter never rules: DISPUTE_TIMEOUT (30 days)
+  // after the dispute opened, funds go back and the status is Refunded.
+  const claimDisputeTimeout = useCallback((id: number) => callSimple("claimDisputeTimeout", [BigInt(id)]), [callSimple]);
+
+  /** Unix seconds after which claimDisputeTimeout succeeds, or null if the
+   *  escrow is not disputed. Pre-upgrade disputes carry no timestamp and
+   *  count from the deadline, matching the contract. */
+  const fetchDisputeTimeoutAt = useCallback(
+    async (id: number): Promise<bigint | null> => {
+      const ee = contracts.EncryptedEscrow as `0x${string}`;
+      if (!publicClient || !ee || ee === ZERO_ADDRESS) return null;
+      const [disputedAt, timeout, escrow] = await Promise.all([
+        publicClient.readContract({ address: ee, abi: EncryptedEscrowAbi, functionName: "getDisputedAt", args: [BigInt(id)] }) as Promise<bigint>,
+        publicClient.readContract({ address: ee, abi: EncryptedEscrowAbi, functionName: "DISPUTE_TIMEOUT" }) as Promise<bigint>,
+        publicClient.readContract({ address: ee, abi: EncryptedEscrowAbi, functionName: "getEscrow", args: [BigInt(id)] }) as Promise<
+          readonly [`0x${string}`, `0x${string}`, `0x${string}`, `0x${string}`, bigint, boolean, boolean, number, string, bigint]
+        >,
+      ]);
+      if (escrow[7] !== ESCROW_STATUS.Disputed) return null;
+      const start = disputedAt === 0n ? escrow[4] : disputedAt;
+      return start + timeout;
+    },
+    [contracts.EncryptedEscrow, publicClient],
   );
 
   // Conditional-invoice actions. approveInvoice writes to the resolver; the
@@ -407,6 +433,8 @@ export function useEncryptedEscrow() {
     approveRelease,
     disputeEscrow,
     claimExpiredEscrow,
+    claimDisputeTimeout,
+    fetchDisputeTimeoutAt,
     arbiterDecide,
     reset,
   };

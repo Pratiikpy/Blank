@@ -3,7 +3,7 @@ import { usePublicClient } from "wagmi";
 import { useEffectiveAddress } from "./useEffectiveAddress";
 import { useUnifiedWrite } from "./useUnifiedWrite";
 import { parseUnits } from "viem";
-import { useCofheEncrypt, useCofheConnection, ENCRYPTION_NOT_READY } from "@/lib/cofhe-shim";
+import { useCofheEncrypt, useCofheConnection, useCofheDecryptForTx, ENCRYPTION_NOT_READY } from "@/lib/cofhe-shim";
 import { Encryptable } from "@/lib/cofhe-shim";
 import toast from "react-hot-toast";
 import { log } from "@/lib/log";
@@ -43,7 +43,15 @@ async function ensureVaultApproval(
   }
 }
 
-export type RequestStep = "input" | "encrypting" | "sending" | "success" | "error";
+// "settling" = fulfillRequest mined (request is Settling on-chain); the hook
+// is decrypting getFulfillCheck and calling finalizeRequest.
+export type RequestStep = "input" | "encrypting" | "sending" | "settling" | "success" | "error";
+
+/** How long to poll the Threshold Network for the fulfil-check decrypt. */
+const FINALIZE_DECRYPT_TIMEOUT_MS = 90_000;
+const FINALIZE_POLL_MS = 5_000;
+
+export type FinalizeOutcome = "fulfilled" | "failed";
 
 export function useRequestPayment() {
   const { effectiveAddress: address } = useEffectiveAddress();
@@ -57,6 +65,75 @@ export function useRequestPayment() {
   const { encryptInputsAsync } = useCofheEncrypt();
   const { unifiedWrite, unifiedWriteAndWait } = useUnifiedWrite();
   const { signEmailAuth } = useEmailAuthSigner();
+  const { decryptForTx } = useCofheDecryptForTx();
+
+  // Step 2 of paying a request. Decrypt the public ebool "moved ==
+  // requested" from getFulfillCheck and publish it via finalizeRequest.
+  // true: the request is Fulfilled. false: nothing moved and the request is
+  // Pending again. Throws on timeout or revert; the request then stays
+  // Settling on-chain and can be finished later from the inbox.
+  const settleRequest = useCallback(
+    async (reqId: number): Promise<{ outcome: FinalizeOutcome; hash: `0x${string}`; blockNumber: bigint }> => {
+      if (!publicClient) throw new Error("Connection lost. Please refresh.");
+      const hub = contracts.PaymentHub as `0x${string}`;
+      const handle = (await publicClient.readContract({
+        address: hub,
+        abi: PaymentHubAbi,
+        functionName: "getFulfillCheck",
+        args: [BigInt(reqId)],
+      })) as bigint;
+      if (!handle || handle === 0n) throw new Error("This request has no payment to settle");
+
+      const startedAt = Date.now();
+      let proof: { decryptedValue: bigint | boolean; signature: `0x${string}` } | null = null;
+      while (Date.now() - startedAt < FINALIZE_DECRYPT_TIMEOUT_MS) {
+        proof = await decryptForTx(handle, "ebool");
+        if (proof) break;
+        await new Promise((r) => setTimeout(r, FINALIZE_POLL_MS));
+      }
+      if (!proof) {
+        throw new Error("Payment sent, but the settlement check is not ready yet. Finish it from Requests in a minute.");
+      }
+      const paid = typeof proof.decryptedValue === "boolean" ? proof.decryptedValue : proof.decryptedValue !== 0n;
+
+      const result = await unifiedWriteAndWait({
+        address: hub,
+        abi: PaymentHubAbi,
+        functionName: "finalizeRequest",
+        args: [BigInt(reqId), paid, proof.signature],
+        gas: BigInt(1_500_000),
+      });
+      const receipt = result.receipt
+        ? result.receipt
+        : await publicClient.waitForTransactionReceipt({ hash: result.hash, confirmations: 1, timeout: 300_000 });
+      if (receipt.status === "reverted") throw new Error("Settlement transaction reverted on-chain");
+      return { outcome: paid ? "fulfilled" : "failed", hash: result.hash, blockNumber: receipt.blockNumber };
+    },
+    [publicClient, contracts, decryptForTx, unifiedWriteAndWait],
+  );
+
+  /** Record a finalized request in the indexer and other tabs. */
+  const recordSettlement = useCallback(
+    async (reqId: number, outcome: FinalizeOutcome, hash: `0x${string}`, blockNumber: bigint, requesterAddress: string) => {
+      if (outcome === "fulfilled" && address) {
+        await updateRequestStatus(String(reqId), "fulfilled");
+        await insertActivity({
+          tx_hash: hash,
+          user_from: address.toLowerCase(),
+          user_to: requesterAddress.toLowerCase(),
+          activity_type: ACTIVITY_TYPES.REQUEST_FULFILLED,
+          contract_address: contracts.PaymentHub,
+          note: "",
+          token_address: contracts.FHERC20Vault_USDC,
+          block_number: Number(blockNumber),
+        });
+      }
+      broadcastAction("balance_changed");
+      broadcastAction("activity_added");
+      invalidateBalanceQueries();
+    },
+    [address, contracts],
+  );
 
   // Semantics: `from` = the PAYER (person being asked to pay).
   // `address` (current user) = the REQUESTER who wants money.
@@ -199,7 +276,7 @@ export function useRequestPayment() {
     async (reqId: number, amount: string, requesterAddress: string) => {
       if (!address) return;
       if (!connected) { toast.error(ENCRYPTION_NOT_READY); return; }
-      if (step === "encrypting" || step === "sending") return; // Already submitting
+      if (step === "encrypting" || step === "sending" || step === "settling") return; // Already submitting
 
       if (!publicClient) {
         toast.error("Connection lost. Please refresh.");
@@ -231,10 +308,13 @@ export function useRequestPayment() {
           markVaultApproved(contracts.PaymentHub);
         }
 
+        setStep("encrypting");
+        setError(null);
         const amountWei = parseUnits(amount, 6);
         const [encAmount, encAmountProof] = await encryptInputsAsync([Encryptable.uint64(amountWei)],
         contracts.PaymentHub as `0x${string}`);
 
+        setStep("sending");
         const fulfillResult = await unifiedWriteAndWait({
           address: contracts.PaymentHub as `0x${string}`,
           abi: PaymentHubAbi,
@@ -253,26 +333,22 @@ export function useRequestPayment() {
           throw new Error("Transaction reverted on-chain");
         }
 
-        // Update Supabase status + notify requester
-        await updateRequestStatus(String(reqId), "fulfilled");
-        await insertActivity({
-          tx_hash: hash,
-          user_from: address.toLowerCase(),
-          user_to: requesterAddress.toLowerCase(),
-          activity_type: ACTIVITY_TYPES.REQUEST_FULFILLED,
-          contract_address: contracts.PaymentHub,
-          note: "",
-          token_address: contracts.FHERC20Vault_USDC,
-          block_number: Number(fulfillReceipt.blockNumber),
-        });
-
-        // Notify other tabs and invalidate cached balances
-        broadcastAction("balance_changed");
-        broadcastAction("activity_added");
-        invalidateBalanceQueries();
+        // Funds moved (or nothing, on a mismatch or short balance). The
+        // request is Settling until the public check is published.
+        setStep("settling");
+        const settled = await settleRequest(reqId);
+        await recordSettlement(reqId, settled.outcome, settled.hash, settled.blockNumber, requesterAddress);
+        if (settled.outcome === "failed") {
+          // A missing allowance also moves zero without reverting, so the
+          // next attempt re-approves instead of trusting the cache.
+          clearVaultApproval(contracts.PaymentHub);
+          throw new Error(
+            "Nothing was sent. The amount did not match the request or your private balance was too low. The request is open again.",
+          );
+        }
 
         setStep("success");
-        toast.success("Request fulfilled!");
+        toast.success("Request paid");
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Failed to fulfill request";
         // If this looks like an approval issue, clear the cache so next attempt re-approves
@@ -281,10 +357,39 @@ export function useRequestPayment() {
         }
         setStep("error");
         setError(msg);
-        toast.error("Failed to fulfill request");
+        toast.error(msg.length < 140 ? msg : "Failed to pay request");
       }
     },
-    [address, connected, step, encryptInputsAsync, unifiedWrite, unifiedWriteAndWait, publicClient, contracts]
+    [address, connected, step, encryptInputsAsync, unifiedWriteAndWait, publicClient, contracts, settleRequest, recordSettlement]
+  );
+
+  /** Finish a request left Settling (for example, the tab closed mid-settle). */
+  const finalizeRequest = useCallback(
+    async (reqId: number, requesterAddress: string): Promise<FinalizeOutcome | null> => {
+      if (!address || !publicClient) return null;
+      if (step === "encrypting" || step === "sending" || step === "settling") return null;
+      setStep("settling");
+      setError(null);
+      const toastId = toast.loading("Settling payment...");
+      try {
+        const settled = await settleRequest(reqId);
+        await recordSettlement(reqId, settled.outcome, settled.hash, settled.blockNumber, requesterAddress);
+        if (settled.outcome === "fulfilled") {
+          toast.success("Request paid", { id: toastId });
+        } else {
+          toast.error("Nothing was sent. The request is open again.", { id: toastId });
+        }
+        setStep("input");
+        return settled.outcome;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Failed to settle request";
+        setStep("error");
+        setError(msg);
+        toast.error(msg.length < 140 ? msg : "Failed to settle request", { id: toastId });
+        return null;
+      }
+    },
+    [address, publicClient, step, settleRequest, recordSettlement],
   );
 
   const cancelRequest = useCallback(
@@ -330,5 +435,5 @@ export function useRequestPayment() {
     setRequestId(null);
   }, []);
 
-  return { step, error, requestId, createRequest, fulfillRequest, cancelRequest, reset };
+  return { step, error, requestId, createRequest, fulfillRequest, finalizeRequest, cancelRequest, reset };
 }

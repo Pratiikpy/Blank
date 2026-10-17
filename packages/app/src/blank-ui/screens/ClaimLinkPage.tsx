@@ -24,6 +24,8 @@ interface OnChainLink {
   note: string;
   claimer: `0x${string}`;
   claimedAt: bigint;
+  /** No claim key registered: created before the v2 claim upgrade. */
+  legacy: boolean;
 }
 
 const MODE_LABEL: Record<LinkMode, string> = {
@@ -130,7 +132,20 @@ export default function ClaimLinkPage() {
           });
           return;
         }
-        setOnChain({ sender, vault, mode, boundAddress, createdAt, expiryTimestamp, claimed, refunded, note, claimer, claimedAt });
+        let claimKey = "0x0000000000000000000000000000000000000000";
+        try {
+          claimKey = (await publicClient.readContract({
+            address: contracts.ClaimLinks,
+            abi: ClaimLinksAbi,
+            functionName: "claimKeyOf",
+            args: [BigInt(linkId)],
+          })) as `0x${string}`;
+        } catch {
+          // Pre-upgrade deployment without the view: treat as legacy.
+        }
+        if (cancelled) return;
+        const legacy = BigInt(claimKey) === 0n;
+        setOnChain({ sender, vault, mode, boundAddress, createdAt, expiryTimestamp, claimed, refunded, note, claimer, claimedAt, legacy });
       } catch (err) {
         if (cancelled) return;
         setLoadError(classifyLoadError(err, { resourceName: "Link" }));
@@ -144,6 +159,8 @@ export default function ClaimLinkPage() {
     if (onChain.claimed) return "claimed";
     if (onChain.refunded) return "refunded";
     if (Number(onChain.expiryTimestamp) * 1000 < Date.now()) return "expired";
+    // Legacy Bearer/EmailBound claim paths were removed on-chain.
+    if (onChain.legacy && onChain.mode !== MODE.AddressBound) return "legacy";
     return "claimable";
   }, [onChain]);
 
@@ -272,6 +289,19 @@ export default function ClaimLinkPage() {
         <h1 className="text-2xl font-heading font-semibold mb-3">Link expired</h1>
         <p className="text-[var(--text-secondary)]">
           The claim window passed. The sender can refund the funds and create a new link.
+        </p>
+      </CenterCard>
+    );
+  }
+
+  if (status === "legacy") {
+    return (
+      <CenterCard>
+        <IconBubble color="bg-amber-50" icon={<Clock size={32} className="text-amber-600" />} />
+        <h1 className="text-2xl font-heading font-semibold mb-3">This link can no longer be claimed</h1>
+        <p className="text-[var(--text-secondary)]">
+          It was created before a security upgrade that changed how links are claimed. The funds
+          are safe: the sender can refund them after the link expires and send you a new one.
         </p>
       </CenterCard>
     );

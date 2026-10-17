@@ -13,6 +13,8 @@ const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
 /** PaymentHub.RequestStatus, in declaration order. */
 const REQUEST_STATUS: PaymentRequestRow["status"][] = ["pending", "fulfilled", "cancelled"];
+/** RequestStatus.Settling: paid on-chain, waiting for finalizeRequest. */
+const STATUS_SETTLING = 3;
 
 type RequestTuple = readonly [
   from: `0x${string}`,
@@ -42,6 +44,8 @@ export function useOnChainRequests() {
   const { effectiveAddress, eoa } = useEffectiveAddress();
   const publicClient = usePublicClient({ chainId: activeChainId });
   const [incoming, setIncoming] = useState<PaymentRequestRow[]>([]);
+  // Request ids whose payment went out and still needs finalizeRequest.
+  const [settlingIds, setSettlingIds] = useState<ReadonlySet<number>>(() => new Set());
   const [tick, setTick] = useState(0);
 
   const hub = contracts.PaymentHub as `0x${string}` | undefined;
@@ -70,6 +74,7 @@ export function useOnChainRequests() {
   useEffect(() => {
     if (!publicClient || !hub || hub === ZERO_ADDRESS || addresses.length === 0) {
       setIncoming([]);
+      setSettlingIds(new Set());
       lastSerialized.current = "";
       return;
     }
@@ -114,10 +119,14 @@ export function useOnChainRequests() {
         if (cancelled) return;
 
         const next: PaymentRequestRow[] = [];
+        const settling: number[] = [];
         details.forEach((r, i) => {
           if (r.status !== "fulfilled") return;
           const t = r.value as RequestTuple;
-          const status = REQUEST_STATUS[t[5]] ?? "pending";
+          // A Settling request still needs the payer's finalize step, so it
+          // stays in the actionable inbox as pending.
+          if (Number(t[5]) === STATUS_SETTLING) settling.push(idList[i]);
+          const status = Number(t[5]) === STATUS_SETTLING ? "pending" : REQUEST_STATUS[t[5]] ?? "pending";
           // The screen's inbox is the actionable list. A fulfilled or
           // cancelled request has nothing left to do, and the indexer-backed
           // query filters to pending for the same reason.
@@ -140,8 +149,10 @@ export function useOnChainRequests() {
         });
 
         next.sort((a, b) => b.request_id - a.request_id);
-        const serialized = JSON.stringify(next);
+        settling.sort((a, b) => a - b);
+        const serialized = JSON.stringify([next, settling]);
         if (serialized === lastSerialized.current) return;
+        setSettlingIds(new Set(settling));
         lastSerialized.current = serialized;
         setIncoming(next);
       } catch (err) {
@@ -157,5 +168,5 @@ export function useOnChainRequests() {
     };
   }, [publicClient, hub, addresses, activeChainId, tick]);
 
-  return { incoming, refresh };
+  return { incoming, settlingIds, refresh };
 }

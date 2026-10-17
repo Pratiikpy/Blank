@@ -109,6 +109,22 @@ describe("useOnChainRequests (§15.x)", () => {
     expect(result.current.incoming[0].note).toBe("still owed");
   });
 
+  it("CRITICAL a Settling (3) request stays in the inbox and is flagged for finalize", async () => {
+    withChain(
+      { [SMART.toLowerCase()]: [5n, 6n] },
+      {
+        "5": request({ note: "open", status: 0 }),
+        "6": request({ note: "paid, not finalized", status: 3 }),
+      },
+    );
+    const { result } = renderHook(() => useOnChainRequests());
+    await waitFor(() => expect(result.current.incoming).toHaveLength(2));
+    const settling = result.current.incoming.find((r) => r.request_id === 6)!;
+    expect(settling.status).toBe("pending");
+    expect(result.current.settlingIds.has(6)).toBe(true);
+    expect(result.current.settlingIds.has(5)).toBe(false);
+  });
+
   it("reads both the smart account and the EOA", async () => {
     withChain(
       { [SMART.toLowerCase()]: [1n], [EOA.toLowerCase()]: [5n] },

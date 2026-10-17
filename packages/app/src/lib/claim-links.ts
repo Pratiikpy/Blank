@@ -6,13 +6,28 @@
 // The secret lives in the URL fragment ("#"), never in the query string,
 // so it does not get sent to our CDN, our backend, or referer headers.
 //
-// Hash construction matches ClaimLinks.sol:
+// v2 (current): the secret derives a one-time claim key. createLink stores
+// only the key's address; the claimer proves possession by signing
+// claimDigest(linkId, claimer), so the secret never reaches calldata.
+//   Bearer, AddressBound: priv = keccak256(abi.encodePacked("BLANK_CLAIM_KEY_v2", uint8(mode), secret))
+//   EmailBound:           priv = keccak256(abi.encodePacked("BLANK_CLAIM_KEY_v2", uint8(1), secret, emailHash))
+//   claimKey = address(priv). The secret is regenerated if priv is 0 or >= n.
+//   signature = EIP-191 personal_sign over the raw 32-byte claimDigest.
+//
+// v1 (legacy, pre-upgrade links) stored a secret hash:
 //   DOMAIN = keccak256("BLANK_CLAIM_v1")
-//   Bearer:       keccak256(DOMAIN, 0x00, secret)
-//   EmailBound:   keccak256(DOMAIN, 0x01, secret, keccak256(lowercase(email)))
-//   AddressBound: keccak256(DOMAIN, 0x02, secret)
+//   AddressBound: keccak256(DOMAIN, 0x02, secret)  (still claimable by the bound address)
+//   Bearer / EmailBound legacy links are refund-only.
 
 import { keccak256, toUtf8Bytes, hexlify, solidityPacked } from "ethers";
+import {
+  encodeAbiParameters,
+  encodePacked,
+  keccak256 as viemKeccak256,
+  type Address,
+  type Hex,
+} from "viem";
+import { privateKeyToAccount } from "viem/accounts";
 
 import { ETH_SEPOLIA_ID, BASE_SEPOLIA_ID, ARB_SEPOLIA_ID } from "./constants";
 
@@ -110,6 +125,73 @@ export function makeAddressHash(secret: Uint8Array): `0x${string}` {
     [DOMAIN, MODE.AddressBound, secretBytes32(secret)],
   );
   return keccak256(packed) as `0x${string}`;
+}
+
+// ─── v2 claim keys (must match ClaimLinks.sol) ───────────────────────
+
+export const CLAIM_KEY_DOMAIN = "BLANK_CLAIM_KEY_v2";
+export const CLAIM_TYPEHASH = viemKeccak256(encodePacked(["string"], ["BLANK_CLAIM_v2"]));
+const SECP256K1_N = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n;
+
+/** Claim-key private key for a secret, or null if it falls outside the
+ *  valid secp256k1 range (caller regenerates the secret). EmailBound mixes
+ *  the email digest in, so the key is useless without the email. */
+export function deriveClaimKeyPriv(mode: LinkMode, secret: Uint8Array, email?: string): Hex | null {
+  const secretHex = secretBytes32(secret);
+  let priv: Hex;
+  if (mode === MODE.EmailBound) {
+    if (!email) throw new Error("Email is required for EmailBound links");
+    priv = viemKeccak256(
+      encodePacked(
+        ["string", "uint8", "bytes32", "bytes32"],
+        [CLAIM_KEY_DOMAIN, MODE.EmailBound, secretHex, emailDigest(email)],
+      ),
+    );
+  } else {
+    priv = viemKeccak256(encodePacked(["string", "uint8", "bytes32"], [CLAIM_KEY_DOMAIN, mode, secretHex]));
+  }
+  const n = BigInt(priv);
+  if (n === 0n || n >= SECP256K1_N) return null;
+  return priv;
+}
+
+/** Address of the claim key a secret derives (what createLink registers). */
+export function claimKeyAddress(priv: Hex): Address {
+  return privateKeyToAccount(priv).address;
+}
+
+/** Fresh secret plus its claim key. Retries until the key is valid. */
+export function generateClaimKey(
+  mode: LinkMode,
+  email?: string,
+): { secret: Uint8Array; priv: Hex; claimKey: Address } {
+  for (let attempt = 0; attempt < 16; attempt++) {
+    const secret = generateSecret();
+    const priv = deriveClaimKeyPriv(mode, secret, email);
+    if (priv) return { secret, priv, claimKey: claimKeyAddress(priv) };
+  }
+  throw new Error("Could not derive a claim key. Try again.");
+}
+
+/** Local mirror of ClaimLinks.claimDigest. The hook reads the on-chain view
+ *  instead; this exists for tests and scripts. */
+export function computeClaimDigest(
+  linkId: bigint,
+  claimer: Address,
+  chainId: number,
+  claimLinks: Address,
+): Hex {
+  return viemKeccak256(
+    encodeAbiParameters(
+      [{ type: "bytes32" }, { type: "uint256" }, { type: "address" }, { type: "uint256" }, { type: "address" }],
+      [CLAIM_TYPEHASH, linkId, claimer, BigInt(chainId), claimLinks],
+    ),
+  );
+}
+
+/** EIP-191 signature over the raw 32-byte digest, by the claim key. */
+export function signClaimDigest(priv: Hex, digest: Hex): Promise<Hex> {
+  return privateKeyToAccount(priv).signMessage({ message: { raw: digest } });
 }
 
 // ─── URL construction + parsing ──────────────────────────────────────

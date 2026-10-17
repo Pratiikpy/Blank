@@ -346,6 +346,11 @@ export default function ConditionalInvoicePage() {
                   <CheckCircle2 size={15} /> Released to the recipient.
                 </div>
               )}
+              {escrow.status === ESCROW_STATUS.Refunded && (
+                <div className="rounded-xl border border-slate-500/30 bg-slate-500/5 px-4 py-3 text-sm text-slate-700 inline-flex items-center gap-2">
+                  <Clock size={15} /> Refunded to the payer.
+                </div>
+              )}
 
               <button
                 onClick={copyLink}
