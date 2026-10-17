@@ -538,23 +538,26 @@ export function useSmartAccount() {
           //
           // Order matters: in EntryPoint v0.8 paymasterAndData is part of
           // the userOpHash, so the passkey signs only after it is final.
-          // Calls back into the account (upgrade, enableValidator,
-          // setRecoveryModule) are never sponsored: the paymaster's target
-          // allowlist cannot list every account. They pay their own gas.
+          // Calls back into the account are sponsored only for the
+          // paymaster's approved upgrade, validator and recovery module.
+          // When the sponsor refuses one, the op pays its own gas instead
+          // (and fails with AA21 if the account holds none).
           const selfCall = callDataTargetsSelf(callData, account.address);
-          const useSponsored = !selfCall && (options?.paymaster ?? "sponsored") === "sponsored";
+          const useSponsored = (options?.paymaster ?? "sponsored") === "sponsored";
           if (useSponsored && contracts.BlankPaymaster) {
-            const sponsorship = await requestSponsorship({
-              chainId: activeChainId,
-              userOp,
-              account: {
-                ownerX: account.initOwnerX ?? account.pubX,
-                ownerY: account.initOwnerY ?? account.pubY,
-                recoveryModule: ZERO_ADDRESS,
-                salt: 0n,
-              },
-            });
-            userOp = applySponsorship(userOp, sponsorship);
+            const claim = {
+              ownerX: account.initOwnerX ?? account.pubX,
+              ownerY: account.initOwnerY ?? account.pubY,
+              recoveryModule: ZERO_ADDRESS,
+              salt: 0n,
+            };
+            try {
+              const sponsorship = await requestSponsorship({ chainId: activeChainId, userOp, account: claim });
+              userOp = applySponsorship(userOp, sponsorship);
+            } catch (err) {
+              if (!selfCall) throw err;
+              log.warn("smartAccount.selfCall.selfPay", err instanceof Error ? err : new Error(String(err)));
+            }
           }
 
           // Authoritative hash via on-chain EntryPoint view call

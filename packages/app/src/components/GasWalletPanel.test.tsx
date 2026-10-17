@@ -17,6 +17,7 @@ const usePublicClientMock = vi.hoisted(() => vi.fn());
 const useUnifiedWriteMock = vi.hoisted(() => vi.fn());
 const toastSuccessMock = vi.hoisted(() => vi.fn());
 const toastErrorMock = vi.hoisted(() => vi.fn());
+const useSelfCallSponsorshipMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/hooks/useEffectiveAddress", () => ({
   useEffectiveAddress: useEffectiveAddressMock,
@@ -29,6 +30,9 @@ vi.mock("wagmi", () => ({
 }));
 vi.mock("@/hooks/useUnifiedWrite", () => ({
   useUnifiedWrite: useUnifiedWriteMock,
+}));
+vi.mock("@/hooks/useSelfCallSponsorship", () => ({
+  useSelfCallSponsorship: useSelfCallSponsorshipMock,
 }));
 vi.mock("@/lib/abis", () => ({
   BlankAccountAbi: [],
@@ -68,6 +72,8 @@ beforeEach(() => {
   toastSuccessMock.mockReset();
   toastErrorMock.mockReset();
 
+  useSelfCallSponsorshipMock.mockReset();
+  useSelfCallSponsorshipMock.mockReturnValue(false);
   useEffectiveAddressMock.mockReturnValue({ effectiveAddress: SMART_ACCOUNT });
   useChainMock.mockReturnValue({
     activeChain: {
@@ -339,19 +345,35 @@ describe("GasWalletPanel — §1.13 self-upgrade prompt", () => {
     expect(args.functionName).toBe("upgradeToAndCall");
     expect(args.args[0]).toBe(NEW_IMPL);
     expect(args.args[1]).toBe("0x");
-    // Calls into the account are never sponsored.
-    expect(args.paymaster).toBe("self");
+    // No forced mode: sponsored when the paymaster approves the impl,
+    // self-paid otherwise (useSmartAccount falls back).
+    expect(args.paymaster).toBeUndefined();
   });
 
-  it("no gas in the account -> upgrade button disabled (it pays its own gas)", async () => {
+  it("no gas in the account and not sponsored -> upgrade button disabled", async () => {
     useChainMock.mockReturnValue({
       activeChain: { id: 11155111, name: "Ethereum Sepolia", explorerUrl: "https://sepolia.etherscan.io" },
       contracts: { EntryPoint: ENTRY_POINT, BlankAccount_Impl_gasWallet: NEW_IMPL },
     });
     getStorageAtMock.mockResolvedValue(implAsSlot(OLD_IMPL));
-    const { findByLabelText } = render(<GasWalletPanel />);
+    const { findByLabelText, getByText } = render(<GasWalletPanel />);
     const btn = (await findByLabelText("Upgrade smart account to gas-wallet implementation")) as HTMLButtonElement;
     expect(btn.disabled).toBe(true);
+    expect(getByText(/pays its own gas/)).toBeDefined();
+  });
+
+  it("no gas in the account but the impl is approved for sponsorship -> button enabled", async () => {
+    useSelfCallSponsorshipMock.mockReturnValue(true);
+    useChainMock.mockReturnValue({
+      activeChain: { id: 11155111, name: "Ethereum Sepolia", explorerUrl: "https://sepolia.etherscan.io" },
+      contracts: { EntryPoint: ENTRY_POINT, BlankAccount_Impl_gasWallet: NEW_IMPL },
+    });
+    getStorageAtMock.mockResolvedValue(implAsSlot(OLD_IMPL));
+    const { findByLabelText, getByText } = render(<GasWalletPanel />);
+    const btn = (await findByLabelText("Upgrade smart account to gas-wallet implementation")) as HTMLButtonElement;
+    expect(btn.disabled).toBe(false);
+    expect(getByText(/Gas is sponsored by Blank/)).toBeDefined();
+    expect(useSelfCallSponsorshipMock).toHaveBeenCalledWith("implementation", NEW_IMPL);
   });
 
   it("security-v1 impl wins over the gas-wallet impl as the upgrade target", async () => {

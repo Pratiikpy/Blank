@@ -12,7 +12,7 @@ vi.mock("viem", async () => {
   return { ...actual, createPublicClient: () => ({ readContract: readContractMock }) };
 });
 
-import { handleMockReclaimSign, isValidMockSignRequest, mockReclaimDigest } from "./mock-reclaim-sign";
+import { handleMockReclaimSign, isValidMockSignRequest, mockReclaimDigest } from "./mock-reclaim-sign.js";
 
 const PK = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d" as Hex;
 const OPERATOR = privateKeyToAccount(PK).address;

@@ -52,6 +52,7 @@ const formatTimeUntilMock = vi.hoisted(() => vi.fn());
 const useAccountGasFundsMock = vi.hoisted(() => vi.fn());
 const useQueryMock = vi.hoisted(() => vi.fn());
 const validatorRefetchMock = vi.hoisted(() => vi.fn());
+const useSelfCallSponsorshipMock = vi.hoisted(() => vi.fn());
 
 vi.mock("wagmi", () => ({
   usePublicClient: usePublicClientMock,
@@ -80,6 +81,7 @@ vi.mock("@/hooks/useAccountGasFunds", () => ({
   SELF_PAID_SETTINGS_OP_WEI: 2_700_000_000_000_000n,
 }));
 vi.mock("@tanstack/react-query", () => ({ useQuery: useQueryMock }));
+vi.mock("@/hooks/useSelfCallSponsorship", () => ({ useSelfCallSponsorship: useSelfCallSponsorshipMock }));
 vi.mock("@/lib/scheduled-sends", async () => ({
   ...(await vi.importActual<typeof import("@/lib/scheduled-sends")>("@/lib/scheduled-sends")),
   PERIOD_PRESETS: [
@@ -117,6 +119,7 @@ const PAYMASTER = "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
 let refetchMock: ReturnType<typeof vi.fn>;
 let revokeScopeMock: ReturnType<typeof vi.fn>;
 let unifiedWriteMock: ReturnType<typeof vi.fn>;
+let unifiedWriteBatchMock: ReturnType<typeof vi.fn>;
 let readContractMock: ReturnType<typeof vi.fn>;
 let fetchMock: ReturnType<typeof vi.fn>;
 
@@ -201,7 +204,10 @@ beforeEach(() => {
   setFeed();
 
   unifiedWriteMock = vi.fn().mockResolvedValue({});
-  useUnifiedWriteMock.mockReturnValue({ unifiedWrite: unifiedWriteMock });
+  unifiedWriteBatchMock = vi.fn().mockResolvedValue("0xbatch");
+  useUnifiedWriteMock.mockReturnValue({ unifiedWrite: unifiedWriteMock, unifiedWriteBatch: unifiedWriteBatchMock });
+  useSelfCallSponsorshipMock.mockReset();
+  useSelfCallSponsorshipMock.mockReturnValue(false);
 
   usePaymasterHealthMock.mockReturnValue({ status: "ready" });
   useBalanceMock.mockReturnValue({ data: { value: 1_000_000_000_000_000_000n } });
@@ -666,26 +672,41 @@ describe("ScheduledSends — security-v1 validator + scope gas fields", () => {
     expect(scope.maxTotalGas).toBeGreaterThan(0n);
   });
 
-  it("validator not enabled -> enable + setScope batched as a self-call", async () => {
+  it("validator not enabled -> one executeBatch: enableValidator on self + setScope on the validator", async () => {
     const { getByTestId } = render(<ScheduledSends />);
     await submitCreate(getByTestId);
-    await waitFor(() => expect(unifiedWriteMock).toHaveBeenCalledTimes(1));
-    const call = unifiedWriteMock.mock.calls[0][0];
-    expect(call.address).toBe(ME);
-    expect(call.functionName).toBe("executeBatch");
-    expect(call.args[0]).toEqual([ME, VALIDATOR]);
+    await waitFor(() => expect(unifiedWriteBatchMock).toHaveBeenCalledTimes(1));
+    expect(unifiedWriteMock).not.toHaveBeenCalled();
+    const [calls, , opts] = unifiedWriteBatchMock.mock.calls[0];
+    // Two top-level calls, not a nested execute(self, executeBatch(...)):
+    // the paymaster sponsors only the flat shape.
+    expect(calls.map((c: { address: string }) => c.address)).toEqual([ME, VALIDATOR]);
+    expect(calls[0].functionName).toBe("enableValidator");
+    expect(calls[0].args).toEqual([VALIDATOR]);
+    expect(calls[1].functionName).toBe("setScope");
+    expect(opts.gas).toBe(400_000n);
   });
 
-  it("validator not enabled and no gas in the account -> honest error, nothing sent", async () => {
+  it("validator not enabled, no gas, not sponsored -> honest error, nothing sent", async () => {
     useAccountGasFundsMock.mockReturnValue({ totalWei: 0n });
     const { getByTestId } = render(<ScheduledSends />);
     await submitCreate(getByTestId);
     await waitFor(() => expect(toastErrorMock).toHaveBeenCalled());
     expect(unifiedWriteMock).not.toHaveBeenCalled();
-    expect(String(toastErrorMock.mock.calls[0][0])).toMatch(/pays its own gas/);
+    expect(unifiedWriteBatchMock).not.toHaveBeenCalled();
+    expect(String(toastErrorMock.mock.calls[0][0])).toMatch(/sponsorship is unavailable/);
   });
 
-  it("scopes exist but validator is off -> 'paused' banner; Enable again fires a self-paid enableValidator", async () => {
+  it("validator not enabled, no gas, but the validator is approved for sponsorship -> batch is sent", async () => {
+    useAccountGasFundsMock.mockReturnValue({ totalWei: 0n });
+    useSelfCallSponsorshipMock.mockReturnValue(true);
+    const { getByTestId } = render(<ScheduledSends />);
+    await submitCreate(getByTestId);
+    await waitFor(() => expect(unifiedWriteBatchMock).toHaveBeenCalledTimes(1));
+    expect(useSelfCallSponsorshipMock).toHaveBeenCalledWith("validator", VALIDATOR);
+  });
+
+  it("scopes exist but validator is off -> 'paused' banner; Enable again fires enableValidator without a forced mode", async () => {
     setFeed({ scopes: [buildScope()] });
     const { getByTestId } = render(<ScheduledSends />);
     expect(getByTestId("scheduled-reenable").textContent).toContain("Scheduled sends are paused");
@@ -698,8 +719,18 @@ describe("ScheduledSends — security-v1 validator + scope gas fields", () => {
     expect(call.address).toBe(ME);
     expect(call.functionName).toBe("enableValidator");
     expect(call.args).toEqual([VALIDATOR]);
-    expect(call.paymaster).toBe("self");
+    expect(call.paymaster).toBeUndefined();
     expect(validatorRefetchMock).toHaveBeenCalled();
+  });
+
+  it("Enable again works without gas when the validator is approved for sponsorship", () => {
+    setFeed({ scopes: [buildScope()] });
+    useAccountGasFundsMock.mockReturnValue({ totalWei: 0n });
+    useSelfCallSponsorshipMock.mockReturnValue(true);
+    const { getByTestId } = render(<ScheduledSends />);
+    expect((getByTestId("scheduled-reenable-button") as HTMLButtonElement).disabled).toBe(false);
+    expect(getByTestId("scheduled-reenable").textContent).toContain("sponsored by Blank");
+    expect(getByTestId("scheduled-reenable").textContent).not.toContain("Add a little ETH");
   });
 
   it("Enable again is disabled without gas, and the banner says why", () => {

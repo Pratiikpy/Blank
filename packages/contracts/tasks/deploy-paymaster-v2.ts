@@ -2,6 +2,7 @@ import { task } from "hardhat/config";
 import { HardhatRuntimeEnvironment } from "hardhat/types";
 import * as fs from "fs";
 import * as path from "path";
+import { SELF_ADMIN_ABI, wireSelfAdminApprovals } from "./lib/paymaster-targets";
 
 // ─── deploy-paymaster-v2: verifying BlankPaymaster ───────────────────────
 //
@@ -11,6 +12,8 @@ import * as path from "path";
 //   - accountCodeHash = keccak256(ERC1967Proxy runtime code), the code every
 //     BlankAccount proxy carries
 //   - gas caps, optional per-sender interval, fee config (free by default)
+//   - self-call approvals: BlankAccount_Impl_security_v1 (upgrade),
+//     SessionKeyValidator (enableValidator), GuardianModule (setRecoveryModule)
 // The old paymaster address is kept as BlankPaymaster_v1.
 //
 // --signer is the ADDRESS of the backend key held in BLANK_PAYMASTER_SIGNER_PK.
@@ -92,6 +95,12 @@ task("deploy-paymaster-v2", "Deploy and configure the verifying BlankPaymaster")
       await (await paymaster.setSponsorInterval(interval)).wait();
       console.log(`  sponsor interval ${interval}s`);
     }
+
+    // Self-calls new accounts need to adopt the current implementation and
+    // modules without ETH (tasks/lib/paymaster-targets.ts).
+    console.log(`  self-call approvals:`);
+    const selfAdmin = new hre.ethers.Contract(pmAddress, SELF_ADMIN_ABI, deployer);
+    await wireSelfAdminApprovals(selfAdmin, addresses);
 
     if (addresses.BlankPaymaster) addresses.BlankPaymaster_v1 = addresses.BlankPaymaster;
     addresses.BlankPaymaster = pmAddress;

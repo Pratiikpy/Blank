@@ -586,13 +586,38 @@ describe("useSmartAccount — paymaster mode (§15.x)", () => {
     expect(buildUserOpMock.mock.calls[0][0].paymasterAndData).toBeUndefined();
   });
 
-  it("call into the account itself -> never sponsored, even in sponsored mode", async () => {
+  it("call into the account itself -> sponsored when the sponsor accepts it", async () => {
     callDataTargetsSelfMock.mockReturnValue(true);
+    requestSponsorshipMock.mockResolvedValue({ paymasterAndData: "0xpaymasterdata", maxFeePerGas: 2n, maxPriorityFeePerGas: 1n, validUntil: 1 });
     const result = await setupReady();
     await act(async () => {
       await result.current.sendUserOp(PREDICTED, 0n, "0xdata", "pass");
     });
     expect(callDataTargetsSelfMock).toHaveBeenCalledWith("0xexecutecalldata", PREDICTED);
+    expect(requestSponsorshipMock).toHaveBeenCalledTimes(1);
+    expect(computeUserOpHashMock.mock.calls[0][1].paymasterAndData).toBe("0xpaymasterdata");
+  });
+
+  it("call into the account itself -> sponsor refusal falls back to self-pay and still submits", async () => {
+    callDataTargetsSelfMock.mockReturnValue(true);
+    requestSponsorshipMock.mockRejectedValue(new Error("Gas sponsorship refused: validator 0x1 is not approved for sponsorship"));
+    const result = await setupReady();
+    await act(async () => {
+      await result.current.sendUserOp(PREDICTED, 0n, "0xdata", "pass");
+    });
+    expect(requestSponsorshipMock).toHaveBeenCalledTimes(1);
+    const hashed = computeUserOpHashMock.mock.calls[0][1];
+    expect(hashed.paymasterAndData).not.toBe("0xpaymasterdata");
+    expect(signHashMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalled();
+  });
+
+  it("call into the account itself with paymaster='self' -> no sponsorship request", async () => {
+    callDataTargetsSelfMock.mockReturnValue(true);
+    const result = await setupReady();
+    await act(async () => {
+      await result.current.sendUserOp(PREDICTED, 0n, "0xdata", "pass", { paymaster: "self" });
+    });
     expect(requestSponsorshipMock).toHaveBeenCalledTimes(0);
   });
 

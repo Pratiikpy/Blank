@@ -14,7 +14,8 @@
  *   - gas prices and maxCost sit under the paymaster's caps. The fee is
  *     chosen here, from the network base fee, so the op lands under them.
  *   - every call target is on the paymaster's allowlist, decoded exactly the
- *     way BlankPaymaster._checkTargets decodes it.
+ *     way BlankPaymaster._checkTargets decodes it. A call into the sender
+ *     itself must pass the _checkSelfCall mirror (checkSelfCall below).
  *   - the sender is not flagged for an unpaid fee, is whitelisted when the
  *     whitelist is on, and is not inside its sponsor interval.
  *
@@ -116,6 +117,7 @@ export interface SponsorChain {
   getCode(address: string): Promise<string>;
   paymasterConfig(sender: string): Promise<PaymasterConfig>;
   isApprovedTarget(target: string): Promise<boolean>;
+  isApprovedSelfAdmin(kind: SelfAdminKind, address: string): Promise<boolean>;
   factoryGetAddress(factory: string, x: bigint, y: bigint, recovery: string, salt: bigint): Promise<string>;
   accountOwner(account: string): Promise<{ x: bigint; y: bigint } | null>;
   paymasterGetHash(op: PackedOp, validUntil: number, validAfter: number): Promise<string>;
@@ -237,6 +239,94 @@ export function decodeCallTargets(callData: string): string[] {
     return out;
   }
   throw new SponsorError("BAD_REQUEST", `only execute / executeBatch are sponsored, got ${selector}`, 400);
+}
+
+export interface DecodedCall {
+  target: string;
+  value: bigint;
+  data: string;
+}
+
+const accountCallsIface = new ethers.Interface([
+  "function execute(address target, uint256 value, bytes data)",
+  "function executeBatch(address[] targets, uint256[] values, bytes[] datas)",
+]);
+
+/** Every (target, value, data) the account will run. Targets come from
+ *  decodeCallTargets (the contract's byte-level view); value and data from a
+ *  full ABI decode, which is what the account and the paymaster's
+ *  _checkSelfCall decode. */
+export function decodeCalls(callData: string): DecodedCall[] {
+  const targets = decodeCallTargets(callData);
+  const selector = callData.slice(0, 10).toLowerCase();
+  let decoded: ethers.Result;
+  try {
+    decoded = accountCallsIface.decodeFunctionData(selector === EXECUTE_SELECTOR ? "execute" : "executeBatch", callData);
+  } catch {
+    throw new SponsorError("BAD_REQUEST", "callData does not ABI-decode", 400);
+  }
+  if (selector === EXECUTE_SELECTOR) {
+    return [{ target: targets[0], value: decoded[1] as bigint, data: (decoded[2] as string).toLowerCase() }];
+  }
+  const values = decoded[1] as bigint[];
+  const datas = decoded[2] as string[];
+  if (values.length !== targets.length || datas.length !== targets.length) {
+    throw new SponsorError("BAD_REQUEST", "executeBatch arrays differ in length", 400);
+  }
+  return targets.map((target, i) => ({ target, value: values[i], data: datas[i].toLowerCase() }));
+}
+
+export const UPGRADE_TO_AND_CALL_SELECTOR = ethers.id("upgradeToAndCall(address,bytes)").slice(0, 10);
+export const ENABLE_VALIDATOR_SELECTOR = ethers.id("enableValidator(address)").slice(0, 10);
+export const SET_RECOVERY_MODULE_SELECTOR = ethers.id("setRecoveryModule(address)").slice(0, 10);
+
+export type SelfAdminKind = "implementation" | "validator" | "recoveryModule";
+
+/** First argument word as an address; refuses dirty high bits like the contract. */
+function firstArgAddress(data: string): string {
+  const word = data.slice(10, 74);
+  if (!/^0{24}/.test(word)) throw new SponsorError("SELF_CALL", "malformed account settings call", 403);
+  return ethers.getAddress("0x" + word.slice(24));
+}
+
+/**
+ * Mirror of BlankPaymaster._checkSelfCall. A call into the account itself is
+ * signed only when it is one of:
+ *   upgradeToAndCall(impl, "")  impl approved, no init data
+ *   enableValidator(v)          v approved
+ *   setRecoveryModule(m)        m approved
+ * with value 0 and canonical encoding. Everything else (setOwner,
+ * withdrawGasDepositTo, disableValidator, nested execute) is refused.
+ */
+export async function checkSelfCall(chain: SponsorChain, value: bigint, data: string): Promise<void> {
+  if (value !== 0n) throw new SponsorError("SELF_CALL", "account settings calls must not send ETH", 403);
+  const bytes = (data.length - 2) / 2;
+  const sel = data.slice(0, 10).toLowerCase();
+  let kind: SelfAdminKind;
+  if (bytes >= 4 && sel === UPGRADE_TO_AND_CALL_SELECTOR) {
+    const tail = data.slice(74);
+    if (bytes !== 100 || tail !== (0x40).toString(16).padStart(64, "0") + "0".repeat(64)) {
+      throw new SponsorError("SELF_CALL", "an account upgrade is sponsored only with no init data", 403);
+    }
+    kind = "implementation";
+  } else if (bytes >= 4 && sel === ENABLE_VALIDATOR_SELECTOR) {
+    if (bytes !== 36) throw new SponsorError("SELF_CALL", "malformed account settings call", 403);
+    kind = "validator";
+  } else if (bytes >= 4 && sel === SET_RECOVERY_MODULE_SELECTOR) {
+    if (bytes !== 36) throw new SponsorError("SELF_CALL", "malformed account settings call", 403);
+    kind = "recoveryModule";
+  } else {
+    throw new SponsorError(
+      "SELF_CALL",
+      "only the account upgrade, session-key validator and recovery-module changes are sponsored. Pay gas from the account.",
+      403,
+    );
+  }
+  const addr = firstArgAddress(data);
+  if (!(await chain.isApprovedSelfAdmin(kind, addr))) {
+    const what = kind === "implementation" ? "implementation" : kind === "validator" ? "validator" : "recovery module";
+    throw new SponsorError("SELF_CALL", `${what} ${addr} is not approved for sponsorship`, 403);
+  }
 }
 
 /** Parse initCode = factory(20) | createAccount(x, y, recoveryModule, salt). */
@@ -361,19 +451,14 @@ export async function sponsorUserOp(
 
   await checkBlankAccount(chain, cfg, op, req.account);
 
-  const targets = decodeCallTargets(op.callData);
-  if (targets.some((t) => t.toLowerCase() === sender.toLowerCase())) {
-    throw new SponsorError(
-      "SELF_CALL",
-      "account settings changes (upgrade, validators, recovery module) are not sponsored. Pay gas from the account.",
-      403,
-    );
-  }
-  if (cfg.approvedTargetsCount > 0n) {
-    for (const t of targets) {
-      if (!(await chain.isApprovedTarget(t))) {
-        throw new SponsorError("TARGET_NOT_APPROVED", `target ${t} is not on the paymaster allowlist`, 403);
-      }
+  const calls = decodeCalls(op.callData);
+  for (const c of calls) {
+    if (c.target.toLowerCase() === sender.toLowerCase()) {
+      // Checked even when the allowlist is off: the backend only signs the
+      // three adoption steps, never any other change to the account.
+      await checkSelfCall(chain, c.value, c.data);
+    } else if (cfg.approvedTargetsCount > 0n && !(await chain.isApprovedTarget(c.target))) {
+      throw new SponsorError("TARGET_NOT_APPROVED", `target ${c.target} is not on the paymaster allowlist`, 403);
     }
   }
 
@@ -527,6 +612,9 @@ const PAYMASTER_ABI = [
   "function maxCostCap() view returns (uint256)",
   "function approvedTargetsCount() view returns (uint256)",
   "function approvedTargets(address) view returns (bool)",
+  "function approvedImplementations(address) view returns (bool)",
+  "function approvedValidators(address) view returns (bool)",
+  "function approvedRecoveryModules(address) view returns (bool)",
   "function whitelistEnabled() view returns (bool)",
   "function whitelisted(address) view returns (bool)",
   "function feeDefaulted(address) view returns (bool)",
@@ -596,6 +684,16 @@ export function ethersSponsorChain(
       };
     },
     isApprovedTarget: (target) => pm.approvedTargets(target) as Promise<boolean>,
+    async isApprovedSelfAdmin(kind, address) {
+      try {
+        if (kind === "implementation") return (await pm.approvedImplementations(address)) as boolean;
+        if (kind === "validator") return (await pm.approvedValidators(address)) as boolean;
+        return (await pm.approvedRecoveryModules(address)) as boolean;
+      } catch {
+        // A paymaster deployed before self-call approvals has no such view.
+        return false;
+      }
+    },
     async factoryGetAddress(factory, x, y, recovery, salt) {
       const f = new ethers.Contract(factory, FACTORY_ABI, provider);
       // Contract#getAddress() is ethers' own "address of this contract";

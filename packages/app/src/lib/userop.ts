@@ -269,7 +269,8 @@ export function applySponsorship(userOp: PackedUserOperation, s: Sponsorship): P
 }
 
 /** True when any call in this BlankAccount callData targets the account itself.
- *  The paymaster never sponsors those (upgrade, enableValidator, recovery module). */
+ *  The paymaster sponsors those only for its approved upgrade, validator and
+ *  recovery module; useSmartAccount self-pays any other. */
 export function callDataTargetsSelf(callData: Hex, account: Address): boolean {
   const sel = callData.slice(0, 10).toLowerCase();
   const self = account.toLowerCase();

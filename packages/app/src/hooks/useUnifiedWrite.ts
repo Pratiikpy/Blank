@@ -96,7 +96,11 @@ export interface UseUnifiedWriteReturn {
   /** Single contract write — branches between AA UserOp and wagmi writeContractAsync. */
   unifiedWrite: (params: UnifiedWriteParams) => Promise<Hex>;
   /** Atomic batch of writes — one UserOp via executeBatch in AA mode, sequential in EOA mode. */
-  unifiedWriteBatch: (calls: readonly UnifiedBatchCall[], promptCopy?: { title?: string; subtitle?: string }) => Promise<Hex>;
+  unifiedWriteBatch: (
+    calls: readonly UnifiedBatchCall[],
+    promptCopy?: { title?: string; subtitle?: string },
+    opts?: { paymaster?: "sponsored" | "self"; gas?: bigint },
+  ) => Promise<Hex>;
   /**
    * Same as unifiedWrite, but also surfaces the relayer's receipt on the AA
    * path so callers don't need to re-poll the chain (free RPC tiers like
@@ -266,7 +270,7 @@ function humanizeWriteError(err: unknown): string {
   // AA21: the account itself had to pay (self-pay mode, or an account
   // settings change the sponsor never covers) and holds no gas.
   if (s.includes("aa21") || s.includes("didn't pay prefund")) {
-    return "Your smart wallet has no gas for this. Account settings changes pay their own gas: add a little ETH on the Smart wallet screen and try again.";
+    return "Your smart wallet has no gas for this and it was not sponsored. Add a little ETH on the Smart wallet screen and try again.";
   }
   // Generic bare-reason-null fallback. Could be many root causes;
   // suggest retry without claiming knowledge of paymaster funding.
@@ -423,13 +427,14 @@ export function useUnifiedWrite(): UseUnifiedWriteReturn {
       // has deposited their own ETH for gas, it gets used. We resolve
       // BEFORE the passphrase prompt so its subtitle reflects the
       // actual mode the user is about to authorize.
-      // A call into the account itself is never sponsored (see
-      // useSmartAccount.submitCallData), so say so in the prompt.
+      // A call into the account itself is sponsored only for the
+      // paymaster's approved settings changes; otherwise useSmartAccount
+      // falls back to the account's own gas.
       const isSelfCall =
         !!smartAccount.account &&
         params.address.toLowerCase() === smartAccount.account.address.toLowerCase();
       const resolvedPaymaster = await resolvePaymasterMode(
-        isSelfCall ? "self" : params.paymaster,
+        params.paymaster,
         publicClient as PublicClient | undefined,
         contracts.EntryPoint as Address | undefined,
         smartAccount.account?.address as Address | undefined,
@@ -440,7 +445,9 @@ export function useUnifiedWrite(): UseUnifiedWriteReturn {
         subtitle:
           resolvedPaymaster === "self"
             ? `Submit via your smart wallet, paid from your own gas deposit.`
-            : `Submit via your smart wallet, gas sponsored by Blank.`,
+            : isSelfCall
+              ? `Account settings change. Gas sponsored by Blank when approved, otherwise paid from your wallet.`
+              : `Submit via your smart wallet, gas sponsored by Blank.`,
       });
       log.debug("unifiedWrite.passphrase", { phase: "obtained" });
       if (!passphrase) throw new Error("Cancelled");
@@ -596,6 +603,7 @@ export function useUnifiedWrite(): UseUnifiedWriteReturn {
     async (
       calls: readonly UnifiedBatchCall[],
       promptCopy?: { title?: string; subtitle?: string },
+      opts?: { paymaster?: "sponsored" | "self"; gas?: bigint },
     ): Promise<Hex> => {
       if (calls.length === 0) throw new Error("unifiedWriteBatch: empty call list");
 
@@ -645,7 +653,16 @@ export function useUnifiedWrite(): UseUnifiedWriteReturn {
 
       let result;
       try {
-        result = await smartAccount.sendBatchUserOp(targets, values, datas, passphrase);
+        const submitOpts: { paymaster?: "sponsored" | "self"; callGasLimit?: bigint } = {};
+        if (opts?.paymaster) submitOpts.paymaster = opts.paymaster;
+        if (opts?.gas) submitOpts.callGasLimit = opts.gas;
+        result = await smartAccount.sendBatchUserOp(
+          targets,
+          values,
+          datas,
+          passphrase,
+          Object.keys(submitOpts).length > 0 ? submitOpts : undefined,
+        );
       } catch (err) {
         throw new Error(humanizeWriteError(err));
       }
