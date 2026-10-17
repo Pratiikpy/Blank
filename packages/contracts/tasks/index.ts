@@ -65,3 +65,4 @@ import "./deploy-upgrade-cofhe-0-7";
 import "./deploy-upgrade-cofhe-1-0";
 import "./verify-cofhe-0-7";
 import "./deploy-upgrade-security-v1";
+import "./transfer-ownership-to-safe";

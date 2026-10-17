@@ -111,5 +111,6 @@
   "GuardianModule_Impl_security_v1": "0x413eE751f05f08a3FFD3fFcd6210A525424Ae670",
   "BlankHandles_Impl_security_v1": "0x695FBb126b5d4C2289CaE23ead794AF1a5d9CF29",
   "BlankAccount_Impl_security_v1": "0xdd46a50b9DA7129680d030d28F6F56cd8956c3ed",
-  "BlankPaymaster_v1": "0x68890C23C94e25706F064f8C1d07e04462B9Ec2E"
+  "BlankPaymaster_v1": "0x68890C23C94e25706F064f8C1d07e04462B9Ec2E",
+  "OwnerSafe": "0x38e43E5255c86d5B2e93e6E0708406Ff03908D72"
 }
