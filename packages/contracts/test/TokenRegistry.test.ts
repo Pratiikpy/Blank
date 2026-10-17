@@ -51,14 +51,20 @@ async function deployProxy(contractName: string) {
 async function fixture() {
   const [owner, alice, bob] = await hre.ethers.getSigners();
   const registry = await deployProxy("TokenRegistry");
-  return { owner, alice, bob, registry };
+  const Tok = await hre.ethers.getContractFactory("MockERC20Decimals");
+  const Stub = await hre.ethers.getContractFactory("MockVaultStub");
+  const tA = await Tok.deploy(6);
+  const tB = await Tok.deploy(6);
+  underlyingA = await tA.getAddress();
+  underlyingB = await tB.getAddress();
+  vaultA = await (await Stub.deploy(underlyingA)).getAddress();
+  vaultB = await (await Stub.deploy(underlyingB)).getAddress();
+  return { owner, alice, bob, registry, Tok, Stub };
 }
 
-// Deterministic addresses for the (vault, underlying) pairs.
-const vaultA = hre.ethers.getAddress("0xaaaa000000000000000000000000000000000001");
-const underlyingA = hre.ethers.getAddress("0xbbbb000000000000000000000000000000000001");
-const vaultB = hre.ethers.getAddress("0xaaaa000000000000000000000000000000000002");
-const underlyingB = hre.ethers.getAddress("0xbbbb000000000000000000000000000000000002");
+// Real (vault, underlying) pairs: registerToken checks code, the vault's
+// underlyingToken(), and the underlying's decimals.
+let vaultA: string, underlyingA: string, vaultB: string, underlyingB: string;
 
 describe("TokenRegistry — initialization", () => {
   it("sets the deployer (owner-signer) as owner after proxy init", async () => {
@@ -283,5 +289,55 @@ describe("TokenRegistry — public index mappings", () => {
     await registry.registerToken(vaultB, underlyingB, "y", "Y", 6);
     expect(await registry.vaultToIndex(vaultB)).to.equal(2);
     expect(await registry.underlyingToIndex(underlyingB)).to.equal(2);
+  });
+});
+
+describe("TokenRegistry — vault allowlist (audit root cause 1)", () => {
+  it("isActiveVault is true only for registered, active vaults", async () => {
+    const { registry, alice } = await loadFixture(fixture);
+    expect(await registry.isActiveVault(vaultA)).to.equal(false);
+    await registry.registerToken(vaultA, underlyingA, "Encrypted USDC", "eUSDC", 6);
+    expect(await registry.isActiveVault(vaultA)).to.equal(true);
+    expect(await registry.isActiveVault(alice.address)).to.equal(false);
+    await registry.deactivateToken(vaultA);
+    expect(await registry.isActiveVault(vaultA)).to.equal(false);
+  });
+
+  it("underlyingOf returns the token recorded at registration, reverts when inactive", async () => {
+    const { registry } = await loadFixture(fixture);
+    await registry.registerToken(vaultA, underlyingA, "Encrypted USDC", "eUSDC", 6);
+    expect(await registry.underlyingOf(vaultA)).to.equal(underlyingA);
+    await registry.deactivateToken(vaultA);
+    await expect(registry.underlyingOf(vaultA)).to.be.revertedWith("TokenRegistry: vault not active");
+  });
+
+  it("rejects an EOA as vault or underlying", async () => {
+    const { registry, alice } = await loadFixture(fixture);
+    await expect(
+      registry.registerToken(alice.address, underlyingA, "x", "x", 6),
+    ).to.be.revertedWith("TokenRegistry: not a contract");
+  });
+
+  it("rejects a vault whose underlyingToken() differs", async () => {
+    const { registry } = await loadFixture(fixture);
+    await expect(
+      registry.registerToken(vaultA, underlyingB, "x", "x", 6),
+    ).to.be.revertedWith("TokenRegistry: vault/underlying mismatch");
+  });
+
+  it("rejects tokens above 6 decimals (euint64 wrap ceiling)", async () => {
+    const { registry, Tok, Stub } = await loadFixture(fixture);
+    const t18 = await Tok.deploy(18);
+    const v18 = await Stub.deploy(await t18.getAddress());
+    await expect(
+      registry.registerToken(await v18.getAddress(), await t18.getAddress(), "x", "x", 18),
+    ).to.be.revertedWith("TokenRegistry: too many decimals");
+  });
+
+  it("rejects a declared decimals value that differs from the token", async () => {
+    const { registry } = await loadFixture(fixture);
+    await expect(
+      registry.registerToken(vaultA, underlyingA, "x", "x", 2),
+    ).to.be.revertedWith("TokenRegistry: decimals mismatch");
   });
 });

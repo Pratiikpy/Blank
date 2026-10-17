@@ -2,7 +2,7 @@
   "storage": [
     {
       "astId": 59241,
-      "contract": "contracts/MockReclaimVerifier.sol:MockReclaimVerifier",
+      "contract": "contracts/test-mocks/MockReclaimVerifier.sol:MockReclaimVerifier",
       "label": "operator",
       "offset": 0,
       "slot": "0",
