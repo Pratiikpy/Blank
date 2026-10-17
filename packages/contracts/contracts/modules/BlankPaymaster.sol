@@ -218,7 +218,8 @@ contract BlankPaymaster is BasePaymaster {
     /// @dev Only execute / executeBatch to allowlisted targets are sponsored.
     ///      A target equal to the sender goes through _checkSelfCall instead.
     function _checkTargets(bytes calldata callData, address sender) private view {
-        if (approvedTargetsCount == 0) return;
+        // Fail closed: an unconfigured paymaster sponsors nothing.
+        require(approvedTargetsCount > 0, "BlankPaymaster: no targets approved");
         require(callData.length >= 4, "BlankPaymaster: empty callData");
         bytes4 selector = bytes4(callData[:4]);
 

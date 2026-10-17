@@ -199,10 +199,11 @@ describe("sponsorUserOp — happy path", () => {
     await expect(sponsorUserOp(fakeChain(), SIGNER, { userOp: op() })).resolves.toBeTruthy();
   });
 
-  it("no allowlist configured (approvedTargetsCount = 0) -> any target, as on-chain", async () => {
+  it("no allowlist configured (approvedTargetsCount = 0) -> nothing is signed, as on-chain", async () => {
     st.cfg = baseConfig({ approvedTargetsCount: 0n });
     st.approved.clear();
-    await expect(sponsorUserOp(fakeChain(), SIGNER, { userOp: op({ callData: exec(OTHER) }), account: claim })).resolves.toBeTruthy();
+    const e = await refusal(sponsorUserOp(fakeChain(), SIGNER, { userOp: op({ callData: exec(OTHER) }), account: claim }));
+    expect(e.code).toBe("NOT_CONFIGURED");
   });
 
   it("the three approved account adoption steps are signed (single and batched)", async () => {
@@ -298,8 +299,7 @@ describe("sponsorUserOp — refusals (nothing is signed)", () => {
     }
   });
 
-  it("a bad self-call inside executeBatch is refused, even with the allowlist off", async () => {
-    st.cfg = baseConfig({ approvedTargetsCount: 0n });
+  it("a bad self-call inside executeBatch is refused", async () => {
     const batch = executeIface.encodeFunctionData("executeBatch", [
       [SENDER, SENDER],
       [0n, 0n],

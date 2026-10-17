@@ -310,6 +310,13 @@ describe("BlankPaymaster: verifying paymaster", () => {
       .withArgs(0n, "AA32 paymaster expired or not due");
   });
 
+  it("fails closed when no target is approved (it used to sponsor any call)", async () => {
+    const ctx = await loadFixture(fixture);
+    await ctx.paymaster.setApprovedTarget(ctx.usdcAddr, false);
+    expect(await ctx.paymaster.approvedTargetsCount()).to.equal(0n);
+    await expectPmRevert(ctx, await sponsor(ctx, baseOp(ctx)), "BlankPaymaster: no targets approved");
+  });
+
   it("fails closed when gas caps or account code hash are unset", async () => {
     const ctx = await loadFixture(fixture);
     const Paymaster = await hre.ethers.getContractFactory("BlankPaymaster");

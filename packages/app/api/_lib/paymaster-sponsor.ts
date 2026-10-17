@@ -444,6 +444,9 @@ export async function sponsorUserOp(
   if (cfg.maxCostCap === 0n || cfg.maxFeePerGasCap === 0n) {
     throw new SponsorError("NOT_CONFIGURED", "paymaster gas caps are unset", 503);
   }
+  if (cfg.approvedTargetsCount === 0n) {
+    throw new SponsorError("NOT_CONFIGURED", "paymaster has no approved targets", 503);
+  }
   if (cfg.feeDefaulted) throw new SponsorError("FEE_DEFAULTED", "this account has an unpaid paymaster fee", 403);
   if (cfg.whitelistEnabled && !cfg.whitelisted) {
     throw new SponsorError("NOT_WHITELISTED", "sponsorship is limited to whitelisted accounts", 403);
@@ -457,7 +460,7 @@ export async function sponsorUserOp(
       // Checked even when the allowlist is off: the backend only signs the
       // three adoption steps, never any other change to the account.
       await checkSelfCall(chain, c.value, c.data);
-    } else if (cfg.approvedTargetsCount > 0n && !(await chain.isApprovedTarget(c.target))) {
+    } else if (!(await chain.isApprovedTarget(c.target))) {
       throw new SponsorError("TARGET_NOT_APPROVED", `target ${c.target} is not on the paymaster allowlist`, 403);
     }
   }
