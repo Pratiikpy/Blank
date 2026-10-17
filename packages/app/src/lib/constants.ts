@@ -276,7 +276,7 @@ export const CONTRACTS_BY_CHAIN: Record<SupportedChainId, ContractMap> = {
     MockDEX: "0x9C295E5A130a5776b287dcC77b41d4b55165C8Be",
     EntryPoint: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
     BlankAccountFactory: "0x9be54Ef62271C028350e70C5A4305314Ba7CAFcD",
-    BlankPaymaster: "0x68890C23C94e25706F064f8C1d07e04462B9Ec2E",
+    BlankPaymaster: "0x691aae146A71A45A633d8b023A1c1B41f34dBf13",
     // Address(0) until operator runs `pnpm hardhat deploy-burner-registry
     // --network eth-sepolia`, which will write the deployed address to
     // packages/contracts/deployments/eth-sepolia.json. Update here after.
@@ -290,7 +290,7 @@ export const CONTRACTS_BY_CHAIN: Record<SupportedChainId, ContractMap> = {
     // pre-gas-wallet impl. Once a user upgrades, their receive()
     // auto-deposits ETH from any source (CEX, hardware, EOA).
     BlankAccount_Impl_gasWallet: "0x1A4C16230D8D113A146914Ce00Da7AD20B007743",
-    BlankAccount_Impl_security_v1: "0x0000000000000000000000000000000000000000",
+    BlankAccount_Impl_security_v1: "0xdd46a50b9DA7129680d030d28F6F56cd8956c3ed",
     // Address(0) until operator runs `pnpm hardhat deploy-session-key-validator
     // --network eth-sepolia`. ScheduledSends gracefully hides when unset.
     SessionKeyValidator: "0x0000000000000000000000000000000000000000",
@@ -349,13 +349,13 @@ export const CONTRACTS_BY_CHAIN: Record<SupportedChainId, ContractMap> = {
     MockDEX: "0x067cAF8F9196d03523c4cDF4D603916Bc94b532E",
     EntryPoint: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
     BlankAccountFactory: "0xd19Bfd90907c943Eee129a2066BCbC350F4a16fb",
-    BlankPaymaster: "0xB1CbBD59E63d7aB0BbF0406CCF1016c1Dd8e63de",
+    BlankPaymaster: "0x009645a8Fe34796e2e18534441E906899c5F430A",
     // See note on Sepolia entry above. Same TODO.
     BurnerRegistry: "0x0000000000000000000000000000000000000000",
     BlankAccount_Impl_v041: "0x0000000000000000000000000000000000000000",
     // §1.13 deployed 2026-05-17. Same shape as Eth Sepolia.
     BlankAccount_Impl_gasWallet: "0x02FDeFB3331c4907501260DF8a4584Bd6D920ADd",
-    BlankAccount_Impl_security_v1: "0x0000000000000000000000000000000000000000",
+    BlankAccount_Impl_security_v1: "0xD320a7c0B2cd79ff2e0BBFE6e68faFBe7eD60402",
     SessionKeyValidator: "0x0000000000000000000000000000000000000000",
     // Canonical EIP-5564 singleton. Same on every chain.
     ERC5564Announcer: "0x55649E01B5Df198D18D95b5cc5051630cfD45564",
@@ -411,15 +411,15 @@ export const CONTRACTS_BY_CHAIN: Record<SupportedChainId, ContractMap> = {
     // Canonical EntryPoint v0.8 — same address on every chain.
     EntryPoint: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
     BlankAccountFactory: "0x13cD6eBd92c0A944599558521b3C10f2bA6ceE5D",
-    BlankPaymaster: "0x9C295E5A130a5776b287dcC77b41d4b55165C8Be",
-    BurnerRegistry: "0x27B98576E7d1874915E5C698FB7Ce733c1E3534f",
+    BlankPaymaster: "0xdfc2606B1Ba148CC35b93849ac888BD7DfFD28a8",
+    BurnerRegistry: "0x862Ab57dD376000f744Edffb37e404B43a058d34",
     // Dormant validator-dispatch upgrade path; address(0) on every chain.
     BlankAccount_Impl_v041: "0x0000000000000000000000000000000000000000",
     // Fresh Arb factory deploys the current (gas-wallet + validator) impl, so
     // the GasWalletPanel upgrade prompt matches and stays dormant.
     BlankAccount_Impl_gasWallet: "0x95119073430E55F1993bfc1Bf980d0f91Db92058",
-    BlankAccount_Impl_security_v1: "0x0000000000000000000000000000000000000000",
-    SessionKeyValidator: "0x75FF37Bda28EC6A0D39db7E8Ea5CC6527febDA75",
+    BlankAccount_Impl_security_v1: "0xA92f32c42A53c9117Ba3850D464a5B639675b4E5",
+    SessionKeyValidator: "0xd679978e0334f0e8D4799d2E51755fEE8EE77668",
     // Canonical EIP-5564 singleton. Same on every chain.
     ERC5564Announcer: "0x55649E01B5Df198D18D95b5cc5051630cfD45564",
     // Canonical Umbra/Fluidkey ERC-6538 singleton. Same on every chain.
@@ -429,7 +429,7 @@ export const CONTRACTS_BY_CHAIN: Record<SupportedChainId, ContractMap> = {
     EncryptedCrowdfund: "0x4Face583A92f27b36f5098561CB731Aa1DbEe359",
     EncryptedEscrow: "0xfDd77d3b6489600466Da74f012bC7A7A342fdb6d",
     // Conditional invoice release rule (deployed 2026-06-13).
-    InvoiceApprovalResolver: "0x489D08059d578dF5f3A003B4A1acdF1243F55cc1",
+    InvoiceApprovalResolver: "0xc68C56a8Ad23E515eD56F2B98FC93341D98cE78b",
     P2POfframp: "0x653e71e5F02a0fEAAFfCab5391DF0AE99b89961f",
     ReclaimAdapter: "0x83C76cda5ABEe1510a244d1334802446014b0Fc1",
     MockReclaimVerifier: "0xe609e5b9528F3d6587e71A820DCc090AB57B1542",
