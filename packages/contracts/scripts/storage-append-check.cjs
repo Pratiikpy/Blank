@@ -29,7 +29,7 @@ function check(name) {
   const rel = `packages/contracts/storage-layouts/${name}.json`;
   let oldJson;
   try {
-    oldJson = execSync(`git show HEAD:"${rel}"`, { stdio: ["ignore", "pipe", "ignore"] }).toString();
+    oldJson = execSync(`git show ${process.env.BASE_REF || "HEAD"}:"${rel}"`, { stdio: ["ignore", "pipe", "ignore"] }).toString();
   } catch {
     console.log(`[new] ${name}: no committed snapshot (fresh contract)`);
     return true;
@@ -74,7 +74,7 @@ function check(name) {
 
 let names = process.argv.slice(2);
 if (!names.length) {
-  names = execSync(`git diff --name-only HEAD -- storage-layouts`, { cwd: path.join(__dirname, "..") })
+  names = execSync(`git diff --name-only ${process.env.BASE_REF || "HEAD"} -- storage-layouts`, { cwd: path.join(__dirname, "..") })
     .toString()
     .split("\n")
     .filter(Boolean)
