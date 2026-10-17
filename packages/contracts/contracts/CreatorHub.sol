@@ -5,6 +5,7 @@ import "@fhenixprotocol/cofhe-contracts/FHE.sol";
 import "./utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import "./interfaces/ITokenRegistry.sol";
 
 interface IFHERC20Vault {
     function transferFrom(address from, address to, externalEuint64 encAmount, bytes calldata proof) external returns (euint64);
@@ -22,6 +23,9 @@ interface IEventHub {
 ///
 /// @dev Tier thresholds are plaintext (public knowledge). Cumulative contributions
 ///      are encrypted. Tier check returns ebool that only the supporter can unseal.
+///      Totals are kept per vault so tips in different tokens are never summed.
+///      The pre-upgrade mixed-token totals (totalEarnings, _contributions) are
+///      frozen and no longer read.
 contract CreatorHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
     // ─── Types ──────────────────────────────────────────────────────────
@@ -57,6 +61,8 @@ contract CreatorHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     event ProfileCreated(address indexed creator, string name, uint256 timestamp);
     event ProfileUpdated(address indexed creator, uint256 timestamp);
     event Supported(address indexed supporter, address indexed creator, string message, uint256 timestamp);
+    event SupportedIn(address indexed supporter, address indexed creator, address indexed vault, euint64 moved);
+    event TokenRegistrySet(address indexed registry);
 
     // ─── Initializer ────────────────────────────────────────────────────
 
@@ -128,45 +134,52 @@ contract CreatorHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         require(hasProfile[creator], "CreatorHub: no profile");
         require(_profiles[creator].active, "CreatorHub: inactive");
         require(creator != msg.sender, "CreatorHub: cannot self-tip");
+        _requireAllowedVault(vault);
 
         // Verify encrypted input here (msg.sender = user) before cross-contract call
         euint64 amount = FHE.asEuint64(encAmount, proof);
 
-        // Transfer tokens from supporter to creator using pre-verified handle
-        IFHERC20Vault(vault).transferFromVerified(msg.sender, creator, FHE.shareEuint64(amount, vault));
+        // Credit what the vault moved, not what was requested: the vault
+        // moves 0 on a short balance.
+        euint64 moved = FHE.receiveEuint64FromCall(
+            IFHERC20Vault(vault).transferFromVerified(msg.sender, creator, FHE.shareEuint64(amount, vault)),
+            vault
+        );
+        FHE.allowThis(moved);
+        FHE.allowSender(moved);
+        FHE.allow(moved, creator);
 
-        // Update creator's encrypted total earnings
-        _profiles[creator].totalEarnings = FHE.add(_profiles[creator].totalEarnings, amount);
-        FHE.allowThis(_profiles[creator].totalEarnings);
-        FHE.allow(_profiles[creator].totalEarnings, creator);
+        euint64 earned = _addNoWrap(_earningsByVault[creator][vault], moved);
+        _earningsByVault[creator][vault] = earned;
+        FHE.allowThis(earned);
+        FHE.allow(earned, creator);
 
-        // Initialize contribution if first time
         if (!_hasContributed[creator][msg.sender]) {
-            _contributions[creator][msg.sender] = FHE.asEuint64(0);
-            FHE.allowThis(_contributions[creator][msg.sender]);
             _hasContributed[creator][msg.sender] = true;
             _profiles[creator].supporterCount++;
             _supportedCreators[msg.sender].push(creator);
         }
 
-        // Update supporter's encrypted cumulative contribution
-        _contributions[creator][msg.sender] = FHE.add(_contributions[creator][msg.sender], amount);
-        FHE.allowThis(_contributions[creator][msg.sender]);
-        FHE.allowSender(_contributions[creator][msg.sender]);
+        euint64 given = _addNoWrap(_contributionsByVault[creator][msg.sender][vault], moved);
+        _contributionsByVault[creator][msg.sender][vault] = given;
+        FHE.allowThis(given);
+        FHE.allowSender(given);
 
         emit Supported(msg.sender, creator, message, block.timestamp);
+        emit SupportedIn(msg.sender, creator, vault, moved);
         try eventHub.emitActivity(msg.sender, creator, "tip", message, 0) {} catch {}
     }
 
     // ─── Tier Checks ────────────────────────────────────────────────────
 
-    /// @notice Check your tier for a creator. Computes encrypted comparisons.
-    ///         Returns 3 encrypted booleans — unseal with permit to see which tiers you've reached.
+    /// @notice Check your tier for a creator in one token. Computes encrypted
+    ///         comparisons against your total given through `vault`.
+    ///         Returns 3 encrypted booleans; unseal with a permit.
     ///         NOT a view function because FHE operations submit CoFHE tasks.
     /// @return bronze Whether contribution >= tier1
     /// @return silver Whether contribution >= tier2
     /// @return gold Whether contribution >= tier3
-    function checkMyTier(address creator) external returns (
+    function checkMyTierIn(address creator, address vault) external returns (
         ebool bronze,
         ebool silver,
         ebool gold
@@ -174,7 +187,7 @@ contract CreatorHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         require(_hasContributed[creator][msg.sender], "CreatorHub: not a supporter");
 
         CreatorProfile storage p = _profiles[creator];
-        euint64 contrib = _contributions[creator][msg.sender];
+        euint64 contrib = _contributionsByVault[creator][msg.sender][vault];
 
         euint64 t1 = FHE.asEuint64(p.tier1Threshold);
         euint64 t2 = FHE.asEuint64(p.tier2Threshold);
@@ -206,16 +219,16 @@ contract CreatorHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         return (p.name, p.bio, p.tier1Threshold, p.tier2Threshold, p.tier3Threshold, p.supporterCount, p.active);
     }
 
-    /// @notice Get your encrypted total contribution to a creator (unseal with permit)
-    function getMyContribution(address creator) external view returns (euint64) {
+    /// @notice Your encrypted total given to a creator through one vault.
+    function getMyContributionIn(address creator, address vault) external view returns (euint64) {
         require(_hasContributed[creator][msg.sender], "CreatorHub: not a supporter");
-        return _contributions[creator][msg.sender];
+        return _contributionsByVault[creator][msg.sender][vault];
     }
 
-    /// @notice Get creator's encrypted total earnings (only creator can unseal)
-    function getMyEarnings() external view returns (euint64) {
+    /// @notice Creator's encrypted earnings through one vault (only creator can unseal).
+    function getMyEarningsIn(address vault) external view returns (euint64) {
         require(hasProfile[msg.sender], "CreatorHub: no profile");
-        return _profiles[msg.sender].totalEarnings;
+        return _earningsByVault[msg.sender][vault];
     }
 
     /// @notice Get all creators a supporter has contributed to
@@ -229,11 +242,35 @@ contract CreatorHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         eventHub = IEventHub(_eventHub);
     }
 
-    /// @dev Reserved storage to avoid collisions on future upgrades.
-    ///      Append-only: when adding a new state variable in a later upgrade,
-    ///      decrement the gap size so total storage is unchanged.
-    /// @dev Used: 7. Gap: 50.
-    uint256[50] private __gap;
+    function setTokenRegistry(address r) external onlyOwner {
+        require(r.code.length > 0, "CreatorHub: bad registry");
+        tokenRegistry = ITokenRegistry(r);
+        emit TokenRegistrySet(r);
+    }
+
+    function _requireAllowedVault(address vault) internal view {
+        require(
+            address(tokenRegistry) != address(0) && tokenRegistry.isActiveVault(vault),
+            "CreatorHub: vault not allowed"
+        );
+    }
+
+    /// @dev a + b, or a unchanged if the sum would wrap.
+    function _addNoWrap(euint64 a, euint64 b) internal returns (euint64) {
+        euint64 sum = FHE.add(a, b);
+        return FHE.select(FHE.gte(sum, a), sum, a);
+    }
+
+    // ─── Appended storage (UUPS) ────────────────────────────────────────
+
+    /// @dev creator => vault => encrypted earnings in that token.
+    mapping(address => mapping(address => euint64)) private _earningsByVault;
+    /// @dev creator => supporter => vault => encrypted cumulative contribution.
+    mapping(address => mapping(address => mapping(address => euint64))) private _contributionsByVault;
+    ITokenRegistry public tokenRegistry;
+
+    /// @dev Reserved storage. Shrink by 1 for each slot appended above.
+    uint256[47] private __gap;
 
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 }

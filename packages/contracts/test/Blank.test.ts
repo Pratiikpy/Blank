@@ -1207,9 +1207,18 @@ describe("BusinessHub", () => {
 //  GroupManager
 // ══════════════════════════════════════════════════════════════════
 
+// GroupManager settles only through allowlisted vaults.
+async function groupFixture() {
+  const base = await deployBlankFixture();
+  const registry = await deployProxy("TokenRegistry", []);
+  await registry.registerToken(await base.vault.getAddress(), await base.testUSDC.getAddress(), "Test USDC", "USDC", USDC_DECIMALS);
+  await base.groupManager.setTokenRegistry(await registry.getAddress());
+  return { ...base, registry };
+}
+
 describe("GroupManager", () => {
   it("createGroup adds the caller + listed members", async () => {
-    const ctx = await loadFixture(deployBlankFixture);
+    const ctx = await loadFixture(groupFixture);
     await ctx.groupManager
       .connect(ctx.alice)
       .createGroup("Roomies", [ctx.bob.address, ctx.charlie.address]);
@@ -1220,7 +1229,7 @@ describe("GroupManager", () => {
   });
 
   it("non-member cannot add an expense", async () => {
-    const ctx = await loadFixture(deployBlankFixture);
+    const ctx = await loadFixture(groupFixture);
     await ctx.groupManager.connect(ctx.alice).createGroup("Close friends", [ctx.bob.address]);
 
     // Charlie is NOT in the group
@@ -1248,7 +1257,7 @@ describe("GroupManager", () => {
   // transferFromVerified), and the contract emits DebtSettledEncrypted so the
   // frontend can decrypt and warn the user about the failed settlement.
   it("settleDebt with insufficient balance transfers 0 and leaves debts unchanged (no silent underflow)", async () => {
-    const ctx = await loadFixture(deployBlankFixture);
+    const ctx = await loadFixture(groupFixture);
 
     // Alice has only 50 USDC shielded in the vault
     await shield(ctx, ctx.alice, usdc(50));
@@ -1322,7 +1331,7 @@ describe("GroupManager", () => {
   // and decrements the debt correctly. Ensures the new logic doesn't regress
   // the normal flow.
   it("settleDebt with sufficient balance transfers the full amount and decrements debt correctly", async () => {
-    const ctx = await loadFixture(deployBlankFixture);
+    const ctx = await loadFixture(groupFixture);
 
     // Alice has plenty — 200 USDC
     await shield(ctx, ctx.alice, usdc(200));
@@ -1381,7 +1390,7 @@ describe("GroupManager", () => {
   // Fix: require(with_ != msg.sender). Vault → vault self-transfer
   // is rejected upfront.
   it("settleDebt rejects with_ == msg.sender (debt-corruption bug)", async () => {
-    const ctx = await loadFixture(deployBlankFixture);
+    const ctx = await loadFixture(groupFixture);
     await shield(ctx, ctx.alice, usdc(200));
     await approveHub(ctx, ctx.alice, await ctx.groupManager.getAddress());
     await ctx.groupManager.connect(ctx.alice).createGroup("Solo test", [ctx.bob.address]);
@@ -1394,7 +1403,7 @@ describe("GroupManager", () => {
   });
 
   it("settleDebt blocks a second same-block settle on the same debt edge (#187)", async () => {
-    const ctx = await loadFixture(deployBlankFixture);
+    const ctx = await loadFixture(groupFixture);
 
     await shield(ctx, ctx.alice, usdc(200));
     await approveHub(ctx, ctx.alice, await ctx.groupManager.getAddress());
@@ -1465,7 +1474,7 @@ describe("GroupManager", () => {
   // admin exists". A solo admin in a multi-member group could leave →
   // group bricked (no one can add members or promote admins).
   it("solo admin cannot leave a multi-member group (bricked-group DoS)", async () => {
-    const ctx = await loadFixture(deployBlankFixture);
+    const ctx = await loadFixture(groupFixture);
     await ctx.groupManager.connect(ctx.alice).createGroup("Solo-admin", [ctx.bob.address]);
     // Alice is the only admin; Bob is a non-admin member. Leaving would
     // brick the group — must revert.
@@ -1475,6 +1484,125 @@ describe("GroupManager", () => {
     // After promoting Bob to admin, Alice CAN leave (an admin remains).
     await ctx.groupManager.connect(ctx.alice).addAdmin(0, ctx.bob.address);
     await expect(ctx.groupManager.connect(ctx.alice).leaveGroup(0)).to.not.be.reverted;
+  });
+
+  async function rentGroup(ctx: any, aliceShield: bigint) {
+    await shield(ctx, ctx.alice, aliceShield);
+    await approveHub(ctx, ctx.alice, await ctx.groupManager.getAddress());
+    await ctx.groupManager.connect(ctx.alice).createGroup("Flat", [ctx.bob.address]);
+    const rent = await encBatch(ctx, ctx.bob, [usdc(100), usdc(100)], await ctx.groupManager.getAddress());
+    await ctx.groupManager.connect(ctx.bob).addExpense(0, [ctx.alice.address], [rent.handles[0]], rent.handles[1], rent.proof, "Rent");
+  }
+
+  it("H14: settleDebt with a fake vault reverts (old code wiped debts for free)", async () => {
+    const ctx = await loadFixture(groupFixture);
+    await rentGroup(ctx, usdc(200));
+    const Stub = await hre.ethers.getContractFactory("MockVaultStub");
+    const fake = await Stub.deploy(await ctx.testUSDC.getAddress());
+    const enc = await encUint64(ctx, ctx.alice, usdc(100), await ctx.groupManager.getAddress());
+    await expect(
+      ctx.groupManager.connect(ctx.alice).settleDebt(0, ctx.bob.address, await fake.getAddress(), ...enc),
+    ).to.be.revertedWith("GroupManager: vault not allowed");
+    await mock_expectPlaintext(ctx.alice.provider, await ctx.groupManager.connect(ctx.alice).getMyDebt(0), usdc(100));
+  });
+
+  it("H14: group vault is pinned on first settle; a second registered vault is refused", async () => {
+    const ctx = await loadFixture(groupFixture);
+    await rentGroup(ctx, usdc(200));
+    const enc = await encUint64(ctx, ctx.alice, usdc(10), await ctx.groupManager.getAddress());
+    await expect(ctx.groupManager.connect(ctx.alice).settleDebt(0, ctx.bob.address, await ctx.vault.getAddress(), ...enc))
+      .to.emit(ctx.groupManager, "GroupVaultPinned");
+    expect(await ctx.groupManager.groupVault(0)).to.equal(await ctx.vault.getAddress());
+
+    const TestUSDC = await hre.ethers.getContractFactory("TestUSDC");
+    const cheap = await TestUSDC.deploy();
+    const vault2 = await deployProxy("FHERC20Vault", [await cheap.getAddress(), "Cheap", "bvC", USDC_DECIMALS, await ctx.eventHub.getAddress()]);
+    await ctx.registry.registerToken(await vault2.getAddress(), await cheap.getAddress(), "Cheap", "C", USDC_DECIMALS);
+    await hre.network.provider.send("evm_mine", []);
+    const enc2 = await encUint64(ctx, ctx.alice, usdc(10), await ctx.groupManager.getAddress());
+    await expect(ctx.groupManager.connect(ctx.alice).settleDebt(0, ctx.bob.address, await vault2.getAddress(), ...enc2))
+      .to.be.revertedWith("GroupManager: wrong vault for group");
+  });
+
+  it("settleDebt with no registry set fails closed", async () => {
+    const ctx = await loadFixture(deployBlankFixture);
+    await shield(ctx, ctx.alice, usdc(10));
+    await approveHub(ctx, ctx.alice, await ctx.groupManager.getAddress());
+    await ctx.groupManager.connect(ctx.alice).createGroup("G", [ctx.bob.address]);
+    const enc = await encUint64(ctx, ctx.alice, usdc(1), await ctx.groupManager.getAddress());
+    await expect(ctx.groupManager.connect(ctx.alice).settleDebt(0, ctx.bob.address, await ctx.vault.getAddress(), ...enc))
+      .to.be.revertedWith("GroupManager: vault not allowed");
+    await expect(ctx.groupManager.setTokenRegistry(ctx.alice.address)).to.be.revertedWith("GroupManager: bad registry");
+  });
+
+  it("overpay credits the payee only the clamped amount", async () => {
+    const ctx = await loadFixture(groupFixture);
+    await rentGroup(ctx, usdc(200));
+    // Alice owes 100 and pays 150. Bob was owed 100 (wrapped -100).
+    const enc = await encUint64(ctx, ctx.alice, usdc(150), await ctx.groupManager.getAddress());
+    await ctx.groupManager.connect(ctx.alice).settleDebt(0, ctx.bob.address, await ctx.vault.getAddress(), ...enc);
+    await mock_expectPlaintext(ctx.alice.provider, await ctx.groupManager.connect(ctx.alice).getMyDebt(0), 0n);
+    // Old code added the full 150, leaving Bob "owing" 50.
+    await mock_expectPlaintext(ctx.bob.provider, await ctx.groupManager.connect(ctx.bob).getMyDebt(0), 0n);
+  });
+
+  it("leave + rejoin keeps the member's debt", async () => {
+    const ctx = await loadFixture(groupFixture);
+    await rentGroup(ctx, usdc(10));
+    await ctx.groupManager.connect(ctx.alice).addAdmin(0, ctx.bob.address);
+    await ctx.groupManager.connect(ctx.alice).leaveGroup(0);
+    await ctx.groupManager.connect(ctx.bob).addMember(0, ctx.alice.address);
+    // Old code reset the debt to 0 on rejoin.
+    await mock_expectPlaintext(ctx.alice.provider, await ctx.groupManager.connect(ctx.alice).getMyDebt(0), usdc(100));
+  });
+
+  it("expense whose shares do not sum to the total applies nothing", async () => {
+    const ctx = await loadFixture(groupFixture);
+    await ctx.groupManager.connect(ctx.alice).createGroup("G", [ctx.bob.address, ctx.charlie.address]);
+    // Bob claims he paid 10 but charges Alice 500 and Charlie 500.
+    const e = await encBatch(ctx, ctx.bob, [usdc(500), usdc(500), usdc(10)], await ctx.groupManager.getAddress());
+    const tx = await ctx.groupManager.connect(ctx.bob).addExpense(
+      0, [ctx.alice.address, ctx.charlie.address], [e.handles[0], e.handles[1]], e.handles[2], e.proof, "Fake",
+    );
+    const rc = await tx.wait();
+    const ev = rc!.logs.find((l: any) => l.fragment?.name === "ExpenseApplied");
+    await mock_expectPlaintext(ctx.bob.provider, (ev as any).args.applied, 0n);
+    await mock_expectPlaintext(ctx.alice.provider, await ctx.groupManager.connect(ctx.alice).getMyDebt(0), 0n);
+    await mock_expectPlaintext(ctx.charlie.provider, await ctx.groupManager.connect(ctx.charlie).getMyDebt(0), 0n);
+    await mock_expectPlaintext(ctx.bob.provider, await ctx.groupManager.connect(ctx.bob).getMyDebt(0), 0n);
+  });
+
+  it("expense whose shares wrap around 2^64 to match the total applies nothing", async () => {
+    const ctx = await loadFixture(groupFixture);
+    await ctx.groupManager.connect(ctx.alice).createGroup("G", [ctx.bob.address, ctx.charlie.address]);
+    const MAX = (1n << 64n) - 1n;
+    // MAX + 11 wraps to 10 == total.
+    const e = await encBatch(ctx, ctx.bob, [MAX, 11n, 10n], await ctx.groupManager.getAddress());
+    await ctx.groupManager.connect(ctx.bob).addExpense(
+      0, [ctx.alice.address, ctx.charlie.address], [e.handles[0], e.handles[1]], e.handles[2], e.proof, "Wrap",
+    );
+    await mock_expectPlaintext(ctx.alice.provider, await ctx.groupManager.connect(ctx.alice).getMyDebt(0), 0n);
+    await mock_expectPlaintext(ctx.charlie.provider, await ctx.groupManager.connect(ctx.charlie).getMyDebt(0), 0n);
+  });
+
+  it("archived group rejects new expenses and settlements", async () => {
+    const ctx = await loadFixture(groupFixture);
+    await rentGroup(ctx, usdc(200));
+    await ctx.groupManager.connect(ctx.alice).archiveGroup(0);
+    const e = await encBatch(ctx, ctx.bob, [usdc(1), usdc(1)], await ctx.groupManager.getAddress());
+    await expect(
+      ctx.groupManager.connect(ctx.bob).addExpense(0, [ctx.alice.address], [e.handles[0]], e.handles[1], e.proof, "x"),
+    ).to.be.revertedWith("GroupManager: group archived");
+    const enc = await encUint64(ctx, ctx.alice, usdc(1), await ctx.groupManager.getAddress());
+    await expect(ctx.groupManager.connect(ctx.alice).settleDebt(0, ctx.bob.address, await ctx.vault.getAddress(), ...enc))
+      .to.be.revertedWith("GroupManager: group archived");
+  });
+
+  it("quadratic voting is retired", async () => {
+    const ctx = await loadFixture(groupFixture);
+    await rentGroup(ctx, usdc(10));
+    const v = await encUint64(ctx, ctx.alice, 3n, await ctx.groupManager.getAddress());
+    await expect(ctx.groupManager.connect(ctx.alice).voteOnExpense(0, 0, ...v)).to.be.revertedWith("GroupManager: retired");
   });
 });
 
@@ -1799,73 +1927,6 @@ describe("GiftMoney expiry enforcement (#241)", () => {
 
     await expect(ctx.giftMoney.connect(ctx.bob).claimGift(0)).to.not.be.reverted;
     expect(await ctx.giftMoney.hasOpened(0, ctx.bob.address)).to.equal(true);
-  });
-});
-
-// ══════════════════════════════════════════════════════════════════
-//  P2PExchange — strict offer expiry on fill (#242)
-// ══════════════════════════════════════════════════════════════════
-
-describe("P2PExchange expiry enforcement (#242)", () => {
-  async function deployP2PFixture() {
-    const base = await deployBlankFixture();
-    const p2pExchange = await deployProxy("P2PExchange", [await base.eventHub.getAddress()]);
-    await base.eventHub.batchWhitelist([await p2pExchange.getAddress()]);
-
-    // Second vault so we have a distinct tokenGive ↔ tokenWant pair.
-    const TestUSDC = await hre.ethers.getContractFactory("TestUSDC");
-    const testUSDC2 = await TestUSDC.deploy();
-    await testUSDC2.waitForDeployment();
-    const vault2 = await deployProxy("FHERC20Vault", [
-      await testUSDC2.getAddress(),
-      "Blank USDC2 Vault",
-      "bvUSDC2",
-      USDC_DECIMALS,
-      await base.eventHub.getAddress(),
-    ]);
-    await testUSDC2.mint(base.alice.address, usdc(10_000));
-    await testUSDC2.mint(base.bob.address, usdc(10_000));
-    await testUSDC2.connect(base.alice).approve(await vault2.getAddress(), usdc(10_000));
-    await testUSDC2.connect(base.bob).approve(await vault2.getAddress(), usdc(10_000));
-
-    return { ...base, p2pExchange, vault2 };
-  }
-
-  it("fillOffer reverts once block.timestamp passes offer expiry", async () => {
-    const ctx = await deployP2PFixture();
-
-    // Maker: alice gives vault (USDC), wants vault2 (USDC2). Taker: bob.
-    await shield(ctx, ctx.alice, usdc(100));
-    await ctx.vault2.connect(ctx.bob).shield(usdc(100));
-    await approveHub(ctx, ctx.alice, await ctx.p2pExchange.getAddress());
-    await ctx.vault2.connect(ctx.bob).approvePlaintext(
-      await ctx.p2pExchange.getAddress(),
-      (1n << 64n) - 1n,
-    );
-
-    const now = (await hre.ethers.provider.getBlock("latest"))!.timestamp;
-    const expiry = now + 60;
-
-    await ctx.p2pExchange
-      .connect(ctx.alice)
-      .createOffer(
-        await ctx.vault.getAddress(),  // tokenGive
-        await ctx.vault2.getAddress(), // tokenWant
-        usdc(50),                      // amountGive
-        usdc(50),                      // amountWant
-        expiry,
-      );
-
-    // Advance time past expiry (120s > 60s deadline).
-    await hre.network.provider.send("evm_increaseTime", [120]);
-    await hre.network.provider.send("evm_mine", []);
-
-    const fill = await encBatch(ctx, ctx.bob, [usdc(50), usdc(50)], await ctx.p2pExchange.getAddress());
-    await expect(
-      ctx.p2pExchange
-        .connect(ctx.bob)
-        .fillOffer(0, fill.handles[0], fill.handles[1], fill.proof),
-    ).to.be.revertedWith("P2PExchange: offer expired");
   });
 });
 

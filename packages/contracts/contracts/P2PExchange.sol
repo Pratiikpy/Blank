@@ -15,9 +15,10 @@ interface IEventHub {
     function emitActivity(address user1, address user2, string calldata activityType, string calldata note, uint256 refId) external;
 }
 
-/// @title P2PExchange — Trustless atomic token swaps
-/// @notice Users post offers with PUBLIC order sizes (for discovery) and ENCRYPTED settlement.
-///         Taker accepts, both sides transfer atomically. No liquidity pool needed.
+/// @title P2PExchange (retired)
+/// @notice Was: atomic swaps with public order sizes and encrypted settlement.
+///         Retired before mainnet. Storage and views stay for history; makers
+///         can still cancel offers that were open at retirement.
 contract P2PExchange is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
     struct Offer {
@@ -51,140 +52,16 @@ contract P2PExchange is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         eventHub = IEventHub(_eventHub);
     }
 
-    /// @notice Create a swap offer. Amounts are PUBLIC for discoverability.
-    function createOffer(
-        address tokenGive,
-        address tokenWant,
-        uint256 amountGive,
-        uint256 amountWant,
-        uint256 expiry
-    ) external nonReentrant returns (uint256) {
-        require(tokenGive != tokenWant, "P2PExchange: same token");
-        require(amountGive > 0 && amountWant > 0, "P2PExchange: zero amount");
-        require(expiry > block.timestamp, "P2PExchange: expired");
-
-        uint256 id = nextOfferId++;
-        offers[id] = Offer({
-            maker: msg.sender,
-            tokenGive: tokenGive,
-            tokenWant: tokenWant,
-            amountGive: amountGive,
-            amountWant: amountWant,
-            expiry: expiry,
-            active: true,
-            filled: false
-        });
-        _userOffers[msg.sender].push(id);
-
-        emit OfferCreated(id, msg.sender, tokenGive, tokenWant, amountGive, amountWant, expiry, block.timestamp);
-        try eventHub.emitActivity(msg.sender, address(0), "exchange_created", "", id) {} catch {}
-
-        return id;
+    /// @notice Retired. The exchange no longer takes new offers or fills.
+    ///         Open offers can still be cancelled by their maker; the
+    ///         contract never custodies funds, so there is nothing to withdraw.
+    function createOffer(address, address, uint256, uint256, uint256) external pure returns (uint256) {
+        revert("P2PExchange: retired");
     }
 
-    /// @notice Fill an offer. Taker sends tokenWant to maker, maker sends tokenGive to taker.
-    ///         Both transfers use encrypted amounts for privacy during settlement.
-    ///
-    ///         Amount verification: After both encrypted transfers, the contract verifies
-    ///         that the taker paid at least amountWant and the maker sent no more than
-    ///         amountGive using FHE.gte()/FHE.lte() against the public offer prices.
-    ///         Since offer amounts are already public, these checks leak no private data.
-    ///         If validation fails, the trade is marked invalid and both parties can
-    ///         detect this via the decrypted tradeValid boolean.
-    ///
-    /// @param offerId The offer to fill
-    /// @param encTakerPayment Encrypted amount taker sends (must be >= offer.amountWant)
-    /// @param encMakerPayment Encrypted amount to transfer from maker (must be <= offer.amountGive)
-    /// @param proof One batch signature covering `encTakerPayment` then
-    ///        `encMakerPayment`, in that exact order.
-    function fillOffer(
-        uint256 offerId,
-        externalEuint64 encTakerPayment,
-        externalEuint64 encMakerPayment,
-        bytes calldata proof
-    ) external nonReentrant {
-        Offer storage o = offers[offerId];
-        require(o.active && !o.filled, "P2PExchange: not available");
-        // #242 — Enforce offer expiry strictly (<, not <=). A taker who lands in
-        // the exact expiry second previously slipped through; tighten the check
-        // so the expiry timestamp itself is already too late. Zero expiry is not
-        // accepted on this path because createOffer requires expiry > block.timestamp,
-        // so all persisted offers have a concrete expiry; keep the zero-guard for
-        // forward compatibility in case the invariant is ever relaxed.
-        require(o.expiry == 0 || block.timestamp < o.expiry, "P2PExchange: offer expired");
-        require(msg.sender != o.maker, "P2PExchange: self-fill");
-
-        // Verify encrypted inputs here (msg.sender = taker) before cross-contract calls.
-        // Both handles share one batch signature, so they verify together.
-        externalEuint64[] memory packed = new externalEuint64[](2);
-        packed[0] = encTakerPayment;
-        packed[1] = encMakerPayment;
-        euint64[] memory verified = FHE.asEuint64s(packed, proof);
-        euint64 verifiedTakerPayment = verified[0];
-        euint64 verifiedMakerPayment = verified[1];
-
-        // ── CRITICAL anti-overdraw clamp on the maker side ──────────────
-        // The taker controls `encMakerPayment` (it's a function arg). If
-        // we passed it straight to transferFromVerified, a malicious
-        // taker could request MUCH MORE than the offer's public
-        // `amountGive` and the vault would honor it (FHE.select only
-        // gates on balance/allowance, not on a per-offer cap). Makers
-        // typically approve MAX_UINT64 once, so the bug fires whenever
-        // a maker uses the common approval pattern. We clamp here so
-        // the maker can never lose more than the public amountGive
-        // they advertised — the offer terms are the upper bound.
-        euint64 makerCap = FHE.asEuint64(uint64(o.amountGive));
-        ebool withinCap = FHE.lte(verifiedMakerPayment, makerCap);
-        euint64 clampedMakerPayment = FHE.select(withinCap, verifiedMakerPayment, makerCap);
-
-        // Taker sends tokenWant to maker
-        euint64 actualGive = FHE.receiveEuint64FromCall(
-            IFHERC20Vault(o.tokenWant).transferFromVerified(msg.sender, o.maker, FHE.shareEuint64(verifiedTakerPayment, o.tokenWant)),
-            o.tokenWant
-        );
-        FHE.allowSender(actualGive);
-        FHE.allow(actualGive, o.maker);
-
-        // Maker sends tokenGive to taker (maker must have pre-approved this contract).
-        // Uses the clamped amount above so this transfer cannot exceed amountGive.
-        euint64 actualReceive = FHE.receiveEuint64FromCall(
-            IFHERC20Vault(o.tokenGive).transferFromVerified(o.maker, msg.sender, FHE.shareEuint64(clampedMakerPayment, o.tokenGive)),
-            o.tokenGive
-        );
-        FHE.allowSender(actualReceive);
-
-        // ── Amount Verification ──────────────────────────────────────────
-        // Verify taker paid at least amountWant and maker sent at most amountGive.
-        // Offer amounts are PUBLIC (stored as plaintext for discovery), so these
-        // FHE comparisons leak no additional private information.
-        //
-        // We cannot prevent invalid transfers on-chain (vault.transferFrom takes
-        // InEuint64 which cannot be constructed from euint64), but we CAN detect
-        // and flag invalid trades for both parties to verify.
-        euint64 expectedTakerAmount = FHE.asEuint64(o.amountWant);
-        euint64 expectedMakerAmount = FHE.asEuint64(o.amountGive);
-
-        ebool takerPaidEnough = FHE.gte(actualGive, expectedTakerAmount);
-        ebool makerPayoutValid = FHE.lte(actualReceive, expectedMakerAmount);
-        ebool tradeValid = FHE.and(takerPaidEnough, makerPayoutValid);
-
-        // Store validation result — both parties can verify off-chain
-        FHE.allowSender(tradeValid);
-        FHE.allow(tradeValid, o.maker);
-        FHE.allowThis(tradeValid);
-
-        // Store the validation handle for the offer so it can be queried
-        _offerValidation[offerId] = tradeValid;
-
-        // v0.1.3 migration: caller decrypts off-chain via the cofhe-sdk client and
-        // submits the result + signature to publishTradeValidation() below.
-        FHE.allowPublic(tradeValid);
-
-        o.filled = true;
-        o.active = false;
-
-        emit OfferFilled(offerId, msg.sender, block.timestamp);
-        try eventHub.emitActivity(msg.sender, o.maker, "exchange_filled", "", offerId) {} catch {}
+    /// @notice Retired. See createOffer.
+    function fillOffer(uint256, externalEuint64, externalEuint64, bytes calldata) external pure {
+        revert("P2PExchange: retired");
     }
 
     /// @notice Publish the off-chain decryption of a filled offer's validation

@@ -5,6 +5,7 @@ import "@fhenixprotocol/cofhe-contracts/FHE.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "./utils/ReentrancyGuard.sol";
+import "./interfaces/ITokenRegistry.sol";
 
 interface IFHERC20Vault {
     function transferFrom(address from, address to, externalEuint64 encAmount, bytes calldata proof) external returns (euint64);
@@ -167,6 +168,11 @@ contract Storefront is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     /// bump call reverts. kind is "user" or "global". Indexer detects + replays.
     event ReceiptsBumpFailed(string kind, bytes reason);
     event PaymentReceiptsSet(address indexed previous, address indexed current);
+    event TokenRegistrySet(address indexed registry);
+    /// @notice Encrypted amount actually paid on a FixedPrice buy: the price
+    ///         on a match with enough balance, otherwise 0. Buyer and seller
+    ///         can decrypt it; the seller should check it before delivering.
+    event FixedPricePaid(uint256 indexed listingId, address indexed buyer, euint64 paid);
 
     // ─── Initializer ──────────────────────────────────────────────────
 
@@ -207,6 +213,7 @@ contract Storefront is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         string calldata deliveryChannel
     ) external nonReentrant returns (uint256 listingId) {
         require(vault != address(0), "Storefront: zero vault");
+        _requireAllowedVault(vault);
         require(bytes(title).length > 0 && bytes(title).length <= 200, "Storefront: bad title length");
 
         uint256 closesAt = 0;
@@ -272,6 +279,7 @@ contract Storefront is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         require(!l.closed, "Storefront: closed");
         require(l.mode == SaleMode.FixedPrice, "Storefront: not FixedPrice");
         require(msg.sender != l.seller, "Storefront: seller cannot buy self-listing");
+        _requireAllowedVault(l.vault);
 
         // Verify input under buyer's signer.
         euint64 verifiedAmount = FHE.asEuint64(encAmount, proof);
@@ -295,7 +303,16 @@ contract Storefront is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
         _bumpReceiptsAndGlobal(l.seller, transferred);
 
+        // A listing can be bought many times (digital goods). Keep the
+        // buyer's running paid total so the seller can verify payment.
+        euint64 total = FHE.add(_paidByBuyer[listingId][msg.sender], transferred);
+        _paidByBuyer[listingId][msg.sender] = total;
+        FHE.allowThis(total);
+        FHE.allowSender(total);
+        FHE.allow(total, l.seller);
+
         emit FixedPriceBuy(listingId, msg.sender, l.seller, deliveryNoteHash);
+        emit FixedPricePaid(listingId, msg.sender, transferred);
         try eventHub.emitActivity(msg.sender, l.seller, "storefront_buy", l.title, listingId) {} catch {}
     }
 
@@ -306,7 +323,8 @@ contract Storefront is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     ///         auction closes, the winner's bid is forwarded to the seller
     ///         and losers can call `refundLoserBid` to reclaim their funds.
     ///
-    ///         Multiple bids per address are allowed — track each.
+    ///         One bid per address per listing, so MAX_BIDS slots cannot be
+    ///         filled by one account.
     function placeBid(uint256 listingId, externalEuint64 encAmount, bytes calldata proof) external nonReentrant {
         Listing storage l = _listings[listingId];
         require(l.active && !l.closed, "Storefront: listing not active");
@@ -320,6 +338,9 @@ contract Storefront is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         // keeps closeAuction well under typical block gas at v0.8
         // EntryPoint pricing.
         require(_bids[listingId].length < MAX_BIDS, "Storefront: bid cap reached");
+        require(!_hasBid[listingId][msg.sender], "Storefront: already bid");
+        _hasBid[listingId][msg.sender] = true;
+        _requireAllowedVault(l.vault);
 
         // Verify input under bidder.
         euint64 verifiedAmount = FHE.asEuint64(encAmount, proof);
@@ -432,25 +453,16 @@ contract Storefront is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
     // ─── Auction: Winner Claim ────────────────────────────────────────
 
-    /// @notice Winner triggers settlement: their bid amount transfers from
-    ///         this contract to the seller. Winner attaches an optional
-    ///         delivery note hash for the seller (shipping address, etc.).
+    /// @notice Settle a revealed auction: the winning bid transfers from
+    ///         this contract to the seller. Anyone can call, so the seller is
+    ///         paid even if the winner walks away. Only the winner's
+    ///         delivery note hash is recorded.
     function claimAuctionWin(uint256 listingId, bytes32 deliveryNoteHash) external nonReentrant {
         Listing storage l = _listings[listingId];
         require(l.closed, "Storefront: not closed");
         require(l.mode == SaleMode.Auction, "Storefront: not Auction");
         require(l.winner != address(0), "Storefront: winner not revealed");
-        require(msg.sender == l.winner, "Storefront: not winner");
-
-        // Pay seller the winning bid amount.
-        euint64 paid = FHE.receiveEuint64FromCall(
-            IFHERC20Vault(l.vault).transferVerified(l.seller, FHE.shareEuint64(l.winningBid, l.vault)),
-            l.vault
-        );
-        FHE.allowThis(paid);
-        FHE.allow(paid, l.seller);
-
-        _bumpReceiptsAndGlobal(l.seller, paid);
+        if (msg.sender != l.winner) deliveryNoteHash = bytes32(0);
 
         // Mark the EXACT winning bid as settled. _winningBidIdx is the
         // decrypted plaintext index posted by revealWinner. Using the
@@ -465,12 +477,22 @@ contract Storefront is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         uint256 wIdx = _winningBidIdx[listingId];
         require(wIdx < bids.length, "Storefront: invalid winning index");
         Bid storage winningBid = bids[wIdx];
-        require(winningBid.bidder == msg.sender, "Storefront: winning bid mismatch");
+        require(winningBid.bidder == l.winner, "Storefront: winning bid mismatch");
         require(!winningBid.refunded, "Storefront: already settled");
         winningBid.refunded = true;
 
-        emit AuctionWinnerClaimed(listingId, msg.sender, deliveryNoteHash);
-        try eventHub.emitActivity(msg.sender, l.seller, "storefront_auction_won", l.title, listingId) {} catch {}
+        // Pay seller the winning bid amount.
+        euint64 paid = FHE.receiveEuint64FromCall(
+            IFHERC20Vault(l.vault).transferVerified(l.seller, FHE.shareEuint64(l.winningBid, l.vault)),
+            l.vault
+        );
+        FHE.allowThis(paid);
+        FHE.allow(paid, l.seller);
+
+        _bumpReceiptsAndGlobal(l.seller, paid);
+
+        emit AuctionWinnerClaimed(listingId, l.winner, deliveryNoteHash);
+        try eventHub.emitActivity(l.winner, l.seller, "storefront_auction_won", l.title, listingId) {} catch {}
     }
 
     // ─── Auction: Refund Loser ────────────────────────────────────────
@@ -488,16 +510,11 @@ contract Storefront is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         Bid storage bid = bids[bidIndex];
         require(bid.bidder == msg.sender, "Storefront: not your bid");
         require(!bid.refunded, "Storefront: already refunded");
-        // Post-reveal, the winner cannot extract their winning bid via the
-        // refund path. Without this guard a winner could refundLoserBid the
-        // winning index → seller never paid (claimAuctionWin's
-        // !winningBid.refunded check later reverts). Pre-reveal (l.winner ==
-        // 0x0) the auction has no decided winner so all per-bid refunds
-        // remain individually permissible (each caller bets they lost).
-        require(
-            l.winner == address(0) || msg.sender != l.winner || bidIndex != _winningBidIdx[listingId],
-            "Storefront: winning bid, use claimAuctionWin"
-        );
+        // Refunds open only after the winner is revealed. Before that the
+        // winning bid is unknown, and refunding it would leave the seller
+        // unpaid.
+        require(l.winner != address(0), "Storefront: winner not revealed");
+        require(bidIndex != _winningBidIdx[listingId], "Storefront: winning bid, use claimAuctionWin");
 
         // Refund: contract → bidder.
         IFHERC20Vault(l.vault).transferVerified(msg.sender, FHE.shareEuint64(bid.amount, l.vault));
@@ -519,6 +536,7 @@ contract Storefront is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         require(l.active && !l.closed, "Storefront: not active");
         require(l.mode == SaleMode.PayWhatYouWant, "Storefront: not PWYW");
         require(msg.sender != l.seller, "Storefront: seller cannot pay self");
+        _requireAllowedVault(l.vault);
 
         euint64 verifiedAmount = FHE.asEuint64(encAmount, proof);
 
@@ -620,6 +638,28 @@ contract Storefront is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         eventHub = IEventHub(_eventHub);
     }
 
+    function setTokenRegistry(address r) external onlyOwner {
+        require(r.code.length > 0, "Storefront: bad registry");
+        tokenRegistry = ITokenRegistry(r);
+        emit TokenRegistrySet(r);
+    }
+
+    /// @notice Buyer's encrypted running total paid on a FixedPrice listing.
+    function getPaidByBuyer(uint256 listingId, address buyer) external view returns (euint64) {
+        return _paidByBuyer[listingId][buyer];
+    }
+
+    function hasBid(uint256 listingId, address bidder) external view returns (bool) {
+        return _hasBid[listingId][bidder];
+    }
+
+    function _requireAllowedVault(address vault) internal view {
+        require(
+            address(tokenRegistry) != address(0) && tokenRegistry.isActiveVault(vault),
+            "Storefront: vault not allowed"
+        );
+    }
+
     function setPaymentReceipts(address _paymentReceipts) external onlyOwner {
         address previous = paymentReceipts;
         paymentReceipts = _paymentReceipts;
@@ -641,9 +681,15 @@ contract Storefront is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 
-    /// @dev Append-only storage. Used: 8. Gap: 49.
-    /// 50 -> 49 after §1.4 phase B added _winnerIdxHandle (BEST_VERSION_FULL_PLAN).
-    /// Decrement gap by 1 when adding a new state variable; total slots
-    /// (used + gap) must stay constant across UUPS upgrades.
-    uint256[48] private __gap;
+    /// @dev listingId => bidder => has placed a bid. Appended.
+    mapping(uint256 => mapping(address => bool)) private _hasBid;
+    /// @dev listingId => buyer => encrypted running total paid (FixedPrice). Appended.
+    mapping(uint256 => mapping(address => euint64)) private _paidByBuyer;
+    /// @dev Vault allowlist. Appended.
+    ITokenRegistry public tokenRegistry;
+
+    /// @dev Append-only storage. The gap started at 50 and shrinks by 1 for
+    /// each appended slot (_winnerIdxHandle, _winningBidIdx, _hasBid,
+    /// _paidByBuyer, tokenRegistry), so used + gap stays constant.
+    uint256[45] private __gap;
 }
