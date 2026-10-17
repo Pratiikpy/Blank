@@ -137,7 +137,7 @@ export const NAV_REGISTRY: NavItem[] = [
   },
   {
     path: "/app/swap",
-    label: "P2P Exchange",
+    label: "Exchange",
     icon: ArrowLeftRight,
     category: "payments",
     modes: ["business", "full"],

@@ -52,6 +52,7 @@ export default function CrowdfundPage() {
   const [loadError, setLoadError] = useState<ClassifiedLoadError | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [amount, setAmount] = useState("");
+  const [releasePaid, setReleasePaid] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -108,6 +109,20 @@ export default function CrowdfundPage() {
           args: [BigInt(campaignId)],
         });
         if (!cancelled) setContributionCount(Number(count));
+
+        // One release per campaign. Older deploys lack the getter; treat a
+        // failed read as "unknown" and let the contract decide.
+        try {
+          const paid = await publicClient.readContract({
+            address: contracts.EncryptedCrowdfund,
+            abi: EncryptedCrowdfundAbi,
+            functionName: "releasePaid",
+            args: [BigInt(campaignId)],
+          });
+          if (!cancelled) setReleasePaid(Boolean(paid));
+        } catch {
+          if (!cancelled) setReleasePaid(false);
+        }
       } catch (err) {
         if (cancelled) return;
         setLoadError(classifyLoadError(err, { resourceName: "Campaign" }));
@@ -218,7 +233,7 @@ export default function CrowdfundPage() {
       <CenterCard>
         <IconBubble color="bg-emerald-50" icon={<CheckCircle2 size={32} className="text-emerald-600" />} />
         <h1 className="text-2xl font-heading font-semibold mb-3">Contribution submitted</h1>
-        <p className="text-[var(--text-secondary)] mb-6">Your encrypted contribution is on-chain. Amount stays private until the campaign closes.</p>
+        <p className="text-[var(--text-secondary)] mb-6">Your encrypted contribution is on-chain. Only you can decrypt your amount.</p>
         <a href="/app" className="inline-block px-6 h-12 leading-[3rem] rounded-2xl bg-[#1D1D1F] text-white font-medium">
           Open Blank
         </a>
@@ -226,6 +241,8 @@ export default function CrowdfundPage() {
     );
   }
 
+  const viewerIsCreator =
+    !!effectiveAddress && effectiveAddress.toLowerCase() === onChain.creator.toLowerCase();
   const remaining = Math.max(0, Number(onChain.deadline) - Math.floor(Date.now() / 1000));
   const days = Math.floor(remaining / 86400);
   const hours = Math.floor((remaining % 86400) / 3600);
@@ -240,7 +257,8 @@ export default function CrowdfundPage() {
       <p className="text-sm text-[var(--text-secondary)] mb-6">
         From <span className="font-mono">{onChain.creator.slice(0, 6)}…{onChain.creator.slice(-4)}</span> ·
         {" "}{contributionCount} contribution{contributionCount === 1 ? "" : "s"} so far.
-        {" "}Goal + total raised stay encrypted until the deadline.
+        {" "}Nobody can decrypt the goal or the running total while the campaign is open.
+        {" "}At close, only the yes/no goal result is published and only the creator can read the total.
       </p>
 
       {phase === "open" && (
@@ -281,15 +299,35 @@ export default function CrowdfundPage() {
         />
       )}
 
-      {phase === "released" && (
+      {phase === "released" && releasePaid && (
+        <div
+          data-testid="crowdfund-released"
+          className="text-left px-4 py-3 rounded-xl bg-emerald-50 text-emerald-700 text-sm flex items-start gap-2"
+        >
+          <CheckCircle2 size={16} className="flex-shrink-0 mt-0.5" />
+          <span>Goal met. The creator has received the pool.</span>
+        </div>
+      )}
+
+      {phase === "released" && !releasePaid && viewerIsCreator && (
         <SimpleAction
           headline="Goal met. Campaign succeeded"
-          body="The creator can pull the entire pool. The reward you'll receive is whatever the creator listed when launching the campaign."
-          ctaLabel="Creator: claim release"
+          body="You can pull the entire pool once. After that the campaign is settled."
+          ctaLabel="Claim the pool"
           isProcessing={state.isProcessing}
-          onClick={() => claimRelease(campaignId)}
+          onClick={async () => { if (await claimRelease(campaignId)) setReloadKey((k) => k + 1); }}
           icon={<CheckCircle2 size={14} className="text-emerald-600" />}
         />
+      )}
+
+      {phase === "released" && !releasePaid && !viewerIsCreator && (
+        <div className="text-left px-4 py-3 rounded-xl bg-emerald-50 text-emerald-700 text-sm flex items-start gap-2">
+          <CheckCircle2 size={16} className="flex-shrink-0 mt-0.5" />
+          <span>
+            Goal met. The creator can now claim the pool. Your reward is whatever the creator
+            listed when launching the campaign.
+          </span>
+        </div>
       )}
 
       {phase === "refunding" && (

@@ -2,16 +2,11 @@ import { useState, useCallback, useEffect } from "react";
 import { usePublicClient } from "wagmi";
 import { useEffectiveAddress } from "./useEffectiveAddress";
 import { useUnifiedWrite } from "./useUnifiedWrite";
-import { parseUnits } from "viem";
-import { useCofheEncrypt } from "@/lib/cofhe-shim";
 import { useCofheDecryptForTx } from "@/lib/cofhe-shim";
-import { Encryptable } from "@/lib/cofhe-shim";
-import { P2PExchangeAbi, FHERC20VaultAbi, TestUSDCAbi } from "@/lib/abis";
-import { MAX_UINT64 } from "@/lib/constants";
+import { P2PExchangeAbi } from "@/lib/abis";
 import { useChain } from "@/providers/ChainProvider";
 import {
   supabase,
-  insertExchangeOffer,
   fetchActiveOffers,
   fetchFilledOffersForUser,
   updateOfferStatus,
@@ -19,49 +14,28 @@ import {
   type ExchangeOfferRow,
 } from "@/lib/supabase";
 import { ACTIVITY_TYPES } from "@/lib/activity-types";
-import { extractEventId } from "@/lib/event-parser";
 import { broadcastAction } from "@/lib/cross-tab";
 import { invalidateBalanceQueries } from "@/lib/query-invalidation";
 import toast from "react-hot-toast";
 import { toastMappedError } from "@/lib/error-messages";
-import { isVaultApproved, markVaultApproved, clearVaultApproval, verifyVaultApproved } from "@/lib/approval";
 
-type Step = "idle" | "approving" | "sending" | "success" | "error";
-
-function toSafeDbAmount(amount: bigint): number {
-  const asNumber = Number(amount);
-  if (!Number.isSafeInteger(asNumber)) {
-    throw new Error("Amount is too large for the order book");
-  }
-  return asNumber;
-}
-
-function fromDbAmount(amount: number): bigint {
-  if (!Number.isFinite(amount) || amount < 0) {
-    throw new Error("Offer amount is invalid");
-  }
-  return BigInt(Math.trunc(amount));
-}
-
-function sameAddress(a?: string | null, b?: string | null): boolean {
-  return Boolean(a && b && a.toLowerCase() === b.toLowerCase());
-}
+// P2PExchange is retired on-chain: createOffer and fillOffer revert
+// "P2PExchange: retired". This hook keeps what still works: read the
+// existing book, cancel your own open offers, and publish the
+// trade-validity verdict for past fills. Fiat P2P lives in useP2POfframp.
 
 export function useExchange() {
   const { effectiveAddress: address } = useEffectiveAddress();
   const { contracts, activeChainId } = useChain();
   const publicClient = usePublicClient({ chainId: activeChainId });
   const { unifiedWrite, unifiedWriteAndWait } = useUnifiedWrite();
-  const { encryptInputsAsync } = useCofheEncrypt();
   const { decryptForTx } = useCofheDecryptForTx();
-  const [step, setStep] = useState<Step>("idle");
   const [verifyingOfferId, setVerifyingOfferId] = useState<number | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [offers, setOffers] = useState<ExchangeOfferRow[]>([]);
   const [filledOffers, setFilledOffers] = useState<ExchangeOfferRow[]>([]);
   const [isLoadingOffers, setIsLoadingOffers] = useState(false);
+  const [isCancelling, setIsCancelling] = useState(false);
 
-  // Load offers from Supabase
   const loadOffers = useCallback(async () => {
     setIsLoadingOffers(true);
     const data = await fetchActiveOffers();
@@ -79,339 +53,22 @@ export function useExchange() {
     loadOffers();
   }, [loadOffers]);
 
-  // Realtime subscription for exchange offers
   useEffect(() => {
     if (!supabase) return;
     const channel = supabase
-      .channel('exchange_offers_realtime')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'exchange_offers' }, () => {
+      .channel("exchange_offers_realtime")
+      .on("postgres_changes", { event: "*", schema: "public", table: "exchange_offers" }, () => {
         loadOffers();
       })
       .subscribe();
     return () => { supabase!.removeChannel(channel); };
   }, [loadOffers]);
 
-  // Create a new swap offer
-  const createOffer = useCallback(
-    async (
-      amountGive: string,
-      amountWant: string,
-      expiryDate: string
-    ) => {
-      if (!address || !publicClient) return;
-      if (step === "approving" || step === "sending") return; // Already submitting
-
-      setStep("approving");
-      setError(null);
-
-      try {
-        // Approve the P2PExchange contract to spend from vault
-        if (!isVaultApproved(contracts.P2PExchange)) {
-          const approveResult = await unifiedWriteAndWait({
-            address: contracts.FHERC20Vault_USDC,
-            abi: FHERC20VaultAbi,
-            functionName: "approvePlaintext",
-            args: [contracts.P2PExchange, MAX_UINT64],
-            gas: BigInt(5_000_000), // CoFHE: manual gas limit (precompile breaks estimation)
-          });
-          const approveStatus =
-            approveResult.receipt?.status ??
-            (await publicClient.waitForTransactionReceipt({ hash: approveResult.hash, confirmations: 1 })).status;
-          if (approveStatus === "reverted") {
-            throw new Error("Approval transaction reverted on-chain");
-          }
-          markVaultApproved(contracts.P2PExchange);
-          // Give the RPC node a beat to catch up before the next UserOp
-          // reads EntryPoint.getNonce. On Base Sepolia public RPC there's
-          // observable lag where two consecutive UserOps both see the
-          // same nonce and the second hits AA25. The local nonce hint in
-          // useSmartAccount handles most cases, but a brief settlement
-          // wait is defence-in-depth.
-          await new Promise((r) => setTimeout(r, 3_000));
-        }
-
-        if (!amountGive || amountGive.trim() === "") {
-          toast.error("Enter an amount to give");
-          setStep("idle");
-          return;
-        }
-        if (!amountWant || amountWant.trim() === "") {
-          toast.error("Enter an amount to receive");
-          setStep("idle");
-          return;
-        }
-
-        const parsedGive = parseFloat(amountGive);
-        const parsedWant = parseFloat(amountWant);
-        if (isNaN(parsedGive) || parsedGive <= 0) {
-          toast.error("Enter a valid amount to give");
-          setStep("idle");
-          return;
-        }
-        if (isNaN(parsedWant) || parsedWant <= 0) {
-          toast.error("Enter a valid amount to receive");
-          setStep("idle");
-          return;
-        }
-
-        setStep("sending");
-
-        // Convert amounts to uint256 (6 decimals for USDC)
-        const giveWei = parseUnits(amountGive, 6);
-        const wantWei = parseUnits(amountWant, 6);
-        const expiryTimestamp = BigInt(Math.floor(new Date(expiryDate).getTime() / 1000));
-
-        const writeResult = await unifiedWriteAndWait({
-          address: contracts.P2PExchange,
-          abi: P2PExchangeAbi,
-          functionName: "createOffer",
-          args: [
-            contracts.FHERC20Vault_USDC, // tokenGive (vault A)
-            // tokenWant (vault B) — the contract requires ≠ tokenGive. On
-            // chains without a 2nd vault we fall back to USDC; that path
-            // will revert ("same token") but at least surfaces the missing-
-            // deployment as an actionable error rather than silent UI hang.
-            (contracts.FHERC20Vault_USDT ?? contracts.FHERC20Vault_USDC) as `0x${string}`,
-            giveWei,
-            wantWei,
-            expiryTimestamp,
-          ],
-          gas: BigInt(5_000_000), // CoFHE: manual gas limit (precompile breaks estimation)
-        });
-        const hash = writeResult.hash;
-
-        const receipt =
-          writeResult.receipt ??
-          (await publicClient.waitForTransactionReceipt({
-            hash,
-            confirmations: 1,
-            timeout: 90_000,
-          }));
-        if (receipt.status === "reverted") {
-          throw new Error("Transaction reverted on-chain");
-        }
-
-        // Write to Supabase
-        // Exchange offer amounts are intentionally public for discovery
-        // (matches P2PExchange.sol which uses public uint256 amounts for order matching)
-        // Extract offer ID from OfferCreated event in receipt logs
-        const offerId = extractEventId(receipt.logs, contracts.P2PExchange);
-        if (offerId === null) {
-          throw new Error("Tx mined but offerId could not be read; check History tab.");
-        }
-
-        await insertExchangeOffer({
-          offer_id: offerId,
-          maker_address: address.toLowerCase(),
-          token_give: contracts.FHERC20Vault_USDC,
-          token_want: (contracts.FHERC20Vault_USDT ?? contracts.FHERC20Vault_USDC) as `0x${string}`,
-          amount_give: toSafeDbAmount(giveWei),
-          amount_want: toSafeDbAmount(wantWei),
-          expiry: expiryDate,
-          status: "active",
-          taker_address: "",
-          tx_hash: hash,
-          chain_id: activeChainId,
-        });
-
-        await insertActivity({
-          tx_hash: hash,
-          user_from: address.toLowerCase(),
-          user_to: address.toLowerCase(),
-          activity_type: ACTIVITY_TYPES.OFFER_CREATED,
-          contract_address: contracts.P2PExchange,
-          note: `Listed ${amountGive} USDC swap offer`,
-          token_address: contracts.FHERC20Vault_USDC,
-          // Safe: Sepolia block numbers fit in Number.MAX_SAFE_INTEGER for the foreseeable future
-          block_number: Number(receipt.blockNumber),
-        });
-
-        broadcastAction("balance_changed");
-        broadcastAction("activity_added");
-        invalidateBalanceQueries();
-
-        setStep("success");
-        toast.success("Swap offer created!");
-        await loadOffers();
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : "Failed to create offer";
-        if (msg.includes("allowance") || msg.includes("approve") || msg.includes("insufficient") || msg.includes("transfer amount exceeds")) {
-          clearVaultApproval(contracts.P2PExchange);
-        }
-        setStep("error");
-        setError(msg);
-        toast.error("Failed to create offer");
-      }
-    },
-    [address, publicClient, step, unifiedWrite, unifiedWriteAndWait, loadOffers, contracts, activeChainId]
-  );
-
-  // Fill (accept) an offer
-  const fillOffer = useCallback(
-    async (offerId: number) => {
-      if (!address || !publicClient) {
-        toast.error("Connection lost");
-        return;
-      }
-      if (step === "sending") return;
-
-      setStep("sending");
-      setError(null);
-
-      try {
-        const offer = offers.find((o) => o.offer_id === offerId);
-        if (!offer) throw new Error("Offer not found");
-        const takerVault = (offer.token_want || contracts.FHERC20Vault_USDC) as `0x${string}`;
-        const takerAmount = fromDbAmount(offer.amount_want);
-        const makerAmount = fromDbAmount(offer.amount_give);
-
-        if (sameAddress(takerVault, contracts.FHERC20Vault_USDT) && contracts.TestUSDT) {
-          toast("Preparing test USDT for this offer...", { icon: "⏳" });
-          const mintResult = await unifiedWriteAndWait({
-            address: contracts.TestUSDT,
-            abi: TestUSDCAbi,
-            functionName: "faucet",
-            gas: BigInt(5_000_000),
-          });
-          if ((mintResult.receipt?.status ?? "success") === "reverted") {
-            throw new Error("USDT faucet transaction reverted on-chain");
-          }
-          const approveTokenResult = await unifiedWriteAndWait({
-            address: contracts.TestUSDT,
-            abi: TestUSDCAbi,
-            functionName: "approve",
-            args: [takerVault, takerAmount],
-            gas: BigInt(5_000_000),
-          });
-          if ((approveTokenResult.receipt?.status ?? "success") === "reverted") {
-            throw new Error("USDT approval transaction reverted on-chain");
-          }
-          const shieldResult = await unifiedWriteAndWait({
-            address: takerVault,
-            abi: FHERC20VaultAbi,
-            functionName: "shield",
-            args: [takerAmount],
-            gas: BigInt(5_000_000),
-          });
-          if ((shieldResult.receipt?.status ?? "success") === "reverted") {
-            throw new Error("USDT shield transaction reverted on-chain");
-          }
-          toast.success("Test USDT ready");
-        }
-
-        // Approve vault for P2PExchange — skip if allowance already on-chain
-        // from a prior session (cross-device recovery / fresh localStorage).
-        const alreadyApproved = await verifyVaultApproved(
-          contracts.P2PExchange as `0x${string}`,
-          address as `0x${string}`,
-          takerVault,
-          publicClient,
-        );
-        if (!alreadyApproved) {
-          // Use unifiedWriteAndWait — the relay already confirmed the tx
-          // server-side, so we skip the unreliable public-RPC poll.
-          const approveResult = await unifiedWriteAndWait({
-            address: takerVault,
-            abi: FHERC20VaultAbi,
-            functionName: "approvePlaintext",
-            args: [contracts.P2PExchange, MAX_UINT64],
-            gas: BigInt(5_000_000), // CoFHE: manual gas limit (precompile breaks estimation)
-          });
-          const approveStatus = approveResult.receipt?.status
-            ?? (await publicClient.waitForTransactionReceipt({
-              hash: approveResult.hash, confirmations: 1, timeout: 300_000,
-            })).status;
-          if (approveStatus === "reverted") {
-            throw new Error("Approval transaction reverted on-chain");
-          }
-          markVaultApproved(contracts.P2PExchange);
-        }
-
-        // fillOffer verifies both amounts under ONE batch signature, so they
-        // must be encrypted together and passed in this order.
-        const [encTakerPayment, encMakerPayment, fillProof] = await encryptInputsAsync([
-          Encryptable.uint64(takerAmount),
-          Encryptable.uint64(makerAmount),
-        ],
-        contracts.P2PExchange as `0x${string}`);
-
-        const fillResult = await unifiedWriteAndWait({
-          address: contracts.P2PExchange,
-          abi: P2PExchangeAbi,
-          functionName: "fillOffer",
-          args: [BigInt(offerId), encTakerPayment, encMakerPayment, fillProof],
-          gas: BigInt(5_000_000), // FHE: manual gas limit (precompile can't be estimated)
-        });
-        const hash = fillResult.hash;
-        const receipt = fillResult.receipt
-          ? fillResult.receipt
-          : await publicClient.waitForTransactionReceipt({
-              hash, confirmations: 1, timeout: 300_000,
-            });
-        if (receipt.status === "reverted") {
-          throw new Error("Transaction reverted on-chain");
-        }
-        await updateOfferStatus(offerId, "filled", address.toLowerCase());
-
-        // Maker-side feed row: taker → maker (maker gets the "your offer was filled" notif)
-        await insertActivity({
-          tx_hash: hash,
-          user_from: address.toLowerCase(),
-          user_to: offer.maker_address.toLowerCase(),
-          activity_type: ACTIVITY_TYPES.OFFER_FILLED,
-          contract_address: contracts.P2PExchange,
-          note: `Accepted swap offer #${offerId}`,
-          token_address: contracts.FHERC20Vault_USDC,
-          // Safe: Sepolia block numbers fit in Number.MAX_SAFE_INTEGER for the foreseeable future
-          block_number: Number(receipt.blockNumber),
-        });
-
-        // Taker-side feed row: so the taker sees "you filled offer #N" in their feed.
-        // Only inserted when taker != maker (otherwise dupes the row above).
-        if (offer.maker_address.toLowerCase() !== address.toLowerCase()) {
-          await insertActivity({
-            tx_hash: `${hash}:taker`,
-            user_from: address.toLowerCase(),
-            user_to: address.toLowerCase(),
-            activity_type: ACTIVITY_TYPES.OFFER_FILLED,
-            contract_address: contracts.P2PExchange,
-            note: `Filled swap offer #${offerId}`,
-            token_address: contracts.FHERC20Vault_USDC,
-            block_number: Number(receipt.blockNumber),
-          });
-        }
-
-        broadcastAction("balance_changed");
-        broadcastAction("activity_added");
-        invalidateBalanceQueries();
-
-        toast.success("Offer accepted!");
-        setStep("success");
-        await loadOffers();
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : "Failed to accept offer";
-        if (msg.includes("allowance") || msg.includes("approve") || msg.includes("insufficient") || msg.includes("transfer amount exceeds")) {
-          clearVaultApproval(contracts.P2PExchange);
-        }
-        setStep("error");
-        setError(msg);
-        if (/not active|cancelled|expired|already filled/i.test(msg)) {
-          toast.error("This offer is no longer available. It was cancelled or filled by another user.");
-        } else {
-          toast.error("Transaction failed: " + msg.slice(0, 100));
-        }
-      }
-    },
-    [address, publicClient, unifiedWrite, offers, encryptInputsAsync, loadOffers, step, contracts]
-  );
-
-  // Cancel an offer
-  const [isCancelling, setIsCancelling] = useState(false);
-
+  // Cancel one of your own open offers. Still supported on-chain.
   const cancelOffer = useCallback(
     async (offerId: number) => {
       if (!address || !publicClient) return;
-      if (isCancelling) return; // Already cancelling
+      if (isCancelling) return;
 
       setIsCancelling(true);
       try {
@@ -452,8 +109,10 @@ export function useExchange() {
         await loadOffers();
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        if (/not active|cancelled|expired|already filled/i.test(msg)) {
-          toast.error("This offer is no longer available. It was cancelled or filled by another user.");
+        if (/not available|not active|cancelled|expired|already filled/i.test(msg)) {
+          toast.error("This offer is no longer open. It was cancelled or filled.");
+        } else if (/not maker/i.test(msg)) {
+          toast.error("Only the maker can cancel this offer.");
         } else {
           toast.error("Transaction failed: " + msg.slice(0, 100));
         }
@@ -461,13 +120,12 @@ export function useExchange() {
         setIsCancelling(false);
       }
     },
-    [address, publicClient, isCancelling, unifiedWrite, unifiedWriteAndWait, loadOffers, contracts]
+    [address, publicClient, isCancelling, unifiedWriteAndWait, loadOffers, contracts]
   );
 
-  // ─── Verify trade (v0.1.3) ────────────────────────────────────────
-  // After a fill, both sides can publish the trade-validity proof on-chain
-  // so anyone can read the public verdict. Read the validation handle, ask
-  // the Threshold Network for (plaintext, signature), then publish.
+  // After a past fill, either side can publish the trade-validity verdict
+  // so anyone can read it. Read the handle, fetch (plaintext, signature)
+  // from the Threshold Network, then publish.
   const verifyTrade = useCallback(
     async (offerId: number): Promise<boolean | null> => {
       if (!address || !publicClient) {
@@ -486,10 +144,9 @@ export function useExchange() {
           args: [BigInt(offerId)],
         })) as bigint;
         if (!handle || handle === 0n) {
-          throw new Error("No validation handle — offer not filled yet");
+          throw new Error("No validation handle. This offer was never filled.");
         }
 
-        // Poll Threshold Network briefly (decrypt typically resolves in ~10s)
         const TIMEOUT_MS = 60_000;
         const startedAt = Date.now();
         let proof: { decryptedValue: bigint | boolean; signature: `0x${string}` } | null = null;
@@ -498,7 +155,7 @@ export function useExchange() {
           if (proof) break;
           await new Promise((r) => setTimeout(r, 5000));
         }
-        if (!proof) throw new Error("Decryption timed out — try Verify again shortly");
+        if (!proof) throw new Error("Decryption timed out. Try Verify again shortly.");
 
         const validPlaintext =
           typeof proof.decryptedValue === "boolean"
@@ -517,7 +174,7 @@ export function useExchange() {
         if (receipt.status === "reverted") throw new Error("Publish reverted on-chain");
 
         toast.success(
-          validPlaintext ? "Trade verified — amounts matched" : "Trade flagged — amounts mismatched",
+          validPlaintext ? "Trade verified. Amounts matched." : "Trade flagged. Amounts did not match.",
           { id: toastId },
         );
 
@@ -531,7 +188,7 @@ export function useExchange() {
           contract_address: contracts.P2PExchange,
           note: validPlaintext
             ? `Verified trade #${offerId}`
-            : `Flagged trade #${offerId} — amount mismatch`,
+            : `Flagged trade #${offerId}: amount mismatch`,
           token_address: contracts.FHERC20Vault_USDC,
           block_number: Number(receipt.blockNumber),
         });
@@ -549,7 +206,6 @@ export function useExchange() {
     [address, publicClient, unifiedWrite, decryptForTx, verifyingOfferId, contracts]
   );
 
-  // Read the on-chain verdict for an offer. Returns (isValid, isReady).
   const getTradeValidation = useCallback(
     async (offerId: number): Promise<{ isValid: boolean; isReady: boolean } | null> => {
       if (!publicClient) return null;
@@ -568,24 +224,15 @@ export function useExchange() {
     [publicClient, contracts]
   );
 
-  const reset = useCallback(() => {
-    setStep("idle");
-    setError(null);
-  }, []);
-
   return {
-    step,
-    error,
     offers,
     filledOffers,
     isLoadingOffers,
-    createOffer,
-    fillOffer,
+    isCancelling,
     cancelOffer,
     verifyTrade,
     getTradeValidation,
     verifyingOfferId,
     loadOffers,
-    reset,
   };
 }

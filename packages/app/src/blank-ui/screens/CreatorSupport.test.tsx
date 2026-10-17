@@ -46,6 +46,10 @@ vi.mock("@/hooks/useEffectiveAddress", () => ({
 vi.mock("@/providers/ChainProvider", () => ({ useChain: useChainMock }));
 vi.mock("@/providers/RealtimeProvider", () => ({ useRealtime: useRealtimeMock }));
 vi.mock("@/lib/abis", () => ({ CreatorHubAbi: [] }));
+const decryptForViewMock = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/cofhe-shim", () => ({
+  useCofheDecryptForView: () => ({ decryptForView: decryptForViewMock }),
+}));
 vi.mock("@/lib/log", () => ({ log: { error: vi.fn(), debug: vi.fn() } }));
 vi.mock("@/lib/supabase", () => ({
   fetchCreatorProfiles: fetchCreatorProfilesMock,
@@ -63,6 +67,7 @@ import CreatorSupport from "./CreatorSupport";
 const ME = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const ALICE_CREATOR = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 const HUB = "0xfffffffffffffffffffffffffffffffffffffff1";
+const VAULT_FOR_TEST = "0xfffffffffffffffffffffffffffffffffffffff2";
 
 type CreatorProfileRow = {
   address: string;
@@ -131,7 +136,8 @@ beforeEach(() => {
   });
 
   useEffectiveAddressMock.mockReturnValue({ effectiveAddress: ME });
-  useChainMock.mockReturnValue({ contracts: { CreatorHub: HUB } });
+  useChainMock.mockReturnValue({ contracts: { CreatorHub: HUB, FHERC20Vault_USDC: VAULT_FOR_TEST } });
+  decryptForViewMock.mockReset();
 
   subscribeMock = vi.fn().mockReturnValue(vi.fn()); // returns unsubscribe
   useRealtimeMock.mockReturnValue({ subscribe: subscribeMock });
@@ -566,7 +572,8 @@ describe("CreatorSupport — creator-card selection + tip submission (§15.x)", 
   });
 
   it("CRITICAL post-tip tier-badge derivation: contribution=60e6 >= t3=50e6 -> 'Super Fan' badge appears", async () => {
-    readContractMock.mockResolvedValue(60_000_000n); // 60 USDC >= 50 USDC t3
+    readContractMock.mockResolvedValue(0xabcn); // encrypted per-vault handle
+    decryptForViewMock.mockResolvedValue(60_000_000n); // 60 USDC >= 50 USDC t3
     const { findByText, container } = render(<CreatorSupport />);
     await findByText("Alice the Maker");
     fireEvent.click(container.querySelector(`[data-creator-address='${ALICE_CREATOR.toLowerCase()}']`) as HTMLElement);
@@ -590,7 +597,30 @@ describe("CreatorSupport — creator-card selection + tip submission (§15.x)", 
     // visibility post-reset. Pin the read instead.
     expect(readContractMock).toHaveBeenCalled();
     const readArg = readContractMock.mock.calls[0][0];
-    expect(readArg.functionName).toBe("getMyContribution");
+    expect(readArg.functionName).toBe("getMyContributionIn");
+    expect(readArg.args[1]).toBe(VAULT_FOR_TEST);
+    expect(decryptForViewMock).toHaveBeenCalledWith(0xabcn, "uint64");
+  });
+});
+
+describe("CreatorSupport — per-vault earnings (audit fix)", () => {
+  it("creator decrypts USDC earnings via getMyEarningsIn(vault)", async () => {
+    fetchCreatorProfilesMock.mockResolvedValue([buildCreator({ address: ME })]);
+    readContractMock.mockResolvedValue(0x77n);
+    decryptForViewMock.mockResolvedValue(12_500_000n);
+    const { container } = render(<CreatorSupport />);
+    const btn = await waitFor(() => {
+      const b = container.querySelector("[data-testid='creator-earnings-decrypt']") as HTMLButtonElement | null;
+      expect(b).not.toBeNull();
+      return b as HTMLButtonElement;
+    });
+    await act(async () => {
+      fireEvent.click(btn);
+      for (let i = 0; i < 6; i++) await Promise.resolve();
+    });
+    const call = readContractMock.mock.calls.find((c) => c[0].functionName === "getMyEarningsIn");
+    expect(call?.[0].args).toEqual([VAULT_FOR_TEST]);
+    await waitFor(() => expect(container.textContent).toContain("Earned 12.5 USDC"));
   });
 });
 

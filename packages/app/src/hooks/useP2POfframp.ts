@@ -7,7 +7,7 @@ import { useEffectiveAddress } from "./useEffectiveAddress";
 import { useUnifiedWrite } from "./useUnifiedWrite";
 import { useFhePipeline } from "./useFhePipeline";
 import { useChain } from "@/providers/ChainProvider";
-import { useCofheEncrypt, useCofheConnection, Encryptable } from "@/lib/cofhe-shim";
+import { useCofheEncrypt, useCofheConnection, useCofheDecryptForView, Encryptable } from "@/lib/cofhe-shim";
 import { P2POfframpAbi, FHERC20VaultAbi } from "@/lib/abis";
 import { isVaultApproved, markVaultApproved } from "@/lib/approval";
 import { extractEventId } from "@/lib/event-parser";
@@ -85,6 +85,33 @@ export interface FillRow {
   state: number;
 }
 
+/**
+ * Map contract revert strings to copy a user can act on. Unknown errors
+ * pass through unchanged.
+ */
+export function friendlyOfframpError(raw: string): string {
+  if (raw.includes("too many open locks")) {
+    return "You already have an open fill. Submit its payment proof (or wait for it to expire) before taking another offer.";
+  }
+  if (raw.includes("provider/rail mismatch")) {
+    return "The payment proof is for a different rail than this offer.";
+  }
+  if (raw.includes("vault not allowed")) {
+    return "This token vault is not enabled for the offramp on this chain.";
+  }
+  if (raw.includes("arbiter window open")) {
+    return "The arbiter still has time to rule on this dispute.";
+  }
+  if (raw.includes("legacy dispute, arbiter only")) {
+    return "This dispute predates the timeout rule. Only the arbiter can resolve it.";
+  }
+  if (raw.includes("maker cannot self-take")) return "You cannot take your own offer.";
+  if (raw.includes("offer expired")) return "This offer has expired.";
+  if (raw.includes("offer not open")) return "This offer is no longer open.";
+  if (raw.includes("proof window open")) return "The taker still has time to submit a proof.";
+  return raw;
+}
+
 // ─── Hook ─────────────────────────────────────────────────────────────
 
 export function useP2POfframp() {
@@ -93,6 +120,7 @@ export function useP2POfframp() {
   const publicClient = usePublicClient({ chainId: activeChainId });
   const { connected } = useCofheConnection();
   const { encryptInputsAsync } = useCofheEncrypt();
+  const { decryptForView } = useCofheDecryptForView();
   const { unifiedWriteAndWait } = useUnifiedWrite();
   const pipeline = useFhePipeline();
 
@@ -232,10 +260,10 @@ export function useP2POfframp() {
         invalidateBalanceQueries();
         return { txHash: wr.hash, offerId: BigInt(offerId) };
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
+        const msg = friendlyOfframpError(err instanceof Error ? err.message : String(err));
         pipeline.markFailed(err);
         setState((prev) => ({ ...initial, step: "error", error: msg, txHash: prev.txHash }));
-        throw err;
+        throw new Error(msg);
       }
     },
     [guardReady, ensureVaultApproval, encryptInputsAsync, pipeline, unifiedWriteAndWait, publicClient],
@@ -280,9 +308,9 @@ export function useP2POfframp() {
         invalidateBalanceQueries();
         return { txHash: wr.hash, fillId: BigInt(fillId) };
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
+        const msg = friendlyOfframpError(err instanceof Error ? err.message : String(err));
         setState((prev) => ({ ...initial, step: "error", error: msg, txHash: prev.txHash }));
-        throw err;
+        throw new Error(msg);
       }
     },
     [guardReady, unifiedWriteAndWait, publicClient],
@@ -314,9 +342,9 @@ export function useP2POfframp() {
         });
         return { txHash: wr.hash };
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
+        const msg = friendlyOfframpError(err instanceof Error ? err.message : String(err));
         setState((prev) => ({ ...initial, step: "error", error: msg, txHash: prev.txHash }));
-        throw err;
+        throw new Error(msg);
       }
     },
     [guardReady, unifiedWriteAndWait],
@@ -325,7 +353,7 @@ export function useP2POfframp() {
   // ─── Lifecycle: release / dispute / cancel / expire ────────────────
 
   const callSimple = useCallback(
-    async (functionName: "releaseFill" | "cancelOffer" | "expireFill", id: bigint) => {
+    async (functionName: "releaseFill" | "cancelOffer" | "expireFill" | "resolveStaleDispute", id: bigint) => {
       const ready = guardReady();
       if (!ready) return null;
       const { offramp } = ready;
@@ -349,9 +377,9 @@ export function useP2POfframp() {
         invalidateBalanceQueries();
         return { txHash: wr.hash };
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
+        const msg = friendlyOfframpError(err instanceof Error ? err.message : String(err));
         setState((prev) => ({ ...initial, step: "error", error: msg, txHash: prev.txHash }));
-        throw err;
+        throw new Error(msg);
       }
     },
     [guardReady, unifiedWriteAndWait],
@@ -360,6 +388,38 @@ export function useP2POfframp() {
   const releaseFill = useCallback((fillId: bigint) => callSimple("releaseFill", fillId), [callSimple]);
   const cancelOffer = useCallback((offerId: bigint) => callSimple("cancelOffer", offerId), [callSimple]);
   const expireFill  = useCallback((fillId: bigint) => callSimple("expireFill", fillId), [callSimple]);
+  const resolveStaleDispute = useCallback(
+    (fillId: bigint) => callSimple("resolveStaleDispute", fillId),
+    [callSimple],
+  );
+
+  /**
+   * Decrypt what the vault actually moved into escrow for a fill. The
+   * vault moves 0 when the maker is short, so the taker must see this
+   * before sending fiat. Only the taker and maker hold decrypt access.
+   * Returns the amount in vault base units; throws on any failure so the
+   * screen never treats "unknown" as "funded".
+   */
+  const decryptEscrowedAmount = useCallback(
+    async (fillId: bigint): Promise<bigint> => {
+      if (deploy.status !== "live" || !deploy.address || !publicClient) {
+        throw new Error(deploy.reason ?? "Offramp not available on this chain.");
+      }
+      const handle = (await publicClient.readContract({
+        address: deploy.address,
+        abi: P2POfframpAbi,
+        functionName: "getEscrowedAmount",
+        args: [fillId],
+      })) as bigint;
+      if (handle === 0n) throw new Error("No escrow handle recorded for this fill.");
+      const value = await decryptForView(handle, "uint64");
+      if (typeof value !== "bigint") {
+        throw new Error("Could not decrypt the escrowed amount. Check your permit and try again.");
+      }
+      return value;
+    },
+    [deploy.status, deploy.address, deploy.reason, publicClient, decryptForView],
+  );
 
   const disputeFill = useCallback(
     async (fillId: bigint, reason: string) => {
@@ -385,9 +445,9 @@ export function useP2POfframp() {
         });
         return { txHash: wr.hash };
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
+        const msg = friendlyOfframpError(err instanceof Error ? err.message : String(err));
         setState((prev) => ({ ...initial, step: "error", error: msg, txHash: prev.txHash }));
-        throw err;
+        throw new Error(msg);
       }
     },
     [guardReady, unifiedWriteAndWait],
@@ -510,6 +570,8 @@ export function useP2POfframp() {
     disputeFill,
     cancelOffer,
     expireFill,
+    resolveStaleDispute,
+    decryptEscrowedAmount,
     openOffers,
     myOffers,
     myFills,

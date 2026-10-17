@@ -6,7 +6,6 @@ import {
   RefreshCw,
   Receipt,
   Handshake,
-  Vote,
   LogOut,
   Archive,
   Camera,
@@ -14,7 +13,7 @@ import {
   Upload,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
-import { useGroupSplit } from "@/hooks/useGroupSplit";
+import { useGroupSplit, sharesSumToTotal } from "@/hooks/useGroupSplit";
 import { useOnChainGroups } from "@/hooks/useOnChainGroups";
 import { recognizeReceipt } from "@/lib/receipt-ocr";
 import { SplitwiseImportModal } from "@/blank-ui/components";
@@ -323,15 +322,16 @@ function AddExpenseModal({
       return allMembers.map((m) => customShares[m] || "0");
     }
     if (!amount || allMembers.length === 0) return allMembers.map(() => "0");
-    const perPerson = computeEqualSplit(amount, allMembers.length);
-    return allMembers.map(() => perPerson);
+    // Exact split in base units; the first shares absorb the remainder so
+    // the shares always sum to the total (the contract checks this).
+    return computeEqualSplit(amount, allMembers.length);
   })();
 
   const customSharesTotal = splitMode === "custom"
     ? computedShares.reduce((sum, s) => sum + parseFloat(s || "0"), 0)
     : 0;
   const customSharesValid = splitMode === "equal" || (
-    amount !== "" && Math.abs(customSharesTotal - parseFloat(amount || "0")) < 0.000001
+    amount !== "" && sharesSumToTotal(computedShares, amount)
   );
 
   const handleAddExpense = useCallback(async () => {
@@ -627,127 +627,6 @@ function SettleDebtModal({
 }
 
 // ---------------------------------------------------------------
-//  VOTE MODAL
-// ---------------------------------------------------------------
-
-function VoteModal({
-  groupId,
-  onClose,
-}: {
-  groupId: number;
-  onClose: () => void;
-}) {
-  const { voteOnExpense, isProcessing } = useGroupSplit();
-  const [selectedExpenseId, setSelectedExpenseId] = useState<number | null>(null);
-  const [votes, setVotes] = useState("");
-  const [expenses, setExpenses] = useState<GroupExpenseRow[]>([]);
-  const [loadingExpenses, setLoadingExpenses] = useState(true);
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoadingExpenses(true);
-    fetchGroupExpenses(groupId).then((data) => {
-      if (!cancelled) {
-        setExpenses(data);
-        setLoadingExpenses(false);
-      }
-    }).catch(() => {
-      if (!cancelled) setLoadingExpenses(false);
-    });
-    return () => { cancelled = true; };
-  }, [groupId]);
-
-  const handleVote = useCallback(async () => {
-    if (!votes.trim() || selectedExpenseId === null) return;
-    await voteOnExpense(groupId, selectedExpenseId, votes);
-    onClose();
-  }, [groupId, selectedExpenseId, votes, voteOnExpense, onClose]);
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center"
-      style={{ background: "rgba(0,0,0,0.4)" }}
-      onClick={onClose}
-    >
-      <div
-        className="glass-elevated w-full max-w-lg mx-4 mb-4 sm:mb-0 p-8 space-y-5"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between">
-          <h2 className="text-xl font-heading font-medium text-[var(--text-primary)]">
-            Vote on Expense &mdash; Group #{groupId}
-          </h2>
-          <button onClick={onClose} className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-black/5 transition-colors" aria-label="Close">
-            <X size={20} className="text-[var(--text-primary)]/50" />
-          </button>
-        </div>
-
-        <div>
-          <label className="text-xs text-[var(--text-primary)]/50 font-medium tracking-wide uppercase mb-2 block">Select Expense</label>
-          {loadingExpenses ? (
-            <div className="space-y-2">
-              {[1, 2].map((i) => (
-                <div key={i} className="h-16 rounded-2xl bg-black/5 animate-pulse" />
-              ))}
-            </div>
-          ) : expenses.length === 0 ? (
-            <div className="p-6 rounded-2xl bg-white/60 border border-black/10 text-center">
-              <p className="text-sm text-[var(--text-primary)]/50">No expenses to vote on</p>
-            </div>
-          ) : (
-            <div className="space-y-2 max-h-48 overflow-y-auto">
-              {expenses.map((exp) => (
-                <button
-                  key={exp.expense_id}
-                  type="button"
-                  onClick={() => setSelectedExpenseId(exp.expense_id)}
-                  className={cn(
-                    "w-full text-left p-4 rounded-2xl border transition-all",
-                    selectedExpenseId === exp.expense_id
-                      ? "bg-[var(--text-primary)]/5 border-[var(--text-primary)]/30 ring-2 ring-[var(--text-primary)]/10"
-                      : "bg-white/60 border-black/10 hover:border-black/20"
-                  )}
-                >
-                  <p className="text-sm font-medium text-[var(--text-primary)]">{exp.description}</p>
-                  <div className="flex items-center gap-2 mt-1">
-                    <span className="text-xs text-[var(--text-primary)]/50 font-mono">
-                      {exp.payer_address.slice(0, 6)}...{exp.payer_address.slice(-4)}
-                    </span>
-                    <span className="text-xs text-[var(--text-primary)]/30">&middot;</span>
-                    <span className="text-xs text-[var(--text-primary)]/50">
-                      {new Date(exp.created_at).toLocaleDateString()}
-                    </span>
-                  </div>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div>
-          <label className="text-xs text-[var(--text-primary)]/50 font-medium tracking-wide uppercase mb-2 block">Votes (USDC)</label>
-          <div className="relative">
-            <span className="absolute left-5 top-1/2 -translate-y-1/2 text-lg text-[var(--text-primary)]/50">$</span>
-            <input type="text" placeholder="0.00" value={votes}
-              onChange={(e) => { const v = e.target.value; if (/^\d*\.?\d{0,6}$/.test(v) || v === "") setVotes(v); }}
-              className="h-14 w-full pl-10 pr-5 rounded-2xl bg-white/60 border border-black/10 focus:border-black/20 focus:ring-4 focus:ring-black/5 outline-none transition-all placeholder:text-black/30 text-lg" />
-          </div>
-        </div>
-
-        <div className="flex gap-3 pt-2">
-          <button onClick={onClose} className="flex-1 h-14 px-6 rounded-2xl bg-black/5 text-[var(--text-primary)] font-medium transition-all hover:bg-black/10">Cancel</button>
-          <button onClick={handleVote} disabled={isProcessing || !votes.trim() || selectedExpenseId === null}
-            className="flex-1 h-14 px-6 rounded-2xl bg-[var(--text-primary)] text-white font-medium transition-transform active:scale-95 hover:bg-[#000000] flex items-center justify-center gap-2 disabled:opacity-50">
-            {isProcessing ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Vote size={20} />}
-            <span>Submit Vote</span>
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------
 //  GROUP CARD
 // ---------------------------------------------------------------
 
@@ -757,7 +636,6 @@ function GroupCard({
   onAddExpense,
   onImportSplitwise,
   onSettleDebt,
-  onVote,
   onLeave,
   onArchive,
   isProcessing,
@@ -770,7 +648,6 @@ function GroupCard({
   onAddExpense: (groupId: number) => void;
   onImportSplitwise: (groupId: number) => void;
   onSettleDebt: (groupId: number) => void;
-  onVote: (groupId: number) => void;
   onLeave: (groupId: number) => void;
   onArchive: (groupId: number) => void;
   isProcessing: boolean;
@@ -906,13 +783,6 @@ function GroupCard({
           <span>Settle</span>
         </button>
         <button
-          onClick={() => onVote(group.group_id)}
-          className="h-12 w-12 rounded-2xl bg-black/5 text-[var(--text-primary)] font-medium transition-all active:scale-95 hover:bg-black/10 flex items-center justify-center"
-          aria-label="Vote on expense"
-        >
-          <Vote size={18} />
-        </button>
-        <button
           onClick={() => onImportSplitwise(group.group_id)}
           className="h-12 w-12 rounded-2xl bg-black/5 text-[var(--text-primary)] font-medium transition-all active:scale-95 hover:bg-black/10 flex items-center justify-center"
           aria-label="Import from Splitwise"
@@ -977,7 +847,6 @@ export default function Groups() {
   // Phase 3.3 — Splitwise CSV import per-group modal trigger.
   const [importGroupId, setImportGroupId] = useState<number | null>(null);
   const [settleGroupId, setSettleGroupId] = useState<number | null>(null);
-  const [voteGroupId, setVoteGroupId] = useState<number | null>(null);
 
   // Real data from Supabase
   const [groups, setGroups] = useState<GroupMembershipRow[]>([]);
@@ -1216,7 +1085,6 @@ export default function Groups() {
                 onAddExpense={setExpenseGroupId}
                 onImportSplitwise={setImportGroupId}
                 onSettleDebt={setSettleGroupId}
-                onVote={setVoteGroupId}
                 onLeave={async (gid) => {
                   await leaveGroup(gid);
                   refreshData();
@@ -1251,12 +1119,6 @@ export default function Groups() {
           groupId={settleGroupId}
           onClose={() => setSettleGroupId(null)}
           onSettled={refreshData}
-        />
-      )}
-      {voteGroupId !== null && (
-        <VoteModal
-          groupId={voteGroupId}
-          onClose={() => setVoteGroupId(null)}
         />
       )}
       {importGroupId !== null && (

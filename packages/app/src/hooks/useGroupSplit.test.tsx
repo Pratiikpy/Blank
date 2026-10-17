@@ -130,7 +130,7 @@ vi.mock("react-hot-toast", () => ({
   },
 }));
 
-import { useGroupSplit } from "./useGroupSplit";
+import { useGroupSplit, splitEqually, sharesSumToTotal, friendlyGroupError } from "./useGroupSplit";
 
 const ME = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" as `0x${string}`;
 const ALICE = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" as `0x${string}`;
@@ -143,6 +143,7 @@ const unifiedWriteAndWaitMock = vi.fn();
 const encryptInputsAsyncMock = vi.fn();
 const decryptForViewMock = vi.fn();
 const waitForTransactionReceiptMock = vi.fn();
+const readContractMock = vi.fn();
 
 beforeEach(() => {
   useEffectiveAddressMock.mockReset();
@@ -180,8 +181,12 @@ beforeEach(() => {
       FHERC20Vault_USDC: VAULT_USDC,
     },
   });
+  readContractMock.mockReset();
+  // groupVault(groupId): unpinned by default.
+  readContractMock.mockResolvedValue("0x0000000000000000000000000000000000000000");
   usePublicClientMock.mockReturnValue({
     waitForTransactionReceipt: waitForTransactionReceiptMock,
+    readContract: readContractMock,
   });
   useUnifiedWriteMock.mockReturnValue({
     unifiedWrite: unifiedWriteMock,
@@ -216,31 +221,45 @@ beforeEach(() => {
 // ───────────────────────────────────────────────────────────
 
 describe("useGroupSplit — initial state + math (§15.x)", () => {
-  it("returns isProcessing=false + 7 callables", () => {
+  it("returns isProcessing=false + 6 callables (voting retired)", () => {
     const { result } = renderHook(() => useGroupSplit());
     expect(result.current.isProcessing).toBe(false);
     expect(typeof result.current.computeEqualSplit).toBe("function");
     expect(typeof result.current.createGroup).toBe("function");
     expect(typeof result.current.addExpense).toBe("function");
     expect(typeof result.current.settleDebt).toBe("function");
-    expect(typeof result.current.voteOnExpense).toBe("function");
     expect(typeof result.current.leaveGroup).toBe("function");
     expect(typeof result.current.archiveGroup).toBe("function");
+    expect("voteOnExpense" in result.current).toBe(false);
   });
 
-  it("computeEqualSplit '100' / 3 -> '33.333333' (6dp)", () => {
+  it("computeEqualSplit '100' / 3 sums to the total exactly (remainder on the first share)", () => {
     const { result } = renderHook(() => useGroupSplit());
-    expect(result.current.computeEqualSplit("100", 3)).toBe("33.333333");
+    const shares = result.current.computeEqualSplit("100", 3);
+    expect(shares).toEqual(["33.333334", "33.333333", "33.333333"]);
+    expect(sharesSumToTotal(shares, "100")).toBe(true);
   });
 
-  it("computeEqualSplit '10' / 4 -> '2.500000' (trailing zeros preserved)", () => {
+  it("computeEqualSplit '10' / 4 -> four equal shares", () => {
     const { result } = renderHook(() => useGroupSplit());
-    expect(result.current.computeEqualSplit("10", 4)).toBe("2.500000");
+    expect(result.current.computeEqualSplit("10", 4)).toEqual(["2.5", "2.5", "2.5", "2.5"]);
   });
 
-  it("computeEqualSplit '5' / 2 -> '2.500000'", () => {
-    const { result } = renderHook(() => useGroupSplit());
-    expect(result.current.computeEqualSplit("5", 2)).toBe("2.500000");
+  it("splitEqually handles a 1-unit total across 3 members", () => {
+    expect(splitEqually("0.000001", 3)).toEqual(["0.000001", "0", "0"]);
+  });
+
+  it("sharesSumToTotal is exact in base units (no float tolerance)", () => {
+    expect(sharesSumToTotal(["3.333333", "3.333333", "3.333333"], "10")).toBe(false);
+    expect(sharesSumToTotal(["3.333334", "3.333333", "3.333333"], "10")).toBe(true);
+    expect(sharesSumToTotal(["abc"], "1")).toBe(false);
+  });
+
+  it("friendlyGroupError maps archived / pinned-vault / allowlist reverts", () => {
+    expect(friendlyGroupError("execution reverted: GroupManager: group archived")).toMatch(/archived/);
+    expect(friendlyGroupError("GroupManager: wrong vault for group")).toMatch(/different token/);
+    expect(friendlyGroupError("GroupManager: vault not allowed")).toMatch(/not enabled/);
+    expect(friendlyGroupError("rpc down")).toBe("rpc down");
   });
 });
 
@@ -754,67 +773,88 @@ describe("useGroupSplit — settleDebt (§15.x)", () => {
 });
 
 // ───────────────────────────────────────────────────────────
-//  voteOnExpense
+//  Audit fixes: shares-sum, ExpenseApplied, pinned vault
 // ───────────────────────────────────────────────────────────
 
-describe("useGroupSplit — voteOnExpense (§15.x)", () => {
-  it("no address -> 'Connection lost' toast", async () => {
-    useEffectiveAddressMock.mockReturnValue({ effectiveAddress: null });
+describe("useGroupSplit — shares must sum to total (audit fix)", () => {
+  it("shares that do not add up -> blocked before encryption", async () => {
     const { result } = renderHook(() => useGroupSplit());
     await act(async () => {
-      await result.current.voteOnExpense(1, 2, "50");
+      await result.current.addExpense(1, "10", [ALICE, BOB], ["3", "3"], "dinner");
     });
-    expect(toastErrorMock).toHaveBeenCalledWith("Connection lost");
+    expect(toastErrorMock).toHaveBeenCalledWith("Shares must add up to the total exactly.");
+    expect(encryptInputsAsyncMock).toHaveBeenCalledTimes(0);
     expect(unifiedWriteAndWaitMock).toHaveBeenCalledTimes(0);
   });
 
-  it("empty votes -> 'Enter a vote amount' toast", async () => {
-    const { result } = renderHook(() => useGroupSplit());
-    await act(async () => {
-      await result.current.voteOnExpense(1, 2, "");
-    });
-    expect(toastErrorMock).toHaveBeenCalledWith("Enter a vote amount");
-  });
-
-  it("voteOnExpense args: [BigInt(groupId), BigInt(expenseId), encVotes] + gas 5M", async () => {
-    const { result } = renderHook(() => useGroupSplit());
-    await act(async () => {
-      await result.current.voteOnExpense(7, 13, "50");
-    });
-    const call = unifiedWriteAndWaitMock.mock.calls[0][0];
-    expect(call.functionName).toBe("voteOnExpense");
-    expect(call.address).toBe(GM);
-    expect(call.args[0]).toBe(7n);
-    expect(call.args[1]).toBe(13n);
-    expect(call.gas).toBe(5_000_000n);
-    const encBatch = encryptInputsAsyncMock.mock.calls[0][0] as Array<{ raw: bigint }>;
-    expect(encBatch[0].raw).toBe(50_000_000n);
-  });
-
-  it("activity_type='group_vote' + self-to-self user_from/user_to + note mentions ids", async () => {
-    const { result } = renderHook(() => useGroupSplit());
-    await act(async () => {
-      await result.current.voteOnExpense(7, 13, "50");
-    });
-    const row = insertActivityMock.mock.calls[0][0];
-    expect(row.activity_type).toBe("group_vote");
-    expect(row.user_from).toBe(ME.toLowerCase());
-    expect(row.user_to).toBe(ME.toLowerCase());
-    expect(row.note).toContain("#13");
-    expect(row.note).toContain("#7");
-    expect(toastSuccessMock).toHaveBeenCalledWith("Vote submitted!");
-  });
-
-  it("reverted receipt -> error + no activity", async () => {
+  it("ExpenseApplied decrypts false -> honest 'no debts changed' error", async () => {
     unifiedWriteAndWaitMock.mockResolvedValue({
-      hash: "0xrev",
-      receipt: { status: "reverted", blockNumber: 1n, logs: [] },
+      hash: "0xtxhash",
+      receipt: { status: "success", blockNumber: 1n, logs: [{ address: GM, data: "0x", topics: [] }] },
     });
+    decodeEventLogMock.mockImplementation(({ eventName }: { eventName: string }) => {
+      if (eventName === "ExpenseApplied") return { args: { applied: "0x0000000000000000000000000000000000000000000000000000000000000abc" } };
+      throw new Error("not this event");
+    });
+    decryptForViewMock.mockResolvedValue(false);
     const { result } = renderHook(() => useGroupSplit());
     await act(async () => {
-      await result.current.voteOnExpense(1, 2, "50");
+      await result.current.addExpense(1, "10", [ALICE, BOB], ["5", "5"], "dinner");
     });
-    expect(insertActivityMock).toHaveBeenCalledTimes(0);
+    expect(decryptForViewMock).toHaveBeenCalledWith(0xabcn, "ebool");
+    expect(toastErrorMock).toHaveBeenCalledWith(
+      expect.stringContaining("no debts changed"),
+      expect.anything(),
+    );
+  });
+
+  it("ExpenseApplied decrypts true -> 'Debts updated' success", async () => {
+    unifiedWriteAndWaitMock.mockResolvedValue({
+      hash: "0xtxhash",
+      receipt: { status: "success", blockNumber: 1n, logs: [{ address: GM, data: "0x", topics: [] }] },
+    });
+    decodeEventLogMock.mockImplementation(({ eventName }: { eventName: string }) => {
+      if (eventName === "ExpenseApplied") return { args: { applied: "0x01" } };
+      throw new Error("not this event");
+    });
+    decryptForViewMock.mockResolvedValue(true);
+    const { result } = renderHook(() => useGroupSplit());
+    await act(async () => {
+      await result.current.addExpense(1, "10", [ALICE, BOB], ["5", "5"], "dinner");
+    });
+    expect(toastSuccessMock).toHaveBeenCalledWith("Expense added. Debts updated.");
+  });
+});
+
+describe("useGroupSplit — group vault pinning (audit fix)", () => {
+  it("group pinned to another vault -> blocked before encryption with honest copy", async () => {
+    readContractMock.mockResolvedValue("0x9999999999999999999999999999999999999999");
+    const { result } = renderHook(() => useGroupSplit());
+    await act(async () => {
+      await result.current.settleDebt(1, ALICE, "1");
+    });
+    expect(readContractMock.mock.calls[0][0].functionName).toBe("groupVault");
+    expect(toastErrorMock).toHaveBeenCalledWith(expect.stringContaining("different token"));
+    expect(encryptInputsAsyncMock).toHaveBeenCalledTimes(0);
+    expect(unifiedWriteAndWaitMock).toHaveBeenCalledTimes(0);
+  });
+
+  it("group pinned to the USDC vault -> settle proceeds", async () => {
+    readContractMock.mockResolvedValue(VAULT_USDC);
+    const { result } = renderHook(() => useGroupSplit());
+    await act(async () => {
+      await result.current.settleDebt(1, ALICE, "1");
+    });
+    expect(unifiedWriteAndWaitMock.mock.calls.some((c) => c[0].functionName === "settleDebt")).toBe(true);
+  });
+
+  it("archived group revert -> mapped copy", async () => {
+    unifiedWriteAndWaitMock.mockRejectedValue(new Error("execution reverted: GroupManager: group archived"));
+    const { result } = renderHook(() => useGroupSplit());
+    await act(async () => {
+      await result.current.settleDebt(1, ALICE, "1");
+    });
+    expect(toastErrorMock).toHaveBeenCalledWith(expect.stringContaining("archived"));
   });
 });
 

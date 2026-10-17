@@ -68,7 +68,7 @@ describe("Explore — tile -> route mapping (§15.x)", () => {
     ["Creator Support", "/app/creators"],
     // ADVANCED
     ["Stealth Payments", "/app/stealth"],
-    ["P2P Exchange", "/app/swap"],
+    ["Exchange", "/app/swap"],
     ["Business Tools", "/app/business"],
     // SECURITY
     ["Beneficiary Planning", "/app/inheritance"],
@@ -156,14 +156,15 @@ describe("Explore — section composition (§15.x)", () => {
     expect(securitySection).not.toContain("Stealth Payments");
   });
 
-  it("ADVANCED section: Stealth + P2P Exchange + Business Tools", () => {
+  it("ADVANCED section: Stealth + Exchange + Business Tools (retired P2P book not advertised)", () => {
     const { container } = render(<Explore />);
     const text = container.textContent ?? "";
     const advancedIdx = text.indexOf("ADVANCED");
     const securityIdx = text.indexOf("SECURITY");
     const advancedSection = text.slice(advancedIdx, securityIdx);
     expect(advancedSection).toContain("Stealth Payments");
-    expect(advancedSection).toContain("P2P Exchange");
+    expect(advancedSection).toContain("Exchange");
+    expect(advancedSection).not.toContain("P2P Exchange");
     expect(advancedSection).toContain("Business Tools");
   });
 });

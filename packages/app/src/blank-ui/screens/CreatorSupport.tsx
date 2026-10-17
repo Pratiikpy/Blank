@@ -20,6 +20,8 @@ import { useUnifiedWrite } from "@/hooks/useUnifiedWrite";
 import { usePublicClient } from "wagmi";
 import { useEffectiveAddress } from "@/hooks/useEffectiveAddress";
 import { CreatorHubAbi } from "@/lib/abis";
+import { useCofheDecryptForView } from "@/lib/cofhe-shim";
+import { formatUnits } from "viem";
 import { useChain } from "@/providers/ChainProvider";
 import { useRealtime } from "@/providers/RealtimeProvider";
 import { log } from "@/lib/log";
@@ -81,6 +83,9 @@ export default function CreatorSupport() {
   const { contracts } = useChain();
   const { isTipping, tip } = useTipCreator();
   const publicClient = usePublicClient();
+  const { decryptForView } = useCofheDecryptForView();
+  const [myEarnings, setMyEarnings] = useState<bigint | null>(null);
+  const [isRevealingEarnings, setIsRevealingEarnings] = useState(false);
   // Passkey-aware writer — handleCreateProfile uses this so passkey-only
   // users can register profiles via UserOps, not just EOA wallets.
   const { unifiedWriteAndWait } = useUnifiedWrite();
@@ -238,6 +243,33 @@ export default function CreatorSupport() {
     return unsubscribe;
   }, [address, isCreator, subscribe]);
 
+  // Earnings are kept per vault and only the creator can decrypt them.
+  // Tips made before the per-vault upgrade are not included.
+  const handleRevealEarnings = async () => {
+    if (!address || !publicClient) { toast.error("Connect wallet first"); return; }
+    setIsRevealingEarnings(true);
+    try {
+      const handle = await publicClient.readContract({
+        address: contracts.CreatorHub,
+        abi: CreatorHubAbi,
+        functionName: "getMyEarningsIn",
+        args: [contracts.FHERC20Vault_USDC],
+        account: address,
+      }) as bigint;
+      if (handle === 0n) {
+        setMyEarnings(0n);
+        return;
+      }
+      const value = await decryptForView(handle, "uint64");
+      if (typeof value !== "bigint") throw new Error("Could not decrypt earnings. Check your permit and try again.");
+      setMyEarnings(value);
+    } catch (err) {
+      toastMappedError(err);
+    } finally {
+      setIsRevealingEarnings(false);
+    }
+  };
+
   const handleSupport = async () => {
     if (!address) { toast.error("Connect wallet first"); return; }
     if (!selectedCreator || !selectedTier) return;
@@ -256,13 +288,17 @@ export default function CreatorSupport() {
       // Issue 38: Read contribution and derive tier badge after successful tip
       if (publicClient) {
         try {
-          const contribution = await publicClient.readContract({
+          // Totals are kept per vault. The view returns an encrypted handle
+          // only this supporter can decrypt.
+          const handle = await publicClient.readContract({
             address: contracts.CreatorHub,
             abi: CreatorHubAbi,
-            functionName: "getMyContribution",
-            args: [creatorAddr as `0x${string}`],
+            functionName: "getMyContributionIn",
+            args: [creatorAddr as `0x${string}`, contracts.FHERC20Vault_USDC],
             account: address,
           }) as bigint;
+          const contribution = await decryptForView(handle, "uint64");
+          if (typeof contribution !== "bigint") throw new Error("contribution decrypt unavailable");
           // Compare contribution against creator's tier thresholds (in micro-units)
           const t1 = BigInt((selectedCreator.tier1_threshold || 5) * 1_000000);
           const t2 = BigInt((selectedCreator.tier2_threshold || 15) * 1_000000);
@@ -350,13 +386,30 @@ export default function CreatorSupport() {
               </div>
             </div>
           ) : isCreator ? (
-            <button
-              onClick={handleEditProfile}
-              className="h-12 px-6 rounded-xl bg-[#1D1D1F] text-white font-medium flex items-center gap-2"
-            >
-              <Pencil size={16} />
-              <span>Edit Profile</span>
-            </button>
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                onClick={handleEditProfile}
+                className="h-12 px-6 rounded-xl bg-[#1D1D1F] text-white font-medium flex items-center gap-2"
+              >
+                <Pencil size={16} />
+                <span>Edit Profile</span>
+              </button>
+              <button
+                data-testid="creator-earnings-decrypt"
+                onClick={handleRevealEarnings}
+                disabled={isRevealingEarnings}
+                className="h-12 px-6 rounded-xl border border-black/10 text-[var(--text-primary)] font-medium flex items-center gap-2 disabled:opacity-40"
+              >
+                {isRevealingEarnings && <Loader2 size={16} className="animate-spin" />}
+                <span>
+                  {myEarnings !== null
+                    ? `Earned ${formatUnits(myEarnings, 6)} USDC`
+                    : isRevealingEarnings
+                      ? "Decrypting…"
+                      : "Decrypt my USDC earnings"}
+                </span>
+              </button>
+            </div>
           ) : (
             <button
               onClick={() => setShowCreateForm(true)}

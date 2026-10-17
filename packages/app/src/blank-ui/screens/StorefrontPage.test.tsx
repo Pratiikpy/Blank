@@ -73,6 +73,8 @@ let payPWYWMock: ReturnType<typeof vi.fn>;
 let closeAuctionMock: ReturnType<typeof vi.fn>;
 let claimAuctionWinMock: ReturnType<typeof vi.fn>;
 let refundLoserBidMock: ReturnType<typeof vi.fn>;
+let revealWinnerMock: ReturnType<typeof vi.fn>;
+let decryptPaidByBuyerMock: ReturnType<typeof vi.fn>;
 
 function buildListing(over: Partial<{
   seller: string;
@@ -144,7 +146,9 @@ function setHook(overrides: Partial<{
     payPWYW: payPWYWMock,
     closeAuction: closeAuctionMock,
     claimAuctionWin: claimAuctionWinMock,
+    revealWinner: revealWinnerMock,
     refundLoserBid: refundLoserBidMock,
+    decryptPaidByBuyer: decryptPaidByBuyerMock,
   });
 }
 
@@ -169,6 +173,8 @@ beforeEach(() => {
   closeAuctionMock = vi.fn().mockResolvedValue(undefined);
   claimAuctionWinMock = vi.fn().mockResolvedValue(undefined);
   refundLoserBidMock = vi.fn().mockResolvedValue(undefined);
+  revealWinnerMock = vi.fn().mockResolvedValue(true);
+  decryptPaidByBuyerMock = vi.fn().mockResolvedValue(0n);
   setHook();
 });
 
@@ -496,12 +502,13 @@ describe("StorefrontPage — Auction mode 3-substate machine (§15.x)", () => {
     expect(closeAuctionMock).toHaveBeenCalledWith(5);
   });
 
-  it("closed state (closed=true) + viewer is winner -> 'Winner:' banner + 'Claim your win'", async () => {
-    // C6 fix: Claim CTA is now gated to the actual winner. Connect as
-    // WINNER to see the Claim flow + 'You' badge.
+  // closeAuction requires >= 1 bid, so every closed auction below has bids.
+  it("closed + revealed + viewer is winner -> 'Winner:' banner + 'Claim your win'", async () => {
     useEffectiveAddressMock.mockReturnValue({ effectiveAddress: WINNER });
     readContractMock = makeReadContract(
       buildListing({ mode: MODE_AUCTION, closed: true, winner: WINNER }),
+      1,
+      [[WINNER, false]],
     );
     usePublicClientMock.mockReturnValue({ readContract: readContractMock });
     const { findByText, container } = render(<StorefrontPage />);
@@ -512,7 +519,6 @@ describe("StorefrontPage — Auction mode 3-substate machine (§15.x)", () => {
   });
 
   it("CRITICAL closed-state priority: closed=true overrides past-closesAt + !closed boundary", async () => {
-    // Both closed=true AND past-closesAt (would trigger needsClose if cascade reversed)
     useEffectiveAddressMock.mockReturnValue({ effectiveAddress: WINNER });
     readContractMock = makeReadContract(
       buildListing({
@@ -521,6 +527,8 @@ describe("StorefrontPage — Auction mode 3-substate machine (§15.x)", () => {
         closesAt: BigInt(Math.floor(Date.now() / 1000) - 100),
         winner: WINNER,
       }),
+      1,
+      [[WINNER, false]],
     );
     usePublicClientMock.mockReturnValue({ readContract: readContractMock });
     const { findByText, container } = render(<StorefrontPage />);
@@ -532,6 +540,8 @@ describe("StorefrontPage — Auction mode 3-substate machine (§15.x)", () => {
     useEffectiveAddressMock.mockReturnValue({ effectiveAddress: WINNER });
     readContractMock = makeReadContract(
       buildListing({ mode: MODE_AUCTION, closed: true, winner: WINNER }),
+      1,
+      [[WINNER, false]],
     );
     usePublicClientMock.mockReturnValue({ readContract: readContractMock });
     const { findByText } = render(<StorefrontPage />);
@@ -543,11 +553,9 @@ describe("StorefrontPage — Auction mode 3-substate machine (§15.x)", () => {
     expect(claimAuctionWinMock).toHaveBeenCalledWith(5);
   });
 
-  it("C6: viewer is NOT winner -> Claim CTA hidden, explanation banner shown, refund list lookup runs", async () => {
+  it("anyone can settle: non-winner sees 'Settle auction (pay the seller)' and it calls claimAuctionWin", async () => {
     const NON_WINNER = "0xdddddddddddddddddddddddddddddddddddddddd" as `0x${string}`;
     useEffectiveAddressMock.mockReturnValue({ effectiveAddress: NON_WINNER });
-    // Single bid by the actual winner (not NON_WINNER) so the on-chain
-    // bid loop runs and reports "you didn't bid" cleanly.
     readContractMock = makeReadContract(
       buildListing({ mode: MODE_AUCTION, closed: true, winner: WINNER }),
       1,
@@ -555,36 +563,60 @@ describe("StorefrontPage — Auction mode 3-substate machine (§15.x)", () => {
     );
     usePublicClientMock.mockReturnValue({ readContract: readContractMock });
     const { findByText, queryByText } = render(<StorefrontPage />);
-    await findByText(/aren't the winner/i);
+    const btn = await findByText("Settle auction (pay the seller)");
     expect(queryByText("Claim your win")).toBeNull();
     await findByText(/didn't bid on this auction/i);
+    await act(async () => {
+      fireEvent.click(btn);
+      await Promise.resolve();
+    });
+    expect(claimAuctionWinMock).toHaveBeenCalledWith(5);
   });
 
-  it("C11: closed state with zero winner (no bids) -> 'closed without bids' state, no Claim, no refund", async () => {
+  it("winning bid already settled -> 'Settled' banner, no settle CTA", async () => {
+    useEffectiveAddressMock.mockReturnValue({ effectiveAddress: WINNER });
+    readContractMock = makeReadContract(
+      buildListing({ mode: MODE_AUCTION, closed: true, winner: WINNER }),
+      1,
+      [[WINNER, true]],
+    );
+    usePublicClientMock.mockReturnValue({ readContract: readContractMock });
+    const { findByTestId, queryByText } = render(<StorefrontPage />);
+    await findByTestId("auction-settled");
+    expect(queryByText("Claim your win")).toBeNull();
+  });
+
+  it("closed but winner not revealed (zero winner) -> 'Reveal winner' CTA, no settle, no refund", async () => {
     useEffectiveAddressMock.mockReturnValue({ effectiveAddress: WINNER });
     readContractMock = makeReadContract(
       buildListing({ mode: MODE_AUCTION, closed: true, winner: ZERO }),
+      2,
+      [[WINNER, false], [ZERO, false]],
     );
     usePublicClientMock.mockReturnValue({ readContract: readContractMock });
     const { findByText, container, queryByText } = render(<StorefrontPage />);
-    await findByText(/closed without bids/i);
+    const btn = await findByText("Reveal winner");
+    expect(container.textContent).toContain("Refunds and settlement open after the reveal");
     expect(queryByText("Claim your win")).toBeNull();
-    // No bids → no "Your bids" list rendered either.
-    expect(queryByText(/Your bids/)).toBeNull();
-    expect(container.textContent).not.toContain("Winner:");
+    expect(queryByText(/Your bid/)).toBeNull();
+    await act(async () => {
+      fireEvent.click(btn);
+      await Promise.resolve();
+    });
+    expect(revealWinnerMock).toHaveBeenCalledWith(5);
   });
 
-  it("C6: no connected wallet on closed auction -> 'Connect your wallet' fallback (no Claim CTA, no bid list)", async () => {
-    // Default beforeEach already sets effectiveAddress: undefined.
+  it("no connected wallet on revealed auction -> 'Connect your wallet' fallback (no settle CTA, no bid list)", async () => {
     readContractMock = makeReadContract(
       buildListing({ mode: MODE_AUCTION, closed: true, winner: WINNER }),
+      1,
+      [[WINNER, false]],
     );
     usePublicClientMock.mockReturnValue({ readContract: readContractMock });
     const { findByText, queryByText } = render(<StorefrontPage />);
-    await findByText(/Connect your wallet to claim/i);
+    await findByText(/Connect your wallet to settle/i);
     expect(queryByText("Claim your win")).toBeNull();
-    // Without a connected viewer there is no "Your bids" list to render.
-    expect(queryByText(/Your bids/)).toBeNull();
+    expect(queryByText(/Your bid/)).toBeNull();
   });
 });
 
@@ -654,7 +686,7 @@ describe("StorefrontPage — refund via on-chain bid list (§15.x, replaces prom
     await findByText("Refund");
   });
 
-  it("loading state: while getBid is pending, 'Checking your bids…' is shown", async () => {
+  it("loading state: while getBid is pending, 'Checking bids…' is shown", async () => {
     // getListing + getBidCount resolve, getBid never resolves.
     let resolveBid!: (v: unknown) => void;
     readContractMock = vi.fn().mockImplementation((args: { functionName: string }) => {
@@ -665,7 +697,7 @@ describe("StorefrontPage — refund via on-chain bid list (§15.x, replaces prom
     });
     usePublicClientMock.mockReturnValue({ readContract: readContractMock });
     const { findByText } = render(<StorefrontPage />);
-    await findByText(/Checking your bids/);
+    await findByText(/Checking bids/);
     // Resolve so the test doesn't leak a pending promise.
     await act(async () => { resolveBid([OTHER, false]); await Promise.resolve(); });
   });
@@ -731,5 +763,45 @@ describe("StorefrontPage — cancellation guard (§15.x)", () => {
     const calls = consoleErrorSpy.mock.calls.map((c) => String(c[0] ?? ""));
     expect(calls.some((c) => c.includes("unmounted component"))).toBe(false);
     consoleErrorSpy.mockRestore();
+  });
+});
+
+describe("StorefrontPage — paid-by-buyer check (audit fix)", () => {
+  const SELLER_ADDR = "0x9999999999999999999999999999999999999999" as `0x${string}`;
+  const BUYER = "0x8888888888888888888888888888888888888888" as `0x${string}`;
+
+  it("seller on a FixedPrice listing sees the buyer check instead of the buy form, and it decrypts", async () => {
+    useEffectiveAddressMock.mockReturnValue({ effectiveAddress: SELLER_ADDR });
+    readContractMock = makeReadContract(buildListing({ seller: SELLER_ADDR }));
+    usePublicClientMock.mockReturnValue({ readContract: readContractMock });
+    decryptPaidByBuyerMock.mockResolvedValue(3_000_000n);
+    const { findByTestId, container, queryByText } = render(<StorefrontPage />);
+    const panel = await findByTestId("storefront-seller-check");
+    expect(queryByText("Buy now")).toBeNull();
+    const input = panel.querySelector("input") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: BUYER } });
+    const btn = Array.from(panel.querySelectorAll("button")).find((b) => b.textContent?.includes("Decrypt payment")) as HTMLButtonElement;
+    await act(async () => {
+      fireEvent.click(btn);
+      await Promise.resolve();
+    });
+    expect(decryptPaidByBuyerMock).toHaveBeenCalledWith(5, BUYER);
+    await waitFor(() => expect(container.textContent).toContain("Paid in total: 3 USDC"));
+  });
+
+  it("paid 0 -> honest 'Nothing was paid' copy", async () => {
+    useEffectiveAddressMock.mockReturnValue({ effectiveAddress: SELLER_ADDR });
+    readContractMock = makeReadContract(buildListing({ seller: SELLER_ADDR }));
+    usePublicClientMock.mockReturnValue({ readContract: readContractMock });
+    decryptPaidByBuyerMock.mockResolvedValue(0n);
+    const { findByTestId, container } = render(<StorefrontPage />);
+    const panel = await findByTestId("storefront-seller-check");
+    fireEvent.change(panel.querySelector("input") as HTMLInputElement, { target: { value: BUYER } });
+    const btn = Array.from(panel.querySelectorAll("button")).find((b) => b.textContent?.includes("Decrypt payment")) as HTMLButtonElement;
+    await act(async () => {
+      fireEvent.click(btn);
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(container.textContent).toContain("Nothing was paid"));
   });
 });

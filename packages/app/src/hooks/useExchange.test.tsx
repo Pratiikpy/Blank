@@ -244,20 +244,22 @@ afterEach(() => {
 // ───────────────────────────────────────────────────────────
 
 describe("useExchange — initial state (§15.x)", () => {
-  it("returns idle step + empty offers + 6 callable handlers + verifyingOfferId=null", async () => {
+  it("returns empty offers + the exit handlers + verifyingOfferId=null", async () => {
     const { result } = renderHook(() => useExchange());
-    expect(result.current.step).toBe("idle");
-    expect(result.current.error).toBeNull();
     expect(result.current.offers).toEqual([]);
     expect(result.current.filledOffers).toEqual([]);
     expect(result.current.verifyingOfferId).toBeNull();
-    expect(typeof result.current.createOffer).toBe("function");
-    expect(typeof result.current.fillOffer).toBe("function");
+    expect(result.current.isCancelling).toBe(false);
     expect(typeof result.current.cancelOffer).toBe("function");
     expect(typeof result.current.verifyTrade).toBe("function");
     expect(typeof result.current.getTradeValidation).toBe("function");
     expect(typeof result.current.loadOffers).toBe("function");
-    expect(typeof result.current.reset).toBe("function");
+  });
+
+  it("P2PExchange is retired: no createOffer / fillOffer entry points", () => {
+    const { result } = renderHook(() => useExchange());
+    expect("createOffer" in result.current).toBe(false);
+    expect("fillOffer" in result.current).toBe(false);
   });
 
   it("loadOffers fires on mount + populates offers + filledOffers", async () => {
@@ -330,468 +332,6 @@ describe("useExchange — realtime subscription (§15.x)", () => {
 });
 
 // ───────────────────────────────────────────────────────────
-//  createOffer
-// ───────────────────────────────────────────────────────────
-
-describe("useExchange — createOffer guards (§15.x)", () => {
-  it("no address -> no write", async () => {
-    useEffectiveAddressMock.mockReturnValue({ effectiveAddress: null });
-    const { result } = renderHook(() => useExchange());
-    await act(async () => {
-      await result.current.createOffer("100", "50", "2030-01-01");
-    });
-    expect(unifiedWriteAndWaitMock).toHaveBeenCalledTimes(0);
-  });
-
-  it("no publicClient -> no write", async () => {
-    usePublicClientMock.mockReturnValue(null);
-    const { result } = renderHook(() => useExchange());
-    await act(async () => {
-      await result.current.createOffer("100", "50", "2030-01-01");
-    });
-    expect(unifiedWriteAndWaitMock).toHaveBeenCalledTimes(0);
-  });
-
-  it("empty amountGive -> 'Enter an amount to give' toast + step back to idle", async () => {
-    const { result } = renderHook(() => useExchange());
-    await act(async () => {
-      await result.current.createOffer("", "50", "2030-01-01");
-    });
-    expect(toastErrorMock).toHaveBeenCalledWith("Enter an amount to give");
-    expect(result.current.step).toBe("idle");
-  });
-
-  it("empty amountWant -> 'Enter an amount to receive' toast + step back to idle", async () => {
-    const { result } = renderHook(() => useExchange());
-    await act(async () => {
-      await result.current.createOffer("100", "", "2030-01-01");
-    });
-    expect(toastErrorMock).toHaveBeenCalledWith("Enter an amount to receive");
-    expect(result.current.step).toBe("idle");
-  });
-
-  it("non-numeric amountGive -> 'valid amount to give' toast", async () => {
-    const { result } = renderHook(() => useExchange());
-    await act(async () => {
-      await result.current.createOffer("not-a-number", "50", "2030-01-01");
-    });
-    expect(toastErrorMock).toHaveBeenCalledWith("Enter a valid amount to give");
-  });
-
-  it("zero amountGive -> 'valid amount to give' toast (parseFloat <= 0)", async () => {
-    const { result } = renderHook(() => useExchange());
-    await act(async () => {
-      await result.current.createOffer("0", "50", "2030-01-01");
-    });
-    expect(toastErrorMock).toHaveBeenCalledWith("Enter a valid amount to give");
-  });
-
-  it("negative amountWant -> 'valid amount to receive' toast", async () => {
-    const { result } = renderHook(() => useExchange());
-    await act(async () => {
-      await result.current.createOffer("100", "-5", "2030-01-01");
-    });
-    expect(toastErrorMock).toHaveBeenCalledWith("Enter a valid amount to receive");
-  });
-});
-
-describe("useExchange — createOffer happy path (§15.x)", () => {
-  it("first-time approval flow: approve + 3s settlement sleep + markVaultApproved + createOffer", async () => {
-    vi.useFakeTimers();
-    isVaultApprovedMock.mockReturnValue(false);
-    const { result } = renderHook(() => useExchange());
-    await vi.advanceTimersByTimeAsync(100);
-    let p!: Promise<void>;
-    act(() => {
-      p = result.current.createOffer("100", "50", "2030-01-01");
-    });
-    // Approve fires; settlement sleep is 3s
-    await vi.advanceTimersByTimeAsync(3_500);
-    await act(async () => {
-      await p;
-    });
-    expect(markVaultApprovedMock).toHaveBeenCalledWith(P2P);
-    // First call: approve, second call: createOffer
-    expect(unifiedWriteAndWaitMock).toHaveBeenCalledTimes(2);
-    expect(unifiedWriteAndWaitMock.mock.calls[0][0].functionName).toBe(
-      "approvePlaintext",
-    );
-    expect(unifiedWriteAndWaitMock.mock.calls[1][0].functionName).toBe(
-      "createOffer",
-    );
-  });
-
-  it("pre-approved -> single createOffer call, no approve", async () => {
-    isVaultApprovedMock.mockReturnValue(true);
-    const { result } = renderHook(() => useExchange());
-    await act(async () => {
-      await result.current.createOffer("100", "50", "2030-01-01");
-    });
-    expect(unifiedWriteAndWaitMock).toHaveBeenCalledTimes(1);
-    expect(unifiedWriteAndWaitMock.mock.calls[0][0].functionName).toBe("createOffer");
-  });
-
-  it("createOffer args: (tokenGive=USDC, tokenWant=USDT, giveWei, wantWei, expirySeconds)", async () => {
-    const { result } = renderHook(() => useExchange());
-    await act(async () => {
-      await result.current.createOffer("100", "50", "2030-01-01T00:00:00Z");
-    });
-    const call = unifiedWriteAndWaitMock.mock.calls[0][0];
-    expect(call.functionName).toBe("createOffer");
-    expect(call.address).toBe(P2P);
-    expect(call.args[0]).toBe(VAULT_USDC);
-    expect(call.args[1]).toBe(VAULT_USDT);
-    expect(call.args[2]).toBe(100_000_000n); // 100 USDC at 6dp
-    expect(call.args[3]).toBe(50_000_000n);
-    expect(call.args[4]).toBe(BigInt(Math.floor(new Date("2030-01-01T00:00:00Z").getTime() / 1000)));
-    expect(call.gas).toBe(5_000_000n);
-  });
-
-  it("no FHERC20Vault_USDT in contracts -> falls back to FHERC20Vault_USDC (will revert 'same token' but surfaces the missing-deployment)", async () => {
-    useChainMock.mockReturnValue({
-      activeChainId: 11155111,
-      contracts: {
-        P2PExchange: P2P,
-        FHERC20Vault_USDC: VAULT_USDC,
-        // FHERC20Vault_USDT missing
-      },
-    });
-    const { result } = renderHook(() => useExchange());
-    await act(async () => {
-      await result.current.createOffer("100", "50", "2030-01-01");
-    });
-    const call = unifiedWriteAndWaitMock.mock.calls[0][0];
-    expect(call.args[0]).toBe(VAULT_USDC); // tokenGive
-    expect(call.args[1]).toBe(VAULT_USDC); // tokenWant fallback
-  });
-
-  it("happy path: insertExchangeOffer + insertActivity + broadcastAction TWICE + invalidateBalanceQueries", async () => {
-    extractEventIdMock.mockReturnValue(7);
-    const { result } = renderHook(() => useExchange());
-    await act(async () => {
-      await result.current.createOffer("100", "50", "2030-01-01");
-    });
-    expect(insertExchangeOfferMock).toHaveBeenCalledTimes(1);
-    const offerRow = insertExchangeOfferMock.mock.calls[0][0];
-    expect(offerRow.offer_id).toBe(7);
-    expect(offerRow.maker_address).toBe(ME.toLowerCase());
-    expect(offerRow.amount_give).toBe(100_000_000);
-    expect(offerRow.amount_want).toBe(50_000_000);
-    expect(offerRow.token_want).toBe(VAULT_USDT);
-    expect(offerRow.chain_id).toBe(11155111);
-    expect(offerRow.status).toBe("active");
-    expect(insertActivityMock).toHaveBeenCalledTimes(1);
-    expect(insertActivityMock.mock.calls[0][0].activity_type).toBe("offer_created");
-    expect(broadcastActionMock).toHaveBeenCalledWith("balance_changed");
-    expect(broadcastActionMock).toHaveBeenCalledWith("activity_added");
-    expect(invalidateBalanceQueriesMock).toHaveBeenCalledTimes(1);
-    expect(toastSuccessMock).toHaveBeenCalledWith("Swap offer created!");
-    expect(result.current.step).toBe("success");
-  });
-
-  it("extractEventId null -> throws 'offerId could not be read' + no supabase insert", async () => {
-    extractEventIdMock.mockReturnValue(null);
-    const { result } = renderHook(() => useExchange());
-    await act(async () => {
-      await result.current.createOffer("100", "50", "2030-01-01");
-    });
-    expect(result.current.step).toBe("error");
-    expect(result.current.error).toContain("offerId could not be read");
-    expect(insertExchangeOfferMock).toHaveBeenCalledTimes(0);
-  });
-
-  it("reverted receipt -> error toast + no supabase insert", async () => {
-    unifiedWriteAndWaitMock.mockResolvedValue({
-      hash: "0xrev",
-      receipt: { status: "reverted", blockNumber: 1n, logs: [] },
-    });
-    const { result } = renderHook(() => useExchange());
-    await act(async () => {
-      await result.current.createOffer("100", "50", "2030-01-01");
-    });
-    expect(result.current.step).toBe("error");
-    expect(insertExchangeOfferMock).toHaveBeenCalledTimes(0);
-    expect(broadcastActionMock).toHaveBeenCalledTimes(0);
-  });
-
-  it("error-discriminator: 'allowance' -> clearVaultApproval(P2P)", async () => {
-    unifiedWriteAndWaitMock.mockRejectedValue(new Error("insufficient allowance"));
-    const { result } = renderHook(() => useExchange());
-    await act(async () => {
-      await result.current.createOffer("100", "50", "2030-01-01");
-    });
-    expect(clearVaultApprovalMock).toHaveBeenCalledWith(P2P);
-  });
-
-  it("error-discriminator: 'transfer amount exceeds' -> clearVaultApproval", async () => {
-    unifiedWriteAndWaitMock.mockRejectedValue(
-      new Error("ERC20: transfer amount exceeds balance"),
-    );
-    const { result } = renderHook(() => useExchange());
-    await act(async () => {
-      await result.current.createOffer("100", "50", "2030-01-01");
-    });
-    expect(clearVaultApprovalMock).toHaveBeenCalledWith(P2P);
-  });
-
-  it("error-discriminator: unrelated 'rpc timeout' -> clearVaultApproval NOT called", async () => {
-    unifiedWriteAndWaitMock.mockRejectedValue(new Error("rpc timeout"));
-    const { result } = renderHook(() => useExchange());
-    await act(async () => {
-      await result.current.createOffer("100", "50", "2030-01-01");
-    });
-    expect(clearVaultApprovalMock).toHaveBeenCalledTimes(0);
-  });
-
-  it("single-flight: second createOffer while first in-flight short-circuits", async () => {
-    let resolveFirst: (v: unknown) => void = () => {};
-    unifiedWriteAndWaitMock.mockReturnValueOnce(
-      new Promise((res) => {
-        resolveFirst = res;
-      }),
-    );
-    const { result } = renderHook(() => useExchange());
-    let p1!: Promise<void>;
-    await act(async () => {
-      p1 = result.current.createOffer("100", "50", "2030-01-01");
-      await Promise.resolve();
-    });
-    await act(async () => {
-      await result.current.createOffer("200", "100", "2030-01-01");
-    });
-    expect(unifiedWriteAndWaitMock).toHaveBeenCalledTimes(1);
-    resolveFirst({
-      hash: "0x",
-      receipt: { status: "success", blockNumber: 1n, logs: [] },
-    });
-    await act(async () => {
-      await p1;
-    });
-  });
-});
-
-// ───────────────────────────────────────────────────────────
-//  fillOffer
-// ───────────────────────────────────────────────────────────
-
-describe("useExchange — fillOffer (§15.x)", () => {
-  function seedOffer() {
-    const offer = {
-      offer_id: 42,
-      maker_address: MAKER,
-      amount_give: 100_000_000,
-      amount_want: 50_000_000,
-      status: "active",
-      token_give: VAULT_USDC,
-      token_want: VAULT_USDT,
-      tx_hash: "0xseed",
-    };
-    fetchActiveOffersMock.mockResolvedValue([offer]);
-    return offer;
-  }
-
-  async function setupWithOffer() {
-    seedOffer();
-    const { result } = renderHook(() => useExchange());
-    await waitFor(() => expect(result.current.offers).toHaveLength(1));
-    return result;
-  }
-
-  it("no address -> 'Connection lost' toast + no write", async () => {
-    seedOffer();
-    useEffectiveAddressMock.mockReturnValue({ effectiveAddress: null });
-    const { result } = renderHook(() => useExchange());
-    await waitFor(() => expect(result.current.offers).toHaveLength(1));
-    await act(async () => {
-      await result.current.fillOffer(42);
-    });
-    expect(toastErrorMock).toHaveBeenCalledWith("Connection lost");
-    expect(unifiedWriteAndWaitMock).toHaveBeenCalledTimes(0);
-  });
-
-  it("offer not found in local list -> throws 'Offer not found' caught + error toast", async () => {
-    const result = await setupWithOffer();
-    await act(async () => {
-      await result.current.fillOffer(999); // not in seeded list
-    });
-    expect(result.current.step).toBe("error");
-    expect(result.current.error).toBe("Offer not found");
-  });
-
-  it("verifyVaultApproved=true -> skips approve, fires fillOffer directly", async () => {
-    verifyVaultApprovedMock.mockResolvedValue(true);
-    const result = await setupWithOffer();
-    await act(async () => {
-      await result.current.fillOffer(42);
-    });
-    // Only ONE write (fillOffer) since approve skipped
-    expect(unifiedWriteAndWaitMock).toHaveBeenCalledTimes(1);
-    expect(unifiedWriteAndWaitMock.mock.calls[0][0].functionName).toBe("fillOffer");
-  });
-
-  it("verifyVaultApproved=false -> approve THEN fillOffer + markVaultApproved", async () => {
-    verifyVaultApprovedMock.mockResolvedValue(false);
-    const result = await setupWithOffer();
-    await act(async () => {
-      await result.current.fillOffer(42);
-    });
-    expect(unifiedWriteAndWaitMock).toHaveBeenCalledTimes(2);
-    expect(unifiedWriteAndWaitMock.mock.calls[0][0].functionName).toBe(
-      "approvePlaintext",
-    );
-    expect(unifiedWriteAndWaitMock.mock.calls[0][0].address).toBe(VAULT_USDT);
-    expect(verifyVaultApprovedMock).toHaveBeenCalledWith(P2P, ME, VAULT_USDT, expect.anything());
-    expect(unifiedWriteAndWaitMock.mock.calls[1][0].functionName).toBe("fillOffer");
-    expect(markVaultApprovedMock).toHaveBeenCalledWith(P2P);
-  });
-
-  it("fillOffer args: (BigInt(offerId), encTakerPayment, encMakerPayment)", async () => {
-    const result = await setupWithOffer();
-    await act(async () => {
-      await result.current.fillOffer(42);
-    });
-    const call = unifiedWriteAndWaitMock.mock.calls[0][0];
-    expect(call.functionName).toBe("fillOffer");
-    expect(call.args[0]).toBe(42n);
-    // takerAmount = parseUnits("50", 6) = 50_000_000n; makerAmount = parseUnits("100", 6) = 100_000_000n
-    const encArr = encryptInputsAsyncMock.mock.calls[0][0] as Array<{ raw: bigint }>;
-    expect(encArr[0].raw).toBe(50_000_000n); // taker pays amount_want
-    expect(encArr[1].raw).toBe(100_000_000n); // maker pays amount_give
-  });
-
-  it("DUAL-ROW activity: maker-side row + taker-side row (when taker !== maker)", async () => {
-    const result = await setupWithOffer();
-    await act(async () => {
-      await result.current.fillOffer(42);
-    });
-    expect(insertActivityMock).toHaveBeenCalledTimes(2);
-    const makerRow = insertActivityMock.mock.calls[0][0];
-    expect(makerRow.user_from).toBe(ME.toLowerCase()); // taker
-    expect(makerRow.user_to).toBe(MAKER.toLowerCase()); // notif goes to maker
-    expect(makerRow.activity_type).toBe("offer_filled");
-    expect(makerRow.tx_hash).toBe("0xtxhash");
-    const takerRow = insertActivityMock.mock.calls[1][0];
-    expect(takerRow.user_from).toBe(ME.toLowerCase());
-    expect(takerRow.user_to).toBe(ME.toLowerCase()); // self-row for feed
-    expect(takerRow.tx_hash).toBe("0xtxhash:taker"); // dedup-key suffix
-  });
-
-  it("self-fill (taker === maker) -> only ONE activity row (no dupe)", async () => {
-    const offer = {
-      offer_id: 42,
-      maker_address: ME, // maker is the caller
-      amount_give: 100_000_000,
-      amount_want: 50_000_000,
-      status: "active",
-    };
-    fetchActiveOffersMock.mockResolvedValue([offer]);
-    const { result } = renderHook(() => useExchange());
-    await waitFor(() => expect(result.current.offers).toHaveLength(1));
-    await act(async () => {
-      await result.current.fillOffer(42);
-    });
-    expect(insertActivityMock).toHaveBeenCalledTimes(1);
-  });
-
-  it("updateOfferStatus('filled', taker) on success", async () => {
-    const result = await setupWithOffer();
-    await act(async () => {
-      await result.current.fillOffer(42);
-    });
-    expect(updateOfferStatusMock).toHaveBeenCalledWith(
-      42,
-      "filled",
-      ME.toLowerCase(),
-    );
-  });
-
-  it("offer-state error -> specific 'no longer available' toast (cancelled / expired / already filled)", async () => {
-    verifyVaultApprovedMock.mockResolvedValue(true);
-    unifiedWriteAndWaitMock.mockRejectedValue(new Error("offer not active"));
-    const result = await setupWithOffer();
-    await act(async () => {
-      await result.current.fillOffer(42);
-    });
-    expect(toastErrorMock).toHaveBeenCalledWith(
-      "This offer is no longer available. It was cancelled or filled by another user.",
-    );
-  });
-
-  it("'cancelled' error -> same 'no longer available' toast", async () => {
-    verifyVaultApprovedMock.mockResolvedValue(true);
-    unifiedWriteAndWaitMock.mockRejectedValue(new Error("offer cancelled"));
-    const result = await setupWithOffer();
-    await act(async () => {
-      await result.current.fillOffer(42);
-    });
-    expect(toastErrorMock).toHaveBeenCalledWith(
-      "This offer is no longer available. It was cancelled or filled by another user.",
-    );
-  });
-
-  it("'expired' error -> same 'no longer available' toast", async () => {
-    verifyVaultApprovedMock.mockResolvedValue(true);
-    unifiedWriteAndWaitMock.mockRejectedValue(new Error("offer expired"));
-    const result = await setupWithOffer();
-    await act(async () => {
-      await result.current.fillOffer(42);
-    });
-    expect(toastErrorMock).toHaveBeenCalledWith(
-      "This offer is no longer available. It was cancelled or filled by another user.",
-    );
-  });
-
-  it("'already filled' error -> same 'no longer available' toast", async () => {
-    verifyVaultApprovedMock.mockResolvedValue(true);
-    unifiedWriteAndWaitMock.mockRejectedValue(new Error("already filled by"));
-    const result = await setupWithOffer();
-    await act(async () => {
-      await result.current.fillOffer(42);
-    });
-    expect(toastErrorMock).toHaveBeenCalledWith(
-      "This offer is no longer available. It was cancelled or filled by another user.",
-    );
-  });
-
-  it("unrelated error -> 'Transaction failed: <truncated>' fallback (100-char cap)", async () => {
-    verifyVaultApprovedMock.mockResolvedValue(true);
-    unifiedWriteAndWaitMock.mockRejectedValue(new Error("x".repeat(500)));
-    const result = await setupWithOffer();
-    await act(async () => {
-      await result.current.fillOffer(42);
-    });
-    const errArg = toastErrorMock.mock.calls[0][0] as string;
-    expect(errArg.startsWith("Transaction failed: ")).toBe(true);
-    expect(errArg.length).toBeLessThanOrEqual(120); // "Transaction failed: " + 100
-  });
-
-  it("error-discriminator: allowance error -> clearVaultApproval", async () => {
-    verifyVaultApprovedMock.mockResolvedValue(true);
-    unifiedWriteAndWaitMock.mockRejectedValue(new Error("insufficient allowance"));
-    const result = await setupWithOffer();
-    await act(async () => {
-      await result.current.fillOffer(42);
-    });
-    expect(clearVaultApprovalMock).toHaveBeenCalledWith(P2P);
-  });
-
-  it("reverted fill receipt -> 'Transaction reverted on-chain' error + no supabase insert", async () => {
-    verifyVaultApprovedMock.mockResolvedValue(true);
-    unifiedWriteAndWaitMock.mockResolvedValue({
-      hash: "0xrev",
-      receipt: { status: "reverted", blockNumber: 1n },
-    });
-    const result = await setupWithOffer();
-    await act(async () => {
-      await result.current.fillOffer(42);
-    });
-    expect(result.current.step).toBe("error");
-    expect(updateOfferStatusMock).toHaveBeenCalledTimes(0);
-    expect(insertActivityMock).toHaveBeenCalledTimes(0);
-  });
-});
-
-// ───────────────────────────────────────────────────────────
 //  cancelOffer
 // ───────────────────────────────────────────────────────────
 
@@ -843,7 +383,7 @@ describe("useExchange — cancelOffer (§15.x)", () => {
       await result.current.cancelOffer(42);
     });
     expect(toastErrorMock).toHaveBeenCalledWith(
-      "This offer is no longer available. It was cancelled or filled by another user.",
+      "This offer is no longer open. It was cancelled or filled.",
     );
   });
 
@@ -924,7 +464,7 @@ describe("useExchange — verifyTrade (§15.x)", () => {
     });
     expect(r).toBe(true);
     expect(toastSuccessMock).toHaveBeenCalledWith(
-      "Trade verified — amounts matched",
+      "Trade verified. Amounts matched.",
       expect.any(Object),
     );
     const row = insertActivityMock.mock.calls[0][0];
@@ -945,7 +485,7 @@ describe("useExchange — verifyTrade (§15.x)", () => {
     });
     expect(r).toBe(false);
     expect(toastSuccessMock).toHaveBeenCalledWith(
-      "Trade flagged — amounts mismatched",
+      "Trade flagged. Amounts did not match.",
       expect.any(Object),
     );
     const row = insertActivityMock.mock.calls[0][0];
@@ -1121,24 +661,5 @@ describe("useExchange — getTradeValidation (§15.x)", () => {
       r = await result.current.getTradeValidation(42);
     });
     expect(r).toBeNull();
-  });
-});
-
-// ───────────────────────────────────────────────────────────
-//  reset
-// ───────────────────────────────────────────────────────────
-
-describe("useExchange — reset (§15.x)", () => {
-  it("reset clears step + error back to idle/null", async () => {
-    unifiedWriteAndWaitMock.mockRejectedValue(new Error("fail"));
-    const { result } = renderHook(() => useExchange());
-    await act(async () => {
-      await result.current.createOffer("100", "50", "2030-01-01");
-    });
-    expect(result.current.step).toBe("error");
-    expect(result.current.error).toBe("fail");
-    act(() => result.current.reset());
-    expect(result.current.step).toBe("idle");
-    expect(result.current.error).toBeNull();
   });
 });

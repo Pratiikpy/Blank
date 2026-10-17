@@ -272,7 +272,7 @@ describe("CrowdfundPage — campaign header rendering (§15.x)", () => {
     const { container, findByText } = render(<CrowdfundPage />);
     await findByText("Build a private podcast network");
     expect(container.textContent).toContain("Encrypted crowdfund");
-    expect(container.textContent).toContain("Goal + total raised stay encrypted");
+    expect(container.textContent).toContain("Nobody can decrypt the goal or the running total while the campaign is open");
   });
 });
 
@@ -306,24 +306,48 @@ describe("CrowdfundPage — 5-state phase machine (§15.x)", () => {
     expect(container.textContent).toContain("Decrypting the goal-met answer");
   });
 
-  it("STATUS_RELEASED -> 'released' phase shows 'Creator: claim release' CTA", async () => {
+  it("STATUS_RELEASED + viewer is creator + not yet paid -> 'Claim the pool' CTA", async () => {
+    useEffectiveAddressMock.mockReturnValue({ effectiveAddress: CREATOR });
     readContractMock = makeReadContract(
       buildCampaign({ status: STATUS_RELEASED, resultPublished: true, goalMet: true }),
     );
     usePublicClientMock.mockReturnValue({ readContract: readContractMock });
     const { findByText, container } = render(<CrowdfundPage />);
-    await findByText("Creator: claim release");
+    await findByText("Claim the pool");
     expect(container.textContent).toContain("Goal met. Campaign succeeded");
+  });
+
+  it("goal met + viewer is NOT creator -> no claim CTA, explanatory copy", async () => {
+    readContractMock = makeReadContract(
+      buildCampaign({ status: STATUS_RELEASED, resultPublished: true, goalMet: true }),
+    );
+    usePublicClientMock.mockReturnValue({ readContract: readContractMock });
+    const { findByText, container } = render(<CrowdfundPage />);
+    await findByText(/The creator can now claim the pool/);
+    expect(container.textContent).not.toContain("Claim the pool");
+  });
+
+  it("one release per campaign: releasePaid=true -> settled banner, no claim CTA even for the creator", async () => {
+    useEffectiveAddressMock.mockReturnValue({ effectiveAddress: CREATOR });
+    const base = makeReadContract(buildCampaign({ status: STATUS_RELEASED, resultPublished: true, goalMet: true }));
+    readContractMock = vi.fn().mockImplementation(async (a: { functionName: string }) =>
+      a.functionName === "releasePaid" ? true : base(a),
+    );
+    usePublicClientMock.mockReturnValue({ readContract: readContractMock });
+    const { findByText, container } = render(<CrowdfundPage />);
+    await findByText("Goal met. The creator has received the pool.");
+    expect(container.textContent).not.toContain("Claim the pool");
   });
 
   it("resultPublished+goalMet (status still CLOSED) -> 'released' branch", async () => {
     // Per source: `STATUS_RELEASED || (resultPublished && goalMet)` -> released
+    useEffectiveAddressMock.mockReturnValue({ effectiveAddress: CREATOR });
     readContractMock = makeReadContract(
       buildCampaign({ status: STATUS_CLOSED, resultPublished: true, goalMet: true }),
     );
     usePublicClientMock.mockReturnValue({ readContract: readContractMock });
     const { findByText } = render(<CrowdfundPage />);
-    expect(await findByText("Creator: claim release")).toBeDefined();
+    expect(await findByText("Claim the pool")).toBeDefined();
   });
 
   it("STATUS_REFUNDING -> 'refunding' phase shows 'Goal not met' banner", async () => {
@@ -429,13 +453,14 @@ describe("CrowdfundPage — close + claimRelease (§15.x)", () => {
     expect(closeCampaignMock).toHaveBeenCalledWith(7);
   });
 
-  it("'Creator: claim release' click calls claimRelease(campaignId)", async () => {
+  it("'Claim the pool' click calls claimRelease(campaignId)", async () => {
+    useEffectiveAddressMock.mockReturnValue({ effectiveAddress: CREATOR });
     readContractMock = makeReadContract(
       buildCampaign({ status: STATUS_RELEASED, resultPublished: true, goalMet: true }),
     );
     usePublicClientMock.mockReturnValue({ readContract: readContractMock });
     const { findByText } = render(<CrowdfundPage />);
-    const btn = await findByText("Creator: claim release");
+    const btn = await findByText("Claim the pool");
     await act(async () => {
       fireEvent.click(btn);
       await Promise.resolve();

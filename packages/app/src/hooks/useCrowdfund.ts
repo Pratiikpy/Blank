@@ -225,13 +225,20 @@ export function useCrowdfund() {
           args: args as never,
           gas: BigInt(gasLimit),
         });
-        setState((prev) => ({ ...prev, step: "success", isProcessing: false }));
+        // "idle", not "success": the success step drives the
+        // contribution-submitted screen, which is wrong for close/release/refund.
+        setState((prev) => ({ ...prev, step: "idle", isProcessing: false }));
         invalidateBalanceQueries();
         // §3.7: friendly label instead of raw function name.
         toast.success(FRIENDLY_LABEL[functionName] ?? "Submitted");
         return true;
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
+        const raw = err instanceof Error ? err.message : String(err);
+        const msg = raw.includes("already released")
+          ? "The pool was already released to the creator."
+          : raw.includes("vault not allowed")
+            ? "This token vault is not enabled for crowdfunds on this chain."
+            : raw;
         // §3.11: preserve prev.txHash so the error state still links to the
         // failed tx on the explorer.
         setState((prev) => ({ ...prev, isProcessing: false, step: "error", error: msg }));

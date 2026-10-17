@@ -7,6 +7,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { usePublicClient } from "wagmi";
+import { formatUnits } from "viem";
 import {
   Tag,
   Gavel,
@@ -63,7 +64,9 @@ export default function StorefrontPage() {
     payPWYW,
     closeAuction,
     claimAuctionWin,
+    revealWinner,
     refundLoserBid,
+    decryptPaidByBuyer,
   } = useStorefront();
   // Passkey-aware: the connected smart-account address. Used to gate
   // the Claim button so non-winners don't pay gas just to revert. Falls
@@ -80,6 +83,7 @@ export default function StorefrontPage() {
   // impossible. §1.7 of WAVE4_HALF_BAKED #9.
   const [myBids, setMyBids] = useState<{ index: number; refunded: boolean }[]>([]);
   const [myBidsLoaded, setMyBidsLoaded] = useState(false);
+  const [winnerSettled, setWinnerSettled] = useState(false);
   const [loadError, setLoadError] = useState<ClassifiedLoadError | null>(null);
   // Retry CTA bumps reloadKey, re-running the effect.
   const [reloadKey, setReloadKey] = useState(0);
@@ -177,12 +181,12 @@ export default function StorefrontPage() {
     let cancelled = false;
     setMyBidsLoaded(false);
     setMyBids([]);
+    setWinnerSettled(false);
     if (
       !publicClient ||
       !onChain ||
       onChain.mode !== SALE_MODE.Auction ||
       !onChain.closed ||
-      !effectiveAddress ||
       !Number.isFinite(bidCount) ||
       bidCount <= 0 ||
       !(chainId in CONTRACTS_BY_CHAIN)
@@ -193,8 +197,14 @@ export default function StorefrontPage() {
     if (!contracts.Storefront) return;
     (async () => {
       try {
-        const me = effectiveAddress.toLowerCase();
+        const me = effectiveAddress?.toLowerCase() ?? null;
+        const winner = onChain.winner.toLowerCase();
         const collected: { index: number; refunded: boolean }[] = [];
+        // The winner's bid is marked refunded once the win is settled.
+        // Settled = every bid by the winner is marked (one bid per address
+        // since the upgrade; older listings may have several).
+        let winnerBids = 0;
+        let winnerBidsMarked = 0;
         for (let i = 0; i < bidCount; i++) {
           const result = (await publicClient.readContract({
             address: contracts.Storefront,
@@ -203,12 +213,16 @@ export default function StorefrontPage() {
             args: [BigInt(listingId), BigInt(i)],
           })) as readonly [`0x${string}`, boolean];
           if (cancelled) return;
-          if (result[0].toLowerCase() === me) {
-            collected.push({ index: i, refunded: result[1] });
+          const bidder = result[0].toLowerCase();
+          if (me && bidder === me) collected.push({ index: i, refunded: result[1] });
+          if (bidder === winner) {
+            winnerBids++;
+            if (result[1]) winnerBidsMarked++;
           }
         }
         if (!cancelled) {
           setMyBids(collected);
+          setWinnerSettled(winnerBids > 0 && winnerBids === winnerBidsMarked);
           setMyBidsLoaded(true);
         }
       } catch {
@@ -324,6 +338,12 @@ export default function StorefrontPage() {
             </div>
           )}
         </div>
+        {onChain.mode === SALE_MODE.FixedPrice && effectiveAddress && (
+          <PaidCheck
+            label="Check what you paid"
+            run={() => decryptPaidByBuyer(listingId, effectiveAddress)}
+          />
+        )}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <button
             type="button"
@@ -349,6 +369,8 @@ export default function StorefrontPage() {
 
   const meta = MODE_META[onChain.mode];
   const ModeIcon = meta.icon;
+  const viewerIsSeller =
+    !!effectiveAddress && effectiveAddress.toLowerCase() === onChain.seller.toLowerCase();
 
   // ─── Per-mode buyer UI ─────────────────────────────────────────
 
@@ -371,8 +393,15 @@ export default function StorefrontPage() {
         onRefresh={() => setReloadKey((k) => k + 1)}
       />
 
+      {/* ── FixedPrice: seller checks a buyer's payment before delivering ── */}
+      {onChain.mode === SALE_MODE.FixedPrice && viewerIsSeller && (
+        <SellerPaymentCheck
+          check={(buyer) => decryptPaidByBuyer(listingId, buyer)}
+        />
+      )}
+
       {/* ── FixedPrice ── */}
-      {onChain.mode === SALE_MODE.FixedPrice && (
+      {onChain.mode === SALE_MODE.FixedPrice && !viewerIsSeller && (
         <BuyForm
           label="Pay (USDC)"
           placeholder="10.00"
@@ -387,7 +416,7 @@ export default function StorefrontPage() {
             offerTokens: amount,
             decimals: 6,
           })}
-          hint="Your payment must equal the seller's price exactly. The chain checks via FHE; neither side reveals the number."
+          hint="Your payment must equal the seller's price exactly. The chain checks via FHE; neither side reveals the number. On a mismatch or a short balance nothing moves, and you can check what you paid after."
         />
       )}
 
@@ -424,10 +453,12 @@ export default function StorefrontPage() {
           viewerAddress={effectiveAddress}
           onPlaceBid={() => placeBid({ listingId, vault: onChain.vault, bidTokens: amount, decimals: 6 })}
           onClose={() => closeAuction(listingId)}
-          onClaim={() => claimAuctionWin(listingId)}
-          onRefund={(idx) => refundLoserBid(listingId, idx)}
+          onClaim={async () => { if (await claimAuctionWin(listingId)) setReloadKey((k) => k + 1); }}
+          onReveal={async () => { if (await revealWinner(listingId)) setReloadKey((k) => k + 1); }}
+          onRefund={async (idx) => { if (await refundLoserBid(listingId, idx)) setReloadKey((k) => k + 1); }}
           myBids={myBids}
           myBidsLoaded={myBidsLoaded}
+          winnerSettled={winnerSettled}
         />
       )}
 
@@ -446,6 +477,71 @@ export default function StorefrontPage() {
 }
 
 // ─── Sub-components ─────────────────────────────────────────────────
+
+function PaidCheck(props: { label: string; run: () => Promise<bigint> }) {
+  const [busy, setBusy] = useState(false);
+  const [paid, setPaid] = useState<bigint | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const go = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      setPaid(await props.run());
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="mb-5 text-left rounded-2xl border border-[var(--border)] p-4 text-sm" data-testid="storefront-paid-check">
+      {paid !== null ? (
+        <div className={cn("font-medium", paid === 0n ? "text-red-700" : "text-[var(--text-primary)]")}>
+          {paid === 0n
+            ? "Nothing was paid. The amount did not match the price, or the balance was short."
+            : `Paid in total: ${formatUnits(paid, 6)} USDC`}
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={go}
+          disabled={busy}
+          className="h-10 px-4 rounded-xl border border-[var(--border)] font-medium inline-flex items-center gap-2 disabled:opacity-40"
+        >
+          {busy && <Loader2 size={14} className="animate-spin" />}
+          {busy ? "Decrypting…" : props.label}
+        </button>
+      )}
+      {err && <div className="mt-2 text-red-700">{err}</div>}
+    </div>
+  );
+}
+
+function SellerPaymentCheck(props: { check: (buyer: `0x${string}`) => Promise<bigint> }) {
+  const [buyer, setBuyer] = useState("");
+  const valid = /^0x[0-9a-fA-F]{40}$/.test(buyer.trim());
+  return (
+    <div className="text-left mb-6" data-testid="storefront-seller-check">
+      <label className="block text-sm font-medium mb-2">Verify a buyer's payment</label>
+      <p className="text-xs text-[var(--text-secondary)] mb-2">
+        Paste the buyer's address and decrypt the total they paid on this listing. Deliver only
+        if it covers your price.
+      </p>
+      <input
+        type="text"
+        value={buyer}
+        onChange={(e) => setBuyer(e.target.value)}
+        placeholder="0x…"
+        className="w-full h-12 rounded-xl border border-[var(--border)] bg-transparent px-3 font-mono text-sm focus:border-[var(--border-strong)] focus:outline-none mb-3"
+      />
+      {valid ? (
+        <PaidCheck key={buyer.trim().toLowerCase()} label="Decrypt payment" run={() => props.check(buyer.trim() as `0x${string}`)} />
+      ) : (
+        <p className="text-xs text-[var(--text-secondary)] mb-5">Enter a full 0x address.</p>
+      )}
+    </div>
+  );
+}
 
 function BuyForm(props: {
   label: string;
@@ -494,9 +590,11 @@ function AuctionView(props: {
   onPlaceBid: () => void;
   onClose: () => void;
   onClaim: () => void;
+  onReveal: () => void;
   onRefund: (idx: number) => void;
   myBids: { index: number; refunded: boolean }[];
   myBidsLoaded: boolean;
+  winnerSettled: boolean;
 }) {
   const closeTs = Number(props.onChain.closesAt);
   const now = Math.floor(Date.now() / 1000);
@@ -523,7 +621,7 @@ function AuctionView(props: {
           isProcessing={props.isProcessing}
           disabled={!props.amount || Number.parseFloat(props.amount) <= 0}
           onSubmit={props.onPlaceBid}
-          hint="Bids are encrypted end-to-end. Highest bid wins at close, decided by the Fhenix Threshold Network."
+          hint="Bids are encrypted. One bid per address, so bid your max. Highest bid wins at close, decided by the Fhenix Threshold Network."
         />
       </div>
     );
@@ -545,26 +643,35 @@ function AuctionView(props: {
       </div>
     );
   }
-  // status === "closed"
+  // status === "closed". closeAuction requires at least one bid, so a
+  // closed auction always has bids. A zero winner means the encrypted
+  // winner index is not revealed yet.
   const ZERO_ADDR = "0x0000000000000000000000000000000000000000";
-  const noBids = props.onChain.winner.toLowerCase() === ZERO_ADDR;
-  const viewerIsWinner =
-    !!props.viewerAddress &&
-    !noBids &&
-    props.viewerAddress.toLowerCase() === props.onChain.winner.toLowerCase();
+  const revealed = props.onChain.winner.toLowerCase() !== ZERO_ADDR;
 
-  if (noBids) {
-    // C11: closing an auction with zero bids was previously rendering a
-    // "Winner: 0x000…0000" banner + Claim button that always reverted.
-    // Branch out explicitly so the dead-end state is honest.
+  if (!revealed) {
     return (
-      <div className="text-left">
-        <div className="px-4 py-3 rounded-xl bg-slate-100 text-slate-700 mb-4 text-sm">
-          Auction closed without bids. Nothing to claim or refund.
+      <div className="text-left" data-testid="auction-reveal">
+        <div className="px-4 py-3 rounded-xl bg-blue-50 text-blue-700 mb-4 text-sm">
+          Auction closed with {props.bidCount} bid{props.bidCount === 1 ? "" : "s"}. The winner is
+          still encrypted. Anyone can reveal it. Refunds and settlement open after the reveal.
         </div>
+        <button
+          data-testid="auction-reveal-winner"
+          onClick={props.onReveal}
+          disabled={props.isProcessing || !props.viewerAddress}
+          className="w-full h-12 rounded-2xl bg-[#1D1D1F] text-white font-medium hover:bg-black transition-colors disabled:opacity-40"
+        >
+          {!props.viewerAddress ? "Connect your wallet to reveal" : props.isProcessing ? "Revealing…" : "Reveal winner"}
+        </button>
       </div>
     );
   }
+
+  const viewerIsWinner =
+    !!props.viewerAddress &&
+    props.viewerAddress.toLowerCase() === props.onChain.winner.toLowerCase();
+  const refundable = viewerIsWinner ? [] : props.myBids;
 
   return (
     <div className="text-left">
@@ -573,46 +680,42 @@ function AuctionView(props: {
         {viewerIsWinner && <span className="ml-2 px-2 py-0.5 rounded-full bg-emerald-200 text-emerald-900 text-xs font-medium">You</span>}
       </div>
       <div className="space-y-2">
-        {viewerIsWinner ? (
-          // C6: only the actual winner sees the Claim CTA. Without this
-          // gate, non-winners clicked Claim, ate gas, and got an opaque
-          // contract revert. The button is disabled (not hidden) when
-          // the viewer is connected but isn't the winner, so they know
-          // the action exists but isn't theirs.
+        {!props.myBidsLoaded ? (
+          <div className="w-full h-12 rounded-2xl border border-[var(--border)] flex items-center justify-center text-sm text-[var(--text-secondary)]">
+            <Loader2 size={14} className="animate-spin mr-2" /> Checking bids…
+          </div>
+        ) : props.winnerSettled ? (
+          <div data-testid="auction-settled" className="w-full px-4 py-3 rounded-2xl border border-[var(--border)] text-sm text-[var(--text-secondary)] text-center">
+            Settled. The winning bid was paid to the seller.
+          </div>
+        ) : !props.viewerAddress ? (
+          <div className="w-full h-12 rounded-2xl border border-[var(--border)] flex items-center justify-center text-sm text-[var(--text-secondary)]">
+            Connect your wallet to settle or refund
+          </div>
+        ) : (
+          // Anyone can settle, so the seller is paid even if the winner
+          // walks away. Only the winner's delivery note is recorded.
           <button
+            data-testid="auction-settle"
             onClick={props.onClaim}
             disabled={props.isProcessing}
             className="w-full h-12 rounded-2xl bg-[#1D1D1F] text-white font-medium hover:bg-black transition-colors disabled:opacity-40"
           >
-            {props.isProcessing ? "Claiming…" : "Claim your win"}
+            {props.isProcessing ? "Settling…" : viewerIsWinner ? "Claim your win" : "Settle auction (pay the seller)"}
           </button>
-        ) : !props.viewerAddress ? (
-          <div className="w-full h-12 rounded-2xl border border-[var(--border)] flex items-center justify-center text-sm text-[var(--text-secondary)]">
-            Connect your wallet to claim or refund
-          </div>
-        ) : (
-          <div className="w-full px-4 py-3 rounded-2xl border border-[var(--border)] text-sm text-[var(--text-secondary)] text-center">
-            You aren't the winner. If you bid, you can refund below.
-          </div>
         )}
-        {!props.viewerAddress ? null : !props.myBidsLoaded ? (
-          <div className="w-full h-12 rounded-2xl border border-[var(--border)] flex items-center justify-center text-sm text-[var(--text-secondary)]">
-            <Loader2 size={14} className="animate-spin mr-2" /> Checking your bids…
-          </div>
-        ) : props.myBids.length === 0 ? (
+        {!props.viewerAddress || !props.myBidsLoaded ? null : props.myBids.length === 0 ? (
           <div className="w-full px-4 py-3 rounded-2xl border border-[var(--border)] text-sm text-[var(--text-secondary)] text-center">
             You didn't bid on this auction.
           </div>
-        ) : (
+        ) : refundable.length === 0 ? null : (
           <div className="space-y-2" data-testid="my-bids-list">
-            <div className="text-xs uppercase tracking-wide text-[var(--text-secondary)]">
-              {viewerIsWinner ? "Your other bids" : "Your bids"}
-            </div>
-            {props.myBids.map((b) => (
+            <div className="text-xs uppercase tracking-wide text-[var(--text-secondary)]">Your bid</div>
+            {refundable.map((b) => (
               <button
                 key={b.index}
                 onClick={() => props.onRefund(b.index)}
-                disabled={props.isProcessing || b.refunded || (viewerIsWinner && b.index === props.myBids[props.myBids.length - 1]?.index)}
+                disabled={props.isProcessing || b.refunded}
                 className="w-full h-12 px-4 rounded-2xl border border-[var(--border)] hover:bg-[var(--surface-2)] transition-colors disabled:opacity-40 flex items-center justify-between text-sm"
               >
                 <span>Bid #{b.index}</span>
