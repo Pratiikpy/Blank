@@ -10,6 +10,7 @@ import { useEffectiveAddress } from "@/hooks/useEffectiveAddress";
 import { useHandleResolver } from "@/hooks/useHandleResolver";
 import { useUnifiedWrite } from "@/hooks/useUnifiedWrite";
 import { useAccountGasFunds, SELF_PAID_SETTINGS_OP_WEI } from "@/hooks/useAccountGasFunds";
+import { useSelfCallSponsorship } from "@/hooks/useSelfCallSponsorship";
 import {
   useGuardianRecovery,
   formatRecoveryKey,
@@ -348,16 +349,18 @@ function OwnerPanel(props: {
 
   const connected = !!moduleOnAccount && moduleOnAccount.toLowerCase() === props.guardianModule.toLowerCase();
   const canSelfPay = funds.totalWei !== null && funds.totalWei >= SELF_PAID_SETTINGS_OP_WEI;
+  const sponsored = useSelfCallSponsorship("recoveryModule", props.guardianModule);
+  const canConnect = sponsored === true || canSelfPay;
 
   const connect = () => props.run("connect", async () => {
-    // setRecoveryModule is a call into the account: it pays its own gas.
+    // A call into the account: sponsored when the paymaster approves this
+    // module, otherwise paid from the account's own gas.
     await unifiedWriteAndWait({
       address: props.account,
       abi: BlankAccountAbi,
       functionName: "setRecoveryModule",
       args: [props.guardianModule],
       gas: 150_000n,
-      paymaster: "self",
     });
     await readModule();
     toast.success("Guardian module connected");
@@ -374,17 +377,19 @@ function OwnerPanel(props: {
           <div className="space-y-2">
             <p className="text-[var(--text-secondary)]">
               Your account does not point at the guardian module yet, so a
-              finalized recovery could not rotate your key. Connecting is an
-              account change and pays its own gas.
+              finalized recovery could not rotate your key.{" "}
+              {sponsored === true
+                ? "Connecting is an account change. Gas is sponsored by Blank."
+                : "Connecting is an account change and pays its own gas while sponsorship is unavailable."}
             </p>
-            {!canSelfPay && (
+            {!canConnect && (
               <p className="text-xs text-amber-700 dark:text-amber-300">
                 Add a little ETH on the <Link to="/app/wallet" className="underline">Smart wallet</Link> screen first.
               </p>
             )}
             <button
               data-testid="recovery-connect-module"
-              disabled={!canSelfPay || props.busy !== null}
+              disabled={!canConnect || props.busy !== null}
               onClick={() => void connect()}
               className="h-11 px-4 rounded-xl bg-[#1D1D1F] text-white text-sm font-medium hover:bg-black disabled:opacity-40 flex items-center gap-2"
             >

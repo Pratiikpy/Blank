@@ -18,6 +18,7 @@ import { BlankAccountAbi } from "@/lib/abis";
 import { log } from "@/lib/log";
 import { latestAccountImpl } from "@/lib/account-impl";
 import { SELF_PAID_SETTINGS_OP_WEI } from "@/hooks/useAccountGasFunds";
+import { useSelfCallSponsorship } from "@/hooks/useSelfCallSponsorship";
 
 // ──────────────────────────────────────────────────────────────────
 //  GasWalletPanel — the "self-paid gas" UI surface.
@@ -90,6 +91,7 @@ export function GasWalletPanel() {
   // Newest deployed implementation: security-v1 contains the gas-wallet
   // helpers too, so one upgrade covers both.
   const expectedImpl = latestAccountImpl(contracts).toLowerCase();
+  const upgradeSponsored = useSelfCallSponsorship("implementation", expectedImpl);
   const [currentImpl, setCurrentImpl] = useState<string | null>(null);
   const [upgrading, setUpgrading] = useState(false);
   // Counterfactual accounts (no proxy bytecode yet) return zeroed storage
@@ -151,8 +153,8 @@ export function GasWalletPanel() {
         abi: BlankAccountAbi,
         functionName: "upgradeToAndCall",
         args: [expectedImpl as `0x${string}`, "0x" as `0x${string}`],
-        // Calls into the account are never sponsored.
-        paymaster: "self",
+        // Sponsored when the paymaster approves this implementation,
+        // otherwise paid from the account's own gas.
       });
       toast.success("Account upgraded.");
       // Re-read state so the upgrade banner disappears.
@@ -194,6 +196,7 @@ export function GasWalletPanel() {
   const hasGas = depositWei !== null && depositWei > 0n;
   const canSelfPayUpgrade =
     (depositWei ?? 0n) + (idleWei ?? 0n) >= SELF_PAID_SETTINGS_OP_WEI;
+  const canUpgrade = upgradeSponsored === true || canSelfPayUpgrade;
 
   return (
     <div className="rounded-2xl border border-[var(--border)] p-6 bg-white/50 dark:bg-white/[0.03]">
@@ -224,12 +227,15 @@ export function GasWalletPanel() {
                 Upgrade your smart wallet
               </div>
               <p className="text-xs text-blue-800/80 dark:text-blue-200/80 leading-snug mb-3">
-                Your account runs an older implementation. One upgrade turns incoming ETH into gas credit and binds signatures to this account and chain. It pays its own gas (about 0.0027 ETH at most): account changes are not sponsored.
+                Your account runs an older implementation. One upgrade turns incoming ETH into gas credit and binds signatures to this account and chain.{" "}
+                {upgradeSponsored === true
+                  ? "Gas is sponsored by Blank."
+                  : "It pays its own gas (about 0.0027 ETH at most) while sponsorship is unavailable."}
               </p>
               <button
                 type="button"
                 onClick={handleUpgrade}
-                disabled={upgrading || !canSelfPayUpgrade}
+                disabled={upgrading || !canUpgrade}
                 aria-label="Upgrade smart account to gas-wallet implementation"
                 className="h-9 px-4 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium flex items-center gap-1.5 disabled:opacity-60"
               >

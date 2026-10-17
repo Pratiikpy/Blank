@@ -11,12 +11,14 @@ import { MemoryRouter } from "react-router-dom";
 //     canonicalImpl !== 0x0 AND not dismissed for this (address, impl).
 //   - Dismissal key is scoped per lowercased address AND per target impl,
 //     so a wallet switch or a newer implementation prompts again.
-//   - BlankPaymaster never sponsors calls into the account, so the upgrade
-//     always goes paymaster='self' and the button stays disabled until the
-//     account's EntryPoint deposit + ETH covers SELF_PAID_SETTINGS_OP_WEI.
-//     The banner says so and links to the gas wallet.
-//   - upgradeToAndCall args [canonicalImpl, "0x"], wrapped in
-//     execute(self, 0n, data), gas 600_000n.
+//   - BlankPaymaster sponsors upgradeToAndCall(impl, "") when impl is on its
+//     approvedImplementations list. Then the button is enabled with no gas
+//     and the banner says gas is sponsored. Otherwise the upgrade self-pays
+//     and the button stays disabled until the account's EntryPoint deposit
+//     + ETH covers SELF_PAID_SETTINGS_OP_WEI, with a link to the gas wallet.
+//   - unifiedWrite(address=self, upgradeToAndCall, [canonicalImpl, "0x"]),
+//     which useSmartAccount wraps as execute(self, 0, data), gas 600_000n,
+//     no forced paymaster mode.
 //   - On success both the impl query and the gas-funds query are invalidated.
 
 const useEffectiveAddressMock = vi.hoisted(() => vi.fn());
@@ -28,6 +30,7 @@ const getStoredStringMock = vi.hoisted(() => vi.fn());
 const setStoredStringMock = vi.hoisted(() => vi.fn());
 const toastErrorMock = vi.hoisted(() => vi.fn());
 const toastSuccessMock = vi.hoisted(() => vi.fn());
+const useSelfCallSponsorshipMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@tanstack/react-query", () => ({ useQueryClient: useQueryClientMock }));
 vi.mock("@/hooks/useEffectiveAddress", () => ({ useEffectiveAddress: useEffectiveAddressMock }));
@@ -37,6 +40,7 @@ vi.mock("@/hooks/useAccountGasFunds", () => ({
   useAccountGasFunds: useAccountGasFundsMock,
   SELF_PAID_SETTINGS_OP_WEI: 2_700_000_000_000_000n,
 }));
+vi.mock("@/hooks/useSelfCallSponsorship", () => ({ useSelfCallSponsorship: useSelfCallSponsorshipMock }));
 vi.mock("@/lib/storage", () => ({
   getStoredString: getStoredStringMock,
   setStoredString: setStoredStringMock,
@@ -71,6 +75,7 @@ beforeEach(() => {
   useUnifiedWriteMock.mockReturnValue({ unifiedWrite: unifiedWriteMock });
   useQueryClientMock.mockReturnValue({ invalidateQueries: invalidateQueriesMock });
   useAccountGasFundsMock.mockReturnValue({ totalWei: ENOUGH });
+  useSelfCallSponsorshipMock.mockReturnValue(false);
   getStoredStringMock.mockReturnValue(null);
   unifiedWriteMock.mockResolvedValue("0xupgradehash");
   invalidateQueriesMock.mockResolvedValue(undefined);
@@ -125,9 +130,33 @@ describe("UpgradeBanner — copy", () => {
     expect(screen.getByText(/address, balances and\s+passkey stay the same/)).toBeInTheDocument();
   });
 
-  it("says the upgrade pays its own gas", () => {
+  it("unsponsored: says the upgrade pays its own gas", () => {
     renderBanner();
-    expect(screen.getByTestId("upgrade-banner-gas").textContent).toMatch(/not sponsored/);
+    expect(screen.getByTestId("upgrade-banner-gas").textContent).toMatch(/Paid from your own gas/);
+  });
+
+  it("sponsored: says gas is sponsored and checks the canonical impl", () => {
+    useSelfCallSponsorshipMock.mockReturnValue(true);
+    renderBanner();
+    expect(useSelfCallSponsorshipMock).toHaveBeenCalledWith("implementation", IMPL);
+    expect(screen.getByTestId("upgrade-banner-gas").textContent).toMatch(/sponsored by Blank/);
+  });
+});
+
+describe("UpgradeBanner — sponsored upgrade", () => {
+  it("no gas in the account but the impl is approved -> CTA enabled, no 'Add gas'", () => {
+    useSelfCallSponsorshipMock.mockReturnValue(true);
+    useAccountGasFundsMock.mockReturnValue({ totalWei: 0n });
+    renderBanner();
+    expect((screen.getByTestId("upgrade-banner-cta") as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.queryByText("Add gas")).toBeNull();
+  });
+
+  it("sponsorship still loading and no gas -> CTA disabled", () => {
+    useSelfCallSponsorshipMock.mockReturnValue(null);
+    useAccountGasFundsMock.mockReturnValue({ totalWei: 0n });
+    renderBanner();
+    expect((screen.getByTestId("upgrade-banner-cta") as HTMLButtonElement).disabled).toBe(true);
   });
 });
 
@@ -154,19 +183,17 @@ describe("UpgradeBanner — self-paid gas gate", () => {
 });
 
 describe("UpgradeBanner — upgrade", () => {
-  it("unifiedWrite: execute(self, 0, upgradeToAndCall(impl, 0x)), self-paid, 600k gas", async () => {
+  it("unifiedWrite: upgradeToAndCall(impl, 0x) on the account itself, no forced paymaster, 600k gas", async () => {
     renderBanner();
     fireEvent.click(screen.getByTestId("upgrade-banner-cta"));
     await waitFor(() => expect(unifiedWriteMock).toHaveBeenCalledTimes(1));
     const call = unifiedWriteMock.mock.calls[0][0];
+    // Not a nested execute(self, execute(...)): the paymaster sponsors only
+    // execute(self, 0, upgradeToAndCall(impl, "")).
     expect(call.address).toBe(ME);
-    expect(call.functionName).toBe("execute");
-    expect(call.args[0]).toBe(ME);
-    expect(call.args[1]).toBe(0n);
-    // upgradeToAndCall selector 0x4f1ef286 + impl
-    expect(call.args[2].slice(0, 10)).toBe("0x4f1ef286");
-    expect(call.args[2].toLowerCase()).toContain(IMPL.slice(2));
-    expect(call.paymaster).toBe("self");
+    expect(call.functionName).toBe("upgradeToAndCall");
+    expect(call.args).toEqual([IMPL, "0x"]);
+    expect(call.paymaster).toBeUndefined();
     expect(call.gas).toBe(600_000n);
   });
 

@@ -1,6 +1,7 @@
 import { expect } from "chai";
 import hre from "hardhat";
 import { loadFixture, time } from "@nomicfoundation/hardhat-network-helpers";
+import { wireSelfAdminApprovals, SELF_ADMIN_ABI } from "../tasks/lib/paymaster-targets";
 
 // BlankPaymaster as a verifying paymaster, driven through a real EntryPoint
 // v0.8 handleOps. The account's own validation is satisfied by a
@@ -332,6 +333,183 @@ describe("BlankPaymaster: verifying paymaster", () => {
     expect(hre.ethers.keccak256(art.deployedBytecode)).to.equal(
       hre.ethers.keccak256(await hre.ethers.provider.getCode(ctx.accountAddr)),
     );
+  });
+
+  describe("self-admin calls (account adoption steps)", () => {
+    const IMPL_SLOT = "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc";
+
+    async function selfCtx() {
+      const ctx = await loadFixture(fixture);
+      const newImpl = await (await hre.ethers.getContractFactory("BlankAccount")).deploy(
+        await ctx.entryPoint.getAddress(),
+      );
+      const rogueImpl = await (await hre.ethers.getContractFactory("BlankAccount")).deploy(
+        await ctx.entryPoint.getAddress(),
+      );
+      const validator = await (await hre.ethers.getContractFactory("SessionKeyValidator")).deploy();
+      const rogueValidator = await (await hre.ethers.getContractFactory("SessionKeyValidator")).deploy();
+      const module = await (await hre.ethers.getContractFactory("GuardianModule")).deploy();
+      const rogueModule = await (await hre.ethers.getContractFactory("GuardianModule")).deploy();
+      const a = {
+        newImpl: await newImpl.getAddress(), rogueImpl: await rogueImpl.getAddress(),
+        validator: await validator.getAddress(), rogueValidator: await rogueValidator.getAddress(),
+        module: await module.getAddress(), rogueModule: await rogueModule.getAddress(),
+      };
+      await expect(ctx.paymaster.setApprovedImplementation(a.newImpl, true))
+        .to.emit(ctx.paymaster, "ImplementationApproved").withArgs(a.newImpl, true);
+      await expect(ctx.paymaster.setApprovedValidator(a.validator, true))
+        .to.emit(ctx.paymaster, "ValidatorApproved").withArgs(a.validator, true);
+      await expect(ctx.paymaster.setApprovedRecoveryModule(a.module, true))
+        .to.emit(ctx.paymaster, "RecoveryModuleApproved").withArgs(a.module, true);
+      return { ctx, ...a };
+    }
+
+    const acct = (ctx: Ctx) => ctx.account.interface;
+    const selfExec = (ctx: Ctx, data: string, value = 0n) =>
+      acct(ctx).encodeFunctionData("execute", [ctx.accountAddr, value, data]);
+    const upgradeData = (ctx: Ctx, impl: string, init = "0x") =>
+      acct(ctx).encodeFunctionData("upgradeToAndCall", [impl, init]);
+
+    it("sponsors upgradeToAndCall(approved impl, empty data) through handleOps", async () => {
+      const { ctx, newImpl } = await selfCtx();
+      const op = await sponsor(ctx, baseOp(ctx, { callData: selfExec(ctx, upgradeData(ctx, newImpl)) }));
+      const depositBefore = await ctx.entryPoint.balanceOf(ctx.pmAddr);
+      await expect(send(ctx, op)).to.emit(ctx.entryPoint, "UserOperationEvent");
+      const slot = await hre.ethers.provider.getStorage(ctx.accountAddr, IMPL_SLOT);
+      expect(hre.ethers.getAddress("0x" + slot.slice(26))).to.equal(newImpl);
+      expect(await ctx.entryPoint.balanceOf(ctx.pmAddr)).to.be.lessThan(depositBefore);
+    });
+
+    it("sponsors enableValidator and setRecoveryModule in one executeBatch with an approved target", async () => {
+      const { ctx, validator, module } = await selfCtx();
+      const callData = acct(ctx).encodeFunctionData("executeBatch(address[],uint256[],bytes[])", [
+        [ctx.accountAddr, ctx.accountAddr, ctx.usdcAddr],
+        [0n, 0n, 0n],
+        [
+          acct(ctx).encodeFunctionData("enableValidator", [validator]),
+          acct(ctx).encodeFunctionData("setRecoveryModule", [module]),
+          ctx.usdc.interface.encodeFunctionData("transfer", [ctx.deployer.address, 1n]),
+        ],
+      ]);
+      const op = await sponsor(ctx, baseOp(ctx, { callData }));
+      await expect(send(ctx, op)).to.emit(ctx.entryPoint, "UserOperationEvent");
+      expect(await ctx.account.isValidatorEnabled(validator)).to.equal(true);
+      expect(await ctx.account.recoveryModule()).to.equal(module);
+    });
+
+    it("sponsors enableValidator(approved) and setRecoveryModule(approved) as single executes", async () => {
+      const { ctx, validator, module } = await selfCtx();
+      const op1 = await sponsor(ctx, baseOp(ctx, {
+        callData: selfExec(ctx, acct(ctx).encodeFunctionData("enableValidator", [validator])),
+      }));
+      await expect(send(ctx, op1)).to.emit(ctx.entryPoint, "UserOperationEvent");
+      const op2 = await sponsor(ctx, baseOp(ctx, {
+        nonce: 1n,
+        callData: selfExec(ctx, acct(ctx).encodeFunctionData("setRecoveryModule", [module])),
+      }));
+      await expect(send(ctx, op2)).to.emit(ctx.entryPoint, "UserOperationEvent");
+      expect(await ctx.account.isValidatorEnabled(validator)).to.equal(true);
+      expect(await ctx.account.recoveryModule()).to.equal(module);
+    });
+
+    it("exploit: arbitrary self-calls are refused", async () => {
+      const { ctx } = await selfCtx();
+      const cases: Array<[string, string]> = [
+        [acct(ctx).encodeFunctionData("setOwner", [5n, 6n]), "BlankPaymaster: self-call not allowed"],
+        [acct(ctx).encodeFunctionData("withdrawGasDepositTo", [ctx.attacker.address, 1n]), "BlankPaymaster: self-call not allowed"],
+        [acct(ctx).encodeFunctionData("disableValidator", [ctx.mvAddr]), "BlankPaymaster: self-call not allowed"],
+        [acct(ctx).encodeFunctionData("execute", [ctx.attacker.address, 0n, "0x"]), "BlankPaymaster: self-call not allowed"],
+        ["0x", "BlankPaymaster: self-call not allowed"],
+      ];
+      for (const [data, reason] of cases) {
+        await expectPmRevert(ctx, await sponsor(ctx, baseOp(ctx, { callData: selfExec(ctx, data) })), reason);
+      }
+    });
+
+    it("exploit: unapproved implementation, validator or module is refused", async () => {
+      const { ctx, rogueImpl, rogueValidator, rogueModule } = await selfCtx();
+      const cases: Array<[string, string]> = [
+        [upgradeData(ctx, rogueImpl), "BlankPaymaster: unapproved implementation"],
+        [acct(ctx).encodeFunctionData("enableValidator", [rogueValidator]), "BlankPaymaster: unapproved validator"],
+        [acct(ctx).encodeFunctionData("enableValidator", [ctx.attacker.address]), "BlankPaymaster: unapproved validator"],
+        [acct(ctx).encodeFunctionData("setRecoveryModule", [rogueModule]), "BlankPaymaster: unapproved recovery module"],
+        [acct(ctx).encodeFunctionData("setRecoveryModule", [hre.ethers.ZeroAddress]), "BlankPaymaster: unapproved recovery module"],
+      ];
+      for (const [data, reason] of cases) {
+        await expectPmRevert(ctx, await sponsor(ctx, baseOp(ctx, { callData: selfExec(ctx, data) })), reason);
+      }
+    });
+
+    it("exploit: approved impl with init data, non-zero value, or trailing bytes is refused", async () => {
+      const { ctx, newImpl, validator } = await selfCtx();
+      const withInit = upgradeData(ctx, newImpl, acct(ctx).encodeFunctionData("setRecoveryModule", [ctx.attacker.address]));
+      await expectPmRevert(ctx, await sponsor(ctx, baseOp(ctx, { callData: selfExec(ctx, withInit) })),
+        "BlankPaymaster: upgrade data not allowed");
+      await expectPmRevert(ctx, await sponsor(ctx, baseOp(ctx, { callData: selfExec(ctx, upgradeData(ctx, newImpl) + "00") })),
+        "BlankPaymaster: upgrade data not allowed");
+      const enable = acct(ctx).encodeFunctionData("enableValidator", [validator]);
+      await expectPmRevert(ctx, await sponsor(ctx, baseOp(ctx, { callData: selfExec(ctx, enable, 1n) })),
+        "BlankPaymaster: self-call with value");
+      await expectPmRevert(ctx, await sponsor(ctx, baseOp(ctx, { callData: selfExec(ctx, enable + "00") })),
+        "BlankPaymaster: malformed self-call");
+      // Dirty high bits on the address word.
+      const dirty = enable.slice(0, 10) + "ff" + enable.slice(12);
+      await expectPmRevert(ctx, await sponsor(ctx, baseOp(ctx, { callData: selfExec(ctx, dirty) })),
+        "BlankPaymaster: malformed self-call");
+    });
+
+    it("exploit: a bad self-call hidden inside executeBatch is refused", async () => {
+      const { ctx, validator } = await selfCtx();
+      const callData = acct(ctx).encodeFunctionData("executeBatch(address[],uint256[],bytes[])", [
+        [ctx.accountAddr, ctx.accountAddr],
+        [0n, 0n],
+        [
+          acct(ctx).encodeFunctionData("enableValidator", [validator]),
+          acct(ctx).encodeFunctionData("withdrawGasDepositTo", [ctx.attacker.address, 1n]),
+        ],
+      ]);
+      await expectPmRevert(ctx, await sponsor(ctx, baseOp(ctx, { callData })), "BlankPaymaster: self-call not allowed");
+      const withValue = acct(ctx).encodeFunctionData("executeBatch(address[],uint256[],bytes[])", [
+        [ctx.accountAddr], [1n], [acct(ctx).encodeFunctionData("enableValidator", [validator])],
+      ]);
+      await expectPmRevert(ctx, await sponsor(ctx, baseOp(ctx, { callData: withValue })), "BlankPaymaster: self-call with value");
+    });
+
+    it("wireSelfAdminApprovals (deploy-paymaster-v2 / wire-paymaster-targets) approves the deployment keys and revokes _v0", async () => {
+      const ctx = await loadFixture(fixture);
+      const deploy = async (name: string, ...args: unknown[]) =>
+        (await (await hre.ethers.getContractFactory(name)).deploy(...args)).getAddress();
+      const ep = await ctx.entryPoint.getAddress();
+      const d: Record<string, string> = {
+        BlankAccount_Impl_security_v1: await deploy("BlankAccount", ep),
+        SessionKeyValidator: await deploy("SessionKeyValidator"),
+        SessionKeyValidator_v0: await deploy("SessionKeyValidator"),
+        GuardianModule: await deploy("GuardianModule"),
+      };
+      await ctx.paymaster.setApprovedValidator(d.SessionKeyValidator_v0, true);
+      const pm = new hre.ethers.Contract(ctx.pmAddr, SELF_ADMIN_ABI, ctx.deployer);
+      const log = () => {};
+      expect(await wireSelfAdminApprovals(pm, d, { dryRun: true, log })).to.equal(4);
+      expect(await wireSelfAdminApprovals(pm, d, { log, confirmations: 1 })).to.equal(4);
+      expect(await ctx.paymaster.approvedImplementations(d.BlankAccount_Impl_security_v1)).to.equal(true);
+      expect(await ctx.paymaster.approvedValidators(d.SessionKeyValidator)).to.equal(true);
+      expect(await ctx.paymaster.approvedValidators(d.SessionKeyValidator_v0)).to.equal(false);
+      expect(await ctx.paymaster.approvedRecoveryModules(d.GuardianModule)).to.equal(true);
+      expect(await wireSelfAdminApprovals(pm, d, { dryRun: true, log })).to.equal(0);
+    });
+
+    it("revoking an approval stops sponsorship; setters are owner-only and need a contract", async () => {
+      const { ctx, newImpl } = await selfCtx();
+      await ctx.paymaster.setApprovedImplementation(newImpl, false);
+      await expectPmRevert(ctx, await sponsor(ctx, baseOp(ctx, { callData: selfExec(ctx, upgradeData(ctx, newImpl)) })),
+        "BlankPaymaster: unapproved implementation");
+      await expect(ctx.paymaster.connect(ctx.attacker).setApprovedImplementation(newImpl, true)).to.be.reverted;
+      await expect(ctx.paymaster.connect(ctx.attacker).setApprovedValidator(newImpl, true)).to.be.reverted;
+      await expect(ctx.paymaster.connect(ctx.attacker).setApprovedRecoveryModule(newImpl, true)).to.be.reverted;
+      await expect(ctx.paymaster.setApprovedImplementation(ctx.attacker.address, true)).to.be.revertedWith("BlankPaymaster: not a contract");
+      await expect(ctx.paymaster.setApprovedValidator(ctx.attacker.address, true)).to.be.revertedWith("BlankPaymaster: not a contract");
+      await expect(ctx.paymaster.setApprovedRecoveryModule(ctx.attacker.address, true)).to.be.revertedWith("BlankPaymaster: not a contract");
+    });
   });
 
   it("admin setters are owner-only and validate input", async () => {

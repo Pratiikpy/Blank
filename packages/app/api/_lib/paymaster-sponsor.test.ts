@@ -76,7 +76,21 @@ interface FakeState {
   owner: { x: bigint; y: bigint } | null;
   hashOverride?: string;
   fee?: { fee: bigint; balance: bigint; allowance: bigint };
+  selfAdmin: Record<"implementation" | "validator" | "recoveryModule", Set<string>>;
 }
+
+const IMPL = ethers.getAddress("0x" + "1e".repeat(20));
+const VALIDATOR = ethers.getAddress("0x" + "5a".repeat(20));
+const MODULE = ethers.getAddress("0x" + "9d".repeat(20));
+const accountIface = new ethers.Interface([
+  "function upgradeToAndCall(address newImplementation, bytes data)",
+  "function enableValidator(address validator)",
+  "function disableValidator(address validator)",
+  "function setRecoveryModule(address newModule)",
+  "function setOwner(uint256 newX, uint256 newY)",
+  "function withdrawGasDepositTo(address to, uint256 amount)",
+]);
+const selfExec = (data: string, value = 0n) => executeIface.encodeFunctionData("execute", [SENDER, value, data]);
 
 let st: FakeState;
 
@@ -90,6 +104,7 @@ function fakeChain(): SponsorChain {
     getCode: async (a) => st.code[a.toLowerCase()] ?? "0x",
     paymasterConfig: async () => st.cfg,
     isApprovedTarget: async (t) => st.approved.has(t.toLowerCase()),
+    isApprovedSelfAdmin: async (kind, a) => st.selfAdmin[kind].has(a.toLowerCase()),
     // CREATE2 stand-in: only (OWNER_X, OWNER_Y, 0, 0) derives SENDER.
     factoryGetAddress: async (f, x, y, r, s) =>
       f.toLowerCase() === FACTORY.toLowerCase() && x === OWNER_X && y === OWNER_Y && r === ethers.ZeroAddress && s === 0n
@@ -124,6 +139,11 @@ beforeEach(() => {
     baseFee: 1n * GWEI,
     priority: GWEI / 10n,
     owner: null,
+    selfAdmin: {
+      implementation: new Set([IMPL.toLowerCase()]),
+      validator: new Set([VALIDATOR.toLowerCase()]),
+      recoveryModule: new Set([MODULE.toLowerCase()]),
+    },
   };
 });
 
@@ -185,6 +205,26 @@ describe("sponsorUserOp — happy path", () => {
     await expect(sponsorUserOp(fakeChain(), SIGNER, { userOp: op({ callData: exec(OTHER) }), account: claim })).resolves.toBeTruthy();
   });
 
+  it("the three approved account adoption steps are signed (single and batched)", async () => {
+    for (const d of [
+      accountIface.encodeFunctionData("upgradeToAndCall", [IMPL, "0x"]),
+      accountIface.encodeFunctionData("enableValidator", [VALIDATOR]),
+      accountIface.encodeFunctionData("setRecoveryModule", [MODULE]),
+    ]) {
+      await expect(sponsorUserOp(fakeChain(), SIGNER, { userOp: op({ callData: selfExec(d) }), account: claim })).resolves.toBeTruthy();
+    }
+    const batch = executeIface.encodeFunctionData("executeBatch", [
+      [SENDER, SENDER, TARGET],
+      [0n, 0n, 0n],
+      [
+        accountIface.encodeFunctionData("enableValidator", [VALIDATOR]),
+        accountIface.encodeFunctionData("setRecoveryModule", [MODULE]),
+        "0x1234",
+      ],
+    ]);
+    await expect(sponsorUserOp(fakeChain(), SIGNER, { userOp: op({ callData: batch }), account: claim })).resolves.toBeTruthy();
+  });
+
   it("maxFeePerGasCeiling (session scope cap) is honoured", async () => {
     const r = await sponsorUserOp(fakeChain(), SIGNER, { userOp: op(), account: claim, maxFeePerGasCeiling: 1_500_000_000n });
     expect(BigInt(r.maxFeePerGas)).toBe(1_500_000_000n);
@@ -222,10 +262,51 @@ describe("sponsorUserOp — refusals (nothing is signed)", () => {
     expect(e.code).toBe("NOT_BLANK_ACCOUNT");
   });
 
-  it("call into the account itself (upgrade / enableValidator)", async () => {
-    const e = await refusal(sponsorUserOp(fakeChain(), SIGNER, { userOp: op({ callData: exec(SENDER) }), account: claim }));
+  it("arbitrary calls into the account itself are refused", async () => {
+    const datas = [
+      "0x1234",
+      accountIface.encodeFunctionData("setOwner", [5n, 6n]),
+      accountIface.encodeFunctionData("withdrawGasDepositTo", [OTHER, 1n]),
+      accountIface.encodeFunctionData("disableValidator", [VALIDATOR]),
+      executeIface.encodeFunctionData("execute", [OTHER, 0n, "0x"]),
+      "0x",
+    ];
+    for (const d of datas) {
+      const e = await refusal(sponsorUserOp(fakeChain(), SIGNER, { userOp: op({ callData: selfExec(d) }), account: claim }));
+      expect(e.code).toBe("SELF_CALL");
+      expect(e.status).toBe(403);
+    }
+  });
+
+  it("self-calls with unapproved arguments, init data, value, trailing or dirty bytes are refused", async () => {
+    const enable = accountIface.encodeFunctionData("enableValidator", [VALIDATOR]);
+    const datas: Array<[string, bigint, RegExp]> = [
+      [accountIface.encodeFunctionData("upgradeToAndCall", [OTHER, "0x"]), 0n, /not approved/],
+      [accountIface.encodeFunctionData("enableValidator", [OTHER]), 0n, /not approved/],
+      [accountIface.encodeFunctionData("setRecoveryModule", [OTHER]), 0n, /not approved/],
+      [accountIface.encodeFunctionData("setRecoveryModule", [ethers.ZeroAddress]), 0n, /not approved/],
+      [accountIface.encodeFunctionData("upgradeToAndCall", [IMPL, enable]), 0n, /no init data/],
+      [accountIface.encodeFunctionData("upgradeToAndCall", [IMPL, "0x"]) + "00", 0n, /no init data/],
+      [enable, 1n, /must not send ETH/],
+      [enable + "00", 0n, /malformed/],
+      [enable.slice(0, 10) + "ff" + enable.slice(12), 0n, /malformed/],
+    ];
+    for (const [d, v, msg] of datas) {
+      const e = await refusal(sponsorUserOp(fakeChain(), SIGNER, { userOp: op({ callData: selfExec(d, v) }), account: claim }));
+      expect(e.code).toBe("SELF_CALL");
+      expect(e.message).toMatch(msg);
+    }
+  });
+
+  it("a bad self-call inside executeBatch is refused, even with the allowlist off", async () => {
+    st.cfg = baseConfig({ approvedTargetsCount: 0n });
+    const batch = executeIface.encodeFunctionData("executeBatch", [
+      [SENDER, SENDER],
+      [0n, 0n],
+      [accountIface.encodeFunctionData("enableValidator", [VALIDATOR]), accountIface.encodeFunctionData("setOwner", [1n, 2n])],
+    ]);
+    const e = await refusal(sponsorUserOp(fakeChain(), SIGNER, { userOp: op({ callData: batch }), account: claim }));
     expect(e.code).toBe("SELF_CALL");
-    expect(e.status).toBe(403);
   });
 
   it("target not on the allowlist (single and batch)", async () => {

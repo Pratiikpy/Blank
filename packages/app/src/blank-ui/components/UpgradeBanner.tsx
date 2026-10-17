@@ -11,14 +11,13 @@
 //   AA.execute(self, 0, abi.encodeCall(UUPSUpgradeable.upgradeToAndCall, [newImpl, "0x"]))
 // `_authorizeUpgrade` permits calls from `address(this)` or the EntryPoint.
 //
-// BlankPaymaster never sponsors calls into the account itself, so the
-// upgrade pays its own gas from the account's EntryPoint deposit or ETH.
-// The banner says so and holds the button until the account has enough.
+// BlankPaymaster sponsors exactly this call when newImpl is on its
+// approvedImplementations list. Otherwise the upgrade pays its own gas and
+// the banner holds the button until the account has enough.
 
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { ShieldCheck, ArrowRight, Loader2, X } from "lucide-react";
-import { encodeFunctionData } from "viem";
 import { useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import { toastMappedError } from "@/lib/error-messages";
@@ -26,6 +25,7 @@ import { useAccountVersion } from "@/hooks/useAccountVersion";
 import { useUnifiedWrite } from "@/hooks/useUnifiedWrite";
 import { useEffectiveAddress } from "@/hooks/useEffectiveAddress";
 import { useAccountGasFunds, SELF_PAID_SETTINGS_OP_WEI } from "@/hooks/useAccountGasFunds";
+import { useSelfCallSponsorship } from "@/hooks/useSelfCallSponsorship";
 import { getStoredString, setStoredString } from "@/lib/storage";
 
 // EIP-1967 UUPSUpgradeable surface: minimal ABI for the upgrade call.
@@ -36,20 +36,6 @@ const UUPSAbi = [
     stateMutability: "payable",
     inputs: [
       { name: "newImplementation", type: "address" },
-      { name: "data", type: "bytes" },
-    ],
-    outputs: [],
-  },
-] as const;
-
-const BlankAccountExecAbi = [
-  {
-    type: "function",
-    name: "execute",
-    stateMutability: "nonpayable",
-    inputs: [
-      { name: "target", type: "address" },
-      { name: "value", type: "uint256" },
       { name: "data", type: "bytes" },
     ],
     outputs: [],
@@ -76,6 +62,7 @@ export function UpgradeBanner() {
   const { unifiedWrite } = useUnifiedWrite();
   const queryClient = useQueryClient();
   const funds = useAccountGasFunds(effectiveAddress as `0x${string}` | undefined);
+  const sponsored = useSelfCallSponsorship("implementation", canonicalImpl);
   const [busy, setBusy] = useState(false);
   const [localDismissed, setLocalDismissed] = useState<boolean>(() =>
     effectiveAddress
@@ -101,25 +88,21 @@ export function UpgradeBanner() {
 
   const fundsKnown = funds.totalWei !== null;
   const hasGas = fundsKnown && (funds.totalWei as bigint) >= SELF_PAID_SETTINGS_OP_WEI;
+  const canUpgrade = sponsored === true || hasGas;
 
   const handleUpgrade = async () => {
     setBusy(true);
     try {
-      const upgradeData = encodeFunctionData({
+      // unifiedWrite wraps this as execute(self, 0, upgradeToAndCall(impl, "")):
+      // inside upgradeToAndCall msg.sender is the account, which satisfies
+      // _authorizeUpgrade, and it is the exact shape the paymaster sponsors.
+      // Unsponsored, the op falls back to the account's own gas.
+      await unifiedWrite({
+        address: effectiveAddress as `0x${string}`,
         abi: UUPSAbi,
         functionName: "upgradeToAndCall",
         args: [canonicalImpl, "0x"],
-      });
-      // execute(self, 0, upgradeData): inside upgradeToAndCall msg.sender is
-      // the account, which satisfies _authorizeUpgrade. Self-paid: the
-      // paymaster does not sponsor calls into the account.
-      await unifiedWrite({
-        address: effectiveAddress as `0x${string}`,
-        abi: BlankAccountExecAbi,
-        functionName: "execute",
-        args: [effectiveAddress as `0x${string}`, 0n, upgradeData],
         gas: 600_000n,
-        paymaster: "self",
       });
       await queryClient.invalidateQueries({ queryKey: ["blank-account-impl"] });
       await queryClient.invalidateQueries({ queryKey: ["account-gas-funds"] });
@@ -157,23 +140,25 @@ export function UpgradeBanner() {
             afterwards.
           </p>
           <p className="text-xs text-violet-700/80 dark:text-violet-300/70 mt-1.5" data-testid="upgrade-banner-gas">
-            {!fundsKnown
-              ? "Checking your gas balance."
-              : hasGas
-                ? `Paid from your own gas (about ${formatEth(SELF_PAID_SETTINGS_OP_WEI)} ETH at most). Account changes are not sponsored.`
-                : (
-                  <>
-                    Needs about {formatEth(SELF_PAID_SETTINGS_OP_WEI)} ETH of gas in this wallet. Account changes are not sponsored.{" "}
-                    <Link to="/app/wallet" className="underline font-medium">Add gas</Link>
-                  </>
-                )}
+            {sponsored === true
+              ? "Gas is sponsored by Blank. No ETH needed."
+              : !fundsKnown
+                ? "Checking your gas balance."
+                : hasGas
+                  ? `Paid from your own gas (about ${formatEth(SELF_PAID_SETTINGS_OP_WEI)} ETH at most).`
+                  : (
+                    <>
+                      Needs about {formatEth(SELF_PAID_SETTINGS_OP_WEI)} ETH of gas in this wallet while sponsorship is unavailable.{" "}
+                      <Link to="/app/wallet" className="underline font-medium">Add gas</Link>
+                    </>
+                  )}
           </p>
         </div>
       </div>
       <div className="flex items-center gap-1 shrink-0 self-end sm:self-start">
         <button
           onClick={handleUpgrade}
-          disabled={busy || !hasGas}
+          disabled={busy || !canUpgrade}
           data-testid="upgrade-banner-cta"
           className="h-11 sm:h-9 px-4 rounded-xl bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium flex items-center gap-1.5 disabled:opacity-60 disabled:cursor-not-allowed transition-all"
         >

@@ -1,7 +1,7 @@
 import { task } from "hardhat/config";
 import { readFileSync } from "fs";
 import { resolve } from "path";
-import { PAYMASTER_TARGETS, RETIRED_TARGETS } from "./lib/paymaster-targets";
+import { PAYMASTER_TARGETS, RETIRED_TARGETS, SELF_ADMIN_ABI, wireSelfAdminApprovals } from "./lib/paymaster-targets";
 
 /**
  * wire-paymaster-targets: audit and fix BlankPaymaster.approvedTargets.
@@ -83,8 +83,12 @@ task("wire-paymaster-targets", "Audit and fix the BlankPaymaster approvedTargets
       }
     }
 
-    console.log(`\n${changes.length} change(s).`);
-    if (changes.length === 0) return;
+    const selfAdmin = new hre.ethers.Contract(paymasterAddr, SELF_ADMIN_ABI, signer);
+    console.log(`\nSelf-call approvals:`);
+    const selfChanges = await wireSelfAdminApprovals(selfAdmin, deployments, { dryRun: true });
+
+    console.log(`\n${changes.length} target change(s), ${selfChanges} self-call approval change(s).`);
+    if (changes.length === 0 && selfChanges === 0) return;
     if (dryRun) {
       console.log("--dry-run: no on-chain writes.");
       return;
@@ -98,5 +102,6 @@ task("wire-paymaster-targets", "Audit and fix the BlankPaymaster approvedTargets
       const rcpt = await tx.wait(2);
       if (rcpt?.status !== 1) throw new Error(`setApprovedTarget(${c.name}) reverted: ${tx.hash}`);
     }
+    if (selfChanges > 0) await wireSelfAdminApprovals(selfAdmin, deployments, { log: () => {} });
     console.log(`Done. Approved count: ${await paymaster.approvedTargetsCount()}`);
   });

@@ -20,7 +20,11 @@ import "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
  *  - a sender whose runtime code hash equals `accountCodeHash` (the BlankAccount
  *    ERC1967 proxy), and, on first deploy, initCode from `approvedFactory`
  *  - gas prices and maxCost within owner-set caps
- *  - call targets on the allowlist (when any are set)
+ *  - call targets on the allowlist (when any are set). A call to the sender
+ *    itself is allowed only for upgradeToAndCall(approved impl, ""),
+ *    enableValidator(approved validator) or setRecoveryModule(approved
+ *    module), with value 0, so new accounts can adopt the current
+ *    implementation and modules without first holding ETH
  *  - a sender not flagged for an unpaid fee
  *
  * paymasterAndData layout:
@@ -72,6 +76,14 @@ contract BlankPaymaster is BasePaymaster {
     mapping(address => bool) public whitelisted;
     bool public whitelistEnabled;
 
+    mapping(address => bool) public approvedImplementations;
+    mapping(address => bool) public approvedValidators;
+    mapping(address => bool) public approvedRecoveryModules;
+
+    bytes4 private constant UPGRADE_TO_AND_CALL = bytes4(keccak256("upgradeToAndCall(address,bytes)"));
+    bytes4 private constant ENABLE_VALIDATOR = bytes4(keccak256("enableValidator(address)"));
+    bytes4 private constant SET_RECOVERY_MODULE = bytes4(keccak256("setRecoveryModule(address)"));
+
     event FeeCollected(address indexed account, uint256 amount);
     event FeeDefaulted(address indexed account, uint256 amount);
     event FeeDefaultCleared(address indexed account);
@@ -83,6 +95,9 @@ contract BlankPaymaster is BasePaymaster {
     event VerifyingSignerUpdated(address signer);
     event TargetApproved(address target, bool approved);
     event TreasuryUpdated(address treasury);
+    event ImplementationApproved(address implementation, bool approved);
+    event ValidatorApproved(address validator, bool approved);
+    event RecoveryModuleApproved(address module, bool approved);
 
     constructor(
         IEntryPoint _entryPoint,
@@ -155,7 +170,7 @@ contract BlankPaymaster is BasePaymaster {
 
         _checkAccount(userOp);
         _checkGas(userOp, maxCost);
-        _checkTargets(userOp.callData);
+        _checkTargets(userOp.callData, sender);
 
         uint256 maxFee = _feeFor(maxCost);
         if (maxFee > 0) {
@@ -201,7 +216,8 @@ contract BlankPaymaster is BasePaymaster {
     }
 
     /// @dev Only execute / executeBatch to allowlisted targets are sponsored.
-    function _checkTargets(bytes calldata callData) private view {
+    ///      A target equal to the sender goes through _checkSelfCall instead.
+    function _checkTargets(bytes calldata callData, address sender) private view {
         if (approvedTargetsCount == 0) return;
         require(callData.length >= 4, "BlankPaymaster: empty callData");
         bytes4 selector = bytes4(callData[:4]);
@@ -210,7 +226,12 @@ contract BlankPaymaster is BasePaymaster {
             // execute(address,uint256,bytes)
             require(callData.length >= 36, "BlankPaymaster: malformed execute");
             address target = address(bytes20(callData[16:36]));
-            require(approvedTargets[target], "BlankPaymaster: unapproved target");
+            if (target == sender) {
+                (, uint256 value, bytes memory data) = abi.decode(callData[4:], (address, uint256, bytes));
+                _checkSelfCall(value, data);
+            } else {
+                require(approvedTargets[target], "BlankPaymaster: unapproved target");
+            }
         } else if (selector == bytes4(0x47e1da2a)) {
             // executeBatch(address[],uint256[],bytes[]). BlankAccount decodes
             // strictly, so requiring the canonical 0x60 offset keeps our view
@@ -223,14 +244,64 @@ contract BlankPaymaster is BasePaymaster {
             uint256 nTargets = uint256(bytes32(callData[lenAt:lenAt + 32]));
             require(nTargets > 0 && nTargets <= 20, "BlankPaymaster: bad batch size");
             require(callData.length >= lenAt + 32 + nTargets * 32, "BlankPaymaster: short targets");
+            bool hasSelf;
             for (uint256 i = 0; i < nTargets; i++) {
                 uint256 addrSlot = lenAt + 32 + i * 32;
                 address target = address(bytes20(callData[addrSlot + 12:addrSlot + 32]));
-                require(approvedTargets[target], "BlankPaymaster: unapproved batch target");
+                if (target == sender) {
+                    hasSelf = true;
+                } else {
+                    require(approvedTargets[target], "BlankPaymaster: unapproved batch target");
+                }
+            }
+            if (hasSelf) {
+                // Decode the way the account does, so value and data are
+                // exactly what the self-call runs with.
+                (address[] memory targets, uint256[] memory values, bytes[] memory datas) =
+                    abi.decode(callData[4:], (address[], uint256[], bytes[]));
+                require(values.length == nTargets && datas.length == nTargets, "BlankPaymaster: batch length mismatch");
+                for (uint256 i = 0; i < nTargets; i++) {
+                    if (targets[i] == sender) _checkSelfCall(values[i], datas[i]);
+                }
             }
         } else {
             revert("BlankPaymaster: selector not allowed");
         }
+    }
+
+    /// @dev The account's own admin calls: only the three adoption steps,
+    ///      only with owner-approved arguments, canonical encoding, no value.
+    function _checkSelfCall(uint256 value, bytes memory data) private view {
+        require(value == 0, "BlankPaymaster: self-call with value");
+        require(data.length >= 4, "BlankPaymaster: self-call not allowed");
+        bytes4 sel = bytes4(data);
+        if (sel == UPGRADE_TO_AND_CALL) {
+            // upgradeToAndCall(impl, ""): selector, impl, offset 0x40, length 0.
+            require(data.length == 100, "BlankPaymaster: upgrade data not allowed");
+            require(_word(data, 36) == 0x40 && _word(data, 68) == 0, "BlankPaymaster: upgrade data not allowed");
+            require(approvedImplementations[_addr(data)], "BlankPaymaster: unapproved implementation");
+        } else if (sel == ENABLE_VALIDATOR) {
+            require(data.length == 36, "BlankPaymaster: malformed self-call");
+            require(approvedValidators[_addr(data)], "BlankPaymaster: unapproved validator");
+        } else if (sel == SET_RECOVERY_MODULE) {
+            require(data.length == 36, "BlankPaymaster: malformed self-call");
+            require(approvedRecoveryModules[_addr(data)], "BlankPaymaster: unapproved recovery module");
+        } else {
+            revert("BlankPaymaster: self-call not allowed");
+        }
+    }
+
+    function _word(bytes memory data, uint256 at) private pure returns (uint256 w) {
+        assembly {
+            w := mload(add(add(data, 32), at))
+        }
+    }
+
+    /// @dev First argument as an address; dirty high bits are refused.
+    function _addr(bytes memory data) private pure returns (address) {
+        uint256 w = _word(data, 4);
+        require(w >> 160 == 0, "BlankPaymaster: malformed self-call");
+        return address(uint160(w));
     }
 
     function _feeFor(uint256 gasCostWei) internal view returns (uint256) {
@@ -320,6 +391,24 @@ contract BlankPaymaster is BasePaymaster {
         }
         approvedTargets[target] = approved;
         emit TargetApproved(target, approved);
+    }
+
+    function setApprovedImplementation(address implementation, bool approved) external onlyOwner {
+        require(!approved || implementation.code.length > 0, "BlankPaymaster: not a contract");
+        approvedImplementations[implementation] = approved;
+        emit ImplementationApproved(implementation, approved);
+    }
+
+    function setApprovedValidator(address validator, bool approved) external onlyOwner {
+        require(!approved || validator.code.length > 0, "BlankPaymaster: not a contract");
+        approvedValidators[validator] = approved;
+        emit ValidatorApproved(validator, approved);
+    }
+
+    function setApprovedRecoveryModule(address module, bool approved) external onlyOwner {
+        require(!approved || module.code.length > 0, "BlankPaymaster: not a contract");
+        approvedRecoveryModules[module] = approved;
+        emit RecoveryModuleApproved(module, approved);
     }
 
     function setFeeConfig(uint256 _feeTokenPerEth, uint256 _feeMarkupBps, uint256 _maxFeeCap) external onlyOwner {
