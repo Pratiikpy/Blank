@@ -264,8 +264,7 @@ contract PrivacyRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         require(ready, "PrivacyRouter: decryption not ready");
         require(plainAmount > 0, "PrivacyRouter: zero amount (insufficient balance at initiation)");
 
-        uint256 routerBalance = IERC20(swap.tokenIn).balanceOf(address(this));
-        require(routerBalance >= plainAmount, "PrivacyRouter: insufficient reserves");
+        require(_coversOwn(swapId, swap.tokenIn, plainAmount), "PrivacyRouter: insufficient reserves");
 
         swap.plaintextAmountIn = plainAmount;
         swap.status = SwapStatus.Executed;
@@ -637,6 +636,15 @@ contract PrivacyRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         require(balance >= amount && balance - amount >= outstandingLiability[token], "PrivacyRouter: reserves owed to swaps");
     }
 
+    /// @dev True when reserves cover `amount` without dipping into amounts
+    ///      owed to other swaps. This swap's own recorded share is excluded.
+    function _coversOwn(uint256 swapId, address token, uint256 amount) internal view returns (bool) {
+        uint256 balance = IERC20(token).balanceOf(address(this));
+        uint256 owed = outstandingLiability[token];
+        if (_liabilityState[swapId] == LIABILITY_RESOLVED) owed -= amount;
+        return balance >= amount && balance - amount >= owed;
+    }
+
     /// @dev Publishing an already published handle is skipped, so a late
     ///      caller with a stale signature cannot make the call revert.
     function _publishIfNeeded(euint64 handle, uint64 plaintext, bytes calldata signature) internal {
@@ -650,7 +658,7 @@ contract PrivacyRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     ///      swap with no transfer. Returns false, recording the amount as a
     ///      liability, when reserves cannot cover it.
     function _tryRefund(uint256 swapId, PendingSwap storage swap, uint64 plainAmount) internal returns (bool) {
-        if (plainAmount > 0 && IERC20(swap.tokenIn).balanceOf(address(this)) < plainAmount) {
+        if (plainAmount > 0 && !_coversOwn(swapId, swap.tokenIn, plainAmount)) {
             _resolveLiability(swapId, swap.tokenIn, plainAmount);
             return false;
         }

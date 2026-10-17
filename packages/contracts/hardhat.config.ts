@@ -31,6 +31,17 @@ const config: HardhatUserConfig = {
         },
       },
     ],
+    overrides: {
+      // Sits near the 24576-byte limit; size matters more than call gas here.
+      "contracts/BusinessHub.sol": {
+        version: "0.8.25",
+        settings: {
+          evmVersion: "cancun",
+          viaIR: true,
+          optimizer: { enabled: true, runs: 1 },
+        },
+      },
+    },
   },
   defaultNetwork: "hardhat",
   networks: {

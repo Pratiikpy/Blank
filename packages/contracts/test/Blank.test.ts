@@ -1,10 +1,18 @@
 import { expect } from "chai";
 import hre from "hardhat";
-import { loadFixture } from "@nomicfoundation/hardhat-network-helpers";
+import { loadFixture, time } from "@nomicfoundation/hardhat-network-helpers";
 import { anyValue } from "@nomicfoundation/hardhat-chai-matchers/withArgs";
 import { mock_expectPlaintext } from "@cofhe/hardhat-plugin";
 import { Encryptable, FheTypes } from "@cofhe/sdk";
 import { parseUnits } from "ethers";
+
+// ACP ids are wall-clock seconds minus 60; the mock revoker rejects an id
+// ahead of the chain, which happens once snapshot reverts leave the chain
+// clock behind real time.
+async function syncChainClock() {
+  const now = Math.floor(Date.now() / 1000);
+  if ((await time.latest()) < now) await time.increaseTo(now);
+}
 
 // ══════════════════════════════════════════════════════════════════
 //  Blank — core contract test suite (cofhe v0.1.3, mock Threshold Network)
@@ -998,7 +1006,7 @@ describe("BusinessHub", () => {
       ctx.businessHub
         .connect(ctx.charlie)
         .payInvoiceFinalize(0, Boolean(proof.decryptedValue), proof.signature),
-    ).to.be.revertedWith("BusinessHub: only client can finalize");
+    ).to.be.revertedWith("BusinessHub: only client or vendor can finalize");
 
     // Bob (the client + payment-starter) can still finalize successfully
     await ctx.businessHub
@@ -2028,6 +2036,7 @@ describe("PaymentReceipts qualification proofs", () => {
     // FHE.allowGlobal in initialize. Charlie just needs any self-permit
     // (decryptForView requires one for the SDK plumbing).
     await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.charlie);
+    await syncChainClock();
     await ctx.client.acp.createSelf({
       issuer: ctx.charlie.address,
       name: "Public global decrypt",
@@ -2213,11 +2222,18 @@ describe("GiftMoney receipts wiring (#204)", () => {
     const daveTotal = await ctx.paymentReceipts.connect(dave).getMyTotalReceived();
     await mock_expectPlaintext(dave.provider, daveTotal, usdc(20));
 
-    // Global volume should decrypt to the sum (100 USDC). Use erin as a
-    // disinterested third party — proves the FHE.allowGlobal path works.
+    // The snapshot needs MIN_SNAPSHOT_TXS (5) payments: two more shares.
+    const gift2 = await encBatch(ctx, ctx.alice, [usdc(10), usdc(10)], await ctx.giftMoney.getAddress());
+    await ctx.giftMoney.connect(ctx.alice).createEnvelope(
+      await ctx.vault.getAddress(), [ctx.bob.address, erin.address], gift2.handles, gift2.proof, "extra", 0,
+    );
+
+    // Global volume should decrypt to the sum (120 USDC). Use erin as a
+    // third party with no special grant: proves the FHE.allowGlobal path works.
     await ctx.paymentReceipts.publishGlobalSnapshot();
     const volHandle = await ctx.paymentReceipts.getGlobalVolumeHandle();
     await hre.cofhe.connectWithHardhatSigner(ctx.client, erin);
+    await syncChainClock();
     await ctx.client.acp.createSelf({
       issuer: erin.address,
       name: "Public global decrypt — gift volume",
@@ -2228,7 +2244,7 @@ describe("GiftMoney receipts wiring (#204)", () => {
     const volPublic = await ctx.client
       .decryptForView(volHandle, FheTypes.Uint64)
       .execute();
-    expect(volPublic).to.equal(usdc(100));
+    expect(volPublic).to.equal(usdc(120));
   });
 });
 
@@ -2277,6 +2293,7 @@ describe("StealthPayments refund decrement (#199)", () => {
     await ctx.paymentReceipts.publishGlobalSnapshot();
     const volHandleBefore = await ctx.paymentReceipts.getGlobalVolumeHandle();
     await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.charlie);
+    await syncChainClock();
     await ctx.client.acp.createSelf({
       issuer: ctx.charlie.address,
       name: "Public global decrypt — stealth refund",
@@ -2286,28 +2303,24 @@ describe("StealthPayments refund decrement (#199)", () => {
       .decryptForView(volHandleBefore, FheTypes.Uint64)
       .execute();
 
-    // Encrypt the recipient address (bob) and prepare a claim code bound to bob.
-    await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.alice);
-    const encBob = await ctx.client
-      .encryptInputs([Encryptable.address(ctx.bob.address)])
-      .setConsumingContract(await ctx.stealthPayments.getAddress())
-      .execute();
-    const claimCode = hre.ethers.hexlify(hre.ethers.randomBytes(32));
-    const claimCodeHash = hre.ethers.keccak256(
-      hre.ethers.solidityPacked(["bytes32", "address"], [claimCode, ctx.bob.address]),
-    );
-
-    // Send a 40 USDC stealth payment. _globalVolume should now be volBefore + 40.
-    const STEALTH_AMOUNT = usdc(40);
-    await ctx.stealthPayments
-      .connect(ctx.alice)
-      .sendStealth(
-        STEALTH_AMOUNT,
-        ...encBob,
-        claimCodeHash,
-        await ctx.vault.getAddress(),
-        "for groceries",
+    // The snapshot only advances after PaymentReceipts.MIN_SNAPSHOT_TXS (5)
+    // new payments, so send five stealth payments of 8 USDC each.
+    const sendOne = async (amount: bigint) => {
+      await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.alice);
+      const encBob = await ctx.client
+        .encryptInputs([Encryptable.address(ctx.bob.address)])
+        .setConsumingContract(await ctx.stealthPayments.getAddress())
+        .execute();
+      const claimCode = hre.ethers.hexlify(hre.ethers.randomBytes(32));
+      const claimCodeHash = hre.ethers.keccak256(
+        hre.ethers.solidityPacked(["bytes32", "address"], [claimCode, ctx.bob.address]),
       );
+      await ctx.stealthPayments
+        .connect(ctx.alice)
+        .sendStealth(amount, ...encBob, claimCodeHash, await ctx.vault.getAddress(), "for groceries");
+    };
+    const STEALTH_AMOUNT = usdc(40);
+    for (let i = 0; i < 5; i++) await sendOne(usdc(8));
 
     // The public total only moves when a daily snapshot is cut.
     await hre.network.provider.send("evm_increaseTime", [24 * 3600]);
@@ -2323,22 +2336,20 @@ describe("StealthPayments refund decrement (#199)", () => {
     await hre.network.provider.send("evm_increaseTime", [31 * 24 * 3600]);
     await hre.network.provider.send("evm_mine", []);
 
-    // Refund — must succeed AND decrement the global volume back to volBefore.
-    // Sanity: contract returns the underlying tokens; the encrypted
-    // _globalVolume handle stays valid for FHE ops (we read + decrypt below).
+    // Refund all five; each must return its tokens and decrement the volume.
     const aliceBalBeforeRefund = await ctx.testUSDC.balanceOf(ctx.alice.address);
-    await expect(ctx.stealthPayments.connect(ctx.alice).refund(0)).to.not.be.reverted;
+    for (let i = 0; i < 5; i++) {
+      await expect(ctx.stealthPayments.connect(ctx.alice).refund(i)).to.not.be.reverted;
+    }
     const aliceBalAfterRefund = await ctx.testUSDC.balanceOf(ctx.alice.address);
     expect(aliceBalAfterRefund - aliceBalBeforeRefund).to.equal(STEALTH_AMOUNT);
 
-    // The handle reference may have been replaced inside the contract — fetch
-    // the new one and decrypt. Proves the handle is still valid for FHE ops
-    // (FHE.allowGlobal preserved through the FHE.select clamp) AND that the
-    // value matches volBefore exactly. Re-create the permit AFTER the
-    // 31-day time jump — the original would have expired (default permit TTL).
+    // Decrements alone do not advance the snapshot; five 1-unit sends do.
+    for (let i = 0; i < 5; i++) await sendOne(1n);
     await ctx.paymentReceipts.publishGlobalSnapshot();
     const volHandleAfter = await ctx.paymentReceipts.getGlobalVolumeHandle();
     await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.charlie);
+    await syncChainClock();
     await ctx.client.acp.createSelf({
       issuer: ctx.charlie.address,
       name: "Public global decrypt — stealth refund (post-jump)",
@@ -2347,7 +2358,7 @@ describe("StealthPayments refund decrement (#199)", () => {
     const volAfter = await ctx.client
       .decryptForView(volHandleAfter, FheTypes.Uint64)
       .execute();
-    expect(volAfter).to.equal(volBefore);
+    expect(volAfter).to.equal(volBefore + 5n);
   });
 });
 

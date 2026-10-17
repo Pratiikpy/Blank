@@ -719,6 +719,52 @@ describe("PrivacyRouter — reserve liabilities and owner powers (M2)", () => {
       .to.be.revertedWith("PrivacyRouter: reserves owed to swaps");
   });
 
+  // Round 2: executeSwap and refunds only checked the raw balance, so they
+  // could spend reserves recorded as owed to another swap.
+  it("executeSwap cannot spend reserves owed to another swap; the owed swap still can", async () => {
+    const ctx = await loadFixture(deployFixture);
+    const tokenIn = await ctx.tokenIn.getAddress();
+    await ctx.router.withdrawReserves(tokenIn, usdc(49_990), ctx.owner.address); // 10 left
+    await initSwap(ctx, usdc(10), { user: ctx.bob });      // swap 0, bob
+    await initSwap(ctx, usdc(10));                          // swap 1, alice
+    const p0 = await decryptAmountIn(ctx.router, ctx.client, ctx.bob, 0);
+    await ctx.router.resolveSwapAmount(0, p0.plaintext, p0.signature); // 10 owed to bob
+    const p1 = await decryptAmountIn(ctx.router, ctx.client, ctx.alice, 1);
+    await expect(ctx.router.executeSwap(1, p1.plaintext, p1.signature))
+      .to.be.revertedWith("PrivacyRouter: insufficient reserves");
+    await ctx.router.executeSwap(0, p0.plaintext, p0.signature);
+    expect((await ctx.router.getSwap(0)).status).to.equal(STATUS_EXECUTED);
+    expect(await ctx.router.outstandingLiability(tokenIn)).to.equal(0);
+  });
+
+  it("a refund cannot spend reserves owed to another swap", async () => {
+    const ctx = await loadFixture(deployFixture);
+    const tokenIn = await ctx.tokenIn.getAddress();
+    await ctx.router.withdrawReserves(tokenIn, usdc(49_990), ctx.owner.address); // 10 left
+    await initSwap(ctx, usdc(10), { user: ctx.bob });
+    await initSwap(ctx, usdc(10));
+    const p0 = await decryptAmountIn(ctx.router, ctx.client, ctx.bob, 0);
+    await ctx.router.resolveSwapAmount(0, p0.plaintext, p0.signature);
+    const p1 = await decryptAmountIn(ctx.router, ctx.client, ctx.alice, 1);
+    await ctx.router.resolveSwapAmount(1, p1.plaintext, p1.signature);
+    const before = await ctx.tokenIn.balanceOf(ctx.alice.address);
+    await ctx.router.connect(ctx.alice).cancelSwap(1);
+    await expect(ctx.router.connect(ctx.alice).claimCancelledSwap(1, 0, "0x"))
+      .to.be.revertedWith("PrivacyRouter: insufficient reserves, contact owner");
+    // Not paid: stays owed.
+    expect(await ctx.tokenIn.balanceOf(ctx.alice.address)).to.equal(before);
+    expect((await ctx.router.getSwap(1)).status).to.equal(STATUS_CANCELLED);
+    expect(await ctx.router.outstandingLiability(tokenIn)).to.equal(usdc(20));
+    // Once reserves cover every owed swap, both are paid.
+    await ctx.tokenIn.approve(await ctx.router.getAddress(), usdc(10));
+    await ctx.router.fundReserves(tokenIn, usdc(10));
+    await ctx.router.connect(ctx.bob).cancelSwap(0);
+    expect((await ctx.router.getSwap(0)).status).to.equal(STATUS_REFUNDED);
+    await ctx.router.connect(ctx.alice).claimCancelledSwap(1, 0, "0x");
+    expect(await ctx.tokenIn.balanceOf(ctx.alice.address)).to.equal(before + usdc(10));
+    expect(await ctx.router.outstandingLiability(tokenIn)).to.equal(0);
+  });
+
   it("emergencyRefund on an executed swap is rejected", async () => {
     const ctx = await loadFixture(deployFixture);
     await initSwap(ctx, usdc(10));
@@ -772,10 +818,11 @@ describe("PrivacyRouter — slippage floor and deadline (M3)", () => {
   it("executeSwap after the user deadline reverts; the user can still cancel", async () => {
     const ctx = await loadFixture(deployFixture);
     const now = BigInt(await time.latest());
-    await initSwap(ctx, usdc(10), { deadline: now + 60n });
-    expect(await ctx.router.swapDeadline(0)).to.equal(now + 60n);
+    // 300s margin: block time tracks the wall clock while inputs encrypt.
+    await initSwap(ctx, usdc(10), { deadline: now + 300n });
+    expect(await ctx.router.swapDeadline(0)).to.equal(now + 300n);
     const proof = await decryptAmountIn(ctx.router, ctx.client, ctx.alice, 0);
-    await time.increase(120);
+    await time.increaseTo(now + 360n);
     await expect(ctx.router.executeSwap(0, proof.plaintext, proof.signature))
       .to.be.revertedWith("PrivacyRouter: deadline passed");
     await ctx.router.connect(ctx.alice).cancelSwap(0);

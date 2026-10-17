@@ -555,3 +555,80 @@ describe("StealthPayments — views", () => {
     expect(found2[0]).to.equal(false);
   });
 });
+
+// Round-2 exploit: pre-upgrade finalizeClaim set finalized=true even when the
+// claim paid 0, so refund() rejects those records forever. The storage edit
+// below recreates that legacy state on a freshly voided claim.
+describe("StealthPayments — legacy voided-claim recovery", () => {
+  const abi = hre.ethers.AbiCoder.defaultAbiCoder();
+  const slotOf = (key: bigint, base: number) =>
+    BigInt(hre.ethers.keccak256(abi.encode(["uint256", "uint256"], [key, base])));
+  const word = (v: bigint) => hre.ethers.toBeHex(v, 32);
+
+  async function legacyVoided(ctx: any, id = 0) {
+    const claimCode = hre.ethers.id(`legacy-${id}`);
+    const encR = await encAddress(ctx.client, ctx.sender, ctx.alice.address, await ctx.stealth.getAddress());
+    await ctx.stealth.connect(ctx.sender).sendStealth(
+      usdc(60), ...encR, bindClaim(claimCode, ctx.bob.address), await ctx.vault.getAddress(), "legacy",
+    );
+    await ctx.stealth.connect(ctx.bob).claimStealth(id, claimCode);
+    const proof = await decryptPendingAmount(ctx.stealth, ctx.client, ctx.bob, id);
+    await ctx.stealth.connect(ctx.bob).finalizeClaim(id, proof.plaintext, proof.signature);
+    // Old layout: claimed + finalized both true, claimVoided never set.
+    const addr = await ctx.stealth.getAddress();
+    await hre.network.provider.send("hardhat_setStorageAt", [addr, word(slotOf(BigInt(id), 3) + 9n), word(0x0101n)]);
+    await hre.network.provider.send("hardhat_setStorageAt", [addr, word(slotOf(BigInt(id), 10)), word(0n)]);
+  }
+
+  it("sender recovers a legacy 0-claim once; refund alone could not", async () => {
+    const ctx = await loadFixture(deployFixture);
+    await legacyVoided(ctx);
+    await expect(ctx.stealth.connect(ctx.sender).refund(0)).to.be.revertedWith("StealthPayments: already finalized");
+
+    const before = await ctx.testUSDC.balanceOf(ctx.sender.address);
+    await expect(ctx.stealth.connect(ctx.bob).recoverLegacyVoidedClaim(0)).to.be.revertedWith("StealthPayments: not the sender");
+    await expect(ctx.stealth.connect(ctx.sender).recoverLegacyVoidedClaim(0)).to.emit(ctx.stealth, "LegacyClaimRecovered");
+    expect(await ctx.testUSDC.balanceOf(ctx.sender.address)).to.equal(before + usdc(60));
+    expect(await ctx.stealth.legacyRecovered(0)).to.equal(true);
+    await expect(ctx.stealth.connect(ctx.sender).recoverLegacyVoidedClaim(0)).to.be.revertedWith("StealthPayments: not recoverable");
+  });
+
+  it("rejects paid claims, new-code voids and refunded transfers", async () => {
+    const ctx = await loadFixture(deployFixture);
+    const vault = await ctx.vault.getAddress();
+    const stealth = await ctx.stealth.getAddress();
+    // Paid claim: published amount is non-zero.
+    const code = hre.ethers.id("paid");
+    await ctx.stealth.connect(ctx.sender).sendStealth(
+      usdc(10), ...(await encAddress(ctx.client, ctx.sender, ctx.alice.address, stealth)),
+      bindClaim(code, ctx.alice.address), vault, "",
+    );
+    await ctx.stealth.connect(ctx.alice).claimStealth(0, code);
+    const p = await decryptPendingAmount(ctx.stealth, ctx.client, ctx.alice, 0);
+    await ctx.stealth.connect(ctx.alice).finalizeClaim(0, p.plaintext, p.signature);
+    await expect(ctx.stealth.connect(ctx.sender).recoverLegacyVoidedClaim(0)).to.be.revertedWith("StealthPayments: claim was paid");
+
+    // New-code void then refund: claimVoided stays set, so no second payout.
+    const code2 = hre.ethers.id("void");
+    await ctx.stealth.connect(ctx.sender).sendStealth(
+      usdc(10), ...(await encAddress(ctx.client, ctx.sender, ctx.alice.address, stealth)),
+      bindClaim(code2, ctx.bob.address), vault, "",
+    );
+    await ctx.stealth.connect(ctx.bob).claimStealth(1, code2);
+    const p2 = await decryptPendingAmount(ctx.stealth, ctx.client, ctx.bob, 1);
+    await ctx.stealth.connect(ctx.bob).finalizeClaim(1, p2.plaintext, p2.signature);
+    await ctx.stealth.connect(ctx.sender).refund(1);
+    await expect(ctx.stealth.connect(ctx.sender).recoverLegacyVoidedClaim(1)).to.be.revertedWith("StealthPayments: not recoverable");
+
+    // A refunded transfer can no longer be claimed (it would mimic a legacy void).
+    const code3 = hre.ethers.id("refunded");
+    await ctx.stealth.connect(ctx.sender).sendStealth(
+      usdc(10), ...(await encAddress(ctx.client, ctx.sender, ctx.alice.address, stealth)),
+      bindClaim(code3, ctx.sender.address), vault, "",
+    );
+    await time.increase(31 * 24 * 3600);
+    await ctx.stealth.connect(ctx.sender).refund(2);
+    await expect(ctx.stealth.connect(ctx.sender).claimStealth(2, code3)).to.be.revertedWith("StealthPayments: already finalized");
+    await expect(ctx.stealth.connect(ctx.sender).recoverLegacyVoidedClaim(2)).to.be.revertedWith("StealthPayments: not a finalized claim");
+  });
+});

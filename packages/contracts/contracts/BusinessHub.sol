@@ -335,9 +335,9 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         require(!_isEscrowPayment(invoiceId), "BusinessHub: escrow payment, use releaseInvoiceEscrow");
 
         if (invoicePaymentMode[invoiceId] == PaymentMode.Direct) {
-            // #213 / #214: only the client, who is also the payment-starter.
-            require(msg.sender == inv.client, "BusinessHub: only client can finalize");
-            require(invoicePaymentStartedBy[invoiceId] == msg.sender, "BusinessHub: only the payment-starter can finalize");
+            // The signed decrypt fixes the outcome, so the vendor may finalize
+            // too; otherwise a silent client could stall the invoice forever.
+            require(msg.sender == inv.client || msg.sender == inv.vendor, "BusinessHub: only client or vendor can finalize");
         } else {
             require(msg.sender == inv.vendor, "BusinessHub: legacy payment, vendor must finalize");
         }
@@ -587,7 +587,10 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     ) external onlyOwner {
         require(token != address(0), "BusinessHub: zero token");
         require(to != address(0), "BusinessHub: zero recipient");
-        require(escrowAccountingCursor == nextEscrowId, "BusinessHub: account legacy escrows first");
+        require(
+            escrowAccountingCursor == nextEscrowId && unresolvedLegacyEscrows == 0,
+            "BusinessHub: account legacy escrows first"
+        );
         uint256 bal = IERC20(token).balanceOf(address(this));
         uint256 owed = escrowLiabilities[token];
         require(bal >= owed && amount <= bal - owed, "BusinessHub: amount exceeds free balance");
@@ -815,13 +818,38 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
                 if (token != address(0)) {
                     escrowLiabilities[token] += e.plaintextAmount;
                     _escrowLiabilityCounted[i] = true;
-                } else {
+                } else if (!legacyEscrowUnresolved[i]) {
+                    // Blocks withdrawAccumulated until accountLegacyEscrow
+                    // or a payout settles this escrow.
+                    legacyEscrowUnresolved[i] = true;
+                    unresolvedLegacyEscrows += 1;
                     emit LegacyEscrowUnresolved(i);
                 }
             }
             unchecked { ++i; ++done; }
         }
         escrowAccountingCursor = i;
+    }
+
+    /// @notice Count one legacy escrow that accountLegacyEscrows skipped,
+    ///         once the owner has registered its vault. Permissionless.
+    function accountLegacyEscrow(uint256 escrowId) external nonReentrant {
+        require(legacyEscrowUnresolved[escrowId], "BusinessHub: not unresolved");
+        Escrow storage e = _escrows[escrowId];
+        _clearUnresolved(escrowId);
+        if (e.status != EscrowStatus.Active && e.status != EscrowStatus.Disputed) return;
+        require(_isActiveVault(e.vault), "BusinessHub: vault not allowed");
+        address token = tokenRegistry.underlyingOf(e.vault);
+        escrowToken[escrowId] = token;
+        escrowLiabilities[token] += e.plaintextAmount;
+        _escrowLiabilityCounted[escrowId] = true;
+    }
+
+    function _clearUnresolved(uint256 escrowId) internal {
+        if (legacyEscrowUnresolved[escrowId]) {
+            legacyEscrowUnresolved[escrowId] = false;
+            unresolvedLegacyEscrows -= 1;
+        }
     }
 
     function _releaseEscrow(uint256 escrowId) internal {
@@ -845,6 +873,7 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
             token = tokenRegistry.underlyingOf(e.vault);
             escrowToken[escrowId] = token;
         }
+        _clearUnresolved(escrowId);
         if (_escrowLiabilityCounted[escrowId]) {
             _escrowLiabilityCounted[escrowId] = false;
             escrowLiabilities[token] -= e.plaintextAmount;
@@ -978,12 +1007,15 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     mapping(uint256 => bool) private _escrowLiabilityCounted;
     /// @dev Every escrow id below this has been considered for liabilities.
     uint256 public escrowAccountingCursor;
+    /// @dev Legacy escrows skipped by accountLegacyEscrows (no active vault).
+    mapping(uint256 => bool) public legacyEscrowUnresolved;
+    uint256 public unresolvedLegacyEscrows;
 
     /// @dev Reserved storage to avoid collisions on future upgrades.
     ///      Append-only: when adding a new state variable in a later upgrade,
     ///      decrement the gap size so total storage is unchanged.
-    /// @dev Used: 29. Gap: 38.
-    uint256[38] private __gap;
+    /// @dev Used: 31. Gap: 36.
+    uint256[36] private __gap;
 
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 

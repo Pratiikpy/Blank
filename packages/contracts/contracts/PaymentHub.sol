@@ -257,16 +257,14 @@ contract PaymentHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         );
         FHE.allowSender(actual);  // Payer can verify transfer succeeded
         FHE.allow(actual, req.to);
-        FHE.allowThis(actual);    // Needed for _bumpAggregate
+        FHE.allowThis(actual);    // Needed for the bump in finalizeRequest
 
         ebool paid = FHE.eq(actual, req.amount);
         FHE.allowThis(paid);
         FHE.allowPublic(paid);
         _fulfillCheck[requestId] = paid;
+        _fulfillMoved[requestId] = actual;
         req.status = RequestStatus.Settling;
-
-        // #84 / #207: bump with the moved handle (zero when nothing moved).
-        _bumpAggregate(req.to, actual);
 
         emit RequestSettling(requestId, block.timestamp);
     }
@@ -285,6 +283,10 @@ contract PaymentHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
         if (paid) {
             req.status = RequestStatus.Fulfilled;
+            // Receipts only count a settled payment; failed attempts would
+            // otherwise inflate the tx counters without limit.
+            euint64 moved = _fulfillMoved[requestId];
+            if (FHE.isInitialized(moved)) _bumpAggregate(req.to, moved);
             emit RequestFulfilled(requestId, req.vault, block.timestamp);
             try eventHub.emitActivity(req.from, req.to, "request_fulfilled", req.note, requestId) {} catch {}
         } else {
@@ -544,8 +546,11 @@ contract PaymentHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     /// @dev requestId => public ebool "moved == requested" for finalizeRequest.
     mapping(uint256 => ebool) private _fulfillCheck;
 
-    /// @dev Used: 10. Gap: 48.
-    uint256[48] private __gap;
+    /// @dev requestId => handle moved by the last fulfillRequest attempt.
+    mapping(uint256 => euint64) private _fulfillMoved;
+
+    /// @dev Used: 11. Gap: 47.
+    uint256[47] private __gap;
 
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 }

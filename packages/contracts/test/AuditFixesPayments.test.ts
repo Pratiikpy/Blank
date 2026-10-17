@@ -5,6 +5,14 @@ import { mock_expectPlaintext } from "@cofhe/hardhat-plugin";
 import { Encryptable, FheTypes } from "@cofhe/sdk";
 import { parseUnits } from "ethers";
 
+// ACP ids are wall-clock seconds minus 60; the mock revoker rejects an id
+// ahead of the chain, which happens once snapshot reverts leave the chain
+// clock behind real time.
+async function syncChainClock() {
+  const now = Math.floor(Date.now() / 1000);
+  if ((await time.latest()) < now) await time.increaseTo(now);
+}
+
 // Exploit tests for the pre-mainnet audit fixes in FHERC20Vault, PaymentHub
 // and PaymentReceipts. Each test fails on the pre-fix code.
 
@@ -63,6 +71,18 @@ async function enc(ctx: Ctx, signer: any, amount: bigint, consuming: string) {
 async function decryptBool(ctx: Ctx, signer: any, handle: any) {
   await hre.cofhe.connectWithHardhatSigner(ctx.client, signer);
   return await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutACP().execute();
+}
+
+async function snapshotValues(ctx: Ctx) {
+  const r = ctx.paymentReceipts;
+  await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.charlie);
+  await syncChainClock();
+  await ctx.client.acp.createSelf({ issuer: ctx.charlie.address, name: "global" });
+  await hre.network.provider.send("hardhat_mine", ["0x1"]);
+  return [
+    await ctx.client.decryptForView(await r.getGlobalVolumeHandle(), FheTypes.Uint64).execute(),
+    await ctx.client.decryptForView(await r.getGlobalTxCountHandle(), FheTypes.Uint64).execute(),
+  ];
 }
 
 async function finalize(ctx: Ctx, id: number) {
@@ -165,10 +185,28 @@ describe("Audit A8: PaymentHub requests cannot be marked Fulfilled unpaid", () =
     await mock_expectPlaintext(ctx.bob.provider, await ctx.vault.balanceOf(ctx.bob.address), usdc(1_000));
     await expect(finalize(ctx, 0)).to.emit(ctx.paymentHub, "RequestFulfillFailed");
     expect((await ctx.paymentHub.getRequest(0)).status).to.equal(PENDING);
-    // Receipt bump recorded only what moved (zero).
-    await mock_expectPlaintext(
-      ctx.bob.provider, await ctx.paymentReceipts.connect(ctx.bob).getMyTotalReceived(), 0n,
+    // A failed attempt records no receipt at all.
+    expect(await ctx.paymentReceipts.connect(ctx.bob).getMyTotalReceived()).to.equal(0n);
+  });
+
+  // Round 2: every failed attempt used to add 1 to the global tx count.
+  it("failed attempts do not bump receipts; only the settled one does", async () => {
+    const ctx = await loadFixture(fixture);
+    const hub = await ctx.paymentHub.getAddress();
+    await ctx.paymentHub.connect(ctx.bob).createRequest(
+      ctx.alice.address, await ctx.vault.getAddress(), ...(await enc(ctx, ctx.bob, usdc(40), hub)), "",
     );
+    for (let i = 0; i < 5; i++) {
+      await ctx.paymentHub.connect(ctx.alice).fulfillRequest(0, ...(await enc(ctx, ctx.alice, 1n, hub)));
+      await finalize(ctx, 0);
+    }
+    await ctx.paymentReceipts.publishGlobalSnapshot();
+    expect(await snapshotValues(ctx)).to.deep.equal([0n, 0n]);
+
+    await ctx.paymentHub.connect(ctx.alice).fulfillRequest(0, ...(await enc(ctx, ctx.alice, usdc(40), hub)));
+    expect(await ctx.paymentReceipts.connect(ctx.bob).getMyTotalReceived()).to.equal(0n);
+    await finalize(ctx, 0);
+    await mock_expectPlaintext(ctx.bob.provider, await ctx.paymentReceipts.connect(ctx.bob).getMyTotalReceived(), usdc(40));
   });
 
   it("short balance moves nothing and returns to Pending", async () => {
@@ -257,6 +295,7 @@ describe("Audit A4/A5/A7: FHERC20Vault", () => {
 
     const reset = await ctx.vault.pendingUnshield(ctx.alice.address);
     // Pre-fix: only the vault was allowed on the new handle; this view decrypt failed.
+    await syncChainClock();
     await ctx.client.acp.createSelf({ issuer: ctx.alice.address, name: "pending" });
     await hre.network.provider.send("hardhat_mine", ["0x1"]);
     expect(await ctx.client.decryptForView(reset, FheTypes.Uint64).execute()).to.equal(0n);
@@ -317,16 +356,43 @@ describe("Audit A2/A3: PaymentReceipts", () => {
     expect(await r.getGlobalVolumeHandle()).to.equal(snap1);
     await expect(r.publishGlobalSnapshot()).to.be.revertedWith("PaymentReceipts: snapshot too soon");
 
+    for (let i = 0; i < 4; i++) {
+      await ctx.paymentHub.connect(ctx.alice).sendPayment(
+        ctx.bob.address, await ctx.vault.getAddress(), ...(await enc(ctx, ctx.alice, usdc(33), hub)), "",
+      );
+    }
     await time.increase(24 * 3600);
     await expect(r.publishGlobalSnapshot()).to.emit(r, "GlobalSnapshotPublished");
     const snap2 = await r.getGlobalVolumeHandle();
-    await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.charlie);
-    await ctx.client.acp.createSelf({ issuer: ctx.charlie.address, name: "global" });
-    await hre.network.provider.send("hardhat_mine", ["0x1"]);
-    expect(await ctx.client.decryptForView(snap2, FheTypes.Uint64).execute()).to.equal(usdc(33));
-    expect(
-      await ctx.client.decryptForView(await r.getGlobalTxCountHandle(), FheTypes.Uint64).execute(),
-    ).to.equal(1n);
+    expect(await snapshotValues(ctx)).to.deep.equal([usdc(165), 5n]);
+    expect(snap2).to.not.equal(snap1);
+  });
+
+  // Round 2: a day with a single payment let the snapshot diff reveal it.
+  it("the snapshot holds until MIN_SNAPSHOT_TXS new payments landed", async () => {
+    const ctx = await loadFixture(fixture);
+    const hub = await ctx.paymentHub.getAddress();
+    const r = ctx.paymentReceipts;
+    const send = async (n: number) => {
+      for (let i = 0; i < n; i++) {
+        await ctx.paymentHub.connect(ctx.alice).sendPayment(
+          ctx.bob.address, await ctx.vault.getAddress(), ...(await enc(ctx, ctx.alice, usdc(11), hub)), "",
+        );
+      }
+    };
+    expect(await r.MIN_SNAPSHOT_TXS()).to.equal(5n);
+    await send(1);
+    await r.publishGlobalSnapshot();
+    // Pre-fix this decrypted to the single payment's 11 USDC.
+    expect(await snapshotValues(ctx)).to.deep.equal([0n, 0n]);
+    await send(4);
+    await time.increase(24 * 3600);
+    await r.publishGlobalSnapshot();
+    expect(await snapshotValues(ctx)).to.deep.equal([usdc(55), 5n]);
+    await send(1);
+    await time.increase(24 * 3600);
+    await r.publishGlobalSnapshot();
+    expect(await snapshotValues(ctx)).to.deep.equal([usdc(55), 5n]);
   });
 
   it("H9: the getter stays on the snapshot while payments land", async () => {

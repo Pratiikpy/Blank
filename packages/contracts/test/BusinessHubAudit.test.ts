@@ -356,6 +356,70 @@ describe("BusinessHub audit: escrow liabilities (H7)", () => {
     await ctx.hub.connect(ctx.bob).markDelivered(id);
     expect(await ctx.hub.escrowLiabilities(t)).to.equal(0n);
   });
+
+  // Round 2: a skipped legacy escrow still advanced the cursor, which
+  // unlocked withdrawAccumulated over its deposit.
+  async function legacyEscrow(ctx: Ctx) {
+    const hubAddr = await ctx.hub.getAddress();
+    const t = await ctx.token.getAddress();
+    const id = await escrow(ctx, usdc(50));
+    await setSlot(hubAddr, mapSlot("_escrowLiabilityCounted", id), 0n);
+    await setSlot(hubAddr, mapSlot("escrowLiabilities", t, "address"), 0n);
+    await setSlot(hubAddr, mapSlot("escrowToken", id), 0n);
+    await setSlot(hubAddr, slotOf("escrowAccountingCursor"), 0n);
+    await ctx.registry.deactivateToken(await ctx.vault.getAddress());
+    await ctx.hub.connect(ctx.charlie).accountLegacyEscrows(10);
+    expect(await ctx.hub.escrowAccountingCursor()).to.equal(1n);
+    expect(await ctx.hub.unresolvedLegacyEscrows()).to.equal(1n);
+    return { id, t };
+  }
+
+  it("an unresolved legacy escrow blocks withdrawals until it is accounted", async () => {
+    const ctx = await loadFixture(fixture);
+    const { id, t } = await legacyEscrow(ctx);
+    await expect(ctx.hub.withdrawAccumulated(t, ctx.owner.address, usdc(50)))
+      .to.be.revertedWith("BusinessHub: account legacy escrows first");
+    await expect(ctx.hub.accountLegacyEscrow(id)).to.be.revertedWith("BusinessHub: vault not allowed");
+
+    await ctx.registry.reactivateToken(await ctx.vault.getAddress());
+    await ctx.hub.connect(ctx.charlie).accountLegacyEscrow(id);
+    expect(await ctx.hub.unresolvedLegacyEscrows()).to.equal(0n);
+    expect(await ctx.hub.escrowLiabilities(t)).to.equal(usdc(50));
+    await expect(ctx.hub.accountLegacyEscrow(id)).to.be.revertedWith("BusinessHub: not unresolved");
+    await expect(ctx.hub.withdrawAccumulated(t, ctx.owner.address, 1n))
+      .to.be.revertedWith("BusinessHub: amount exceeds free balance");
+
+    await ctx.hub.connect(ctx.alice).approveRelease(id);
+    await ctx.hub.connect(ctx.bob).markDelivered(id);
+    expect(await ctx.hub.escrowLiabilities(t)).to.equal(0n);
+  });
+
+  it("paying out an unresolved legacy escrow clears it", async () => {
+    const ctx = await loadFixture(fixture);
+    const { id, t } = await legacyEscrow(ctx);
+    await ctx.registry.reactivateToken(await ctx.vault.getAddress());
+    await ctx.hub.connect(ctx.alice).approveRelease(id);
+    await ctx.hub.connect(ctx.bob).markDelivered(id);
+    expect(await ctx.hub.unresolvedLegacyEscrows()).to.equal(0n);
+    expect(await ctx.hub.escrowLiabilities(t)).to.equal(0n);
+    await ctx.token.mint(await ctx.hub.getAddress(), usdc(1));
+    await ctx.hub.withdrawAccumulated(t, ctx.owner.address, usdc(1));
+  });
+});
+
+describe("BusinessHub audit round 2: vendor can finalize a direct payment", () => {
+  it("vendor settles a direct payment when the client stays silent", async () => {
+    const ctx = await loadFixture(fixture);
+    await fund(ctx, ctx.bob, usdc(500));
+    const id = await invoice(ctx, usdc(100));
+    await ctx.hub.connect(ctx.bob).payInvoice(id, ...(await enc(ctx, ctx.bob, usdc(100))));
+    const v = await decryptBool(ctx, await ctx.hub.getInvoiceValidationHandle(id));
+    await expect(ctx.hub.connect(ctx.charlie).payInvoiceFinalize(id, v.value, v.signature))
+      .to.be.revertedWith("BusinessHub: only client or vendor can finalize");
+    // Pre-fix: "only client can finalize".
+    await ctx.hub.connect(ctx.alice).payInvoiceFinalize(id, v.value, v.signature);
+    expect((await ctx.hub.getInvoice(id)).status).to.equal(1);
+  });
 });
 
 describe("BusinessHub audit: escrow disputes (M2)", () => {
