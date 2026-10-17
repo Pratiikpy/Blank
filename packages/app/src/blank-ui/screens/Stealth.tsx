@@ -57,6 +57,8 @@ interface SentTransferInfo {
   timestamp: number;
   claimed: boolean;
   finalized: boolean;
+  /** Claim finalized to 0: nothing paid, refundable now. */
+  voided: boolean;
 }
 
 interface StoredClaimCode {
@@ -405,6 +407,22 @@ export default function Stealth() {
             args: [id],
           })) as [string, string, string, bigint, string, string, bigint, boolean, boolean];
 
+          // A claim that finalized to 0 (recipient mismatch) is voided and
+          // refundable at once. Older deployments lack the view: treat as false.
+          let voided = false;
+          if (result[7] && !result[8]) {
+            try {
+              voided = (await publicClient.readContract({
+                address: stealthAddress,
+                abi: StealthPaymentsAbi,
+                functionName: "claimVoided",
+                args: [id],
+              })) as boolean;
+            } catch {
+              voided = false;
+            }
+          }
+
           infos.push({
             transferId: Number(id),
             plaintextAmount: result[3],
@@ -412,6 +430,7 @@ export default function Stealth() {
             timestamp: Number(result[6]),
             claimed: result[7],
             finalized: result[8],
+            voided,
           });
         } catch {
           // Skip transfers that fail to load
@@ -1633,9 +1652,8 @@ export default function Stealth() {
                     const now = Math.floor(Date.now() / 1000);
                     const age = now - transfer.timestamp;
                     const canRefund =
-                      !transfer.claimed &&
                       !transfer.finalized &&
-                      age >= REFUND_WINDOW_SECONDS;
+                      (transfer.voided || (!transfer.claimed && age >= REFUND_WINDOW_SECONDS));
                     const isRefunding = refundingId === transfer.transferId;
                     const daysOld = Math.floor(age / 86400);
                     const daysUntilRefund = Math.max(
@@ -1689,9 +1707,11 @@ export default function Stealth() {
                               >
                                 {transfer.finalized
                                   ? "claimed"
-                                  : transfer.claimed
-                                    ? "claim pending"
-                                    : "unclaimed"}
+                                  : transfer.voided
+                                    ? "claim failed"
+                                    : transfer.claimed
+                                      ? "claim pending"
+                                      : "unclaimed"}
                               </div>
                             </div>
                             <p className="text-sm text-[var(--text-primary)]/50">
@@ -1709,6 +1729,11 @@ export default function Stealth() {
                               `daysUntilRefund > 0` the button is disabled and
                               we show a clear message; at 0 the window is open
                               and the button enables in amber-styling. */}
+                          {transfer.voided && !transfer.finalized && (
+                            <p className="text-xs text-right leading-snug text-amber-700 font-medium">
+                              The claim did not match the recipient. Nothing was paid. Refund now.
+                            </p>
+                          )}
                           {!transfer.claimed && !transfer.finalized && (
                             <p
                               className={cn(
@@ -1765,8 +1790,8 @@ export default function Stealth() {
                     className="text-amber-600 mt-0.5"
                   />
                   <p className="text-xs text-amber-700">
-                    Refunds are available after 30 days for unclaimed payments.
-                    Once a payment is claimed, it cannot be refunded.
+                    Refunds are available after 30 days for unclaimed payments, or at once if a
+                    claim did not match the recipient. Once a payment is claimed, it cannot be refunded.
                   </p>
                 </div>
               </div>

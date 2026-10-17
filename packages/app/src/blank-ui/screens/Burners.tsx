@@ -47,6 +47,7 @@ import { useChain } from "@/providers/ChainProvider";
 import { useUnifiedWrite } from "@/hooks/useUnifiedWrite";
 import {
   encryptBlob,
+  deriveBackupTag,
   recoverBurnersFromEvents,
   BurnerRegistryAbi,
 } from "@/lib/burner-registry";
@@ -150,15 +151,19 @@ export default function Burners() {
           id: b.id,
           salt: b.salt,
           label: b.label,
+          burner: b.address,
           createdAt: b.createdAt,
         },
         backupPassphrase,
       );
+      // The registry only sees an opaque tag; the burner address stays
+      // inside the ciphertext so the main-to-burner link is not public.
+      const tag = await deriveBackupTag(backupPassphrase, account.address, b.id);
       await unifiedWrite({
         address: registryAddr,
         abi: BurnerRegistryAbi,
         functionName: "setMetadata",
-        args: [b.address, ciphertext],
+        args: [tag, ciphertext],
         gas: BigInt(200_000),
       });
       toast.success(`Backed up "${b.label}" to chain`);

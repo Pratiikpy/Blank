@@ -914,12 +914,17 @@ describe("Stealth — Sent tab + #215 30-day refund window (§15.x)", () => {
       ageDays?: number;
       amount?: bigint;
       note?: string;
+      voided?: boolean;
     }>,
   ) {
     // First readContract call returns getSenderTransfers ids
-    mockReadContract.mockImplementation((args: { functionName: string }) => {
+    mockReadContract.mockImplementation((args: { functionName: string; args?: unknown[] }) => {
       if (args.functionName === "getSenderTransfers") {
         return Promise.resolve(transfers.map((t) => BigInt(t.transferId)));
+      }
+      if (args.functionName === "claimVoided") {
+        const id = Number(args.args?.[0]);
+        return Promise.resolve(transfers.find((t) => t.transferId === id)?.voided ?? false);
       }
       // getTransferInfo returns the tuple per id; match by index for simplicity
       const idx = mockReadContract.mock.calls
@@ -975,6 +980,27 @@ describe("Stealth — Sent tab + #215 30-day refund window (§15.x)", () => {
     await openSentTab(container);
     expect(container.textContent).not.toContain("Refund window open");
     expect(container.textContent).not.toContain("Refund available in");
+    expect(container.textContent).not.toContain("Nothing was paid. Refund now.");
+    const enabledRefund = Array.from(container.querySelectorAll("button"))
+      .find((b) => b.textContent?.includes("Refund") && !b.disabled);
+    expect(enabledRefund).toBeUndefined();
+  });
+
+  it("CRITICAL voided claim (finalized to 0) -> Refund enabled at once, even on day 1", async () => {
+    setSentTransfers([{ transferId: 8, ageDays: 1, claimed: true, voided: true }]);
+    unifiedWriteAndWaitMock.mockResolvedValue({ hash: "0xabc", receipt: { status: "success" } });
+    const { container } = render(<Stealth />);
+    await openSentTab(container);
+    expect(container.textContent).toContain("claim failed");
+    expect(container.textContent).toContain("Nothing was paid. Refund now.");
+    const refundBtn = Array.from(container.querySelectorAll("button"))
+      .find((b) => b.textContent?.includes("Refund") && !b.disabled) as HTMLButtonElement;
+    expect(refundBtn).toBeTruthy();
+    fireEvent.click(refundBtn);
+    await flush();
+    const args = unifiedWriteAndWaitMock.mock.calls[0][0];
+    expect(args.functionName).toBe("refund");
+    expect(args.args[0]).toBe(8n);
   });
 
   it("Refund click -> unifiedWriteAndWait called with refund function + transferId", async () => {

@@ -17,6 +17,15 @@ const useCofheConnectionMock = vi.hoisted(() => vi.fn());
 const useCofheDecryptForViewMock = vi.hoisted(() => vi.fn());
 const setActiveChainMock = vi.hoisted(() => vi.fn());
 const switchChainMock = vi.hoisted(() => vi.fn());
+const unifiedWriteAndWaitMock = vi.hoisted(() => vi.fn());
+
+vi.mock("@/hooks/useUnifiedWrite", () => ({
+  useUnifiedWrite: () => ({ unifiedWriteAndWait: unifiedWriteAndWaitMock }),
+}));
+
+vi.mock("react-hot-toast", () => ({
+  default: Object.assign(vi.fn(), { loading: vi.fn(() => "t"), success: vi.fn(), error: vi.fn() }),
+}));
 
 vi.mock("wagmi", () => ({
   useAccount: useAccountMock,
@@ -75,6 +84,7 @@ beforeEach(() => {
   switchChainMock.mockReset();
   readContractMock.mockReset();
   decryptForViewMock.mockReset();
+  unifiedWriteAndWaitMock.mockReset();
 
   // Sane defaults: connected, on the right chain, cofhe ready.
   useAccountMock.mockReturnValue({ isConnected: true });
@@ -231,15 +241,72 @@ describe("GlobalCounter — copy + accessibility (§15.x)", () => {
     expect(container.textContent).toContain("Receipts issued on Ethereum Sepolia");
   });
 
-  it("includes the FHE.allowGlobal explainer copy + verifiability claim", () => {
+  it("explains the daily snapshot instead of claiming a live public total", () => {
     const { container } = render(<GlobalCounter />);
     expect(container.textContent).toContain("FHE.allowGlobal");
-    expect(container.textContent).toContain("verify the total without learning any individual amount");
+    expect(container.textContent).toContain("at most once a day");
   });
 
   it("appends 'Connect a wallet to see live data' hint when not connected", () => {
     useAccountMock.mockReturnValue({ isConnected: false });
     const { container } = render(<GlobalCounter />);
     expect(container.textContent).toContain("Connect a wallet to see live data");
+  });
+});
+
+describe("GlobalCounter: daily snapshot", () => {
+  const flush = async () => {
+    await act(async () => {
+      for (let i = 0; i < 6; i++) await Promise.resolve();
+    });
+  };
+
+  it("zero handle + no snapshot: says so and offers to publish the first totals", async () => {
+    readContractMock.mockImplementation(async ({ functionName }: { functionName: string }) =>
+      functionName === "lastSnapshotAt" ? 0n : 0n,
+    );
+    unifiedWriteAndWaitMock.mockResolvedValue({ hash: "0xabc" });
+    const { container } = render(<GlobalCounter />);
+    await flush();
+    expect(container.textContent).toContain("No totals published yet");
+    expect(decryptForViewMock).not.toHaveBeenCalled();
+    const btn = Array.from(container.querySelectorAll("button")).find((b) =>
+      b.textContent?.includes("Publish the first totals"),
+    );
+    expect(btn).toBeDefined();
+    fireEvent.click(btn!);
+    await flush();
+    expect(unifiedWriteAndWaitMock).toHaveBeenCalledWith(
+      expect.objectContaining({ address: PR_ADDR, functionName: "publishGlobalSnapshot", args: [] }),
+    );
+  });
+
+  it("fresh snapshot: shows the totals and no publish button", async () => {
+    const recent = BigInt(Math.floor(Date.now() / 1000) - 60);
+    readContractMock.mockImplementation(async ({ functionName }: { functionName: string }) =>
+      functionName === "lastSnapshotAt" ? recent : 7n,
+    );
+    decryptForViewMock.mockResolvedValue(3n);
+    const { container } = render(<GlobalCounter />);
+    await flush();
+    expect(container.textContent).toContain("Last published");
+    const btn = Array.from(container.querySelectorAll("button")).find((b) =>
+      b.textContent?.includes("Publish"),
+    );
+    expect(btn).toBeUndefined();
+  });
+
+  it("stale snapshot (over a day old): offers to publish today's totals", async () => {
+    const old = BigInt(Math.floor(Date.now() / 1000) - 2 * 86_400);
+    readContractMock.mockImplementation(async ({ functionName }: { functionName: string }) =>
+      functionName === "lastSnapshotAt" ? old : 7n,
+    );
+    decryptForViewMock.mockResolvedValue(3n);
+    const { container } = render(<GlobalCounter />);
+    await flush();
+    const btn = Array.from(container.querySelectorAll("button")).find((b) =>
+      b.textContent?.includes("Publish today's totals"),
+    );
+    expect(btn).toBeDefined();
   });
 });

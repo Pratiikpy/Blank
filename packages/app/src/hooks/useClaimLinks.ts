@@ -16,14 +16,20 @@ import { invalidateBalanceQueries } from "@/lib/query-invalidation";
 import {
   MODE,
   type LinkMode,
-  generateSecret,
-  makeBearerHash,
-  makeEmailHash,
-  makeAddressHash,
-  emailDigest,
+  generateClaimKey,
+  deriveClaimKeyPriv,
+  claimKeyAddress,
+  signClaimDigest,
   buildClaimUrl,
   secretBytes32,
 } from "@/lib/claim-links";
+
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+
+/** Thrown for a pre-upgrade Bearer/EmailBound link: those claim paths were
+ *  removed on-chain, so only the sender's refund after expiry remains. */
+export const LEGACY_LINK_MESSAGE =
+  "This link was created before the claim upgrade and can no longer be claimed. The sender can refund it after it expires.";
 
 // ─── Step Machine — drives FHE-loading-state UI (Wave 4 task #245) ────
 
@@ -135,28 +141,27 @@ export function useClaimLinks() {
           }
         }
 
-        // Generate secret + compute hash for the chosen mode.
-        const secret = generateSecret();
-        let secretHash: `0x${string}`;
+        // Generate the secret and the one-time claim key it derives. Only the
+        // key's address goes on-chain; the secret stays in the URL fragment.
+        let email: string | undefined;
         let boundAddress: `0x${string}` = "0x0000000000000000000000000000000000000000";
         switch (params.input.mode) {
           case MODE.Bearer:
-            secretHash = makeBearerHash(secret);
             break;
           case MODE.EmailBound:
             if (!params.input.email || params.input.email.indexOf("@") < 1) {
               throw new Error("Email is required for EmailBound mode");
             }
-            secretHash = makeEmailHash(secret, params.input.email);
+            email = params.input.email;
             break;
           case MODE.AddressBound:
             if (!params.input.boundAddress) {
               throw new Error("Address is required for AddressBound mode");
             }
-            secretHash = makeAddressHash(secret);
             boundAddress = params.input.boundAddress;
             break;
         }
+        const { secret, claimKey } = generateClaimKey(params.input.mode, email);
 
         // Encrypt the amount. The SDK fires step callbacks for each of
         // its 5 internal phases (initTfhe → fetchKeys → pack → prove →
@@ -179,7 +184,8 @@ export function useClaimLinks() {
           args: [
             params.vault,
             encAmount,
-            encAmountProof,secretHash,
+            encAmountProof,
+            claimKey,
             params.input.mode,
             boundAddress,
             BigInt(params.expirySeconds),
@@ -259,27 +265,58 @@ export function useClaimLinks() {
         return false;
       }
 
+      if (!publicClient) {
+        toast.error("Connection lost. Please refresh.");
+        return false;
+      }
+      if (!address) {
+        toast.error(notReadyReason ?? "Wallet not connected");
+        return false;
+      }
+
       try {
         pipeline.start();
         pipeline.markSubmitting();
         setState((s) => ({ ...s, step: "sending", isProcessing: true, error: null }));
-        const secretHex = secretBytes32(params.secret);
+        const linkIdBig = BigInt(params.linkId);
 
-        let writeArgs: { functionName: "claimBearer" | "claimEmailBound" | "claimAddressBound"; args: readonly unknown[] };
-        switch (params.mode) {
-          case MODE.Bearer:
-            writeArgs = { functionName: "claimBearer", args: [BigInt(params.linkId), secretHex] };
-            break;
-          case MODE.EmailBound:
-            if (!params.email) throw new Error("Email is required to claim this link");
-            writeArgs = {
-              functionName: "claimEmailBound",
-              args: [BigInt(params.linkId), secretHex, emailDigest(params.email)],
-            };
-            break;
-          case MODE.AddressBound:
-            writeArgs = { functionName: "claimAddressBound", args: [BigInt(params.linkId), secretHex] };
-            break;
+        const registeredKey = (await publicClient.readContract({
+          address: claimLinksAddress,
+          abi: ClaimLinksAbi,
+          functionName: "claimKeyOf",
+          args: [linkIdBig],
+        })) as `0x${string}`;
+
+        let writeArgs: { functionName: "claim" | "claimAddressBound"; args: readonly unknown[] };
+        if (registeredKey.toLowerCase() !== ZERO_ADDRESS) {
+          // v2: derive the claim key from the secret, check it matches, and
+          // sign the digest bound to the address that will send the tx.
+          if (params.mode === MODE.EmailBound && !params.email) {
+            throw new Error("Email is required to claim this link");
+          }
+          const priv = deriveClaimKeyPriv(params.mode, params.secret, params.email);
+          if (!priv) throw new Error("This claim link is malformed");
+          if (claimKeyAddress(priv).toLowerCase() !== registeredKey.toLowerCase()) {
+            throw new Error(
+              params.mode === MODE.EmailBound
+                ? "That email does not match this link"
+                : "This claim link is invalid or was copied incorrectly",
+            );
+          }
+          const digest = (await publicClient.readContract({
+            address: claimLinksAddress,
+            abi: ClaimLinksAbi,
+            functionName: "claimDigest",
+            args: [linkIdBig, address],
+          })) as `0x${string}`;
+          const signature = await signClaimDigest(priv, digest);
+          writeArgs = { functionName: "claim", args: [linkIdBig, signature] };
+        } else if (params.mode === MODE.AddressBound) {
+          // Legacy AddressBound links still claim with the secret; only the
+          // bound address can call, so it is not front-runnable.
+          writeArgs = { functionName: "claimAddressBound", args: [linkIdBig, secretBytes32(params.secret)] };
+        } else {
+          throw new Error(LEGACY_LINK_MESSAGE);
         }
 
         const writeResult = await unifiedWriteAndWait({
@@ -312,7 +349,7 @@ export function useClaimLinks() {
         return false;
       }
     },
-    [contracts.ClaimLinks, unifiedWriteAndWait, pipeline],
+    [contracts.ClaimLinks, publicClient, address, notReadyReason, unifiedWriteAndWait, pipeline],
   );
 
   // ─── refund ────────────────────────────────────────────────────────
@@ -393,7 +430,24 @@ export function useClaimLinks() {
           claimed, refunded, note, claimer, claimedAt,
         ] = result;
         if (sender === "0x0000000000000000000000000000000000000000") return null;
+        // claimKeyOf is zero for links created before the v2 upgrade (and
+        // on a pre-upgrade deployment, where the view does not exist).
+        let claimKey: `0x${string}` = ZERO_ADDRESS;
+        try {
+          claimKey = (await publicClient.readContract({
+            address: claimLinksAddress,
+            abi: ClaimLinksAbi,
+            functionName: "claimKeyOf",
+            args: [linkId],
+          })) as `0x${string}`;
+        } catch {
+          claimKey = ZERO_ADDRESS;
+        }
+        const legacy = claimKey.toLowerCase() === ZERO_ADDRESS;
         return {
+          legacy,
+          /** Legacy Bearer/EmailBound links can only be refunded. */
+          legacyRefundOnly: legacy && mode !== MODE.AddressBound,
           id: linkId,
           sender,
           vault,

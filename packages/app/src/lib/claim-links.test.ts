@@ -1,6 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { keccak256, toUtf8Bytes } from "ethers";
+import { keccak256, toUtf8Bytes, solidityPackedKeccak256, AbiCoder, Wallet, getBytes, verifyMessage } from "ethers";
 import {
+  deriveClaimKeyPriv,
+  claimKeyAddress,
+  generateClaimKey,
+  computeClaimDigest,
+  signClaimDigest,
+  CLAIM_TYPEHASH,
   buildClaimUrl,
   parseClaimUrl,
   generateSecret,
@@ -324,5 +330,69 @@ describe("claim-links", () => {
       const dec = base64UrlToBytes(enc);
       expect(Array.from(dec)).toEqual([1, 2, 3, 4, 5]);
     });
+  });
+});
+
+// v2 claim keys. Cross-checked against an independent ethers reference that
+// mirrors packages/contracts/test/ClaimLinks.test.ts (claimWallet/localDigest),
+// which the hardhat suite runs against the contract.
+describe("claim-links v2 claim keys", () => {
+  const secret = new Uint8Array(32).map((_, i) => (i * 7 + 3) & 0xff);
+  const secretHex = secretBytes32(secret);
+
+  it("CLAIM_TYPEHASH = keccak256('BLANK_CLAIM_v2')", () => {
+    expect(CLAIM_TYPEHASH).toBe(keccak256(toUtf8Bytes("BLANK_CLAIM_v2")));
+  });
+
+  it("Bearer / AddressBound priv = keccak256(encodePacked('BLANK_CLAIM_KEY_v2', mode, secret))", () => {
+    for (const mode of [MODE.Bearer, MODE.AddressBound]) {
+      const ref = solidityPackedKeccak256(["string", "uint8", "bytes32"], ["BLANK_CLAIM_KEY_v2", mode, secretHex]);
+      expect(deriveClaimKeyPriv(mode, secret)).toBe(ref);
+      expect(claimKeyAddress(deriveClaimKeyPriv(mode, secret)!)).toBe(new Wallet(ref).address);
+    }
+  });
+
+  it("EmailBound priv mixes in emailDigest (normalised) and differs from Bearer", () => {
+    const ref = solidityPackedKeccak256(
+      ["string", "uint8", "bytes32", "bytes32"],
+      ["BLANK_CLAIM_KEY_v2", 1, secretHex, keccak256(toUtf8Bytes("alice@example.com"))],
+    );
+    expect(deriveClaimKeyPriv(MODE.EmailBound, secret, " Alice@Example.com ")).toBe(ref);
+    expect(ref).not.toBe(deriveClaimKeyPriv(MODE.Bearer, secret));
+  });
+
+  it("EmailBound without email throws", () => {
+    expect(() => deriveClaimKeyPriv(MODE.EmailBound, secret)).toThrow(/Email is required/);
+  });
+
+  it("generateClaimKey returns a secret whose derived key matches claimKey", () => {
+    const { secret: s, priv, claimKey } = generateClaimKey(MODE.Bearer);
+    expect(deriveClaimKeyPriv(MODE.Bearer, s)).toBe(priv);
+    expect(claimKeyAddress(priv)).toBe(claimKey);
+  });
+
+  it("computeClaimDigest matches abi.encode(TYPEHASH, linkId, claimer, chainId, contract)", () => {
+    const claimer = "0x1111111111111111111111111111111111111111";
+    const contract = "0x2222222222222222222222222222222222222222";
+    const ref = keccak256(
+      AbiCoder.defaultAbiCoder().encode(
+        ["bytes32", "uint256", "address", "uint256", "address"],
+        [keccak256(toUtf8Bytes("BLANK_CLAIM_v2")), 5n, claimer, 11155111n, contract],
+      ),
+    );
+    expect(computeClaimDigest(5n, claimer, 11155111, contract)).toBe(ref);
+  });
+
+  it("signClaimDigest is EIP-191 over the raw 32 bytes and recovers to the claim key", async () => {
+    const priv = deriveClaimKeyPriv(MODE.Bearer, secret)!;
+    const digest = computeClaimDigest(
+      1n,
+      "0x1111111111111111111111111111111111111111",
+      84532,
+      "0x2222222222222222222222222222222222222222",
+    );
+    const sig = await signClaimDigest(priv, digest);
+    expect(verifyMessage(getBytes(digest), sig)).toBe(claimKeyAddress(priv));
+    expect(sig).toBe(await new Wallet(priv).signMessage(getBytes(digest)));
   });
 });

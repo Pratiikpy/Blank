@@ -4,7 +4,7 @@ import { resolve } from "path";
 import { Encryptable } from "@cofhe/sdk";
 import { createCofheClient, createCofheConfig } from "@cofhe/sdk/node";
 import { sepolia, baseSepolia } from "@cofhe/sdk/chains";
-import { createPublicClient, createWalletClient, http, keccak256, encodePacked, toBytes, hexToBytes } from "viem";
+import { createPublicClient, createWalletClient, http, keccak256, encodePacked, hexToBytes } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { sepolia as viemSepolia, baseSepolia as viemBaseSepolia } from "viem/chains";
 
@@ -19,8 +19,9 @@ import { sepolia as viemSepolia, baseSepolia as viemBaseSepolia } from "viem/cha
 // Flow:
 //   1. Approve ClaimLinks on vault (idempotent).
 //   2. Encrypt amount via cofhe-sdk against threshold network.
-//   3. Generate 32-byte secret + compute bearer secretHash (DOMAIN ‖ 0x00 ‖ secret).
-//   4. createLink(vault, encAmount, secretHash, BEARER, 0x0, 0, note).
+//   3. Generate a 32-byte secret and derive the v2 bearer claim key:
+//      priv = keccak256(abi.encodePacked("BLANK_CLAIM_KEY_v2", uint8(0), secret)).
+//   4. createLink(vault, encAmount, proof, claimKey, BEARER, 0x0, 0, note).
 //   5. Wait for receipt, extract linkId from LinkCreated event.
 //   6. Print the shareable URL.
 //
@@ -115,24 +116,31 @@ task("test-claim-link-flow", "Create a real bearer claim-link from the deployer 
       .execute();
     console.log(`      handle: ${encHandle}`);
 
-    // ── 3. Generate secret + bearer hash ───────────────────────────────
-    // DOMAIN = keccak256("BLANK_CLAIM_v1")
-    // Bearer hash = keccak256(abi.encodePacked(DOMAIN, uint8(0), secret))
-    const DOMAIN = keccak256(toBytes("BLANK_CLAIM_v1"));
-    const secretBytes = new Uint8Array(32);
-    crypto.getRandomValues(secretBytes);
-    const secretHex = ("0x" + Array.from(secretBytes).map((b) => b.toString(16).padStart(2, "0")).join("")) as `0x${string}`;
-    const secretHash = keccak256(encodePacked(["bytes32", "uint8", "bytes32"], [DOMAIN, 0, secretHex]));
+    // ── 3. Generate secret + bearer claim key (v2) ─────────────────────
+    // Only the claim key's address goes on-chain. Regenerate the secret in
+    // the (negligible) case the derived key is out of the secp256k1 range.
+    const SECP256K1_N = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n;
+    let secretHex: `0x${string}` = "0x";
+    let claimKey: `0x${string}` = ZERO_ADDRESS;
+    for (let attempt = 0; attempt < 16 && claimKey === ZERO_ADDRESS; attempt++) {
+      const secretBytes = new Uint8Array(32);
+      crypto.getRandomValues(secretBytes);
+      secretHex = ("0x" + Array.from(secretBytes).map((b) => b.toString(16).padStart(2, "0")).join("")) as `0x${string}`;
+      const priv = keccak256(encodePacked(["string", "uint8", "bytes32"], ["BLANK_CLAIM_KEY_v2", 0, secretHex]));
+      const n = BigInt(priv);
+      if (n !== 0n && n < SECP256K1_N) claimKey = privateKeyToAccount(priv).address;
+    }
+    if (claimKey === ZERO_ADDRESS) throw new Error("Could not derive a claim key");
 
-    console.log("\n[3/5] Generated secret + bearer hash");
-    console.log(`      secret:     ${secretHex}`);
-    console.log(`      secretHash: ${secretHash}`);
+    console.log("\n[3/5] Generated secret + bearer claim key");
+    console.log(`      secret:   ${secretHex}`);
+    console.log(`      claimKey: ${claimKey}`);
 
     // ── 4. Call createLink ─────────────────────────────────────────────
     const claimLinks = new hre.ethers.Contract(
       claimLinksAddr,
       [
-        "function createLink(address vault, bytes32 encAmount, bytes proof, bytes32 secretHash, uint8 mode, address boundAddress, uint256 expirySeconds, string note) returns (uint256)",
+        "function createLink(address vault, bytes32 encAmount, bytes proof, address claimKey, uint8 mode, address boundAddress, uint256 expirySeconds, string note) returns (uint256)",
         "event LinkCreated(uint256 indexed linkId, address indexed sender, address vault, uint8 mode, address indexed boundAddress, uint256 expiryTimestamp, string note)",
       ],
       signer,
@@ -142,7 +150,7 @@ task("test-claim-link-flow", "Create a real bearer claim-link from the deployer 
     const createTx = await claimLinks.createLink(
       vaultAddr,
       encHandle, encProof,
-      secretHash,
+      claimKey,
       0, // BEARER
       ZERO_ADDRESS,
       0, // expiry 0 = use contract default (7 days)

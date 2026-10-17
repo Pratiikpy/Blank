@@ -10,13 +10,16 @@ import { resolve } from "path";
  * non-upgradeable (no proxy) — see contract-level NatSpec for the
  * rationale.
  *
- * Once deployed, the frontend can:
- *   1. Encrypt burner metadata client-side using a key derived from the
- *      user's passkey (Phase 6.2 frontend follow-up).
- *   2. Call `setMetadata(burnerAddress, encryptedBlob)` via the existing
- *      `useUnifiedWrite` abstraction.
- *   3. Recover the burner list on a fresh device by streaming the
- *      `MetadataSet` event log filtered by the user's main address.
+ * v2 keys records by (owner, tag), never by burner address. The frontend
+ * (src/lib/burner-registry.ts):
+ *   1. Encrypts { id, salt, label, burner, createdAt } with a passphrase key.
+ *   2. Derives tag = HMAC(passphrase key, burnerId) and calls
+ *      `setMetadata(tag, encryptedBlob)` through useUnifiedWrite.
+ *   3. Recovers on a fresh device from `BackupSet` / `BackupCleared` logs
+ *      filtered by the main address.
+ *
+ * v1 deployments published owner -> burner links in event topics; retire
+ * them by pointing constants.ts at the new address.
  *
  * Usage:
  *   npx hardhat deploy-burner-registry --network eth-sepolia
@@ -71,12 +74,5 @@ task(
   console.log(`[burner-registry] ✓ Wrote address to ${deploymentFile}`);
 
   console.log(``);
-  console.log(`Next steps (frontend follow-up):`);
-  console.log(`  1. Add BurnerRegistry to lib/constants.ts CONTRACTS_BY_CHAIN.`);
-  console.log(`  2. Build src/lib/burner-registry.ts:`);
-  console.log(`       - deriveKey(passkey) → AES-GCM key`);
-  console.log(`       - encryptBlob(metadata, key) → bytes`);
-  console.log(`       - publishMetadata(burnerAddr, blob)`);
-  console.log(`       - recoverBurnersFromEvents(ownerAddr) → BurnerRecord[]`);
-  console.log(`  3. Wire into Burners.tsx as an opt-in 'Back up to chain' button.`);
+  console.log(`Next step: set BurnerRegistry in packages/app/src/lib/constants.ts for this chain.`);
 });

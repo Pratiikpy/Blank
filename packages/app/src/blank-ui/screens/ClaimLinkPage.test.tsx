@@ -65,6 +65,9 @@ const VAULT = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 const ZERO = "0x0000000000000000000000000000000000000000";
 
 let readContractMock: ReturnType<typeof vi.fn>;
+// claimKeyOf read: non-zero = v2 link, zero = legacy (pre-upgrade) link.
+let claimKeyOfMock: ReturnType<typeof vi.fn>;
+const CLAIM_KEY = "0xcccccccccccccccccccccccccccccccccccccccc";
 let claimMock: ReturnType<typeof vi.fn>;
 
 function buildOnChainTuple(over: Partial<{
@@ -131,7 +134,11 @@ beforeEach(() => {
   useEffectiveAddressMock.mockReturnValue({ effectiveAddress: undefined });
 
   readContractMock = vi.fn().mockResolvedValue(buildOnChainTuple());
-  usePublicClientMock.mockReturnValue({ readContract: readContractMock });
+  claimKeyOfMock = vi.fn().mockResolvedValue(CLAIM_KEY);
+  usePublicClientMock.mockReturnValue({
+    readContract: (args: { functionName: string }) =>
+      args.functionName === "claimKeyOf" ? claimKeyOfMock(args) : readContractMock(args),
+  });
 
   claimMock = vi.fn().mockResolvedValue(undefined);
   setHook();
@@ -293,6 +300,33 @@ describe("ClaimLinkPage — status state machine (§15.x)", () => {
   });
 
   it("happy-path claimable state shows 'Claim private payment' button", async () => {
+    const { findByText } = render(<ClaimLinkPage />);
+    expect(await findByText("Claim private payment")).toBeDefined();
+  });
+
+  it("legacy Bearer link (no claim key) -> honest refund-only card, no Claim button", async () => {
+    claimKeyOfMock.mockResolvedValue(ZERO);
+    const { findByText, container } = render(<ClaimLinkPage />);
+    await findByText("This link can no longer be claimed");
+    expect(container.textContent).toContain("sender can refund");
+    expect(container.textContent).not.toContain("Claim private payment");
+  });
+
+  it("legacy view missing on an old deployment -> treated as legacy, not a load error", async () => {
+    claimKeyOfMock.mockRejectedValue(new Error("execution reverted"));
+    const { findByText } = render(<ClaimLinkPage />);
+    expect(await findByText("This link can no longer be claimed")).toBeDefined();
+  });
+
+  it("legacy AddressBound link stays claimable (bound address claims with the secret)", async () => {
+    claimKeyOfMock.mockResolvedValue(ZERO);
+    readContractMock.mockResolvedValueOnce(buildOnChainTuple({ mode: 2 }));
+    parseClaimUrlMock.mockReturnValue({
+      chainId: 11155111,
+      linkId: 42,
+      mode: 2,
+      secret: new Uint8Array(32).fill(7),
+    });
     const { findByText } = render(<ClaimLinkPage />);
     expect(await findByText("Claim private payment")).toBeDefined();
   });

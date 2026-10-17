@@ -45,6 +45,9 @@ export const PaymentHubAbi = [
   { type: "function", name: "sendPayment", inputs: [{ name: "to", type: "address" }, { name: "vault", type: "address" }, { name: "encAmount", type: "bytes32", internalType: "externalEuint64" }, { name: "proof", type: "bytes" }, { name: "note", type: "string" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "createRequest", inputs: [{ name: "from", type: "address" }, { name: "vault", type: "address" }, { name: "encAmount", type: "bytes32", internalType: "externalEuint64" }, { name: "proof", type: "bytes" }, { name: "note", type: "string" }], outputs: [{ name: "", type: "uint256" }], stateMutability: "nonpayable" },
   { type: "function", name: "fulfillRequest", inputs: [{ name: "requestId", type: "uint256" }, { name: "encAmount", type: "bytes32", internalType: "externalEuint64" }, { name: "proof", type: "bytes" }], outputs: [], stateMutability: "nonpayable" },
+  // Step 2 of a request payment: publish the decrypt of getFulfillCheck.
+  { type: "function", name: "finalizeRequest", inputs: [{ name: "requestId", type: "uint256" }, { name: "paidPlaintext", type: "bool" }, { name: "signature", type: "bytes" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "getFulfillCheck", inputs: [{ name: "requestId", type: "uint256" }], outputs: [{ name: "", type: "uint256", internalType: "ebool" }], stateMutability: "view" },
   { type: "function", name: "cancelRequest", inputs: [{ name: "requestId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "getIncomingRequests", inputs: [{ name: "user", type: "address" }], outputs: [{ name: "", type: "uint256[]" }], stateMutability: "view" },
   { type: "function", name: "getOutgoingRequests", inputs: [{ name: "user", type: "address" }], outputs: [{ name: "", type: "uint256[]" }], stateMutability: "view" },
@@ -55,6 +58,8 @@ export const PaymentHubAbi = [
   { type: "event", name: "RequestCreated", inputs: [{ name: "requestId", type: "uint256", indexed: true }, { name: "from", type: "address", indexed: true }, { name: "to", type: "address", indexed: true }, { name: "vault", type: "address", indexed: false }, { name: "note", type: "string", indexed: false }, { name: "timestamp", type: "uint256", indexed: false }] },
   { type: "event", name: "RequestFulfilled", inputs: [{ name: "requestId", type: "uint256", indexed: true }, { name: "vault", type: "address", indexed: true }, { name: "timestamp", type: "uint256", indexed: false }] },
   { type: "event", name: "RequestCancelled", inputs: [{ name: "requestId", type: "uint256", indexed: true }, { name: "timestamp", type: "uint256", indexed: false }] },
+  { type: "event", name: "RequestSettling", inputs: [{ name: "requestId", type: "uint256", indexed: true }, { name: "timestamp", type: "uint256", indexed: false }] },
+  { type: "event", name: "RequestFulfillFailed", inputs: [{ name: "requestId", type: "uint256", indexed: true }, { name: "timestamp", type: "uint256", indexed: false }] },
   { type: "event", name: "BatchPaymentSent", inputs: [{ name: "from", type: "address", indexed: true }, { name: "vault", type: "address", indexed: false }, { name: "recipientCount", type: "uint256", indexed: false }, { name: "timestamp", type: "uint256", indexed: false }] },
   // Agent attestations (v0.1.3) — ECDSA-verified provenance for AI-derived payments
   { type: "function", name: "agentDigest", inputs: [{ name: "user", type: "address" }, { name: "nonce", type: "bytes32" }, { name: "expiry", type: "uint256" }], outputs: [{ name: "", type: "bytes32" }], stateMutability: "view" },
@@ -260,12 +265,15 @@ export const InheritanceManagerAbi = [
 // Flow: initiateSwap (encrypted amount) → async decrypt → executeSwap (DEX swap)
 export const PrivacyRouterAbi = [
   // Swap lifecycle
-  { type: "function", name: "initiateSwap", inputs: [{ name: "vaultIn", type: "address" }, { name: "vaultOut", type: "address" }, { name: "encAmount", type: "bytes32", internalType: "externalEuint64" }, { name: "proof", type: "bytes" }, { name: "minAmountOut", type: "uint256" }], outputs: [{ name: "", type: "uint256" }], stateMutability: "nonpayable" },
+  { type: "function", name: "initiateSwap", inputs: [{ name: "vaultIn", type: "address" }, { name: "vaultOut", type: "address" }, { name: "encAmount", type: "bytes32", internalType: "externalEuint64" }, { name: "proof", type: "bytes" }, { name: "minAmountOut", type: "uint256" }, { name: "deadline", type: "uint256" }], outputs: [{ name: "", type: "uint256" }], stateMutability: "nonpayable" },
   { type: "function", name: "executeSwap", inputs: [{ name: "swapId", type: "uint256" }, { name: "plaintext", type: "uint64" }, { name: "signature", type: "bytes" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "cancelSwap", inputs: [{ name: "swapId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "claimCancelledSwap", inputs: [{ name: "swapId", type: "uint256" }, { name: "plaintext", type: "uint64" }, { name: "signature", type: "bytes" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "claimExpiredSwap", inputs: [{ name: "swapId", type: "uint256" }, { name: "plaintext", type: "uint64" }, { name: "signature", type: "bytes" }], outputs: [], stateMutability: "nonpayable" },
-  // View functions
+  { type: "function", name: "resolveSwapAmount", inputs: [{ name: "swapId", type: "uint256" }, { name: "plaintext", type: "uint64" }, { name: "signature", type: "bytes" }], outputs: [], stateMutability: "nonpayable" },
+  // View functions. status: 0 Pending, 1 Decrypting, 2 Ready, 3 Executed, 4 Cancelled, 5 Expired, 6 Refunded
+  { type: "function", name: "getEncryptedAmountIn", inputs: [{ name: "swapId", type: "uint256" }], outputs: [{ name: "", type: "uint256", internalType: "euint64" }], stateMutability: "view" },
+  { type: "function", name: "swapDeadline", inputs: [{ name: "", type: "uint256" }], outputs: [{ name: "", type: "uint256" }], stateMutability: "view" },
   { type: "function", name: "getSwap", inputs: [{ name: "swapId", type: "uint256" }], outputs: [{ name: "user", type: "address" }, { name: "vaultIn", type: "address" }, { name: "vaultOut", type: "address" }, { name: "tokenIn", type: "address" }, { name: "tokenOut", type: "address" }, { name: "plaintextAmountIn", type: "uint256" }, { name: "minAmountOut", type: "uint256" }, { name: "timestamp", type: "uint256" }, { name: "status", type: "uint8" }], stateMutability: "view" },
   { type: "function", name: "getUserSwaps", inputs: [{ name: "user", type: "address" }], outputs: [{ name: "", type: "uint256[]" }], stateMutability: "view" },
   { type: "function", name: "isDecryptionReady", inputs: [{ name: "swapId", type: "uint256" }], outputs: [{ name: "", type: "bool" }], stateMutability: "view" },
@@ -280,6 +288,8 @@ export const PrivacyRouterAbi = [
   { type: "event", name: "SwapExecuted", inputs: [{ name: "swapId", type: "uint256", indexed: true }, { name: "user", type: "address", indexed: true }, { name: "amountOut", type: "uint256", indexed: false }, { name: "timestamp", type: "uint256", indexed: false }] },
   { type: "event", name: "SwapCancelled", inputs: [{ name: "swapId", type: "uint256", indexed: true }, { name: "user", type: "address", indexed: true }, { name: "timestamp", type: "uint256", indexed: false }] },
   { type: "event", name: "SwapExpired", inputs: [{ name: "swapId", type: "uint256", indexed: true }, { name: "user", type: "address", indexed: true }, { name: "timestamp", type: "uint256", indexed: false }] },
+  { type: "event", name: "SwapRefunded", inputs: [{ name: "swapId", type: "uint256", indexed: true }, { name: "user", type: "address", indexed: true }, { name: "amount", type: "uint256", indexed: false }] },
+  { type: "event", name: "SwapAmountResolved", inputs: [{ name: "swapId", type: "uint256", indexed: true }, { name: "tokenIn", type: "address", indexed: true }, { name: "amount", type: "uint256", indexed: false }] },
 ] as const;
 
 // ─── StealthPayments — Privacy-preserving stealth payment system ──────────────
@@ -300,12 +310,15 @@ export const StealthPaymentsAbi = [
   { type: "function", name: "getSenderTransfers", inputs: [{ name: "sender", type: "address" }], outputs: [{ name: "", type: "uint256[]" }], stateMutability: "view" },
   { type: "function", name: "getMyPendingClaims", inputs: [{ name: "claimCodeHashes", type: "bytes32[]" }], outputs: [{ name: "transferIds", type: "uint256[]" }, { name: "found", type: "bool[]" }], stateMutability: "view" },
   { type: "function", name: "getClaimStatus", inputs: [{ name: "transferId", type: "uint256" }], outputs: [{ name: "claimer", type: "address" }, { name: "isPending", type: "bool" }, { name: "isFinalized", type: "bool" }], stateMutability: "view" },
+  // True once a claim finalized to 0 (recipient mismatch); the sender may refund at once.
+  { type: "function", name: "claimVoided", inputs: [{ name: "", type: "uint256" }], outputs: [{ name: "", type: "bool" }], stateMutability: "view" },
   { type: "function", name: "totalTransfers", inputs: [], outputs: [{ name: "", type: "uint256" }], stateMutability: "view" },
   { type: "function", name: "nextTransferId", inputs: [], outputs: [{ name: "", type: "uint256" }], stateMutability: "view" },
   // Events
   { type: "event", name: "StealthSent", inputs: [{ name: "transferId", type: "uint256", indexed: true }, { name: "sender", type: "address", indexed: true }, { name: "claimCodeHash", type: "bytes32", indexed: false }, { name: "vault", type: "address", indexed: false }, { name: "note", type: "string", indexed: false }, { name: "timestamp", type: "uint256", indexed: false }] },
   { type: "event", name: "StealthClaimStarted", inputs: [{ name: "transferId", type: "uint256", indexed: true }, { name: "claimer", type: "address", indexed: true }, { name: "timestamp", type: "uint256", indexed: false }] },
   { type: "event", name: "StealthFinalized", inputs: [{ name: "transferId", type: "uint256", indexed: true }, { name: "claimer", type: "address", indexed: true }, { name: "timestamp", type: "uint256", indexed: false }] },
+  { type: "event", name: "StealthClaimVoided", inputs: [{ name: "transferId", type: "uint256", indexed: true }, { name: "claimer", type: "address", indexed: true }, { name: "timestamp", type: "uint256", indexed: false }] },
 ] as const;
 
 // ─── EncryptedFlags — Encrypted compliance flags, fee engine, access control ──
@@ -370,18 +383,26 @@ export const PaymentReceiptsAbi = [
   { type: "function", name: "getProofHandle", inputs: [{ name: "proofId", type: "uint256" }], outputs: [{ name: "", type: "uint256", internalType: "ebool" }], stateMutability: "view" },
   { type: "function", name: "getProofsByUser", inputs: [{ name: "user", type: "address" }], outputs: [{ name: "", type: "uint256[]" }], stateMutability: "view" },
   { type: "function", name: "proofCount", inputs: [], outputs: [{ name: "", type: "uint256" }], stateMutability: "view" },
-  // Public encrypted aggregates (FHE.allowGlobal — anyone can decrypt)
+  // Public aggregates: a daily snapshot of the live totals. The getGlobal*
+  // handles return the snapshot, which is the zero handle until the first
+  // publishGlobalSnapshot call. Anyone may publish, once per SNAPSHOT_INTERVAL.
   { type: "function", name: "getGlobalVolumeHandle", inputs: [], outputs: [{ name: "", type: "uint256", internalType: "euint64" }], stateMutability: "view" },
   { type: "function", name: "getGlobalTxCountHandle", inputs: [], outputs: [{ name: "", type: "uint256", internalType: "euint64" }], stateMutability: "view" },
+  { type: "function", name: "getSnapshotVolumeHandle", inputs: [], outputs: [{ name: "", type: "uint256", internalType: "euint64" }], stateMutability: "view" },
+  { type: "function", name: "getSnapshotTxCountHandle", inputs: [], outputs: [{ name: "", type: "uint256", internalType: "euint64" }], stateMutability: "view" },
+  { type: "function", name: "publishGlobalSnapshot", inputs: [], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "lastSnapshotAt", inputs: [], outputs: [{ name: "", type: "uint256" }], stateMutability: "view" },
+  { type: "function", name: "SNAPSHOT_INTERVAL", inputs: [], outputs: [{ name: "", type: "uint256" }], stateMutability: "view" },
+  { type: "event", name: "GlobalSnapshotPublished", inputs: [{ name: "volume", type: "bytes32", indexed: false, internalType: "euint64" }, { name: "txCount", type: "bytes32", indexed: false, internalType: "euint64" }, { name: "timestamp", type: "uint256", indexed: false }] },
   // Authorization (hub wiring). Owner sets which contracts can call bump* / issueReceipt.
   { type: "function", name: "setAuthorizedCaller", inputs: [{ name: "caller", type: "address" }, { name: "authorized", type: "bool" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "authorizedCallers", inputs: [{ name: "", type: "address" }], outputs: [{ name: "", type: "bool" }], stateMutability: "view" },
   // Cross-contract aggregate bumps — called from PaymentHub/BusinessHub/GiftMoney/
   // StealthPayments AFTER a successful encrypted transfer. #91, #92, #199, #207.
-  { type: "function", name: "bumpGlobalVolume", inputs: [{ name: "amount", type: "uint256", internalType: "euint64" }], outputs: [], stateMutability: "nonpayable" },
-  { type: "function", name: "bumpGlobal", inputs: [{ name: "amount", type: "uint256", internalType: "euint64" }], outputs: [], stateMutability: "nonpayable" },
-  { type: "function", name: "bumpUserReceived", inputs: [{ name: "user", type: "address" }, { name: "amount", type: "uint256", internalType: "euint64" }], outputs: [], stateMutability: "nonpayable" },
-  { type: "function", name: "decrementGlobalVolume", inputs: [{ name: "amount", type: "uint256", internalType: "euint64" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "bumpGlobalVolume", inputs: [{ name: "shared", type: "bytes32", internalType: "sharedEuint64" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "bumpGlobal", inputs: [{ name: "shared", type: "bytes32", internalType: "sharedEuint64" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "bumpUserReceived", inputs: [{ name: "user", type: "address" }, { name: "shared", type: "bytes32", internalType: "sharedEuint64" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "decrementGlobalVolume", inputs: [{ name: "shared", type: "bytes32", internalType: "sharedEuint64" }], outputs: [], stateMutability: "nonpayable" },
   // Events
   { type: "event", name: "ReceiptIssued", inputs: [{ name: "receiptHash", type: "bytes32", indexed: true }, { name: "payer", type: "address", indexed: true }, { name: "payee", type: "address", indexed: true }, { name: "timestamp", type: "uint256", indexed: false }] },
   { type: "event", name: "ProofCreated", inputs: [{ name: "proofId", type: "uint256", indexed: true }, { name: "prover", type: "address", indexed: true }, { name: "threshold", type: "uint64", indexed: false }, { name: "kind", type: "string", indexed: false }, { name: "timestamp", type: "uint256", indexed: false }] },
@@ -448,16 +469,20 @@ export const ERC6538RegistryAbi = [
 // Source: contracts/ClaimLinks.sol
 // Modes: 0 = Bearer, 1 = EmailBound, 2 = AddressBound
 export const ClaimLinksAbi = [
-  { type: "function", name: "createLink", inputs: [{ name: "vault", type: "address" }, { name: "encAmount", type: "bytes32", internalType: "externalEuint64" }, { name: "proof", type: "bytes" }, { name: "secretHash", type: "bytes32" }, { name: "mode", type: "uint8", internalType: "enum ClaimLinks.LinkMode" }, { name: "boundAddress", type: "address" }, { name: "expirySeconds", type: "uint256" }, { name: "note", type: "string" }], outputs: [{ name: "linkId", type: "uint256" }], stateMutability: "nonpayable" },
-  { type: "function", name: "claimBearer", inputs: [
+  { type: "function", name: "createLink", inputs: [{ name: "vault", type: "address" }, { name: "encAmount", type: "bytes32", internalType: "externalEuint64" }, { name: "proof", type: "bytes" }, { name: "claimKey", type: "address" }, { name: "mode", type: "uint8", internalType: "enum ClaimLinks.LinkMode" }, { name: "boundAddress", type: "address" }, { name: "expirySeconds", type: "uint256" }, { name: "note", type: "string" }], outputs: [{ name: "linkId", type: "uint256" }], stateMutability: "nonpayable" },
+  // v2 claim: signature by the link's claim key over claimDigest(linkId, msg.sender).
+  { type: "function", name: "claim", inputs: [
     { name: "linkId", type: "uint256" },
-    { name: "secret", type: "bytes32" },
+    { name: "signature", type: "bytes" },
   ], outputs: [], stateMutability: "nonpayable" },
-  { type: "function", name: "claimEmailBound", inputs: [
+  { type: "function", name: "claimDigest", inputs: [
     { name: "linkId", type: "uint256" },
-    { name: "secret", type: "bytes32" },
-    { name: "emailHash", type: "bytes32" },
-  ], outputs: [], stateMutability: "nonpayable" },
+    { name: "claimer", type: "address" },
+  ], outputs: [{ name: "", type: "bytes32" }], stateMutability: "view" },
+  // Zero for legacy (pre-v2) links.
+  { type: "function", name: "claimKeyOf", inputs: [{ name: "", type: "uint256" }], outputs: [{ name: "", type: "address" }], stateMutability: "view" },
+  { type: "function", name: "CLAIM_TYPEHASH", inputs: [], outputs: [{ name: "", type: "bytes32" }], stateMutability: "view" },
+  // Legacy AddressBound links only (claimKeyOf == 0).
   { type: "function", name: "claimAddressBound", inputs: [
     { name: "linkId", type: "uint256" },
     { name: "secret", type: "bytes32" },
@@ -685,6 +710,11 @@ export const EncryptedEscrowAbi = [
     { name: "releaseToBeneficiary", type: "bool" },
   ], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "claimExpiredEscrow", inputs: [{ name: "escrowId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
+  // Depositor exit when the arbiter never rules, DISPUTE_TIMEOUT after the dispute opened.
+  { type: "function", name: "claimDisputeTimeout", inputs: [{ name: "escrowId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "getDisputedAt", inputs: [{ name: "escrowId", type: "uint256" }], outputs: [{ name: "", type: "uint256" }], stateMutability: "view" },
+  { type: "function", name: "DISPUTE_TIMEOUT", inputs: [], outputs: [{ name: "", type: "uint256" }], stateMutability: "view" },
+  // status: 0 Active, 1 Disputed, 2 Released, 3 Refunded
   { type: "function", name: "getEscrow", inputs: [{ name: "escrowId", type: "uint256" }], outputs: [
     { name: "depositor", type: "address" },
     { name: "beneficiary", type: "address" },
@@ -743,6 +773,10 @@ export const EncryptedEscrowAbi = [
   { type: "event", name: "EscrowResolverSet", inputs: [
     { name: "escrowId", type: "uint256", indexed: true },
     { name: "resolver", type: "address", indexed: true },
+  ] },
+  { type: "event", name: "EscrowRefunded", inputs: [
+    { name: "escrowId", type: "uint256", indexed: true },
+    { name: "depositor", type: "address", indexed: true },
   ] },
 ] as const;
 

@@ -681,6 +681,41 @@ describe("useEncryptedEscrow — callSimple plaintext ops (§15.x)", () => {
     );
   });
 
+  it("claimDisputeTimeout(id) -> claimDisputeTimeout(BigInt id) + honest label", async () => {
+    const { result } = renderHook(() => useEncryptedEscrow());
+    await act(async () => {
+      await result.current.claimDisputeTimeout(6);
+    });
+    const call = unifiedWriteAndWaitMock.mock.calls[0][0];
+    expect(call.functionName).toBe("claimDisputeTimeout");
+    expect(call.args).toEqual([6n]);
+    expect(toastSuccessMock).toHaveBeenCalledWith("Dispute timed out. Funds returned to you");
+  });
+
+  it("fetchDisputeTimeoutAt: disputedAt + DISPUTE_TIMEOUT; pre-upgrade disputes count from the deadline", async () => {
+    const DAY30 = 30n * 86_400n;
+    const escrowTuple = (status: number, deadline: bigint) =>
+      [ME, ME, ME, ME, deadline, false, false, status, "", 0n] as const;
+    const reads = (disputedAt: bigint, status: number) =>
+      vi.fn(async ({ functionName }: { functionName: string }) => {
+        if (functionName === "getDisputedAt") return disputedAt;
+        if (functionName === "DISPUTE_TIMEOUT") return DAY30;
+        if (functionName === "getEscrow") return escrowTuple(status, 5_000n);
+        throw new Error(functionName);
+      });
+    usePublicClientMock.mockReturnValue({ readContract: reads(1_000n, 1) });
+    let { result } = renderHook(() => useEncryptedEscrow());
+    expect(await result.current.fetchDisputeTimeoutAt(1)).toBe(1_000n + DAY30);
+
+    usePublicClientMock.mockReturnValue({ readContract: reads(0n, 1) });
+    ({ result } = renderHook(() => useEncryptedEscrow()));
+    expect(await result.current.fetchDisputeTimeoutAt(1)).toBe(5_000n + DAY30);
+
+    usePublicClientMock.mockReturnValue({ readContract: reads(0n, 0) });
+    ({ result } = renderHook(() => useEncryptedEscrow()));
+    expect(await result.current.fetchDisputeTimeoutAt(1)).toBeNull();
+  });
+
   it("arbiterDecide(id, true) -> arbiterDecide with (BigInt id, true)", async () => {
     const { result } = renderHook(() => useEncryptedEscrow());
     await act(async () => {

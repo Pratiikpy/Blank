@@ -185,16 +185,15 @@ task(
               outputs: [
                 { name: "sender", type: "address" },
                 { name: "vault", type: "address" },
-                { name: "secretHash", type: "bytes32" },
-                { name: "boundAddress", type: "address" },
                 { name: "mode", type: "uint8" },
+                { name: "boundAddress", type: "address" },
                 { name: "createdAt", type: "uint256" },
                 { name: "expiryTimestamp", type: "uint256" },
                 { name: "claimed", type: "bool" },
                 { name: "refunded", type: "bool" },
+                { name: "note", type: "string" },
                 { name: "claimer", type: "address" },
                 { name: "claimedAt", type: "uint256" },
-                { name: "note", type: "string" },
               ],
             },
           ],
@@ -207,6 +206,74 @@ task(
       }
       await new Promise((r) => setTimeout(r, 400));
     }
+  }
+
+  // ClaimLinks v2: the secret derives a one-time claim key; only its address
+  // goes on-chain and the claimer submits the key's EIP-191 signature over
+  // claimDigest(linkId, claimer). Mirrors packages/app/src/lib/claim-links.ts.
+  const CLAIM_LINKS_V2_ABI = [
+    {
+      name: "createLink",
+      type: "function",
+      stateMutability: "nonpayable",
+      inputs: [
+        { name: "vault", type: "address" },
+        { name: "encAmount", type: "bytes32" },
+        { name: "proof", type: "bytes" },
+        { name: "claimKey", type: "address" },
+        { name: "mode", type: "uint8" },
+        { name: "boundAddress", type: "address" },
+        { name: "expirySeconds", type: "uint256" },
+        { name: "note", type: "string" },
+      ],
+      outputs: [{ name: "linkId", type: "uint256" }],
+    },
+    {
+      name: "claim",
+      type: "function",
+      stateMutability: "nonpayable",
+      inputs: [
+        { name: "linkId", type: "uint256" },
+        { name: "signature", type: "bytes" },
+      ],
+      outputs: [],
+    },
+    {
+      name: "claimDigest",
+      type: "function",
+      stateMutability: "view",
+      inputs: [
+        { name: "linkId", type: "uint256" },
+        { name: "claimer", type: "address" },
+      ],
+      outputs: [{ type: "bytes32" }],
+    },
+  ] as const;
+  const SECP256K1_N = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n;
+
+  /** Fresh secret + claim key for a mode. EmailBound mixes the email hash in. */
+  function makeClaimKey(seedLabel: string, mode: 0 | 1 | 2, emailHash?: Hex): { priv: Hex; claimKey: `0x${string}` } {
+    for (let attempt = 0; attempt < 16; attempt++) {
+      const secretHex = keccak256(toBytes(`${seedLabel}-${Date.now()}-${attempt}`));
+      const priv =
+        mode === 1
+          ? keccak256(encodePacked(["string", "uint8", "bytes32", "bytes32"], ["BLANK_CLAIM_KEY_v2", 1, secretHex, emailHash!]))
+          : keccak256(encodePacked(["string", "uint8", "bytes32"], ["BLANK_CLAIM_KEY_v2", mode, secretHex]));
+      const n = BigInt(priv);
+      if (n !== 0n && n < SECP256K1_N) return { priv, claimKey: privateKeyToAccount(priv).address };
+    }
+    throw new Error("could not derive a valid claim key");
+  }
+
+  /** Claim signature for `claimer`, signed by the claim key. */
+  async function signClaim(claimLinksAddr: `0x${string}`, priv: Hex, linkId: bigint, claimer: `0x${string}`): Promise<Hex> {
+    const digest = (await publicClient.readContract({
+      address: claimLinksAddr,
+      abi: CLAIM_LINKS_V2_ABI,
+      functionName: "claimDigest",
+      args: [linkId, claimer],
+    })) as Hex;
+    return privateKeyToAccount(priv).signMessage({ message: { raw: digest } });
   }
 
   // Pre-computed event selectors (keccak256 of the canonical event sig)
@@ -961,7 +1028,7 @@ task(
   // Hoist secret/linkId from the create-link step out to the outer scope
   // so the second-leg (Dave claims Bob's bearer link) can read both.
   let bearerLinkId: bigint | null = null;
-  let bearerSecretHex: Hex | null = null;
+  let bearerClaimPriv: Hex | null = null;
 
   // ─── 8. Claim link — Bob creates a bearer link ─────────────────
   console.log("[Feature 8] Claim link — Bob creates a bearer link (5 USDC)");
@@ -991,14 +1058,8 @@ task(
         .setConsumingContract(ClaimLinks as `0x${string}`)
         .execute()) as [Hex, Hex];
 
-      // bearer secret + hash
-      const DOMAIN = keccak256(toBytes("BLANK_CLAIM_v1"));
-      const secretBytes = new Uint8Array(32);
-      // deterministic-ish secret so the run is reproducible by hash
-      const seedRaw = keccak256(toBytes(`wave4-sweep-claim-link-${Date.now()}`));
-      for (let i = 0; i < 32; i++) secretBytes[i] = parseInt(seedRaw.slice(2 + i * 2, 4 + i * 2), 16);
-      const secretHex = ("0x" + Array.from(secretBytes).map((b) => b.toString(16).padStart(2, "0")).join("")) as `0x${string}`;
-      const secretHash = keccak256(encodePacked(["bytes32", "uint8", "bytes32"], [DOMAIN, 0, secretHex]));
+      // bearer secret -> one-time claim key (v2)
+      const bearerKey = makeClaimKey("wave4-sweep-claim-link", 0);
 
       // Pre-read nextLinkId before create to dodge race against
       // concurrent createLink calls from other deployers on the shared
@@ -1010,29 +1071,12 @@ task(
       })) as bigint;
       const linkHash = await bobWallet.writeContract({
         address: ClaimLinks as `0x${string}`,
-        abi: [
-          {
-            name: "createLink",
-            type: "function",
-            stateMutability: "nonpayable",
-            inputs: [
-              { name: "vault", type: "address" },
-              { name: "encAmount", type: "bytes32" },
-              { name: "proof", type: "bytes" },
-              { name: "secretHash", type: "bytes32" },
-              { name: "mode", type: "uint8" },
-              { name: "boundAddress", type: "address" },
-              { name: "expirySeconds", type: "uint256" },
-              { name: "note", type: "string" },
-            ],
-            outputs: [{ name: "linkId", type: "uint256" }],
-          },
-        ],
+        abi: CLAIM_LINKS_V2_ABI,
         functionName: "createLink",
         args: [
           Vault as `0x${string}`,
           encLink, encLinkProof,
-          secretHash,
+          bearerKey.claimKey,
           0, // BEARER mode
           "0x0000000000000000000000000000000000000000",
           0n,
@@ -1047,7 +1091,7 @@ task(
       // Use the LinkCreated event log to extract the real id we just
       // minted. Race-safe regardless of concurrent writes.
       bearerLinkId = await extractIdFromReceipt(linkHash, ClaimLinks, SIG.LinkCreated);
-      bearerSecretHex = secretHex;
+      bearerClaimPriv = bearerKey.priv;
 
       // Negative 16: Dave attempts to claim the just-created bearer
       // link with an obviously-wrong (all-zero) secret. Runs here, BEFORE
@@ -1058,25 +1102,29 @@ task(
         // Wait for the just-mined createLink to be visible to the
         // simulate's RPC (defeats Base Sepolia's stale-node race).
         await waitForLinkVisible(ClaimLinks as `0x${string}`, bearerIdForNeg);
-        console.log("[Negative 16] claimBearer with WRONG secret — should revert");
-        await expectRevert("wrong-secret claim", "neg_wrong_secret_claim", "Dave", async () => {
+        console.log("[Negative 16] claim signed by the WRONG key: should revert");
+        const wrongKey = makeClaimKey("wave4-sweep-wrong-key", 0);
+        const wrongSig = await signClaim(ClaimLinks as `0x${string}`, wrongKey.priv, bearerIdForNeg, personas[3]!.address);
+        await expectRevert("wrong-key claim", "neg_wrong_secret_claim", "Dave", async () => {
           await publicClient.simulateContract({
             account: privateKeyToAccount(personas[3]!.privKey),
             address: ClaimLinks as `0x${string}`,
-            abi: [
-              {
-                name: "claimBearer",
-                type: "function",
-                stateMutability: "nonpayable",
-                inputs: [
-                  { name: "linkId", type: "uint256" },
-                  { name: "secret", type: "bytes32" },
-                ],
-                outputs: [],
-              },
-            ],
-            functionName: "claimBearer",
-            args: [bearerIdForNeg, "0x0000000000000000000000000000000000000000000000000000000000000000"],
+            abi: CLAIM_LINKS_V2_ABI,
+            functionName: "claim",
+            args: [bearerIdForNeg, wrongSig],
+            gas: 5_000_000n,
+          });
+        });
+        // A valid signature made for someone else must not work for Dave.
+        console.log("[Negative 16b] claim with a signature bound to another claimer: should revert");
+        const carolBoundSig = await signClaim(ClaimLinks as `0x${string}`, bearerKey.priv, bearerIdForNeg, personas[2]!.address);
+        await expectRevert("replayed claim signature", "neg_replayed_claim_sig", "Dave", async () => {
+          await publicClient.simulateContract({
+            account: privateKeyToAccount(personas[3]!.privKey),
+            address: ClaimLinks as `0x${string}`,
+            abi: CLAIM_LINKS_V2_ABI,
+            functionName: "claim",
+            args: [bearerIdForNeg, carolBoundSig],
             gas: 5_000_000n,
           });
         });
@@ -1111,16 +1159,7 @@ task(
         .execute()) as [Hex, Hex];
 
       // LinkMode enum: Bearer=0, EmailBound=1, AddressBound=2
-      // secretHash = keccak256(DOMAIN || uint8(mode) || secret)
-      const DOMAIN_AB = keccak256(toBytes("BLANK_CLAIM_v1"));
-      const secretSeed = keccak256(toBytes(`wave4-sweep-addrbound-${Date.now()}`));
-      const ABsecretBytes = new Uint8Array(32);
-      for (let i = 0; i < 32; i++) ABsecretBytes[i] = parseInt(secretSeed.slice(2 + i * 2, 4 + i * 2), 16);
-      const ABsecretHex = ("0x" + Array.from(ABsecretBytes).map((b) => b.toString(16).padStart(2, "0")).join("")) as Hex;
-      // mode=2 (AddressBound) — was 1 (EmailBound) by mistake, causing
-      // claimAddressBound to revert with "wrong mode" because the link
-      // was actually created as EmailBound.
-      const ABsecretHash = keccak256(encodePacked(["bytes32", "uint8", "bytes32"], [DOMAIN_AB, 2, ABsecretHex]));
+      const abKey = makeClaimKey("wave4-sweep-addrbound", 2);
 
       // Pre-read for AddressBound link too
       const abLinkIdPreCreate = (await publicClient.readContract({
@@ -1130,29 +1169,12 @@ task(
       })) as bigint;
       const linkABHash = await withRetry("claim_link_ab_create", () => bobWallet.writeContract({
         address: ClaimLinks as `0x${string}`,
-        abi: [
-          {
-            name: "createLink",
-            type: "function",
-            stateMutability: "nonpayable",
-            inputs: [
-              { name: "vault", type: "address" },
-              { name: "encAmount", type: "bytes32" },
-              { name: "proof", type: "bytes" },
-              { name: "secretHash", type: "bytes32" },
-              { name: "mode", type: "uint8" },
-              { name: "boundAddress", type: "address" },
-              { name: "expirySeconds", type: "uint256" },
-              { name: "note", type: "string" },
-            ],
-            outputs: [{ name: "linkId", type: "uint256" }],
-          },
-        ],
+        abi: CLAIM_LINKS_V2_ABI,
         functionName: "createLink",
         args: [
           Vault as `0x${string}`,
           encAddrLink, encAddrLinkProof,
-          ABsecretHash,
+          abKey.claimKey,
           2, // LinkMode.AddressBound (Bearer=0, EmailBound=1, AddressBound=2)
           personas[2]!.address, // Carol only
           0n,
@@ -1164,7 +1186,7 @@ task(
       console.log(`  Bob: AddressBound createLink (bound=Carol) ok  tx=${linkABHash}`);
       results.push({ feature: "claim_link_addr_bound", persona: "Bob", status: "pass", txHash: linkABHash });
 
-      // Carol claims via claimAddressBound
+      // Carol claims via claim() with the bound-address guard
       // Race-safe: extract the real linkId from the AddressBound
       // createLink tx's LinkCreated event log.
       const justCreatedAB = await extractIdFromReceipt(linkABHash, ClaimLinks, SIG.LinkCreated);
@@ -1175,25 +1197,16 @@ task(
       // that fires after Carol's claim mines.
       await waitForLinkVisible(ClaimLinks as `0x${string}`, justCreatedAB);
       console.log("[Negative 8d] AddressBound claim by non-bound address — should revert");
+      // Dave holds a correctly signed claim for himself; the bound-address
+      // guard must still reject it.
+      const daveSigAB = await signClaim(ClaimLinks as `0x${string}`, abKey.priv, justCreatedAB, personas[3]!.address);
       await expectRevert("Dave claims Carol's link", "neg_addr_bound_wrong_caller", "Dave", async () => {
         await publicClient.simulateContract({
           account: privateKeyToAccount(personas[3]!.privKey),
           address: ClaimLinks as `0x${string}`,
-          abi: [
-            {
-              name: "claimAddressBound",
-              type: "function",
-              stateMutability: "nonpayable",
-              inputs: [
-                { name: "linkId", type: "uint256" },
-                { name: "secret", type: "bytes32" },
-              ],
-              outputs: [],
-            },
-          ],
-          functionName: "claimAddressBound",
-          // Even with the correct secret, Dave is not bound (Carol is).
-          args: [justCreatedAB, ABsecretHex],
+          abi: CLAIM_LINKS_V2_ABI,
+          functionName: "claim",
+          args: [justCreatedAB, daveSigAB],
           gas: 5_000_000n,
         });
       });
@@ -1203,26 +1216,16 @@ task(
         chain,
         transport: http(rpcUrl),
       });
+      const carolSigAB = await signClaim(ClaimLinks as `0x${string}`, abKey.priv, justCreatedAB, personas[2]!.address);
       const claimABHash = await withRetry("claim_link_ab_claim", () => carolWallet.writeContract({
         address: ClaimLinks as `0x${string}`,
-        abi: [
-          {
-            name: "claimAddressBound",
-            type: "function",
-            stateMutability: "nonpayable",
-            inputs: [
-              { name: "linkId", type: "uint256" },
-              { name: "secret", type: "bytes32" },
-            ],
-            outputs: [],
-          },
-        ],
-        functionName: "claimAddressBound",
-        args: [justCreatedAB, ABsecretHex],
+        abi: CLAIM_LINKS_V2_ABI,
+        functionName: "claim",
+        args: [justCreatedAB, carolSigAB],
         gas: 5_000_000n,
       }));
       await waitOk(claimABHash, "claimABHash");
-      console.log(`  Carol: claimAddressBound link #${justCreatedAB} ok  tx=${claimABHash}`);
+      console.log(`  Carol: claim (AddressBound) link #${justCreatedAB} ok  tx=${claimABHash}`);
       results.push({ feature: "claim_link_addr_bound_claim", persona: "Carol", status: "pass", txHash: claimABHash });
     } catch (err) {
       const msg = err instanceof Error ? err.message.slice(0, 250) : String(err);
@@ -1264,42 +1267,17 @@ task(
       });
       await waitOk(apEbHash, "apEbHash");
 
-      const DOMAIN_EB = keccak256(toBytes("BLANK_CLAIM_v1"));
-      const ebSecretSeed = keccak256(toBytes(`wave4-sweep-emailbound-${Date.now()}`));
-      const ebSecretBytes = new Uint8Array(32);
-      for (let i = 0; i < 32; i++) ebSecretBytes[i] = parseInt(ebSecretSeed.slice(2 + i * 2, 4 + i * 2), 16);
-      const ebSecretHex = ("0x" + Array.from(ebSecretBytes).map((b) => b.toString(16).padStart(2, "0")).join("")) as Hex;
       const ebEmailHash = keccak256(toBytes("dave@wave4-sweep.example"));
-      // secretHash = keccak256(DOMAIN || uint8(1=EmailBound) || secret || emailHash)
-      const ebSecretHash = keccak256(
-        encodePacked(["bytes32", "uint8", "bytes32", "bytes32"], [DOMAIN_EB, 1, ebSecretHex, ebEmailHash]),
-      );
+      const ebKey = makeClaimKey("wave4-sweep-emailbound", 1, ebEmailHash);
 
       const linkEBHash = await withRetry("claim_link_eb_create", () => carolWallet0.writeContract({
         address: ClaimLinks as `0x${string}`,
-        abi: [
-          {
-            name: "createLink",
-            type: "function",
-            stateMutability: "nonpayable",
-            inputs: [
-              { name: "vault", type: "address" },
-              { name: "encAmount", type: "bytes32" },
-              { name: "proof", type: "bytes" },
-              { name: "secretHash", type: "bytes32" },
-              { name: "mode", type: "uint8" },
-              { name: "boundAddress", type: "address" },
-              { name: "expirySeconds", type: "uint256" },
-              { name: "note", type: "string" },
-            ],
-            outputs: [{ type: "uint256" }],
-          },
-        ],
+        abi: CLAIM_LINKS_V2_ABI,
         functionName: "createLink",
         args: [
           Vault as `0x${string}`,
           encEmailLink, encEmailLinkProof,
-          ebSecretHash,
+          ebKey.claimKey,
           1, // EmailBound
           "0x0000000000000000000000000000000000000000",
           0n,
@@ -1318,27 +1296,16 @@ task(
         chain,
         transport: http(rpcUrl),
       });
+      const daveSigEB = await signClaim(ClaimLinks as `0x${string}`, ebKey.priv, justCreatedEB, personas[3]!.address);
       const claimEBHash = await withRetry("claim_link_eb_claim", () => daveWalletEB.writeContract({
         address: ClaimLinks as `0x${string}`,
-        abi: [
-          {
-            name: "claimEmailBound",
-            type: "function",
-            stateMutability: "nonpayable",
-            inputs: [
-              { name: "linkId", type: "uint256" },
-              { name: "secret", type: "bytes32" },
-              { name: "emailHash", type: "bytes32" },
-            ],
-            outputs: [],
-          },
-        ],
-        functionName: "claimEmailBound",
-        args: [justCreatedEB, ebSecretHex, ebEmailHash],
+        abi: CLAIM_LINKS_V2_ABI,
+        functionName: "claim",
+        args: [justCreatedEB, daveSigEB],
         gas: 5_000_000n,
       }));
       await waitOk(claimEBHash, "claimEBHash");
-      console.log(`  Dave: claimEmailBound link #${justCreatedEB} ok  tx=${claimEBHash}`);
+      console.log(`  Dave: claim (EmailBound) link #${justCreatedEB} ok  tx=${claimEBHash}`);
       results.push({ feature: "claim_link_email_bound_claim", persona: "Dave", status: "pass", txHash: claimEBHash });
     } catch (err) {
       const msg = err instanceof Error ? err.message.slice(0, 250) : String(err);
@@ -1355,7 +1322,7 @@ task(
 
   // ─── 8b. Claim link — Dave claims Bob's bearer link ────────────
   console.log("[Feature 8b] Dave claims Bob's bearer link");
-  if (!ClaimLinks || bearerLinkId === null || !bearerSecretHex) {
+  if (!ClaimLinks || bearerLinkId === null || !bearerClaimPriv) {
     results.push({ feature: "claim_link_claim", persona: "Dave", status: "skip", error: "no link to claim" });
   } else {
     try {
@@ -1364,30 +1331,20 @@ task(
         chain,
         transport: http(rpcUrl),
       });
+      const daveSig = await signClaim(ClaimLinks as `0x${string}`, bearerClaimPriv, bearerLinkId, personas[3]!.address);
       const claimHash = await withRetry("claim_bearer", () => daveWallet.writeContract({
         address: ClaimLinks as `0x${string}`,
-        abi: [
-          {
-            name: "claimBearer",
-            type: "function",
-            stateMutability: "nonpayable",
-            inputs: [
-              { name: "linkId", type: "uint256" },
-              { name: "secret", type: "bytes32" },
-            ],
-            outputs: [],
-          },
-        ],
-        functionName: "claimBearer",
-        args: [bearerLinkId, bearerSecretHex!],
+        abi: CLAIM_LINKS_V2_ABI,
+        functionName: "claim",
+        args: [bearerLinkId!, daveSig],
         gas: 5_000_000n,
       }));
       await waitOk(claimHash, "claimHash");
-      console.log(`  Dave: claimBearer link #${bearerLinkId} ok  tx=${claimHash}`);
+      console.log(`  Dave: claim (Bearer) link #${bearerLinkId} ok  tx=${claimHash}`);
       results.push({ feature: "claim_link_claim", persona: "Dave", status: "pass", txHash: claimHash });
     } catch (err) {
       const msg = err instanceof Error ? err.message.slice(0, 250) : String(err);
-      console.log(`  Dave: claimBearer FAILED ${msg}`);
+      console.log(`  Dave: claim (Bearer) FAILED ${msg}`);
       results.push({ feature: "claim_link_claim", persona: "Dave", status: "fail", error: msg });
     }
   }

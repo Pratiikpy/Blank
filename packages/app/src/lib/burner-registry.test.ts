@@ -3,13 +3,15 @@ import {
   encryptBlob,
   decryptBlob,
   recoverBurnersFromEvents,
+  deriveBackupTag,
+  BurnerRegistryAbi,
   type BurnerBackupPayload,
 } from "./burner-registry";
 import type { Address, PublicClient } from "viem";
 
 // §15.x lib test for the AES-256-GCM burner backup envelope. The
 // passphrase-derived key is the only thing standing between an
-// attacker who reads MetadataSet event data on-chain and the user's
+// attacker who reads BackupSet event data on-chain and the user's
 // burner labels. The encrypt + decrypt round-trip + the wrong-
 // passphrase rejection are the load-bearing invariants.
 
@@ -85,8 +87,8 @@ describe("encryptBlob + decryptBlob round-trip", () => {
 
 // §15.x extension: recoverBurnersFromEvents — the disaster-recovery
 // path that reconstructs the user's burner list from on-chain
-// MetadataSet/MetadataCleared events using the master passphrase.
-// Latest-write-wins keyed by burner address with (blockNumber,
+// BackupSet/BackupCleared events using the master passphrase.
+// Latest-write-wins keyed by the opaque tag with (blockNumber,
 // logIndex) tiebreak — a regression to plain blockNumber > would
 // silently drop the second event in a paymaster-batched same-block
 // re-set. Decryption failures (wrong passphrase, tampered blob) get
@@ -97,29 +99,30 @@ const PASSPHRASE = "shared-passphrase-for-test";
 const REGISTRY = "0x1234567890123456789012345678901234567890" as Address;
 const MAIN_ADDR = "0xowner000000000000000000000000000000000ad" as Address;
 
-const BURNER_A = "0xa000000000000000000000000000000000000001" as Address;
-const BURNER_B = "0xb000000000000000000000000000000000000002" as Address;
+// v2 records are keyed by an opaque bytes32 tag, never the burner address.
+const BURNER_A = ("0x" + "a1".repeat(32)) as `0x${string}`;
+const BURNER_B = ("0x" + "b2".repeat(32)) as `0x${string}`;
 
 async function mkEncryptedBlob(payload: BurnerBackupPayload): Promise<`0x${string}`> {
   return (await encryptBlob(payload, PASSPHRASE)) as `0x${string}`;
 }
 
 function mkSetLog(args: {
-  burner: Address;
+  burner: `0x${string}`;
   encryptedBlob: `0x${string}`;
   blockNumber: bigint;
   logIndex: number;
 }) {
   return {
-    args: { owner: MAIN_ADDR, burner: args.burner, encryptedBlob: args.encryptedBlob },
+    args: { owner: MAIN_ADDR, tag: args.burner, encryptedBlob: args.encryptedBlob },
     blockNumber: args.blockNumber,
     logIndex: args.logIndex,
   };
 }
 
-function mkClearLog(args: { burner: Address; blockNumber: bigint; logIndex: number }) {
+function mkClearLog(args: { burner: `0x${string}`; blockNumber: bigint; logIndex: number }) {
   return {
-    args: { owner: MAIN_ADDR, burner: args.burner },
+    args: { owner: MAIN_ADDR, tag: args.burner },
     blockNumber: args.blockNumber,
     logIndex: args.logIndex,
   };
@@ -127,7 +130,7 @@ function mkClearLog(args: { burner: Address; blockNumber: bigint; logIndex: numb
 
 function makeClient(setLogs: unknown[], clearLogs: unknown[]): PublicClient {
   const getLogs = vi.fn(async (params: { event: { name: string } }) => {
-    return params.event.name === "MetadataSet" ? setLogs : clearLogs;
+    return params.event.name === "BackupSet" ? setLogs : clearLogs;
   });
   return { getLogs } as unknown as PublicClient;
 }
@@ -298,9 +301,9 @@ describe("recoverBurnersFromEvents (master-passphrase disaster recovery)", () =>
     const client = makeClient(
       [
         // Intentionally insert in arbitrary order to verify sort.
-        mkSetLog({ burner: "0xa1" as Address, encryptedBlob: m, blockNumber: 100n, logIndex: 0 }),
-        mkSetLog({ burner: "0xa2" as Address, encryptedBlob: l, blockNumber: 100n, logIndex: 1 }),
-        mkSetLog({ burner: "0xa3" as Address, encryptedBlob: e, blockNumber: 100n, logIndex: 2 }),
+        mkSetLog({ burner: ("0x" + "a1".repeat(32)) as `0x${string}`, encryptedBlob: m, blockNumber: 100n, logIndex: 0 }),
+        mkSetLog({ burner: ("0x" + "a2".repeat(32)) as `0x${string}`, encryptedBlob: l, blockNumber: 100n, logIndex: 1 }),
+        mkSetLog({ burner: ("0x" + "a3".repeat(32)) as `0x${string}`, encryptedBlob: e, blockNumber: 100n, logIndex: 2 }),
       ],
       [],
     );
@@ -343,5 +346,47 @@ describe("recoverBurnersFromEvents (master-passphrase disaster recovery)", () =>
       expect(params.fromBlock).toBe(12345n);
       expect(params.toBlock).toBe(67890n);
     }
+  });
+});
+
+describe("deriveBackupTag (opaque registry key)", () => {
+  const OWNER = "0x00000000000000000000000000000000000000aa";
+
+  it("is a deterministic bytes32 for the same passphrase, owner and burner id", async () => {
+    const a = await deriveBackupTag(PASSPHRASE, OWNER, "burner-1");
+    const b = await deriveBackupTag(PASSPHRASE, OWNER.toUpperCase().replace("0X", "0x"), "burner-1");
+    expect(a).toMatch(/^0x[0-9a-f]{64}$/);
+    expect(b).toBe(a);
+  });
+
+  it("differs per burner, per owner and per passphrase", async () => {
+    const base = await deriveBackupTag(PASSPHRASE, OWNER, "burner-1");
+    expect(await deriveBackupTag(PASSPHRASE, OWNER, "burner-2")).not.toBe(base);
+    expect(await deriveBackupTag(PASSPHRASE, "0x00000000000000000000000000000000000000bb", "burner-1")).not.toBe(base);
+    expect(await deriveBackupTag("another-passphrase-123", OWNER, "burner-1")).not.toBe(base);
+  });
+
+  it("never contains the burner address or id in the clear", async () => {
+    const burnerAddr = "0xb000000000000000000000000000000000000002";
+    const tag = await deriveBackupTag(PASSPHRASE, OWNER, burnerAddr);
+    expect(tag.toLowerCase()).not.toContain(burnerAddr.slice(2));
+  });
+
+  it("rejects a short passphrase", async () => {
+    await expect(deriveBackupTag("short", OWNER, "burner-1")).rejects.toThrow(/12 characters/);
+  });
+});
+
+describe("BurnerRegistryAbi (v2 tag API)", () => {
+  it("setMetadata / clearMetadata take a bytes32 tag", () => {
+    const set = BurnerRegistryAbi.find((e) => e.type === "function" && e.name === "setMetadata")!;
+    const clear = BurnerRegistryAbi.find((e) => e.type === "function" && e.name === "clearMetadata")!;
+    expect(set.inputs.map((i) => i.type)).toEqual(["bytes32", "bytes"]);
+    expect(clear.inputs.map((i) => i.type)).toEqual(["bytes32"]);
+  });
+
+  it("events are BackupSet / BackupCleared keyed by (owner, tag)", () => {
+    const names = BurnerRegistryAbi.filter((e) => e.type === "event").map((e) => e.name);
+    expect(names).toEqual(["BackupSet", "BackupCleared"]);
   });
 });

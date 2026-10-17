@@ -757,10 +757,10 @@ describe("useStealthPayments — finalizeClaim (§15.x)", () => {
     });
     expect(r).toBe("0xtxhash"); // hash returned even on 0n path
     expect(result.current.step).toBe("error");
-    expect(result.current.error).toContain("Claim code did not match");
+    expect(result.current.error).toContain("not meant for you");
     expect(result.current.txHash).toBe("0xtxhash"); // PRESERVED
     expect(toastErrorMock).toHaveBeenCalledWith(
-      expect.stringContaining("wasn't intended for your claim code"),
+      expect.stringContaining("sender can now refund it"),
       expect.any(Object),
     );
     // NO activity insert

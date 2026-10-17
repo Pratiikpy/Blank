@@ -9,7 +9,7 @@ import { renderHook, act } from "@testing-library/react";
 //   - 3-mode discriminated union: Bearer (0) / EmailBound (1) /
 //     AddressBound (2). Each picks a different hash builder
 //     (makeBearerHash / makeEmailHash / makeAddressHash) AND a different
-//     claim function (claimBearer / claimEmailBound / claimAddressBound).
+//     claim path (v2 claim(linkId, signature) or legacy claimAddressBound).
 //     EmailBound requires a non-empty email with "@" before encrypting.
 //     AddressBound requires a non-zero bound-address. The mode integer
 //     passed to the contract MUST match the mode used on claim, else
@@ -97,8 +97,9 @@ vi.mock("react-hot-toast", () => ({
 // buildClaimUrl are exercised end-to-end. Mocking these would shadow
 // the producer/consumer contract being verified.
 
-import { useClaimLinks } from "./useClaimLinks";
-import { MODE } from "@/lib/claim-links";
+import { useClaimLinks, LEGACY_LINK_MESSAGE } from "./useClaimLinks";
+import { MODE, deriveClaimKeyPriv, claimKeyAddress, type LinkMode } from "@/lib/claim-links";
+import { recoverMessageAddress } from "viem";
 
 const ME = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" as const;
 const BOUND_ADDR = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" as const;
@@ -110,6 +111,13 @@ const encryptInputsAsyncMock = vi.fn();
 const unifiedWriteMock = vi.fn();
 const unifiedWriteAndWaitMock = vi.fn();
 const waitForTransactionReceiptMock = vi.fn();
+const readContractMock = vi.fn();
+const DIGEST = ("0x" + "d1".repeat(32)) as `0x${string}`;
+// claimKeyOf result for the link under test (zero = legacy link).
+let registeredKey: `0x${string}` = "0x0000000000000000000000000000000000000000";
+function registerKeyFor(mode: LinkMode, secret: Uint8Array, email?: string) {
+  registeredKey = claimKeyAddress(deriveClaimKeyPriv(mode, secret, email)!);
+}
 const onEncryptStepMock = vi.fn();
 const markSubmittingMock = vi.fn();
 const markConfirmingMock = vi.fn();
@@ -173,6 +181,13 @@ beforeEach(() => {
   unifiedWriteMock.mockReset();
   unifiedWriteAndWaitMock.mockReset();
   waitForTransactionReceiptMock.mockReset();
+  readContractMock.mockReset();
+  registeredKey = "0x0000000000000000000000000000000000000000";
+  readContractMock.mockImplementation(async ({ functionName }: { functionName: string }) => {
+    if (functionName === "claimKeyOf") return registeredKey;
+    if (functionName === "claimDigest") return DIGEST;
+    throw new Error(`unexpected read ${functionName}`);
+  });
   onEncryptStepMock.mockReset();
   markSubmittingMock.mockReset();
   markConfirmingMock.mockReset();
@@ -188,6 +203,7 @@ beforeEach(() => {
   });
   usePublicClientMock.mockReturnValue({
     waitForTransactionReceipt: waitForTransactionReceiptMock,
+    readContract: readContractMock,
   });
   useUnifiedWriteMock.mockReturnValue({
     unifiedWrite: unifiedWriteMock,
@@ -382,6 +398,20 @@ describe("useClaimLinks — Bearer mode (§15.x)", () => {
     expect(call.args[5]).toBe(ZERO_ADDR);
   });
 
+  it("CRITICAL registers the claim key derived from the URL secret (never the secret itself)", async () => {
+    const { result } = renderHook(() => useClaimLinks());
+    let r: { secretHex: `0x${string}` } | null = null;
+    await act(async () => {
+      r = (await result.current.createLink(bearerParams())) as { secretHex: `0x${string}` };
+    });
+    const call = unifiedWriteAndWaitMock.mock.calls[0][0];
+    const secret = Uint8Array.from(Buffer.from(r!.secretHex.slice(2), "hex"));
+    expect(call.args[3]).toBe(claimKeyAddress(deriveClaimKeyPriv(MODE.Bearer, secret)!));
+    expect(JSON.stringify(call.args, (_k, v) => (typeof v === "bigint" ? v.toString() : v))).not.toContain(
+      r!.secretHex.slice(2),
+    );
+  });
+
   it("returns { linkId, shareableUrl, secretHex } on success", async () => {
     extractEventIdMock.mockReturnValue(7);
     const { result } = renderHook(() => useClaimLinks());
@@ -409,15 +439,18 @@ describe("useClaimLinks — Bearer mode (§15.x)", () => {
 });
 
 describe("useClaimLinks — EmailBound mode (§15.x)", () => {
-  it("valid email -> passes EmailBound mode (1) + ZERO_ADDR bound + secretHash distinct from Bearer", async () => {
+  it("valid email -> EmailBound mode (1) + ZERO_ADDR bound + claim key mixes the email in", async () => {
     const { result } = renderHook(() => useClaimLinks());
+    let r: { secretHex: `0x${string}` } | null = null;
     await act(async () => {
-      await result.current.createLink(emailParams());
+      r = (await result.current.createLink(emailParams())) as { secretHex: `0x${string}` };
     });
     const call = unifiedWriteAndWaitMock.mock.calls[0][0];
     expect(call.args[4]).toBe(MODE.EmailBound);
     expect(call.args[5]).toBe(ZERO_ADDR);
-    expect(call.args[3]).toMatch(/^0x[a-f0-9]{64}$/);
+    const secret = Uint8Array.from(Buffer.from(r!.secretHex.slice(2), "hex"));
+    expect(call.args[3]).toBe(claimKeyAddress(deriveClaimKeyPriv(MODE.EmailBound, secret, "alice@example.com")!));
+    expect(call.args[3]).not.toBe(claimKeyAddress(deriveClaimKeyPriv(MODE.EmailBound, secret, "mallory@example.com")!));
   });
 
   it("email '@' position 0 ('@example.com') -> rejected (indexOf < 1)", async () => {
@@ -656,6 +689,7 @@ describe("useClaimLinks — §3.11 error preserves prev.txHash (§15.x)", () => 
       await result.current.createLink(bearerParams());
     });
     expect(result.current.state.txHash).toBe("0xtxhash");
+    registerKeyFor(MODE.Bearer, new Uint8Array(32).fill(1));
     unifiedWriteAndWaitMock.mockRejectedValue(new Error("claim failed"));
     await act(async () => {
       await result.current.claim({
@@ -712,38 +746,67 @@ describe("useClaimLinks — claim (§15.x)", () => {
     expect(unifiedWriteAndWaitMock).toHaveBeenCalledTimes(0);
   });
 
-  it("Bearer mode -> calls claimBearer with (BigInt(linkId), secretHex)", async () => {
+  it("Bearer v2 -> claim(linkId, sig) where sig recovers to the registered claim key over claimDigest", async () => {
+    const secret = new Uint8Array(32).fill(0xab);
+    registerKeyFor(MODE.Bearer, secret);
     const { result } = renderHook(() => useClaimLinks());
     await act(async () => {
-      await result.current.claim({
-        linkId: 7,
-        mode: MODE.Bearer,
-        secret: new Uint8Array(32).fill(0xab),
-      });
+      await result.current.claim({ linkId: 7, mode: MODE.Bearer, secret });
     });
     const call = unifiedWriteAndWaitMock.mock.calls[0][0];
-    expect(call.functionName).toBe("claimBearer");
+    expect(call.functionName).toBe("claim");
     expect(call.args[0]).toBe(7n);
-    expect(call.args[1]).toMatch(/^0x[a-f0-9]{64}$/);
+    const signer = await recoverMessageAddress({ message: { raw: DIGEST }, signature: call.args[1] });
+    expect(signer).toBe(registeredKey);
+    // The digest is bound to the connected claimer.
+    const digestRead = readContractMock.mock.calls.find((c) => c[0].functionName === "claimDigest")![0];
+    expect(digestRead.args).toEqual([7n, ME]);
+    // The secret itself is never sent.
+    expect(String(call.args[1])).not.toContain("ab".repeat(32));
   });
 
-  it("EmailBound mode -> calls claimEmailBound with (linkId, secretHex, emailDigest)", async () => {
+  it("EmailBound v2 -> signs with the email-mixed key", async () => {
+    const secret = new Uint8Array(32).fill(3);
+    registerKeyFor(MODE.EmailBound, secret, "alice@example.com");
     const { result } = renderHook(() => useClaimLinks());
+    let ok = false;
     await act(async () => {
-      await result.current.claim({
-        linkId: 7,
-        mode: MODE.EmailBound,
-        secret: new Uint8Array(32),
-        email: "alice@example.com",
-      });
+      ok = await result.current.claim({ linkId: 7, mode: MODE.EmailBound, secret, email: "Alice@Example.com " });
     });
+    expect(ok).toBe(true);
     const call = unifiedWriteAndWaitMock.mock.calls[0][0];
-    expect(call.functionName).toBe("claimEmailBound");
-    expect(call.args[0]).toBe(7n);
-    expect(call.args[2]).toMatch(/^0x[a-f0-9]{64}$/);
+    expect(call.functionName).toBe("claim");
+    const signer = await recoverMessageAddress({ message: { raw: DIGEST }, signature: call.args[1] });
+    expect(signer).toBe(registeredKey);
+  });
+
+  it("EmailBound v2 with the wrong email -> 'email does not match', no write", async () => {
+    const secret = new Uint8Array(32).fill(3);
+    registerKeyFor(MODE.EmailBound, secret, "alice@example.com");
+    const { result } = renderHook(() => useClaimLinks());
+    let ok = true;
+    await act(async () => {
+      ok = await result.current.claim({ linkId: 7, mode: MODE.EmailBound, secret, email: "bob@example.com" });
+    });
+    expect(ok).toBe(false);
+    expect(result.current.state.error).toContain("email does not match");
+    expect(unifiedWriteAndWaitMock).toHaveBeenCalledTimes(0);
+  });
+
+  it("Bearer v2 with a corrupted secret -> invalid link error, no write", async () => {
+    registerKeyFor(MODE.Bearer, new Uint8Array(32).fill(1));
+    const { result } = renderHook(() => useClaimLinks());
+    let ok = true;
+    await act(async () => {
+      ok = await result.current.claim({ linkId: 7, mode: MODE.Bearer, secret: new Uint8Array(32).fill(2) });
+    });
+    expect(ok).toBe(false);
+    expect(result.current.state.error).toContain("invalid");
+    expect(unifiedWriteAndWaitMock).toHaveBeenCalledTimes(0);
   });
 
   it("EmailBound mode without email -> throws 'Email is required to claim'", async () => {
+    registerKeyFor(MODE.EmailBound, new Uint8Array(32), "alice@example.com");
     const { result } = renderHook(() => useClaimLinks());
     let ok = true;
     await act(async () => {
@@ -759,7 +822,7 @@ describe("useClaimLinks — claim (§15.x)", () => {
     expect(unifiedWriteAndWaitMock).toHaveBeenCalledTimes(0);
   });
 
-  it("AddressBound mode -> calls claimAddressBound with (linkId, secretHex)", async () => {
+  it("legacy AddressBound link (no claim key) -> claimAddressBound(linkId, secretHex)", async () => {
     const { result } = renderHook(() => useClaimLinks());
     await act(async () => {
       await result.current.claim({
@@ -774,7 +837,22 @@ describe("useClaimLinks — claim (§15.x)", () => {
     expect(call.args[1]).toMatch(/^0x[a-f0-9]{64}$/);
   });
 
+  it("legacy Bearer / EmailBound link -> refund-only message, no write", async () => {
+    for (const mode of [MODE.Bearer, MODE.EmailBound] as const) {
+      unifiedWriteAndWaitMock.mockClear();
+      const { result } = renderHook(() => useClaimLinks());
+      let ok = true;
+      await act(async () => {
+        ok = await result.current.claim({ linkId: 7, mode, secret: new Uint8Array(32), email: "a@b.co" });
+      });
+      expect(ok).toBe(false);
+      expect(result.current.state.error).toBe(LEGACY_LINK_MESSAGE);
+      expect(unifiedWriteAndWaitMock).toHaveBeenCalledTimes(0);
+    }
+  });
+
   it("claim success: returns true + sets state.step='success' + state.linkId", async () => {
+    registerKeyFor(MODE.Bearer, new Uint8Array(32));
     const { result } = renderHook(() => useClaimLinks());
     let ok = false;
     await act(async () => {
@@ -794,6 +872,7 @@ describe("useClaimLinks — claim (§15.x)", () => {
 
   it("claim rejection -> returns false + step=error + markFailed", async () => {
     unifiedWriteAndWaitMock.mockRejectedValue(new Error("wrong-secret"));
+    registerKeyFor(MODE.Bearer, new Uint8Array(32));
     const { result } = renderHook(() => useClaimLinks());
     let ok = true;
     await act(async () => {
@@ -810,6 +889,7 @@ describe("useClaimLinks — claim (§15.x)", () => {
   });
 
   it("claim uses gas 5_000_000 (FHE precompile margin)", async () => {
+    registerKeyFor(MODE.Bearer, new Uint8Array(32));
     const { result } = renderHook(() => useClaimLinks());
     await act(async () => {
       await result.current.claim({
@@ -918,5 +998,54 @@ describe("useClaimLinks — concurrent invocation guard (§15.x)", () => {
     await act(async () => {
       await p1;
     });
+  });
+});
+
+describe("useClaimLinks: fetchLink legacy flags", () => {
+  const tuple = (mode: number) =>
+    [ME, VAULT, mode, ZERO_ADDR, 1n, 2n, false, false, "n", ZERO_ADDR, 0n] as const;
+  function withReads(mode: number, key: string | Error) {
+    readContractMock.mockImplementation(async ({ functionName }: { functionName: string }) => {
+      if (functionName === "getLink") return tuple(mode);
+      if (functionName === "claimKeyOf") {
+        if (key instanceof Error) throw key;
+        return key;
+      }
+      throw new Error(functionName);
+    });
+  }
+
+  it("v2 link: legacy=false, legacyRefundOnly=false", async () => {
+    withReads(MODE.Bearer, "0x" + "c".repeat(40));
+    const { result } = renderHook(() => useClaimLinks());
+    const link = await result.current.fetchLink(3n);
+    expect(link?.legacy).toBe(false);
+    expect(link?.legacyRefundOnly).toBe(false);
+  });
+
+  it("legacy Bearer / EmailBound: refund-only", async () => {
+    for (const mode of [MODE.Bearer, MODE.EmailBound]) {
+      withReads(mode, ZERO_ADDR);
+      const { result } = renderHook(() => useClaimLinks());
+      const link = await result.current.fetchLink(3n);
+      expect(link?.legacy).toBe(true);
+      expect(link?.legacyRefundOnly).toBe(true);
+    }
+  });
+
+  it("legacy AddressBound: still claimable, not refund-only", async () => {
+    withReads(MODE.AddressBound, ZERO_ADDR);
+    const { result } = renderHook(() => useClaimLinks());
+    const link = await result.current.fetchLink(3n);
+    expect(link?.legacy).toBe(true);
+    expect(link?.legacyRefundOnly).toBe(false);
+  });
+
+  it("claimKeyOf missing (pre-upgrade deployment) -> treated as legacy, not a miss", async () => {
+    withReads(MODE.Bearer, new Error("reverted"));
+    const { result } = renderHook(() => useClaimLinks());
+    const link = await result.current.fetchLink(3n);
+    expect(link).not.toBeNull();
+    expect(link?.legacyRefundOnly).toBe(true);
   });
 });

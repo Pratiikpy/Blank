@@ -226,7 +226,7 @@ function FulfillModal({
   const { fulfillRequest, step, error, reset } = useRequestPayment();
   const [amount, setAmount] = useState("");
 
-  const isProcessing = step === "encrypting" || step === "sending";
+  const isProcessing = step === "encrypting" || step === "sending" || step === "settling";
 
   const handleFulfill = useCallback(async () => {
     if (!amount || parseFloat(amount) <= 0) {
@@ -316,7 +316,8 @@ function FulfillModal({
             />
           </div>
           <p className="text-xs text-[var(--text-primary)]/40 mt-2">
-            The requested amount is encrypted. Enter the amount agreed upon with the requester.
+            The requested amount is encrypted. Enter the exact amount agreed with the requester.
+            Any other amount sends nothing.
           </p>
         </div>
 
@@ -328,7 +329,9 @@ function FulfillModal({
               <p className="text-sm font-medium text-blue-900">
                 {step === "encrypting"
                   ? "Encrypting payment..."
-                  : "Fulfilling request on-chain..."}
+                  : step === "settling"
+                    ? "Payment sent. Confirming it matched the request (step 2 of 2)..."
+                    : "Sending payment on-chain (step 1 of 2)..."}
               </p>
             </div>
           </div>
@@ -377,8 +380,9 @@ export default function Requests() {
   // Passkey-aware address — fixes blank Requests page for passkey-only users.
   const { effectiveAddress: address } = useEffectiveAddress();
   const navigate = useNavigate();
-  const { cancelRequest } = useRequestPayment();
-  const { incoming: onChainIncoming, refresh: refreshOnChainRequests } = useOnChainRequests();
+  const { cancelRequest, finalizeRequest } = useRequestPayment();
+  const { incoming: onChainIncoming, settlingIds, refresh: refreshOnChainRequests } = useOnChainRequests();
+  const [finalizingId, setFinalizingId] = useState<number | null>(null);
 
   const [tab, setTab] = useState<"incoming" | "outgoing">("incoming");
   const [dbIncoming, setIncoming] = useState<PaymentRequestRow[]>([]);
@@ -489,6 +493,20 @@ export default function Requests() {
       refreshOnChainRequests();
     },
     [cancelRequest, loadRequests, refreshOnChainRequests]
+  );
+
+  // A payment that went out but was never finalized (tab closed, decrypt
+  // timeout) leaves the request Settling on-chain. Paying again would revert,
+  // so the payer finishes the settlement instead.
+  const handleFinalize = useCallback(
+    async (req: PaymentRequestRow) => {
+      setFinalizingId(req.request_id);
+      await finalizeRequest(req.request_id, req.to_address);
+      setFinalizingId(null);
+      loadRequests();
+      refreshOnChainRequests();
+    },
+    [finalizeRequest, loadRequests, refreshOnChainRequests],
   );
 
   const requests = tab === "incoming" ? incoming : outgoing;
@@ -627,7 +645,21 @@ export default function Requests() {
                     </span>
 
                     {/* Action buttons for pending requests */}
-                    {req.status === "pending" && tab === "incoming" && (
+                    {req.status === "pending" && tab === "incoming" && settlingIds.has(req.request_id) && (
+                      <button
+                        onClick={() => handleFinalize(req)}
+                        disabled={finalizingId === req.request_id}
+                        className="h-9 px-4 rounded-xl bg-emerald-600 text-white text-sm font-medium transition-transform active:scale-95 hover:bg-emerald-700 flex items-center gap-1.5 disabled:opacity-50"
+                      >
+                        {finalizingId === req.request_id ? (
+                          <Loader2 size={14} className="animate-spin" />
+                        ) : (
+                          <Send size={14} />
+                        )}
+                        Finish payment
+                      </button>
+                    )}
+                    {req.status === "pending" && tab === "incoming" && !settlingIds.has(req.request_id) && (
                       <button
                         onClick={() => setFulfillTarget(req)}
                         disabled={expired}

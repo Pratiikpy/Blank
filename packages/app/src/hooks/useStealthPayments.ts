@@ -598,12 +598,12 @@ export function useStealthPayments() {
               // no tokens were received. Show an error toast and land on
               // the error state so the UI doesn't render a green checkmark.
               toast.error(
-                "This stealth transfer wasn't intended for your claim code — no tokens received.",
+                "This stealth transfer was not meant for you. Nothing was received, and the sender can now refund it.",
                 { id: decryptToastId },
               );
               setState({
                 step: "error",
-                error: "Claim code did not match — no tokens were received.",
+                error: "This transfer was not meant for you. Nothing was received.",
                 txHash: hash,
                 isWaitingForDecryption: false,
                 decryptionProgress: "",
@@ -844,12 +844,12 @@ export function useStealthPayments() {
           // This is NOT a success — surface it as an error so the UI doesn't
           // pretend funds were received.
           toast.error(
-            "This stealth transfer wasn't intended for your claim code — no tokens received.",
+            "This stealth transfer was not meant for you. Nothing was received, and the sender can now refund it.",
             { id: finalizeToastId },
           );
           setState({
             step: "error",
-            error: "Claim code did not match — no tokens were received.",
+            error: "This transfer was not meant for you. Nothing was received.",
             txHash: hash,
             isWaitingForDecryption: false,
             decryptionProgress: "",

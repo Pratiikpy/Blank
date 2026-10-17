@@ -32,6 +32,10 @@ interface SentLinkRecord {
   note: string;
   claimer: `0x${string}`;
   claimedAt: bigint;
+  /** No claim key registered: created before the v2 claim upgrade. */
+  legacy: boolean;
+  /** Legacy Bearer/EmailBound link: the claim path was removed on-chain. */
+  legacyRefundOnly: boolean;
 }
 
 type SentLinkStatus = "claimable" | "claimed" | "refunded" | "expired";
@@ -523,7 +527,9 @@ export default function CreateClaimLink() {
                         )}
                       </p>
                       <p className="text-xs text-[var(--text-secondary)] mt-1">
-                        {status === "claimable" && "Waiting for the recipient to claim."}
+                        {status === "claimable" && !link.legacyRefundOnly && "Waiting for the recipient to claim."}
+                        {status === "claimable" && link.legacyRefundOnly &&
+                          "Created before the claim upgrade, so it can no longer be claimed. Refund it after it expires and send a new link."}
                         {status === "claimed" && "Claim complete. Funds are with the recipient."}
                         {status === "refunded" && "Refund complete. The link can no longer be claimed."}
                         {status === "expired" && "Expired and ready to refund."}

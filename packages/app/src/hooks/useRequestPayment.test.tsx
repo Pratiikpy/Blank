@@ -5,8 +5,12 @@ import { renderHook, act } from "@testing-library/react";
 //   createRequest(payer, amount, note, payerEmail?) — requester asks for
 //     encrypted USDC. Emits onchain row + supabase row + optional email
 //     to the payer's address.
-//   fulfillRequest(reqId, amount, requesterAddress) — payer fulfills the
-//     ask with their own encrypted amount.
+//   fulfillRequest(reqId, amount, requesterAddress): payer pays the ask
+//     (step 1: request goes Settling), then the hook decrypts the public
+//     getFulfillCheck ebool and calls finalizeRequest (step 2). true =
+//     Fulfilled, false = nothing moved and the request is Pending again.
+//   finalizeRequest(reqId, requesterAddress): finishes a request left
+//     Settling (tab closed or decrypt timed out).
 //   cancelRequest(reqId) — requester cancels a pending request.
 //
 // CRITICAL pins:
@@ -52,6 +56,7 @@ const usePublicClientMock = vi.hoisted(() => vi.fn());
 const useUnifiedWriteMock = vi.hoisted(() => vi.fn());
 const useCofheEncryptMock = vi.hoisted(() => vi.fn());
 const useCofheConnectionMock = vi.hoisted(() => vi.fn());
+const decryptForTxMock = vi.hoisted(() => vi.fn());
 const useEmailAuthSignerMock = vi.hoisted(() => vi.fn());
 const insertPaymentRequestMock = vi.hoisted(() => vi.fn());
 const updateRequestStatusMock = vi.hoisted(() => vi.fn());
@@ -81,6 +86,7 @@ vi.mock("@/lib/cofhe-shim", () => ({
   ENCRYPTION_NOT_READY: NOT_READY,
   useCofheEncrypt: useCofheEncryptMock,
   useCofheConnection: useCofheConnectionMock,
+  useCofheDecryptForTx: () => ({ decryptForTx: decryptForTxMock }),
   Encryptable: new Proxy({}, { get: () => (v: unknown) => ({ raw: v }) }),
 }));
 vi.mock("./useEmailAuthSigner", () => ({
@@ -130,7 +136,9 @@ const encryptInputsAsyncMock = vi.fn();
 const unifiedWriteMock = vi.fn();
 const unifiedWriteAndWaitMock = vi.fn();
 const waitForTransactionReceiptMock = vi.fn();
+const readContractMock = vi.fn();
 const signEmailAuthMock = vi.fn();
+const CHECK_HANDLE = 0xc0ffeen;
 
 beforeEach(() => {
   useEffectiveAddressMock.mockReset();
@@ -159,7 +167,11 @@ beforeEach(() => {
   unifiedWriteMock.mockReset();
   unifiedWriteAndWaitMock.mockReset();
   waitForTransactionReceiptMock.mockReset();
+  readContractMock.mockReset();
+  decryptForTxMock.mockReset();
   signEmailAuthMock.mockReset();
+  readContractMock.mockResolvedValue(CHECK_HANDLE);
+  decryptForTxMock.mockResolvedValue({ decryptedValue: true, signature: "0xtnsig" });
 
   useEffectiveAddressMock.mockReturnValue({ effectiveAddress: ME });
   useChainMock.mockReturnValue({
@@ -168,6 +180,7 @@ beforeEach(() => {
   });
   usePublicClientMock.mockReturnValue({
     waitForTransactionReceipt: waitForTransactionReceiptMock,
+    readContract: readContractMock,
   });
   useUnifiedWriteMock.mockReturnValue({
     unifiedWrite: unifiedWriteMock,
@@ -212,6 +225,7 @@ describe("useRequestPayment — initial state (§15.x)", () => {
     expect(result.current.requestId).toBeNull();
     expect(typeof result.current.createRequest).toBe("function");
     expect(typeof result.current.fulfillRequest).toBe("function");
+    expect(typeof result.current.finalizeRequest).toBe("function");
     expect(typeof result.current.cancelRequest).toBe("function");
     expect(typeof result.current.reset).toBe("function");
   });
@@ -614,13 +628,14 @@ describe("useRequestPayment — fulfillRequest (§15.x)", () => {
     expect(unifiedWriteAndWaitMock).toHaveBeenCalledTimes(0);
   });
 
-  it("first fulfill: approves vault + markVaultApproved + then fulfillRequest", async () => {
+  it("first fulfill: approves vault + markVaultApproved + then fulfillRequest + finalizeRequest", async () => {
     isVaultApprovedMock.mockReturnValue(false);
     const { result } = renderHook(() => useRequestPayment());
     await act(async () => {
       await result.current.fulfillRequest(7, "10", ME);
     });
-    expect(unifiedWriteAndWaitMock).toHaveBeenCalledTimes(2);
+    expect(unifiedWriteAndWaitMock).toHaveBeenCalledTimes(3);
+    expect(unifiedWriteAndWaitMock.mock.calls[2][0].functionName).toBe("finalizeRequest");
     // First call: approve
     expect(unifiedWriteAndWaitMock.mock.calls[0][0].functionName).toBe(
       "approvePlaintext",
@@ -632,13 +647,13 @@ describe("useRequestPayment — fulfillRequest (§15.x)", () => {
     );
   });
 
-  it("pre-approved -> single fulfillRequest call, no approval", async () => {
+  it("pre-approved -> fulfillRequest then finalizeRequest, no approval", async () => {
     isVaultApprovedMock.mockReturnValue(true);
     const { result } = renderHook(() => useRequestPayment());
     await act(async () => {
       await result.current.fulfillRequest(7, "10", ME);
     });
-    expect(unifiedWriteAndWaitMock).toHaveBeenCalledTimes(1);
+    expect(unifiedWriteAndWaitMock).toHaveBeenCalledTimes(2);
     expect(unifiedWriteAndWaitMock.mock.calls[0][0].functionName).toBe(
       "fulfillRequest",
     );
@@ -706,7 +721,125 @@ describe("useRequestPayment — fulfillRequest (§15.x)", () => {
     expect(broadcastActionMock).toHaveBeenCalledWith("balance_changed");
     expect(broadcastActionMock).toHaveBeenCalledWith("activity_added");
     expect(invalidateBalanceQueriesMock).toHaveBeenCalledTimes(1);
-    expect(toastSuccessMock).toHaveBeenCalledWith("Request fulfilled!");
+    expect(toastSuccessMock).toHaveBeenCalledWith("Request paid");
+  });
+
+  it("step 2: reads getFulfillCheck, decrypts the ebool, finalizeRequest(id, true, sig)", async () => {
+    const { result } = renderHook(() => useRequestPayment());
+    await act(async () => {
+      await result.current.fulfillRequest(7, "10", ME);
+    });
+    expect(readContractMock).toHaveBeenCalledWith(
+      expect.objectContaining({ address: HUB, functionName: "getFulfillCheck", args: [7n] }),
+    );
+    expect(decryptForTxMock).toHaveBeenCalledWith(CHECK_HANDLE, "ebool");
+    const fin = unifiedWriteAndWaitMock.mock.calls[1][0];
+    expect(fin.functionName).toBe("finalizeRequest");
+    expect(fin.args).toEqual([7n, true, "0xtnsig"]);
+    expect(result.current.step).toBe("success");
+  });
+
+  it("CRITICAL check decrypts false (nothing moved) -> error, request NOT marked fulfilled", async () => {
+    decryptForTxMock.mockResolvedValue({ decryptedValue: false, signature: "0xtnsig" });
+    const { result } = renderHook(() => useRequestPayment());
+    await act(async () => {
+      await result.current.fulfillRequest(7, "10", ME);
+    });
+    expect(unifiedWriteAndWaitMock.mock.calls[1][0].args).toEqual([7n, false, "0xtnsig"]);
+    expect(result.current.step).toBe("error");
+    expect(result.current.error).toContain("Nothing was sent");
+    expect(clearVaultApprovalMock).toHaveBeenCalledWith(HUB);
+    expect(updateRequestStatusMock).toHaveBeenCalledTimes(0);
+    expect(insertActivityMock).toHaveBeenCalledTimes(0);
+    expect(toastSuccessMock).not.toHaveBeenCalled();
+  });
+
+  it("bigint decryptedValue 1n is read as paid", async () => {
+    decryptForTxMock.mockResolvedValue({ decryptedValue: 1n, signature: "0xs" });
+    const { result } = renderHook(() => useRequestPayment());
+    await act(async () => {
+      await result.current.fulfillRequest(7, "10", ME);
+    });
+    expect(unifiedWriteAndWaitMock.mock.calls[1][0].args[1]).toBe(true);
+  });
+
+  it("decrypt never ready -> honest 'finish it from Requests' error, no finalize write", async () => {
+    vi.useFakeTimers();
+    try {
+      decryptForTxMock.mockResolvedValue(null);
+      const { result } = renderHook(() => useRequestPayment());
+      let p: Promise<void> | undefined;
+      act(() => {
+        p = result.current.fulfillRequest(7, "10", ME);
+      });
+      for (let i = 0; i < 25; i++) {
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(5_000);
+        });
+      }
+      await act(async () => {
+        await p;
+      });
+      expect(unifiedWriteAndWaitMock).toHaveBeenCalledTimes(1);
+      expect(result.current.step).toBe("error");
+      expect(result.current.error).toContain("Finish it from Requests");
+      expect(updateRequestStatusMock).toHaveBeenCalledTimes(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("reverted finalize -> error, request not marked fulfilled", async () => {
+    unifiedWriteAndWaitMock
+      .mockResolvedValueOnce({ hash: "0xpay", receipt: { status: "success", blockNumber: 1n, logs: [] } })
+      .mockResolvedValueOnce({ hash: "0xfin", receipt: { status: "reverted", blockNumber: 2n, logs: [] } });
+    const { result } = renderHook(() => useRequestPayment());
+    await act(async () => {
+      await result.current.fulfillRequest(7, "10", ME);
+    });
+    expect(result.current.step).toBe("error");
+    expect(result.current.error).toContain("Settlement transaction reverted");
+    expect(updateRequestStatusMock).toHaveBeenCalledTimes(0);
+  });
+});
+
+describe("useRequestPayment: finalizeRequest (resume a Settling request)", () => {
+  it("decrypts + finalizes without a new payment, marks fulfilled", async () => {
+    const { result } = renderHook(() => useRequestPayment());
+    let outcome: unknown;
+    await act(async () => {
+      outcome = await result.current.finalizeRequest(9, PAYER);
+    });
+    expect(outcome).toBe("fulfilled");
+    expect(unifiedWriteAndWaitMock).toHaveBeenCalledTimes(1);
+    expect(unifiedWriteAndWaitMock.mock.calls[0][0].functionName).toBe("finalizeRequest");
+    expect(encryptInputsAsyncMock).not.toHaveBeenCalled();
+    expect(updateRequestStatusMock).toHaveBeenCalledWith("9", "fulfilled");
+    expect(result.current.step).toBe("input");
+  });
+
+  it("false check -> 'failed' outcome, request open again, no fulfilled row", async () => {
+    decryptForTxMock.mockResolvedValue({ decryptedValue: false, signature: "0xs" });
+    const { result } = renderHook(() => useRequestPayment());
+    let outcome: unknown;
+    await act(async () => {
+      outcome = await result.current.finalizeRequest(9, PAYER);
+    });
+    expect(outcome).toBe("failed");
+    expect(updateRequestStatusMock).toHaveBeenCalledTimes(0);
+    expect(toastErrorMock).toHaveBeenCalledWith("Nothing was sent. The request is open again.", { id: "toast-id" });
+  });
+
+  it("zero check handle (nothing to settle) -> error, no write", async () => {
+    readContractMock.mockResolvedValue(0n);
+    const { result } = renderHook(() => useRequestPayment());
+    let outcome: unknown = "x";
+    await act(async () => {
+      outcome = await result.current.finalizeRequest(9, PAYER);
+    });
+    expect(outcome).toBeNull();
+    expect(unifiedWriteAndWaitMock).toHaveBeenCalledTimes(0);
+    expect(result.current.error).toContain("no payment to settle");
   });
 
   it("error-discriminator: allowance error -> clearVaultApproval(HUB)", async () => {

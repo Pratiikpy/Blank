@@ -57,17 +57,27 @@ function abiSelectors(abi: readonly unknown[]): Set<`0x${string}`> {
 describe("ClaimLinksAbi", () => {
   const sels = abiSelectors(ClaimLinksAbi);
 
-  it("includes claimBearer(uint256,bytes32) selector", () => {
-    expect(sels.has(selector("function claimBearer(uint256,bytes32)"))).toBe(true);
+  it("includes v2 claim(uint256,bytes) and claimDigest(uint256,address) selectors", () => {
+    expect(sels.has(selector("function claim(uint256,bytes)"))).toBe(true);
+    expect(sels.has(selector("function claimDigest(uint256,address)"))).toBe(true);
+    expect(sels.has(selector("function claimKeyOf(uint256)"))).toBe(true);
   });
 
-  it("includes claimEmailBound(uint256,bytes32,bytes32) selector", () => {
+  it("createLink takes an address claimKey (v2), not a bytes32 secret hash", () => {
     expect(
-      sels.has(selector("function claimEmailBound(uint256,bytes32,bytes32)")),
+      sels.has(selector("function createLink(address,bytes32,bytes,address,uint8,address,uint256,string)")),
     ).toBe(true);
+    expect(
+      sels.has(selector("function createLink(address,bytes32,bytes,bytes32,uint8,address,uint256,string)")),
+    ).toBe(false);
   });
 
-  it("includes claimAddressBound(uint256,bytes32) selector", () => {
+  it("drops the removed claimBearer / claimEmailBound entry points", () => {
+    expect(sels.has(selector("function claimBearer(uint256,bytes32)"))).toBe(false);
+    expect(sels.has(selector("function claimEmailBound(uint256,bytes32,bytes32)"))).toBe(false);
+  });
+
+  it("includes legacy claimAddressBound(uint256,bytes32) selector", () => {
     expect(sels.has(selector("function claimAddressBound(uint256,bytes32)"))).toBe(true);
   });
 
