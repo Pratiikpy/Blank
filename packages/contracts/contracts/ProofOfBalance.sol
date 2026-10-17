@@ -5,35 +5,12 @@ import "@fhenixprotocol/cofhe-contracts/FHE.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
-/*
- * ProofOfBalance
- *
- * Wave 5 Block 10 (bonus FHE): prove your encrypted balance is at
- * or above a plaintext threshold WITHOUT revealing the balance.
- *
- * Differs from Wave 4 PaymentReceipts.createIncomeProof (which proves
- * cumulative income) — this one proves SPOT balance at proof time.
- *
- * Use cases:
- *   - "I have at least $10K" to a rental application
- *   - "I have at least $500" to a sponsorship gate
- *   - Any FHE.gte threshold gate over your own balance
- *
- * Flow:
- *   1. Prover supplies an InEuint64 encrypted balance (their own).
- *   2. Contract evaluates FHE.gte(encBalance, threshold) -> ebool.
- *   3. ebool published via FHE.allowPublic so anyone can later
- *      decrypt the verdict (true/false). NOT the underlying balance.
- *   4. Proof is stored under nextProofId. Public verifier page at
- *      /proof/balance/:chainId/:id reads getProof + the published
- *      verdict to render green/red.
- *
- * v1 limitations honest: the InEuint64 must be encrypted under the
- * prover's context. A future Wave 6 version reads the vault balance
- * directly via vault.balanceOfHandle() + FHE.gte so the prover
- * can't lie. v1 trades that for simpler UX (one tx, no permit
- * dance).
- */
+/// @title ProofOfBalance (retired)
+/// @notice Retired before mainnet. The "balance" was an encrypted input the
+///         prover chose, not their vault balance, so a verdict proved nothing
+///         about funds. createProof and revealProof revert; getProof still
+///         reads records made before retirement. Use
+///         PaymentReceipts.proveBalanceAbove, which reads the vault balance.
 contract ProofOfBalance is UUPSUpgradeable, OwnableUpgradeable {
 
     struct BalanceProof {
@@ -60,45 +37,15 @@ contract ProofOfBalance is UUPSUpgradeable, OwnableUpgradeable {
 
     function _authorizeUpgrade(address) internal override onlyOwner {}
 
-    /// Create a balance-threshold proof. Returns proofId.
-    function createProof(
-        externalEuint64 encBalance, bytes calldata proof,
-        uint64 thresholdMicroUSD
-    ) external returns (uint256 proofId) {
-        require(thresholdMicroUSD > 0, "ProofOfBalance: threshold=0");
-        proofId = nextProofId++;
-
-        euint64 balance = FHE.asEuint64(encBalance, proof);
-        ebool met = FHE.gte(balance, FHE.asEuint64(thresholdMicroUSD));
-
-        FHE.allowThis(met);
-        FHE.allow(met, msg.sender);
-        FHE.allowPublic(met);
-
-        proofs[proofId] = BalanceProof({
-            prover: msg.sender,
-            thresholdMicroUSD: thresholdMicroUSD,
-            met: met,
-            createdAt: uint64(block.timestamp),
-            revealed: false,
-            revealedValue: false
-        });
-
-        emit ProofCreated(proofId, msg.sender, thresholdMicroUSD);
+    /// @notice Retired. Kept so the selector reverts with a clear reason.
+    function createProof(externalEuint64, bytes calldata, uint64) external pure returns (uint256) {
+        revert("ProofOfBalance: retired");
     }
 
-    /// Off-chain caller decrypts the ebool via cofhe + submits the
-    /// plaintext + signature. Mirrors the
-    /// PaymentReceipts.publishCloseResult pattern from Wave 4.
-    function revealProof(uint256 proofId, bool plaintext, bytes calldata signature) external {
-        BalanceProof storage p = proofs[proofId];
-        require(p.prover != address(0), "ProofOfBalance: unknown proof");
-        require(!p.revealed, "ProofOfBalance: already revealed");
-        // FHE library publishes the bool with signature verification.
-        FHE.publishDecryptResult(p.met, plaintext, signature);
-        p.revealed = true;
-        p.revealedValue = plaintext;
-        emit ProofRevealed(proofId, plaintext);
+    /// @notice Retired. Publishing a verdict for a self-chosen input would
+    ///         still present it as a balance proof.
+    function revealProof(uint256, bool, bytes calldata) external pure {
+        revert("ProofOfBalance: retired");
     }
 
     function getProof(uint256 proofId) external view returns (

@@ -3,8 +3,8 @@ import hre from "hardhat";
 import { loadFixture, time } from "@nomicfoundation/hardhat-network-helpers";
 
 // InvoiceApprovalResolver is a plain (non-FHE) condition resolver, so these
-// tests need no cofhe mock. One signer plays "the escrow" (the bound caller
-// that registers a condition); isConditionMet is gated to that caller.
+// tests need no cofhe mock. One signer plays "the escrow" (the caller that
+// registers a condition); conditions are keyed by (escrow, escrowId).
 
 const abi = hre.ethers.AbiCoder.defaultAbiCoder();
 const encodeData = (buyer: string, deadline: number | bigint) =>
@@ -16,30 +16,52 @@ async function deployFixture() {
   const Resolver = await hre.ethers.getContractFactory("InvoiceApprovalResolver");
   const resolver = await Resolver.deploy();
   await resolver.waitForDeployment();
-  return { resolver, escrowSigner, buyer, stranger };
+  return { resolver, escrowSigner, buyer, stranger, escrow: escrowSigner.address };
 }
 
 describe("InvoiceApprovalResolver", () => {
   it("stores config on onConditionSet and exposes it via getCondition", async () => {
-    const { resolver, escrowSigner, buyer } = await loadFixture(deployFixture);
+    const { resolver, escrowSigner, buyer, escrow } = await loadFixture(deployFixture);
     const deadline = (await time.latest()) + 30 * 86400;
-    await resolver.connect(escrowSigner).onConditionSet(0, encodeData(buyer.address, deadline));
+    await expect(resolver.connect(escrowSigner).onConditionSet(0, encodeData(buyer.address, deadline)))
+      .to.emit(resolver, "ConditionSet")
+      .withArgs(escrow, 0, buyer.address, deadline);
 
-    const c = await resolver.getCondition(0);
+    const c = await resolver.getCondition(escrow, 0);
     expect(c.buyer).to.equal(buyer.address);
     expect(c.autoReleaseDeadline).to.equal(deadline);
     expect(c.isApproved).to.equal(false);
     expect(c.set).to.equal(true);
-    expect(await resolver.boundEscrow(0)).to.equal(escrowSigner.address);
   });
 
-  it("rejects a second onConditionSet for the same escrowId", async () => {
+  it("rejects a second onConditionSet for the same escrowId from the same escrow", async () => {
     const { resolver, escrowSigner, buyer } = await loadFixture(deployFixture);
     const deadline = (await time.latest()) + 30 * 86400;
     await resolver.connect(escrowSigner).onConditionSet(0, encodeData(buyer.address, deadline));
     await expect(
       resolver.connect(escrowSigner).onConditionSet(0, encodeData(buyer.address, deadline)),
     ).to.be.revertedWithCustomError(resolver, "AlreadyConfigured");
+  });
+
+  // M5 exploit: an attacker used to pre-set the next sequential escrowId,
+  // which made the real escrow's create revert (AlreadyConfigured) or bound
+  // the attacker's buyer and deadline to it.
+  it("a stranger pre-setting escrowId cannot block or hijack the real escrow's condition", async () => {
+    const { resolver, escrowSigner, buyer, stranger, escrow } = await loadFixture(deployFixture);
+    const soon = (await time.latest()) + 60;
+    await resolver.connect(stranger).onConditionSet(0, encodeData(stranger.address, soon));
+
+    const deadline = (await time.latest()) + 30 * 86400;
+    await resolver.connect(escrowSigner).onConditionSet(0, encodeData(buyer.address, deadline));
+    const c = await resolver.getCondition(escrow, 0);
+    expect(c.buyer).to.equal(buyer.address);
+
+    await time.increase(120);
+    // The stranger's condition is met for the stranger only.
+    expect(await resolver.connect(stranger).isConditionMet(0)).to.equal(true);
+    expect(await resolver.connect(escrowSigner).isConditionMet(0)).to.equal(false);
+    // And the stranger cannot approve the real escrow's condition.
+    await expect(resolver.connect(stranger).approve(escrow, 0)).to.be.revertedWithCustomError(resolver, "NotBuyer");
   });
 
   it("rejects zero buyer and a past deadline", async () => {
@@ -55,14 +77,17 @@ describe("InvoiceApprovalResolver", () => {
   });
 
   it("is not met before approval or deadline, met after the buyer approves", async () => {
-    const { resolver, escrowSigner, buyer } = await loadFixture(deployFixture);
+    const { resolver, escrowSigner, buyer, escrow } = await loadFixture(deployFixture);
     const deadline = (await time.latest()) + 30 * 86400;
     await resolver.connect(escrowSigner).onConditionSet(0, encodeData(buyer.address, deadline));
 
     expect(await resolver.connect(escrowSigner).isConditionMet(0)).to.equal(false);
 
-    await expect(resolver.connect(buyer).approve(0)).to.emit(resolver, "Approved").withArgs(0, buyer.address);
+    await expect(resolver.connect(buyer).approve(escrow, 0))
+      .to.emit(resolver, "Approved")
+      .withArgs(escrow, 0, buyer.address);
     expect(await resolver.connect(escrowSigner).isConditionMet(0)).to.equal(true);
+    expect(await resolver.approved(escrow, 0)).to.equal(true);
   });
 
   it("is met once the auto-release deadline passes, with no approval", async () => {
@@ -76,25 +101,23 @@ describe("InvoiceApprovalResolver", () => {
   });
 
   it("only the recorded buyer can approve", async () => {
-    const { resolver, escrowSigner, buyer, stranger } = await loadFixture(deployFixture);
+    const { resolver, escrowSigner, buyer, stranger, escrow } = await loadFixture(deployFixture);
     const deadline = (await time.latest()) + 30 * 86400;
     await resolver.connect(escrowSigner).onConditionSet(0, encodeData(buyer.address, deadline));
-    await expect(resolver.connect(stranger).approve(0)).to.be.revertedWithCustomError(resolver, "NotBuyer");
+    await expect(resolver.connect(stranger).approve(escrow, 0)).to.be.revertedWithCustomError(resolver, "NotBuyer");
   });
 
   it("approve on an unconfigured escrow reverts", async () => {
-    const { resolver, buyer } = await loadFixture(deployFixture);
-    await expect(resolver.connect(buyer).approve(7)).to.be.revertedWithCustomError(resolver, "NotConfigured");
+    const { resolver, buyer, escrow } = await loadFixture(deployFixture);
+    await expect(resolver.connect(buyer).approve(escrow, 7)).to.be.revertedWithCustomError(resolver, "NotConfigured");
   });
 
-  it("isConditionMet is gated to the bound escrow", async () => {
+  it("isConditionMet only sees the caller's own conditions", async () => {
     const { resolver, escrowSigner, buyer, stranger } = await loadFixture(deployFixture);
     const deadline = (await time.latest()) + 30 * 86400;
     await resolver.connect(escrowSigner).onConditionSet(0, encodeData(buyer.address, deadline));
-    await expect(resolver.connect(stranger).isConditionMet(0)).to.be.revertedWithCustomError(
-      resolver,
-      "UnauthorizedCaller",
-    );
+    await time.increase(30 * 86400 + 1);
+    expect(await resolver.connect(stranger).isConditionMet(0)).to.equal(false);
   });
 
   it("advertises the IConditionResolver interface via ERC-165", async () => {

@@ -72,6 +72,13 @@ async function deployBlankFixture() {
   const groupManager = await deployProxy("GroupManager", [await eventHub.getAddress()]);
   const paymentReceipts = await deployProxy("PaymentReceipts", []);
 
+  // Vault allowlist: BusinessHub fails closed without it.
+  const tokenRegistry = await deployProxy("TokenRegistry", []);
+  await tokenRegistry.registerToken(
+    await vault.getAddress(), await testUSDC.getAddress(), "Test USDC", "USDC", USDC_DECIMALS,
+  );
+  await businessHub.setTokenRegistry(await tokenRegistry.getAddress());
+
   // Whitelist hubs in EventHub so activity events don't swallow
   await eventHub.batchWhitelist([
     await paymentHub.getAddress(),
@@ -87,7 +94,7 @@ async function deployBlankFixture() {
 
   return {
     owner, alice, bob, charlie, client,
-    testUSDC, eventHub, vault, paymentHub, businessHub, groupManager, paymentReceipts,
+    testUSDC, eventHub, vault, paymentHub, businessHub, groupManager, paymentReceipts, tokenRegistry,
   };
 }
 
@@ -729,11 +736,22 @@ describe("BusinessHub", () => {
       ctx.businessHub.connect(ctx.bob).refundDisputedInvoice(0),
     ).to.be.revertedWith("BusinessHub: not the vendor");
 
-    // Vendor (Alice) approves BusinessHub then refunds the original amount.
+    // Vendor (Alice) approves BusinessHub then refunds what was actually paid (80).
     await approveHub(ctx, ctx.alice, await ctx.businessHub.getAddress());
     await ctx.businessHub.connect(ctx.alice).refundDisputedInvoice(0);
+    // Status only flips once the refund is verified.
+    expect((await ctx.businessHub.getInvoice(0)).status).to.equal(4);
+    await expect(ctx.businessHub.connect(ctx.alice).refundDisputedInvoice(0))
+      .to.be.revertedWith("BusinessHub: refund pending");
+
+    const rh = await ctx.businessHub.getInvoiceRefundCheckHandle(0);
+    const rp = await ctx.client.decryptForTx(rh, FheTypes.Bool).withoutACP().execute();
+    expect(Boolean(rp.decryptedValue)).to.equal(true);
+    await ctx.businessHub.connect(ctx.charlie).finalizeDisputedRefund(0, true, rp.signature);
 
     expect((await ctx.businessHub.getInvoice(0)).status).to.equal(2); // Cancelled
+    await mock_expectPlaintext(ctx.bob.provider, await ctx.vault.balanceOf(ctx.bob.address), usdc(500));
+    await mock_expectPlaintext(ctx.alice.provider, await ctx.vault.balanceOf(ctx.alice.address), 0n);
 
     // Cannot double-refund a cancelled invoice.
     await expect(

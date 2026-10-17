@@ -5,38 +5,15 @@ import "@fhenixprotocol/cofhe-contracts/FHE.sol";
 import "./utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
-import "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import "./interfaces/ITokenRegistry.sol";
 
 interface IFHERC20Vault {
     function transferFrom(address from, address to, externalEuint64 encAmount, bytes calldata proof) external returns (euint64);
     function transferFromVerified(address from, address to, sharedEuint64 shared) external returns (sharedEuint64);
     function transferVerified(address to, sharedEuint64 shared) external returns (sharedEuint64);
     function underlyingToken() external view returns (address);
-}
-
-/// @dev Minimal Uniswap v3 SwapRouter02 surface. We only call `exactOutputSingle`
-///      so the contract can spend an EXACT amount of USDC (the invoice's
-///      expected token) at a known maximum payToken cost. Refunds the unused
-///      payToken to the caller. Pulled from Uniswap's SwapRouter02 ABI —
-///      addresses checked off-chain, BusinessHub never trusts the router
-///      with anything but the payToken it just pulled from msg.sender.
-interface ISwapRouter02 {
-    struct ExactOutputSingleParams {
-        address tokenIn;
-        address tokenOut;
-        uint24 fee;
-        address recipient;
-        uint256 amountOut;
-        uint256 amountInMaximum;
-        uint160 sqrtPriceLimitX96;
-    }
-    function exactOutputSingle(ExactOutputSingleParams calldata params)
-        external
-        payable
-        returns (uint256 amountIn);
 }
 
 interface IEventHub {
@@ -49,10 +26,11 @@ interface IPaymentReceipts {
 }
 
 /// @title BusinessHub — Encrypted invoicing, payroll, and escrow
-/// @notice Handles B2B payment flows where amounts are encrypted.
-///         Invoices: vendor creates, client pays.
-///         Payroll: employer pays multiple employees in one batch.
-///         Escrow: 2-of-2 approval with optional arbiter and deadline.
+/// @notice Invoices and payroll move encrypted vault balances.
+///         Escrow here is a PLAINTEXT ERC20 deposit: the amount is public in
+///         calldata and in the token transfer. The euint64 copy stored on the
+///         record is a convenience handle, not a privacy guarantee. Use
+///         EncryptedEscrow when the amount must stay private.
 contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -60,6 +38,15 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
     enum InvoiceStatus { Pending, Paid, Cancelled, PaymentPending, Disputed }
     enum EscrowStatus { Active, Released, Disputed, Expired }
+    /// @dev Legacy = paid before modes were recorded (or not paid at all).
+    enum PaymentMode { Legacy, Direct, Escrow }
+
+    /// @dev Anyone may route a funded escrowed invoice once this long has
+    ///      passed since payment, so a silent client cannot strand the vendor.
+    uint256 public constant INVOICE_ESCROW_RELEASE_DELAY = 7 days;
+    /// @dev A disputed escrow the arbiter never decides returns to the
+    ///      depositor after this long. Mirrors EncryptedEscrow.
+    uint256 public constant ESCROW_DISPUTE_TIMEOUT = 30 days;
 
     struct Invoice {
         address vendor;
@@ -158,6 +145,7 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     //
     // Why not hard-code: rotating a compromised oracle key requires
     // changing this address. A constant would force a contract redeploy.
+    /// @dev Unused since the oracle path was retired. Slot kept for layout.
     address public oracleAttestationAddress;
 
     /// @dev Per-payer nonce tracker for `payInvoiceWithOracleQuote`.
@@ -219,6 +207,12 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     event EscrowAttachmentCidSet(uint256 indexed id, bytes32 cidHash, uint256 timestamp);
     event ReceiptsBumpFailed(string kind, bytes reason);
     event PaymentReceiptsSet(address indexed previous, address indexed current);
+    event TokenRegistrySet(address indexed registry);
+    event InvoiceRefundInitiated(uint256 indexed id, uint256 timestamp);
+    event InvoiceRefundFailed(uint256 indexed id, uint256 timestamp);
+    event InvoiceEscrowRevalidated(uint256 indexed id, uint256 timestamp);
+    event EscrowDisputeTimedOut(uint256 indexed id, uint256 timestamp);
+    event LegacyEscrowUnresolved(uint256 indexed id);
 
     // ─── Initializer ────────────────────────────────────────────────────
 
@@ -246,6 +240,7 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         // the contract with multi-KB on-chain strings (cheap storage-bloat
         // griefing). 512 bytes is generous for any real invoice memo.
         require(bytes(description).length <= 512, "BusinessHub: description too long");
+        _requireAllowedVault(vault);
 
         euint64 amount = FHE.asEuint64(encAmount, proof);
         FHE.allowThis(amount);
@@ -269,31 +264,24 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     }
 
     /**
-     * @notice Pay a pending invoice with the EXACT invoice amount.
+     * @notice Pay a pending invoice straight to the vendor.
      *
-     * @dev ARCHITECTURE CONSTRAINT: FHERC20Vault.transferFrom() requires InEuint64
-     * (client-side encrypted input), which cannot be constructed from euint64 on-chain.
-     * This means the contract cannot split a payment into (invoiceAmount + change) and
-     * call transferFrom twice. Therefore:
-     *
-     *   1. The client MUST send exactly the invoice amount (decrypt off-chain first).
-     *   2. The contract verifies encrypted payment == encrypted invoice amount.
-     *   3. If they don't match, the payment is NOT transferred — status stays Pending.
-     *   4. The ebool match result is decrypted async; finalization happens in payInvoiceFinalize().
-     *
-     * This two-phase approach prevents overpayment (non-refundable) and underpayment
-     * (vendor shortchanged) by only completing the transfer when amounts match exactly.
+     * @dev The vault moves either the full requested amount or 0 (short
+     *      balance or allowance). The match check therefore runs on the
+     *      amount the vault reports as MOVED, never on the client's request,
+     *      so Paid always means the vendor received exactly inv.amount.
+     *      The ebool is decrypted off-chain and settled by payInvoiceFinalize.
      *
      * @param invoiceId The invoice to pay
-     * @param encAmount Encrypted payment amount (MUST equal the invoice amount)
+     * @param encAmount Encrypted payment amount (should equal the invoice amount)
      */
     function payInvoice(uint256 invoiceId, externalEuint64 encAmount, bytes calldata proof) external nonReentrant {
         Invoice storage inv = _invoices[invoiceId];
         require(inv.status == InvoiceStatus.Pending, "BusinessHub: not pending");
         require(msg.sender == inv.client, "BusinessHub: not the client");
+        _requireAllowedVault(inv.vault);
 
-        // #214: lock first payer in. If someone else already started paying,
-        // reject with a specific message. Same caller may retry (idempotent).
+        // #214: lock first payer in. Same caller may retry (idempotent).
         if (invoicePaymentStartedBy[invoiceId] != address(0)) {
             require(invoicePaymentStartedBy[invoiceId] == msg.sender, "BusinessHub: payment already started by another address");
         }
@@ -302,30 +290,21 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         // Verify encrypted input here (msg.sender = client) before cross-contract call
         euint64 payment = FHE.asEuint64(encAmount, proof);
 
-        // Verify the encrypted payment matches the encrypted invoice amount exactly.
-        // The client should decrypt the invoice amount off-chain first, then encrypt
-        // the same value as their payment. This is verified here without revealing either.
-        ebool exactMatch = _verifyEncryptedMatch(payment, inv.amount);
-
-        // Transfer the full encAmount to vendor via vault using pre-verified handle.
-        // Since we verified exactMatch, if true this transfers exactly the invoice amount.
-        // If exactMatch is false, the transfer still happens but the invoice won't be
-        // marked as paid — see payInvoiceFinalize().
         euint64 vendorReceived = FHE.receiveEuint64FromCall(
             IFHERC20Vault(inv.vault).transferFromVerified(msg.sender, inv.vendor, FHE.shareEuint64(payment, inv.vault)),
             inv.vault
         );
+        FHE.allowThis(vendorReceived);
         FHE.allowSender(vendorReceived);
         FHE.allow(vendorReceived, inv.vendor);
+        _invoicePaidAmount[invoiceId] = vendorReceived;
 
-        // Store the match validation for async verification
+        ebool exactMatch = _verifyEncryptedMatch(vendorReceived, inv.amount);
+        FHE.allowPublic(exactMatch);
         _invoicePaymentValidation[invoiceId] = exactMatch;
 
-        // v0.1.3 migration: caller decrypts off-chain via the cofhe-sdk client and
-        // submits the result + signature to payInvoiceFinalize() below.
-        FHE.allowPublic(exactMatch);
-
-        // Mark as PaymentPending — not fully Paid until match is verified
+        invoicePaymentMode[invoiceId] = PaymentMode.Direct;
+        invoicePaidAt[invoiceId] = block.timestamp;
         inv.status = InvoiceStatus.PaymentPending;
 
         emit InvoicePaymentInitiated(invoiceId, block.timestamp);
@@ -333,12 +312,17 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     }
 
     /**
-     * @notice Finalize an invoice payment after the match validation decryption completes.
-     *         Caller supplies the off-chain decrypted boolean + signature; the contract
-     *         verifies the proof, then marks the invoice Paid or Disputed accordingly.
+     * @notice Settle a direct (payInvoice) payment once its match ebool is
+     *         decrypted: Paid on match, Disputed otherwise.
+     *
+     * @dev Escrowed payments are rejected here; they settle through
+     *      releaseInvoiceEscrow, which also routes the held funds.
+     *      Legacy records (paid before payment modes were recorded, including
+     *      the retired swap and oracle paths) matched the client's REQUEST,
+     *      not what the vendor got, so only the vendor may finalize them.
      *
      * @param invoiceId  The invoice to finalize
-     * @param matchPlaintext True iff the payment matched the invoice amount exactly
+     * @param matchPlaintext True iff the moved amount equals the invoice amount
      * @param signature  Threshold Network signature over the decrypted ebool
      */
     function payInvoiceFinalize(
@@ -348,41 +332,34 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     ) external nonReentrant {
         Invoice storage inv = _invoices[invoiceId];
         require(inv.status == InvoiceStatus.PaymentPending, "BusinessHub: not payment pending");
-        // #213: only the named client can finalize. Previously anyone with
-        // the decryption signature could finalize; this restricts it to the
-        // invoice's client. Defense-in-depth alongside the #214 payment-starter
-        // check below.
-        require(msg.sender == inv.client, "BusinessHub: only client can finalize");
-        // #214: only the address that initiated payment can finalize. Combined
-        // with the client check above, this means: only the client (who is
-        // also the payment-starter) can ever finalize.
-        require(invoicePaymentStartedBy[invoiceId] == msg.sender, "BusinessHub: only the payment-starter can finalize");
+        require(!_isEscrowPayment(invoiceId), "BusinessHub: escrow payment, use releaseInvoiceEscrow");
+
+        if (invoicePaymentMode[invoiceId] == PaymentMode.Direct) {
+            // #213 / #214: only the client, who is also the payment-starter.
+            require(msg.sender == inv.client, "BusinessHub: only client can finalize");
+            require(invoicePaymentStartedBy[invoiceId] == msg.sender, "BusinessHub: only the payment-starter can finalize");
+        } else {
+            require(msg.sender == inv.vendor, "BusinessHub: legacy payment, vendor must finalize");
+        }
 
         ebool validation = _invoicePaymentValidation[invoiceId];
-        // Verify the off-chain decryption by publishing it on-chain. Reverts
-        // if the signature does not authenticate the plaintext.
+        // Reverts if the signature does not authenticate the plaintext.
         FHE.publishDecryptResult(validation, matchPlaintext, signature);
 
         (bool matchResult, bool ready) = FHE.getDecryptResultSafe(validation);
         require(ready, "BusinessHub: validation decryption not ready");
 
         if (matchResult) {
-            // Exact match — invoice is properly paid
             inv.status = InvoiceStatus.Paid;
             emit InvoicePaid(invoiceId, block.timestamp);
             try eventHub.emitActivity(inv.client, inv.vendor, "invoice_paid", inv.description, invoiceId) {} catch {}
         } else {
-            // Mismatch — payment amount did not equal invoice amount.
-            // The transfer already happened, so mark as disputed for manual resolution.
+            // Funds already moved; refundDisputedInvoice returns them.
             inv.status = InvoiceStatus.Disputed;
             emit InvoiceDisputed(invoiceId, block.timestamp);
             try eventHub.emitActivity(inv.client, inv.vendor, "invoice_disputed", "Payment amount mismatch", invoiceId) {} catch {}
         }
-
-        // Note: _invoicePaymentValidation[invoiceId] persists. Solidity's
-        // `delete` keyword can't be applied to FHE types (ebool), and there's
-        // no non-reverting reset primitive that doesn't incur encryption
-        // cost. Status field gates re-entry, so stale handle reads are safe.
+        // _invoicePaymentValidation persists; the status field gates re-entry.
     }
 
     function cancelInvoice(uint256 invoiceId) external nonReentrant {
@@ -390,39 +367,16 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         require(inv.status == InvoiceStatus.Pending, "BusinessHub: not pending");
         require(msg.sender == inv.vendor, "BusinessHub: not the vendor");
         inv.status = InvoiceStatus.Cancelled;
-        // #214: clear the payment-starter so a fresh invoice (if one is later
-        // re-created at this id — currently impossible because ids increment,
-        // but defensive against future status-reset paths).
         invoicePaymentStartedBy[invoiceId] = address(0);
         emit InvoiceCancelled(invoiceId, block.timestamp);
     }
 
-    /// @notice Vendor-initiated refund for a Disputed invoice.
-    ///
-    ///         payInvoice transfers funds to the vendor BEFORE the
-    ///         encrypted-amount match is verified. If the client paid the
-    ///         wrong amount, payInvoiceFinalize moves the invoice into the
-    ///         Disputed state — but the funds have already moved. This
-    ///         function lets the vendor return the encrypted amount to
-    ///         the client (msg.sender = vendor; recipient = inv.client),
-    ///         transitioning Disputed → Cancelled atomically with the
-    ///         on-chain refund.
-    ///
-    ///         Requires the vendor to have first granted BusinessHub an
-    ///         encrypted vault allowance (`vault.approve(businessHub, ...)`)
-    ///         — same pattern as any other transferFromVerified caller.
-    ///
     // ─────────────────────────────────────────────────────────────────
     //  PRIVATE INVOICE ESCROW (PR-C)
     //
-    //  payInvoice transfers funds to the vendor BEFORE the encrypted-amount
-    //  match is verified (and only fixes mismatches via vendor-cooperative
-    //  refundDisputedInvoice). For workflows where trustless settlement
-    //  matters — freelancers paid by clients they haven't worked with
-    //  before, longer engagements, B2B invoicing — the escrow path holds
-    //  the encrypted payment in this contract until match is verified,
-    //  then atomically releases to vendor (match) or refunds the client
-    //  (mismatch). No vendor cooperation required.
+    //  Holds the client's encrypted payment in this contract until the
+    //  match is verified, then releases it to the vendor (match) or refunds
+    //  the payer (mismatch). No vendor cooperation required.
     // ─────────────────────────────────────────────────────────────────
 
     /// @notice Escrow-flavoured payInvoice. Funds sit in BusinessHub's vault
@@ -432,15 +386,15 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     function payInvoiceEscrow(uint256 invoiceId, externalEuint64 encAmount, bytes calldata proof) external nonReentrant {
         Invoice storage inv = _invoices[invoiceId];
         require(inv.status == InvoiceStatus.Pending, "BusinessHub: not pending");
+        require(msg.sender == inv.client, "BusinessHub: not the client");
         require(invoicePaymentStartedBy[invoiceId] == address(0), "BusinessHub: already paying");
+        _requireAllowedVault(inv.vault);
         invoicePaymentStartedBy[invoiceId] = msg.sender;
 
-        // Verify the encrypted input in the client's (msg.sender) context.
         euint64 payment = FHE.asEuint64(encAmount, proof);
 
-        // Pull funds INTO this contract (escrow). The vault's transferFrom-
-        // Verified returns a verified handle of the actual amount transferred
-        // — which we keep in storage until release.
+        // The returned handle is what actually landed here (0 on short
+        // balance). It is both what we hold and what we match.
         euint64 held = FHE.receiveEuint64FromCall(
             IFHERC20Vault(inv.vault).transferFromVerified(msg.sender, address(this), FHE.shareEuint64(payment, inv.vault)),
             inv.vault
@@ -449,25 +403,46 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         FHE.allowSender(held);
         _invoiceEscrowHeld[invoiceId] = held;
 
-        // Encrypted equality check, same shape as payInvoice. Public so the
-        // SDK's threshold-decrypt path can publish the result back via
-        // releaseInvoiceEscrow.
-        ebool exactMatch = _verifyEncryptedMatch(payment, inv.amount);
+        ebool exactMatch = _verifyEncryptedMatch(held, inv.amount);
         FHE.allowPublic(exactMatch);
         _invoicePaymentValidation[invoiceId] = exactMatch;
 
+        invoicePaymentMode[invoiceId] = PaymentMode.Escrow;
+        invoicePaidAt[invoiceId] = block.timestamp;
         inv.status = InvoiceStatus.PaymentPending;
 
         emit InvoicePaymentInitiated(invoiceId, block.timestamp);
         try eventHub.emitActivity(msg.sender, inv.vendor, "invoice_escrow_funded", inv.description, invoiceId) {} catch {}
     }
 
-    /// @notice Finalize a payInvoiceEscrow. Off-chain, the SDK threshold-
-    ///         decrypts the validation ebool and supplies the plaintext
-    ///         result + signature; this function publishes that result on-
-    ///         chain (which reverts if the signature is wrong) and then
-    ///         atomically routes the held funds: Paid (vendor) on match,
-    ///         Cancelled (client refund) on mismatch.
+    /// @notice Escrowed invoices funded before this upgrade matched the
+    ///         client's REQUEST, which can be true while 0 was held. This
+    ///         recomputes the check on the held handle. Anyone may call;
+    ///         the result must then be decrypted and passed to
+    ///         releaseInvoiceEscrow.
+    function revalidateLegacyInvoiceEscrow(uint256 invoiceId) external nonReentrant {
+        Invoice storage inv = _invoices[invoiceId];
+        require(inv.status == InvoiceStatus.PaymentPending, "BusinessHub: not payment pending");
+        require(
+            invoicePaymentMode[invoiceId] == PaymentMode.Legacy && _isEscrowPayment(invoiceId),
+            "BusinessHub: not a legacy escrow payment"
+        );
+        ebool exactMatch = _verifyEncryptedMatch(_invoiceEscrowHeld[invoiceId], inv.amount);
+        FHE.allowPublic(exactMatch);
+        _invoicePaymentValidation[invoiceId] = exactMatch;
+        invoicePaymentMode[invoiceId] = PaymentMode.Escrow;
+        if (invoicePaidAt[invoiceId] == 0) invoicePaidAt[invoiceId] = block.timestamp;
+        emit InvoiceEscrowRevalidated(invoiceId, block.timestamp);
+    }
+
+    /// @notice Settle an escrowed invoice payment. The caller supplies the
+    ///         decrypted match result + signature; it is verified on-chain,
+    ///         then the held funds go to the vendor (match) or back to the
+    ///         payer (mismatch).
+    /// @dev    The outcome is fixed by the verified decrypt, so the caller
+    ///         only controls timing. The client may settle at any time; after
+    ///         INVOICE_ESCROW_RELEASE_DELAY anyone may, so a silent client
+    ///         cannot strand the vendor.
     function releaseInvoiceEscrow(
         uint256 invoiceId,
         bool matchPlaintext,
@@ -475,8 +450,13 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     ) external nonReentrant {
         Invoice storage inv = _invoices[invoiceId];
         require(inv.status == InvoiceStatus.PaymentPending, "BusinessHub: not payment pending");
-        require(msg.sender == inv.client, "BusinessHub: only client can finalize");
-        require(invoicePaymentStartedBy[invoiceId] == msg.sender, "BusinessHub: only the payment-starter can finalize");
+        require(invoicePaymentMode[invoiceId] == PaymentMode.Escrow, "BusinessHub: not an escrow payment");
+        if (msg.sender != inv.client) {
+            require(
+                block.timestamp >= invoicePaidAt[invoiceId] + INVOICE_ESCROW_RELEASE_DELAY,
+                "BusinessHub: only client can finalize"
+            );
+        }
 
         ebool validation = _invoicePaymentValidation[invoiceId];
         FHE.publishDecryptResult(validation, matchPlaintext, signature);
@@ -484,214 +464,122 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         require(ready, "BusinessHub: validation decryption not ready");
 
         euint64 held = _invoiceEscrowHeld[invoiceId];
-        // Authorize the vault to act on our held handle for this call.
 
         if (matchResult) {
-            // Match: release to vendor.
             IFHERC20Vault(inv.vault).transferVerified(inv.vendor, FHE.shareEuint64(held, inv.vault));
             inv.status = InvoiceStatus.Paid;
             emit InvoicePaid(invoiceId, block.timestamp);
             try eventHub.emitActivity(inv.client, inv.vendor, "invoice_paid", inv.description, invoiceId) {} catch {}
         } else {
-            // Mismatch: refund to the client (= msg.sender). No vendor
-            // cooperation required — the funds never left this contract.
-            IFHERC20Vault(inv.vault).transferVerified(msg.sender, FHE.shareEuint64(held, inv.vault));
+            // Refund whoever funded the escrow. Since the client check this is
+            // always the client; older records may name another payer.
+            IFHERC20Vault(inv.vault).transferVerified(invoicePaymentStartedBy[invoiceId], FHE.shareEuint64(held, inv.vault));
             inv.status = InvoiceStatus.Cancelled;
             emit InvoiceCancelled(invoiceId, block.timestamp);
             try eventHub.emitActivity(inv.client, inv.vendor, "invoice_refunded", inv.description, invoiceId) {} catch {}
         }
     }
 
-    /// @param invoiceId The invoice in `Disputed` state.
+    /// @notice Vendor returns a Disputed direct payment to the client.
     ///
-    /// @dev Refund amount is fixed to the original encrypted invoice amount.
-    ///      Earlier versions accepted a vendor-supplied encAmount which let
-    ///      a malicious vendor pass encrypt(0) to flip the invoice to
-    ///      Cancelled without actually refunding the client. The vendor
-    ///      keeps initiation control (they call this) but the amount is
-    ///      protocol-enforced.
+    ///         The refund is the handle payInvoice recorded as actually moved
+    ///         to the vendor, not the invoiced amount. The vault moves all of
+    ///         it or 0 (vendor short on balance or allowance), so the status
+    ///         does not change here: finalizeDisputedRefund flips it to
+    ///         Cancelled only once refunded == paid is verified.
+    ///
+    ///         The vendor must first grant BusinessHub an encrypted vault
+    ///         allowance.
+    /// @param invoiceId The invoice in `Disputed` state.
+    /// @dev Legacy records (paid before the moved amount was stored) fall
+    ///      back to inv.amount, the only figure on record for them.
     function refundDisputedInvoice(uint256 invoiceId) external nonReentrant {
         Invoice storage inv = _invoices[invoiceId];
         require(inv.status == InvoiceStatus.Disputed, "BusinessHub: not disputed");
         require(msg.sender == inv.vendor, "BusinessHub: not the vendor");
+        require(!invoiceRefundPending[invoiceId], "BusinessHub: refund pending");
 
-        // Re-use the verified invoice-amount handle stored at create-time.
-        // FHE.allowTransient grants the vault one-shot read access for the
-        // upcoming transferFromVerified call.
-        euint64 refund = inv.amount;
+        euint64 paid = _invoicePaidAmount[invoiceId];
+        if (!FHE.isInitialized(paid)) paid = inv.amount;
 
-        IFHERC20Vault(inv.vault).transferFromVerified(msg.sender, inv.client, FHE.shareEuint64(refund, inv.vault));
+        euint64 refunded = FHE.receiveEuint64FromCall(
+            IFHERC20Vault(inv.vault).transferFromVerified(msg.sender, inv.client, FHE.shareEuint64(paid, inv.vault)),
+            inv.vault
+        );
+        ebool ok = FHE.eq(refunded, paid);
+        FHE.allowThis(ok);
+        FHE.allowSender(ok);
+        FHE.allowPublic(ok);
+        _invoiceRefundCheck[invoiceId] = ok;
+        invoiceRefundPending[invoiceId] = true;
 
-        inv.status = InvoiceStatus.Cancelled;
-        // Allow the same invoice id to never be replayed: clear the
-        // payment-starter so any future cancelInvoice re-entry is rejected
-        // by the Pending status guard above (defense-in-depth).
-        invoicePaymentStartedBy[invoiceId] = address(0);
-
-        emit InvoiceCancelled(invoiceId, block.timestamp);
-        try eventHub.emitActivity(inv.vendor, inv.client, "invoice_refunded", inv.description, invoiceId) {} catch {}
+        emit InvoiceRefundInitiated(invoiceId, block.timestamp);
     }
 
-    /// @notice Phase 5.6 — pay an invoice using ANY ERC-20 token. Routes
-    ///         through Uniswap v3 to swap the caller's `payToken` into the
-    ///         vault's underlying token (USDC, etc.) for an EXACT output
-    ///         amount, then plaintext-transfers that to the vendor. The
-    ///         encrypted-amount match check still runs (same async finalize
-    ///         flow as `payInvoice`), so the vendor gets the same integrity
-    ///         guarantee — the difference is only the token the payer spent.
-    ///
-    ///         Same-token short-circuit: if `payToken == vault.underlyingToken()`
-    ///         the swap is skipped entirely (cheaper, no Uniswap dependency,
-    ///         no slippage concern).
-    ///
-    /// @dev    PRIVACY HOLE (documented in Plan §5.6 — "the swap routes through
-    ///         a public DEX, so the payment-amount-in-original-token is visible
-    ///         on-chain during the swap window. Amount in USDC stays encrypted
-    ///         post-settlement"). Mitigation lives in UI copy ("Pay in different
-    ///         token (amount briefly visible during transit)").
-    ///
-    /// @dev    SECURITY: `swapRouter` is supplied by the caller. The frontend
-    ///         hardcodes Uniswap's SwapRouter02 per chain (lib/uniswap.ts).
-    ///         A malicious router cannot drain the contract — the only token
-    ///         this contract holds at the time of the swap is what was just
-    ///         pulled from msg.sender. The downstream `safeTransfer(vendor)`
-    ///         reverts cleanly if the swap output is short.
-    ///
-    /// @param invoiceId       The invoice to pay.
-    /// @param payToken        ERC-20 the caller is spending (e.g. USDT, WETH).
-    /// @param payAmountInMax  Upper bound on payToken to pull from the caller.
-    ///                        Caller must `approve(BusinessHub, payAmountInMax)` first.
-    /// @param expectedUsdcOut Plaintext amount of vault.underlyingToken to
-    ///                        deliver to the vendor. Must equal the off-chain
-    ///                        decrypted invoice amount; the `encAmount` arg
-    ///                        proves that match via the existing FHE flow.
-    /// @param fee             Uniswap v3 pool fee tier (3000 = 0.3%, etc.).
-    /// @param swapRouter      Address of Uniswap v3 SwapRouter02 (per chain).
-    /// @param encAmount       Encrypted match value — same role as `payInvoice`.
-    function payInvoiceWithSwap(
+    /// @notice Settle a refundDisputedInvoice attempt. Cancelled if the full
+    ///         paid amount went back; otherwise the invoice stays Disputed and
+    ///         the vendor may try again. Anyone may submit the decrypt.
+    function finalizeDisputedRefund(
         uint256 invoiceId,
-        address payToken,
-        uint256 payAmountInMax,
-        uint256 expectedUsdcOut,
-        uint24 fee,
-        address swapRouter,
-        externalEuint64 encAmount, bytes calldata proof
+        bool okPlaintext,
+        bytes calldata signature
     ) external nonReentrant {
         Invoice storage inv = _invoices[invoiceId];
-        require(inv.status == InvoiceStatus.Pending, "BusinessHub: not pending");
-        require(msg.sender == inv.client, "BusinessHub: not the client");
-        require(payToken != address(0), "BusinessHub: zero payToken");
-        require(swapRouter != address(0), "BusinessHub: zero swapRouter");
-        require(approvedSwapRouters[swapRouter], "BusinessHub: router not approved");
-        require(payAmountInMax > 0, "BusinessHub: zero payAmountInMax");
-        require(expectedUsdcOut > 0, "BusinessHub: zero expectedUsdcOut");
+        require(inv.status == InvoiceStatus.Disputed, "BusinessHub: not disputed");
+        require(invoiceRefundPending[invoiceId], "BusinessHub: no refund pending");
 
-        // #214: lock first payer in (same as payInvoice).
-        if (invoicePaymentStartedBy[invoiceId] != address(0)) {
-            require(
-                invoicePaymentStartedBy[invoiceId] == msg.sender,
-                "BusinessHub: payment already started by another address"
-            );
-        }
-        invoicePaymentStartedBy[invoiceId] = msg.sender;
+        ebool check = _invoiceRefundCheck[invoiceId];
+        FHE.publishDecryptResult(check, okPlaintext, signature);
+        (bool ok, bool ready) = FHE.getDecryptResultSafe(check);
+        require(ready, "BusinessHub: refund decryption not ready");
 
-        // ── 1. Encrypted-match validation ──────────────────────────────
-        // Verify encrypted input here (msg.sender = client) before any cross
-        // -contract call. The match result is published for later off-chain
-        // decryption + finalize, mirroring payInvoice exactly so the same
-        // payInvoiceFinalize() handles both flows.
-        euint64 payment = FHE.asEuint64(encAmount, proof);
-        ebool exactMatch = _verifyEncryptedMatch(payment, inv.amount);
-        FHE.allowPublic(exactMatch);
-        _invoicePaymentValidation[invoiceId] = exactMatch;
-
-        // ── 2. Pull payToken from caller ───────────────────────────────
-        IERC20(payToken).safeTransferFrom(msg.sender, address(this), payAmountInMax);
-
-        // ── 3. Swap (or skip if same-token) ────────────────────────────
-        address vaultUnderlying = IFHERC20Vault(inv.vault).underlyingToken();
-        uint256 amountInActual;
-        if (payToken == vaultUnderlying) {
-            // No-swap path: payToken IS the invoice's token. Caller must
-            // have provided exactly the expected amount (plus zero excess),
-            // otherwise the math doesn't tie out.
-            require(
-                payAmountInMax == expectedUsdcOut,
-                "BusinessHub: same-token requires payAmountInMax == expectedUsdcOut"
-            );
-            amountInActual = expectedUsdcOut;
+        invoiceRefundPending[invoiceId] = false;
+        if (ok) {
+            inv.status = InvoiceStatus.Cancelled;
+            invoicePaymentStartedBy[invoiceId] = address(0);
+            emit InvoiceCancelled(invoiceId, block.timestamp);
+            try eventHub.emitActivity(inv.vendor, inv.client, "invoice_refunded", inv.description, invoiceId) {} catch {}
         } else {
-            // Approve the router for the upper bound, then swap for an
-            // exact output. Reset approval to zero after to defend against
-            // routers that don't burn the full allowance.
-            IERC20(payToken).forceApprove(swapRouter, payAmountInMax);
-            amountInActual = ISwapRouter02(swapRouter).exactOutputSingle(
-                ISwapRouter02.ExactOutputSingleParams({
-                    tokenIn: payToken,
-                    tokenOut: vaultUnderlying,
-                    fee: fee,
-                    recipient: address(this),
-                    amountOut: expectedUsdcOut,
-                    amountInMaximum: payAmountInMax,
-                    sqrtPriceLimitX96: 0
-                })
-            );
-            IERC20(payToken).forceApprove(swapRouter, 0);
-
-            // Refund unused payToken (most swaps undershoot the cap by some
-            // small slippage delta).
-            if (amountInActual < payAmountInMax) {
-                IERC20(payToken).safeTransfer(msg.sender, payAmountInMax - amountInActual);
-            }
+            emit InvoiceRefundFailed(invoiceId, block.timestamp);
         }
-
-        // ── 4. Plaintext transfer to vendor ────────────────────────────
-        // The vendor gets PLAINTEXT USDC — they can shield manually later
-        // if they want encrypted balance. This is the privacy trade-off
-        // documented above. If they want encryption preserved end-to-end,
-        // the standard `payInvoice` flow remains available.
-        IERC20(vaultUnderlying).safeTransfer(inv.vendor, expectedUsdcOut);
-
-        // ── 5. Mark PaymentPending — finalize required ─────────────────
-        // The async finalize step (payInvoiceFinalize) verifies the FHE
-        // match decryption and flips Paid/Disputed. Vendors should NOT
-        // assume the payment is final until that step lands — same as
-        // the existing payInvoice flow.
-        inv.status = InvoiceStatus.PaymentPending;
-
-        emit InvoicePaymentInitiated(invoiceId, block.timestamp);
-        emit InvoicePaymentSwapped(
-            invoiceId,
-            payToken,
-            amountInActual,
-            expectedUsdcOut,
-            block.timestamp
-        );
-        try eventHub.emitActivity(
-            msg.sender,
-            inv.vendor,
-            "invoice_payment_initiated",
-            inv.description,
-            invoiceId
-        ) {} catch {}
     }
 
-    /// @notice Phase 5.7 — owner sweeps accumulated tokens out of the
-    ///         contract. The oracle-fallback flow pulls `payToken` from
-    ///         the payer and pays the vendor in USDC out of an operator-
-    ///         maintained float — the payTokens accumulate here. This
-    ///         function lets the owner periodically sweep them, sell
-    ///         externally, and top the USDC float back up. Without this
-    ///         the operator is permanently subsidizing the asymmetric
-    ///         exchange.
-    ///
-    /// @dev    onlyOwner gate — only the contract owner can move funds
-    ///         out. The function does NOT touch the FHE-vault encrypted
-    ///         flow (`payInvoice` / `runPayroll`), only the plaintext
-    ///         token balances accumulated by the oracle/swap fallback
-    ///         paths. Vendors paid via the encrypted path are paid out
-    ///         of THEIR encrypted vault balance, not the contract's
-    ///         plaintext float — those funds never touch this contract.
+    /// @notice Read the refund-check handle for finalizeDisputedRefund.
+    function getInvoiceRefundCheckHandle(uint256 invoiceId) external view returns (ebool) {
+        return _invoiceRefundCheck[invoiceId];
+    }
+
+    /// @dev Escrowed when recorded as such, or (legacy) when a held handle exists.
+    function _isEscrowPayment(uint256 invoiceId) internal view returns (bool) {
+        PaymentMode m = invoicePaymentMode[invoiceId];
+        if (m != PaymentMode.Legacy) return m == PaymentMode.Escrow;
+        return FHE.isInitialized(_invoiceEscrowHeld[invoiceId]);
+    }
+
+    /// @notice Retired. The plaintext swap path let the client mark an invoice
+    ///         paid while the vendor received an amount the encrypted match
+    ///         never covered. Invoices in flight from this path finalize
+    ///         through payInvoiceFinalize, which the vendor must call.
+    function payInvoiceWithSwap(
+        uint256, address, uint256, uint256, uint24, address, externalEuint64, bytes calldata
+    ) external pure {
+        revert("BusinessHub: retired");
+    }
+
+    /// @notice Retired for the same reason as payInvoiceWithSwap, and because
+    ///         it paid vendors out of an operator float on an oracle signature.
+    function payInvoiceWithOracleQuote(
+        uint256, address, uint256, uint256, uint256, uint256, bytes32, bytes calldata, externalEuint64, bytes calldata
+    ) external pure {
+        revert("BusinessHub: retired");
+    }
+
+    /// @notice Owner sweeps plaintext tokens that are not owed to anyone, such
+    ///         as payTokens left by the retired oracle path. Escrow deposits
+    ///         are liabilities and stay untouchable.
+    /// @dev    Escrows created before liability tracking existed must be
+    ///         counted first (accountLegacyEscrows), otherwise their deposits
+    ///         would look like free balance.
     function withdrawAccumulated(
         address token,
         address to,
@@ -699,164 +587,11 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     ) external onlyOwner {
         require(token != address(0), "BusinessHub: zero token");
         require(to != address(0), "BusinessHub: zero recipient");
+        require(escrowAccountingCursor == nextEscrowId, "BusinessHub: account legacy escrows first");
+        uint256 bal = IERC20(token).balanceOf(address(this));
+        uint256 owed = escrowLiabilities[token];
+        require(bal >= owed && amount <= bal - owed, "BusinessHub: amount exceeds free balance");
         IERC20(token).safeTransfer(to, amount);
-    }
-
-    /// @notice Phase 5.7 — owner-only setter for the oracle attestation
-    ///         address. Backend `/api/oracle/quote` ECDSA-signs price
-    ///         quotes using the corresponding private key; this contract
-    ///         verifies them. Address(0) effectively disables the oracle
-    ///         fallback path (every quote will fail recovery match).
-    function setOracleAttestationAddress(address newAttestor) external onlyOwner {
-        address previous = oracleAttestationAddress;
-        oracleAttestationAddress = newAttestor;
-        emit OracleAddressUpdated(previous, newAttestor);
-    }
-
-    /// @notice Phase 5.7 — pay an invoice with a token Uniswap doesn't
-    ///         have a pool for, using a backend-signed price quote. The
-    ///         payer pulls `payAmountIn` of `payToken`, the contract
-    ///         applies the oracle's `ratePpm` (out-per-in × 1e6) to
-    ///         derive the USDC settlement amount, then plaintext-transfers
-    ///         that to the vendor. Same async finalize flow as `payInvoice`
-    ///         and `payInvoiceWithSwap` — the FHE encrypted-amount match
-    ///         check still gates Paid vs. Disputed.
-    ///
-    /// @dev    PRIVACY trade-off: identical to `payInvoiceWithSwap` —
-    ///         payment-amount-in-original-token is publicly visible and
-    ///         the vendor receives plaintext USDC. Documented in UI copy.
-    ///
-    /// @dev    SECURITY:
-    ///           1. Signature is verified against `oracleAttestationAddress`.
-    ///              Compromised key → owner rotates via setOracleAttestationAddress.
-    ///           2. `expiresAt` deadline prevents replay of stale quotes.
-    ///           3. `nonce` prevents reuse of valid quotes (per-payer
-    ///              uniqueness via the (payer, nonce) tuple — quote-spent
-    ///              tracker below).
-    ///           4. Sanity bound on `ratePpm`: rejected if outside
-    ///              [1, 100_000_000] which means rate is 1e-6 to 1e2 of
-    ///              tokenOut per unit tokenIn. Catches mis-signed quotes
-    ///              with absurd rates that could under/over-pay vendor.
-    ///
-    /// @param invoiceId      The invoice to pay.
-    /// @param payToken       ERC-20 the caller is spending.
-    /// @param payAmountIn    Amount of payToken to pull (exact, no refund).
-    /// @param expectedUsdcOut Plaintext invoice amount the vendor receives.
-    ///                        MUST match (payAmountIn * ratePpm / 1e6).
-    /// @param ratePpm        Oracle's tokenOut-per-tokenIn rate × 1e6.
-    /// @param expiresAt      Unix seconds; quote rejected after.
-    /// @param nonce          Per-payer uniqueness token from /api/oracle/quote.
-    /// @param signature      ECDSA over keccak256(abi.encode(invoiceId,
-    ///                       payToken, payAmountIn, expectedUsdcOut,
-    ///                       ratePpm, expiresAt, nonce, address(this),
-    ///                       block.chainid, msg.sender)) signed by
-    ///                       oracleAttestationAddress, EIP-191 prefixed.
-    /// @param encAmount      Encrypted match value — same role as `payInvoice`.
-    function payInvoiceWithOracleQuote(
-        uint256 invoiceId,
-        address payToken,
-        uint256 payAmountIn,
-        uint256 expectedUsdcOut,
-        uint256 ratePpm,
-        uint256 expiresAt,
-        bytes32 nonce,
-        bytes calldata signature,
-        externalEuint64 encAmount, bytes calldata proof
-    ) external nonReentrant {
-        Invoice storage inv = _invoices[invoiceId];
-        require(inv.status == InvoiceStatus.Pending, "BusinessHub: not pending");
-        require(msg.sender == inv.client, "BusinessHub: not the client");
-        require(payToken != address(0), "BusinessHub: zero payToken");
-        require(payAmountIn > 0, "BusinessHub: zero payAmountIn");
-        require(expectedUsdcOut > 0, "BusinessHub: zero expectedUsdcOut");
-        require(block.timestamp <= expiresAt, "BusinessHub: quote expired");
-
-        // Sanity-bound the rate. ratePpm = 1 means 1e-6 tokenOut per tokenIn
-        // (e.g. 1 wei of unit token → 1 wei of unit USDC, scaled). ratePpm
-        // = 100_000_000 means 100x — catches a mis-signed `1e9` rate that
-        // would over-credit the vendor 1000x. Outside this band is a
-        // signed-quote bug, not a real market quote.
-        require(ratePpm >= 1 && ratePpm <= 100_000_000, "BusinessHub: rate out of bounds");
-
-        // Verify expectedUsdcOut matches the rate exactly.
-        //
-        // Audit P2.16: the previous shape allowed `expectedUsdcOut = derivedOut - 1`
-        // (the +1 tolerance was applied to the upper bound), letting a payer
-        // submit a valid signed quote but underpay the vendor by 1 unit per
-        // settlement. Tolerance for division rounding is the backend's job —
-        // if the off-chain quote computation produces non-integer results,
-        // round there with deterministic rules. The on-chain check is exact.
-        uint256 derivedOut = (payAmountIn * ratePpm) / 1_000_000;
-        require(derivedOut == expectedUsdcOut, "BusinessHub: expectedUsdcOut mismatch");
-
-        // Verify oracle signature. EIP-191 prefix prevents the same digest
-        // being reused as a regular tx (off-chain → on-chain replay).
-        // Including address(this), chainid, and msg.sender in the digest
-        // prevents cross-contract / cross-chain / cross-payer replay.
-        require(oracleAttestationAddress != address(0), "BusinessHub: oracle unset");
-        bytes32 digest = keccak256(
-            abi.encode(
-                invoiceId,
-                payToken,
-                payAmountIn,
-                expectedUsdcOut,
-                ratePpm,
-                expiresAt,
-                nonce,
-                address(this),
-                block.chainid,
-                msg.sender
-            )
-        );
-        bytes32 ethDigest = MessageHashUtils.toEthSignedMessageHash(digest);
-        address recovered = ECDSA.recover(ethDigest, signature);
-        require(recovered == oracleAttestationAddress, "BusinessHub: bad oracle sig");
-
-        // Per-payer nonce tracking: prevents reuse of the same valid quote
-        // (e.g. payer drains payToken from same wallet twice with one
-        // signed quote). Storage is gated by msg.sender so an attacker
-        // can't pollute someone else's nonce slot.
-        require(!_oracleQuoteUsed[msg.sender][nonce], "BusinessHub: nonce used");
-        _oracleQuoteUsed[msg.sender][nonce] = true;
-
-        // ── Payment-starter lock-in ────────────────────────────────────
-        if (invoicePaymentStartedBy[invoiceId] != address(0)) {
-            require(
-                invoicePaymentStartedBy[invoiceId] == msg.sender,
-                "BusinessHub: payment already started by another address"
-            );
-        }
-        invoicePaymentStartedBy[invoiceId] = msg.sender;
-
-        // ── FHE encrypted-match validation ─────────────────────────────
-        euint64 payment = FHE.asEuint64(encAmount, proof);
-        ebool exactMatch = _verifyEncryptedMatch(payment, inv.amount);
-        FHE.allowPublic(exactMatch);
-        _invoicePaymentValidation[invoiceId] = exactMatch;
-
-        // ── Pull payToken + transfer USDC to vendor ────────────────────
-        IERC20(payToken).safeTransferFrom(msg.sender, address(this), payAmountIn);
-        address vaultUnderlying = IFHERC20Vault(inv.vault).underlyingToken();
-        IERC20(vaultUnderlying).safeTransfer(inv.vendor, expectedUsdcOut);
-
-        inv.status = InvoiceStatus.PaymentPending;
-
-        emit InvoicePaymentInitiated(invoiceId, block.timestamp);
-        emit InvoicePaymentOracleSettled(
-            invoiceId,
-            payToken,
-            payAmountIn,
-            expectedUsdcOut,
-            ratePpm,
-            block.timestamp
-        );
-        try eventHub.emitActivity(
-            msg.sender,
-            inv.vendor,
-            "invoice_payment_initiated",
-            inv.description,
-            invoiceId
-        ) {} catch {}
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -872,6 +607,9 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         uint256 count = employees.length;
         require(count > 0 && count <= MAX_PAYROLL_SIZE, "BusinessHub: invalid batch size");
         require(count == salaries.length, "BusinessHub: length mismatch");
+        // A forged vault could report any "moved" handle and inflate the
+        // receipts that proveIncomeAbove reads.
+        _requireAllowedVault(vault);
 
         // One batch signature covers every salary in the run.
         euint64[] memory verifiedSalaries = FHE.asEuint64s(salaries, proof);
@@ -923,20 +661,20 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         require(beneficiary != address(0) && beneficiary != msg.sender, "BusinessHub: invalid beneficiary");
         require(deadline >= block.timestamp + 1 days, "BusinessHub: deadline must be at least 1 day");
         require(plaintextAmount > 0, "BusinessHub: zero amount");
-        // Encrypted handle below is euint64 — values above 2^64-1 would
-        // truncate silently while safeTransferFrom takes the full
-        // uint256, locking the upper bits' worth of underlying in the
-        // contract. Mirror of the FHERC20Vault.shield cap.
+        // Mirror of the FHERC20Vault.shield cap: the euint64 copy would truncate.
         require(plaintextAmount <= type(uint64).max, "BusinessHub: amount exceeds uint64");
         require(bytes(description).length <= 512, "BusinessHub: description too long");
+        // A party acting as arbiter could decide its own dispute.
+        require(
+            arbiter == address(0) || (arbiter != msg.sender && arbiter != beneficiary),
+            "BusinessHub: arbiter must be a third party"
+        );
+        _requireAllowedVault(vault);
 
-        // Lock plaintext amount in the underlying ERC20 (not encrypted — escrow needs release)
-        // The user shields tokens first, then this function takes from their PUBLIC balance
-        // This is the correct pattern: escrow amounts must be releasable without FHE passthrough
-        // Audit fix: safeTransferFrom — non-standard ERC-20s that return false silently
-        // would otherwise leave the contract in a "deposit succeeded" state with no funds.
-        IERC20 underlying = IERC20(IFHERC20Vault(vault).underlyingToken());
-        underlying.safeTransferFrom(msg.sender, address(this), plaintextAmount);
+        // The token comes from the registry and is stored, so a vault cannot
+        // report one token at deposit and another at payout.
+        address token = tokenRegistry.underlyingOf(vault);
+        IERC20(token).safeTransferFrom(msg.sender, address(this), plaintextAmount);
 
         euint64 amount = FHE.asEuint64(plaintextAmount);
         FHE.allowThis(amount);
@@ -952,6 +690,10 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
             depositorApproved: false, beneficiaryMarkedDelivered: false,
             status: EscrowStatus.Active
         });
+        escrowToken[id] = token;
+        escrowLiabilities[token] += plaintextAmount;
+        _escrowLiabilityCounted[id] = true;
+        if (escrowAccountingCursor == id) escrowAccountingCursor = id + 1;
 
         _userEscrows[msg.sender].push(id);
         _userEscrows[beneficiary].push(id);
@@ -970,10 +712,7 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         emit EscrowDelivered(escrowId, block.timestamp);
         try eventHub.emitActivity(msg.sender, e.depositor, "escrow_delivered", "", escrowId) {} catch {}
 
-        // #212: if depositor already approved before delivery, the original
-        // approveRelease never re-checked the release condition — funds got
-        // stuck. Mirror the release-check from approveRelease here so either
-        // ordering of (approveRelease, markDelivered) triggers a release.
+        // #212: either ordering of (approveRelease, markDelivered) releases.
         if (e.depositorApproved) {
             _releaseEscrow(escrowId);
         }
@@ -988,18 +727,21 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         e.depositorApproved = true;
         emit EscrowApproved(escrowId, block.timestamp);
 
-        // If both parties agree, release
         if (e.depositorApproved && e.beneficiaryMarkedDelivered) {
             _releaseEscrow(escrowId);
         }
     }
 
-    /// @notice Either party can dispute
+    /// @notice Either party can dispute, but only when an arbiter exists to
+    ///         decide. Without one a dispute would only freeze the funds;
+    ///         the deadline refund covers that case instead.
     function disputeEscrow(uint256 escrowId) external nonReentrant {
         Escrow storage e = _escrows[escrowId];
         require(e.status == EscrowStatus.Active, "BusinessHub: not active");
         require(msg.sender == e.depositor || msg.sender == e.beneficiary, "BusinessHub: not a party");
+        require(e.arbiter != address(0), "BusinessHub: no arbiter configured");
         e.status = EscrowStatus.Disputed;
+        escrowDisputedAt[escrowId] = block.timestamp;
         emit EscrowDisputed(escrowId, msg.sender, block.timestamp);
     }
 
@@ -1011,43 +753,111 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         require(msg.sender == e.arbiter, "BusinessHub: not arbiter");
 
         e.status = EscrowStatus.Released;
-
-        // Transfer plaintext escrowed funds to the decided recipient
-        address recipient = releaseToBeneficiary ? e.beneficiary : e.depositor;
-        IERC20 underlying = IERC20(IFHERC20Vault(e.vault).underlyingToken());
-        underlying.safeTransfer(recipient, e.plaintextAmount);
+        _payoutEscrow(escrowId, releaseToBeneficiary ? e.beneficiary : e.depositor);
 
         emit EscrowArbiterDecided(escrowId, releaseToBeneficiary, block.timestamp);
         emit EscrowReleased(escrowId, block.timestamp);
         try eventHub.emitActivity(e.depositor, e.beneficiary, "escrow_resolved", e.description, escrowId) {} catch {}
     }
 
-    /// @notice Claim expired escrow — returns funds to depositor
+    /// @notice A dispute the arbiter has not decided within
+    ///         ESCROW_DISPUTE_TIMEOUT returns the deposit to the depositor.
+    ///         Anyone may trigger it. Disputes opened before the timestamp
+    ///         was recorded count from the escrow deadline.
+    function claimDisputeTimeout(uint256 escrowId) external nonReentrant {
+        Escrow storage e = _escrows[escrowId];
+        require(e.status == EscrowStatus.Disputed, "BusinessHub: not disputed");
+        uint256 start = escrowDisputedAt[escrowId];
+        if (start == 0) start = e.deadline;
+        require(block.timestamp >= start + ESCROW_DISPUTE_TIMEOUT, "BusinessHub: dispute not timed out");
+
+        e.status = EscrowStatus.Expired;
+        _payoutEscrow(escrowId, e.depositor);
+
+        emit EscrowDisputeTimedOut(escrowId, block.timestamp);
+        try eventHub.emitActivity(e.depositor, address(0), "escrow_expired", e.description, escrowId) {} catch {}
+    }
+
+    /// @notice Claim expired escrow. Returns funds to depositor.
     function claimExpiredEscrow(uint256 escrowId) external nonReentrant {
         Escrow storage e = _escrows[escrowId];
         require(e.status == EscrowStatus.Active, "BusinessHub: not active");
         require(block.timestamp > e.deadline, "BusinessHub: not expired");
 
         e.status = EscrowStatus.Expired;
-
-        // Return plaintext escrowed funds to depositor
-        IERC20 underlying = IERC20(IFHERC20Vault(e.vault).underlyingToken());
-        underlying.safeTransfer(e.depositor, e.plaintextAmount);
+        _payoutEscrow(escrowId, e.depositor);
 
         emit EscrowExpiryClaimed(escrowId, block.timestamp);
         try eventHub.emitActivity(e.depositor, address(0), "escrow_expired", e.description, escrowId) {} catch {}
     }
 
+    /// @notice Count escrows created before liability tracking, so their
+    ///         deposits stop looking like free balance to withdrawAccumulated.
+    ///         Permissionless, resumable, bounded by maxCount per call.
+    /// @dev    An open legacy escrow whose vault is not an active registry
+    ///         vault has no trustworthy token; it is skipped with an event and
+    ///         cannot pay out until the owner registers that vault.
+    function accountLegacyEscrows(uint256 maxCount) external nonReentrant {
+        uint256 i = escrowAccountingCursor;
+        uint256 end = nextEscrowId;
+        uint256 done;
+        while (i < end && done < maxCount) {
+            Escrow storage e = _escrows[i];
+            if (
+                !_escrowLiabilityCounted[i] &&
+                (e.status == EscrowStatus.Active || e.status == EscrowStatus.Disputed)
+            ) {
+                address token = escrowToken[i];
+                if (token == address(0) && _isActiveVault(e.vault)) {
+                    token = tokenRegistry.underlyingOf(e.vault);
+                    escrowToken[i] = token;
+                }
+                if (token != address(0)) {
+                    escrowLiabilities[token] += e.plaintextAmount;
+                    _escrowLiabilityCounted[i] = true;
+                } else {
+                    emit LegacyEscrowUnresolved(i);
+                }
+            }
+            unchecked { ++i; ++done; }
+        }
+        escrowAccountingCursor = i;
+    }
+
     function _releaseEscrow(uint256 escrowId) internal {
         Escrow storage e = _escrows[escrowId];
         e.status = EscrowStatus.Released;
-
-        // Transfer plaintext escrowed funds to beneficiary
-        IERC20 underlying = IERC20(IFHERC20Vault(e.vault).underlyingToken());
-        underlying.safeTransfer(e.beneficiary, e.plaintextAmount);
+        _payoutEscrow(escrowId, e.beneficiary);
 
         emit EscrowReleased(escrowId, block.timestamp);
         try eventHub.emitActivity(e.depositor, e.beneficiary, "escrow_released", e.description, escrowId) {} catch {}
+    }
+
+    /// @dev Pays the plaintext deposit from the token stored at creation.
+    ///      Escrows created before tokens were stored resolve it from the
+    ///      registry and revert if the vault is not active: re-reading the
+    ///      vault is exactly what let a fake vault swap the payout token.
+    function _payoutEscrow(uint256 escrowId, address to) internal {
+        Escrow storage e = _escrows[escrowId];
+        address token = escrowToken[escrowId];
+        if (token == address(0)) {
+            require(_isActiveVault(e.vault), "BusinessHub: vault not allowed");
+            token = tokenRegistry.underlyingOf(e.vault);
+            escrowToken[escrowId] = token;
+        }
+        if (_escrowLiabilityCounted[escrowId]) {
+            _escrowLiabilityCounted[escrowId] = false;
+            escrowLiabilities[token] -= e.plaintextAmount;
+        }
+        IERC20(token).safeTransfer(to, e.plaintextAmount);
+    }
+
+    function _isActiveVault(address vault) internal view returns (bool) {
+        return address(tokenRegistry) != address(0) && tokenRegistry.isActiveVault(vault);
+    }
+
+    function _requireAllowedVault(address vault) internal view {
+        require(_isActiveVault(vault), "BusinessHub: vault not allowed");
     }
 
     // ─── View Functions ─────────────────────────────────────────────────
@@ -1084,6 +894,13 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     // ─── Admin ──────────────────────────────────────────────────────────
 
     function setEventHub(address _eventHub) external onlyOwner { eventHub = IEventHub(_eventHub); }
+
+    /// @notice Vault allowlist used by every entry that takes a vault.
+    function setTokenRegistry(address r) external onlyOwner {
+        require(r.code.length > 0, "BusinessHub: bad registry");
+        tokenRegistry = ITokenRegistry(r);
+        emit TokenRegistrySet(r);
+    }
 
     /// @notice #92: Set the PaymentReceipts contract address. When non-zero,
     ///         runPayroll forwards each recipient's transferred amount so
@@ -1136,22 +953,37 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     ///      seeds with Uniswap v3 SwapRouter02 per chain (lib/uniswap.ts).
     ///
     ///      v0.2.1 storage append: decrements the gap from 50 → 49.
+    /// @dev Unused since the swap path was retired. Slot kept for layout.
     mapping(address => bool) public approvedSwapRouters;
+
+    // ─── v0.3 audit fixes (append-only, each slot taken from __gap) ─────
+
+    /// @dev Vault allowlist. Unset means every vault-taking entry fails closed.
+    ITokenRegistry public tokenRegistry;
+    /// @dev How each invoice was paid, so each finalize accepts only its own mode.
+    mapping(uint256 => PaymentMode) public invoicePaymentMode;
+    /// @dev Handle of what payInvoice actually moved to the vendor. Refunds
+    ///      return this, not the invoiced amount.
+    mapping(uint256 => euint64) private _invoicePaidAmount;
+    mapping(uint256 => uint256) public invoicePaidAt;
+    /// @dev refundDisputedInvoice result check: refunded == paid.
+    mapping(uint256 => ebool) private _invoiceRefundCheck;
+    mapping(uint256 => bool) public invoiceRefundPending;
+    /// @dev ERC20 resolved from the registry at escrow creation. Payouts use
+    ///      this, never vault.underlyingToken() at release time.
+    mapping(uint256 => address) public escrowToken;
+    mapping(uint256 => uint256) public escrowDisputedAt;
+    /// @dev Plaintext tokens owed to escrow parties, per token.
+    mapping(address => uint256) public escrowLiabilities;
+    mapping(uint256 => bool) private _escrowLiabilityCounted;
+    /// @dev Every escrow id below this has been considered for liabilities.
+    uint256 public escrowAccountingCursor;
 
     /// @dev Reserved storage to avoid collisions on future upgrades.
     ///      Append-only: when adding a new state variable in a later upgrade,
     ///      decrement the gap size so total storage is unchanged.
-    /// @dev Used: 18. Gap: 49.
-    uint256[49] private __gap;
-
-    event SwapRouterApprovalChanged(address indexed router, bool approved);
-
-    /// @notice Approve or unapprove a swap router for `payInvoiceWithSwap`.
-    function setSwapRouterApproved(address router, bool approved) external onlyOwner {
-        require(router != address(0), "BusinessHub: zero router");
-        approvedSwapRouters[router] = approved;
-        emit SwapRouterApprovalChanged(router, approved);
-    }
+    /// @dev Used: 29. Gap: 38.
+    uint256[38] private __gap;
 
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 

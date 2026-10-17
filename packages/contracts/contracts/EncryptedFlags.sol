@@ -6,20 +6,17 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
 /// @title EncryptedFlags — Encrypted compliance flags, fee engine, and access control
-/// @notice Demonstrates advanced FHE operations:
-///         - ebool for encrypted verification status
-///         - and/or/not/xor for encrypted boolean logic
-///         - euint8 for encrypted flag bitmasks
-///         - shl/shr for efficient fee calculation
-///         - mul for percentage-based fees
-///
-/// Pattern inspired by Alpaca-Invoice's compliance rules and NullPay's privacy layers.
+/// @notice Flags and fee rates are stored as ciphertexts, but the owner sets
+///         them with PLAINTEXT arguments (setVerified(user, true), the fee
+///         rates), so anyone reading those transactions learns the values.
+///         The combined results (canSend, canReceive, merchant fees) may only
+///         be computed by the user or an owner-authorized contract.
 
 contract EncryptedFlags is UUPSUpgradeable, OwnableUpgradeable {
 
     // ─── Encrypted User Flags ───────────────────────────────────────
-    // Each flag is an ebool — nobody can see a user's verification status
-    // except the user themselves and authorized contracts
+    // Each flag is an ebool. The value is visible in the owner's setter
+    // calldata; on-chain reads are limited to the user and this contract.
 
     mapping(address => ebool) private _isVerified;       // KYC/identity verified
     mapping(address => ebool) private _isActive;         // Account active (not suspended)
@@ -33,9 +30,10 @@ contract EncryptedFlags is UUPSUpgradeable, OwnableUpgradeable {
     mapping(address => euint8) private _flagBitmask;
 
     // ─── Fee Configuration ──────────────────────────────────────────
-    // Fee rates stored as encrypted values for privacy
-    euint64 private _baseFeeRate;    // Base fee in basis points (e.g., 100 = 1%)
-    euint64 private _merchantDiscount; // Discount for merchants
+    // Fee rates in basis points of 10000. Encrypted at rest, but set from
+    // plaintext, so the rates themselves are public.
+    euint64 private _baseFeeRate;    // e.g. 100 = 1%
+    euint64 private _merchantDiscount; // share of the base fee waived, e.g. 2000 = 20%
 
     // ─── Encrypted Audit Scopes (from Alpaca-Invoice pattern) ──────
     // When sharing data with auditor, a bitmask controls which fields are visible
@@ -46,18 +44,45 @@ contract EncryptedFlags is UUPSUpgradeable, OwnableUpgradeable {
     event FlagSet(address indexed user, string flagType, uint256 timestamp);
     event AuditScopeSet(address indexed user, address indexed auditor, uint256 timestamp);
     event FeeCalculated(address indexed user, uint256 timestamp);
+    event AuthorizedCallerSet(address indexed caller, bool authorized);
+    event FeeRatesSet(uint64 baseFeeRate, uint64 merchantDiscount);
+
+    uint64 public constant BPS = 10_000;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() { _disableInitializers(); }
 
     function initialize(uint64 baseFeeRate, uint64 merchantDiscount) public initializer {
         __Ownable_init(msg.sender);
+        _setFeeRates(baseFeeRate, merchantDiscount);
+    }
 
+    /// @notice Replace the fee rates. Both are basis points, capped at 10000.
+    function setFeeRates(uint64 baseFeeRate, uint64 merchantDiscount) external onlyOwner {
+        _setFeeRates(baseFeeRate, merchantDiscount);
+    }
+
+    /// @notice Allow a contract to query canSend / canReceive / merchant fees
+    ///         for users other than itself.
+    function setAuthorizedCaller(address caller, bool authorized) external onlyOwner {
+        authorizedCallers[caller] = authorized;
+        emit AuthorizedCallerSet(caller, authorized);
+    }
+
+    function _setFeeRates(uint64 baseFeeRate, uint64 merchantDiscount) internal {
+        require(baseFeeRate <= BPS && merchantDiscount <= BPS, "EncryptedFlags: rate above 10000");
         _baseFeeRate = FHE.asEuint64(baseFeeRate);
         FHE.allowThis(_baseFeeRate);
-
         _merchantDiscount = FHE.asEuint64(merchantDiscount);
         FHE.allowThis(_merchantDiscount);
+        emit FeeRatesSet(baseFeeRate, merchantDiscount);
+    }
+
+    /// @dev Without this, any caller could read any user's flags through
+    ///      the combined result, which is an oracle on the user's status.
+    modifier onlyUserOrAuthorized(address user) {
+        require(msg.sender == user || authorizedCallers[msg.sender], "EncryptedFlags: not authorized");
+        _;
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -99,7 +124,7 @@ contract EncryptedFlags is UUPSUpgradeable, OwnableUpgradeable {
     /// @notice Check if a user can send payments
     ///         Must be: verified AND active AND NOT frozen
     ///         Uses: FHE.and(), FHE.not() on encrypted booleans
-    function canSend(address user) external returns (ebool) {
+    function canSend(address user) external onlyUserOrAuthorized(user) returns (ebool) {
         ebool verified = _isVerified[user];
         ebool active = _isActive[user];
 
@@ -111,7 +136,7 @@ contract EncryptedFlags is UUPSUpgradeable, OwnableUpgradeable {
 
     /// @notice Check if user can receive (verified OR has completed KYC)
     ///         Uses: FHE.or() on encrypted booleans
-    function canReceive(address user) external returns (ebool) {
+    function canReceive(address user) external onlyUserOrAuthorized(user) returns (ebool) {
         ebool verified = _isVerified[user];
         ebool kycDone = _hasCompletedKYC[user];
 
@@ -146,25 +171,15 @@ contract EncryptedFlags is UUPSUpgradeable, OwnableUpgradeable {
     //  FEE ENGINE (mul + shr for percentage calculation)
     // ═══════════════════════════════════════════════════════════════
 
-    /// @notice Calculate encrypted fee for an amount
-    ///         Uses FHE.mul() for amount * rate, FHE.shr() for division by shift
-    ///         Pattern: fee = (amount * rateInBps) >> 14 (divide by ~16384, approximates /10000)
+    /// @notice Calculate encrypted fee for an amount: fee = amount * rate / 10000.
     /// @param encAmount Encrypted payment amount
     /// @return fee Encrypted fee amount
     /// @return netAmount Encrypted amount after fee deduction
     function calculateFee(externalEuint64 encAmount, bytes calldata proof) external returns (euint64 fee, euint64 netAmount) {
         euint64 amount = FHE.asEuint64(encAmount, proof);
-
-        // fee = amount * baseFeeRate (in basis points, e.g., 100 = 1%)
-        // Then shift right by 14 to approximate division by 10000
-        // This gives us ~0.6% precision which is acceptable for fees
-        euint64 feeProduct = FHE.mul(amount, _baseFeeRate);
-        fee = FHE.shr(feeProduct, FHE.asEuint64(14)); // >> 14 ≈ / 16384
-
-        // Net = amount - fee
+        fee = _applyBps(amount, _baseFeeRate);
         netAmount = FHE.sub(amount, fee);
 
-        // Allow caller to read results
         FHE.allowThis(fee);
         FHE.allowSender(fee);
         FHE.allowThis(netAmount);
@@ -173,30 +188,37 @@ contract EncryptedFlags is UUPSUpgradeable, OwnableUpgradeable {
         emit FeeCalculated(msg.sender, block.timestamp);
     }
 
-    /// @notice Calculate merchant fee (discounted)
-    ///         Demonstrates chained FHE operations: mul → shr → sub → select
-    function calculateMerchantFee(externalEuint64 encAmount, bytes calldata proof, address merchant) external returns (euint64 fee, euint64 netAmount) {
+    /// @notice Calculate merchant fee: the base fee minus the merchant
+    ///         discount share when `merchant` holds the merchant flag.
+    /// @dev    Restricted to the merchant or an authorized contract. Open
+    ///         access would let anyone learn merchant status by comparing
+    ///         this fee against calculateFee.
+    function calculateMerchantFee(externalEuint64 encAmount, bytes calldata proof, address merchant)
+        external
+        onlyUserOrAuthorized(merchant)
+        returns (euint64 fee, euint64 netAmount)
+    {
         euint64 amount = FHE.asEuint64(encAmount, proof);
 
-        // Calculate base fee
-        euint64 baseFee = FHE.shr(FHE.mul(amount, _baseFeeRate), FHE.asEuint64(14));
-
-        // Calculate discount
-        euint64 discount = FHE.shr(FHE.mul(baseFee, _merchantDiscount), FHE.asEuint64(14));
-
-        // Check if merchant flag is set
-        ebool isMerch = _isMerchant[merchant];
-
-        // Apply discount only if merchant (encrypted conditional)
-        euint64 discountedFee = FHE.sub(baseFee, discount);
-        fee = FHE.select(isMerch, discountedFee, baseFee);
-
+        euint64 baseFee = _applyBps(amount, _baseFeeRate);
+        euint64 discount = _applyBps(baseFee, _merchantDiscount);
+        fee = FHE.select(_isMerchant[merchant], FHE.sub(baseFee, discount), baseFee);
         netAmount = FHE.sub(amount, fee);
 
         FHE.allowThis(fee);
         FHE.allowSender(fee);
         FHE.allowThis(netAmount);
         FHE.allowSender(netAmount);
+    }
+
+    /// @dev x * rateBps / 10000, split as (x / BPS) * rate + (x % BPS) * rate / BPS
+    ///      so the product never overflows uint64 for rate <= BPS. Clamped to
+    ///      x so a rate stored before the cap cannot make the caller's sub wrap.
+    function _applyBps(euint64 x, euint64 rateBps) internal returns (euint64) {
+        euint64 bps = FHE.asEuint64(BPS);
+        euint64 whole = FHE.mul(FHE.div(x, bps), rateBps);
+        euint64 part = FHE.div(FHE.mul(FHE.rem(x, bps), rateBps), bps);
+        return FHE.min(FHE.add(whole, part), x);
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -217,6 +239,7 @@ contract EncryptedFlags is UUPSUpgradeable, OwnableUpgradeable {
     /// @notice Check if auditor has access to a specific scope bit
     ///         Uses: FHE.and() with euint8 for bitwise AND
     function checkAuditScope(address user, address auditor, externalEuint8 encBitMask, bytes calldata proof) external returns (ebool) {
+        require(msg.sender == user || msg.sender == auditor, "EncryptedFlags: not user or auditor");
         euint8 scope = _auditScopes[user][auditor];
         euint8 mask = FHE.asEuint8(encBitMask, proof);
 
@@ -244,8 +267,11 @@ contract EncryptedFlags is UUPSUpgradeable, OwnableUpgradeable {
     /// @dev Reserved storage to avoid collisions on future upgrades.
     ///      Append-only: when adding a new state variable in a later upgrade,
     ///      decrement the gap size so total storage is unchanged.
-    /// @dev Used: 8. Gap: 50.
-    uint256[50] private __gap;
+    /// @dev Contracts allowed to query flags and merchant fees for other users.
+    mapping(address => bool) public authorizedCallers;
+
+    /// @dev Used: 9. Gap: 49.
+    uint256[49] private __gap;
 
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 }
