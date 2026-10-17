@@ -55,7 +55,11 @@ vi.mock("@/hooks/useEffectiveAddress", () => ({
   useEffectiveAddress: useEffectiveAddressMock,
 }));
 vi.mock("@/providers/ChainProvider", () => ({ useChain: useChainMock }));
-vi.mock("@/hooks/useGroupSplit", () => ({ useGroupSplit: useGroupSplitMock }));
+vi.mock("@/hooks/useGroupSplit", async () => {
+  // Keep the pure split helpers real; only the hook is mocked.
+  const actual = await vi.importActual<typeof import("@/hooks/useGroupSplit")>("@/hooks/useGroupSplit");
+  return { ...actual, useGroupSplit: useGroupSplitMock };
+});
 vi.mock("@/lib/supabase", () => ({
   fetchUserGroups: fetchUserGroupsMock,
   fetchGroupExpenses: fetchGroupExpensesMock,
@@ -128,12 +132,18 @@ function expenseRow(over: {
 const createGroupMock = vi.fn();
 const addExpenseMock = vi.fn();
 const settleDebtMock = vi.fn();
-const voteOnExpenseMock = vi.fn();
 const leaveGroupMock = vi.fn();
 const archiveGroupMock = vi.fn();
-const computeEqualSplitMock = vi.fn(
-  (amount: string, n: number) => (Number(amount || "0") / n).toFixed(6),
-);
+// Mirrors the real hook: an exact base-unit split that sums to the total.
+const computeEqualSplitMock = vi.fn((amount: string, n: number) => {
+  const units = BigInt(Math.round(Number(amount || "0") * 1_000_000));
+  const base = units / BigInt(n);
+  const rem = units % BigInt(n);
+  return Array.from({ length: n }, (_, i) => {
+    const v = BigInt(i) < rem ? base + 1n : base;
+    return (Number(v) / 1_000_000).toString();
+  });
+});
 
 function setUseGroupSplit(isProcessing = false) {
   useGroupSplitMock.mockReturnValue({
@@ -142,7 +152,6 @@ function setUseGroupSplit(isProcessing = false) {
     createGroup: createGroupMock,
     addExpense: addExpenseMock,
     settleDebt: settleDebtMock,
-    voteOnExpense: voteOnExpenseMock,
     leaveGroup: leaveGroupMock,
     archiveGroup: archiveGroupMock,
   });
@@ -166,7 +175,6 @@ beforeEach(() => {
   createGroupMock.mockReset();
   addExpenseMock.mockReset();
   settleDebtMock.mockReset();
-  voteOnExpenseMock.mockReset();
   leaveGroupMock.mockReset();
   archiveGroupMock.mockReset();
   computeEqualSplitMock.mockClear();
@@ -898,51 +906,14 @@ describe("Groups — SettleDebtModal (§15.x)", () => {
   });
 });
 
-// ----- VoteModal ----- //
+// ----- Expense voting is retired on-chain ----- //
 
-describe("Groups — VoteModal (§15.x)", () => {
-  async function openVote(expenses: ReturnType<typeof expenseRow>[]) {
+describe("Groups — voting retired", () => {
+  it("GroupCard has no vote button", async () => {
     fetchUserGroupsMock.mockResolvedValue([groupRow({ group_id: 9 })]);
-    fetchGroupExpensesMock.mockImplementation(async (gid: number) => {
-      return gid === 9 ? expenses : [];
-    });
-    const result = render(<Groups />);
+    const { container } = render(<Groups />);
     await flush();
-    fireEvent.click(findButton(result.container, "Vote on expense"));
-    await flush();
-    return result;
-  }
-
-  it("empty expense list -> 'No expenses to vote on' empty state", async () => {
-    const { container } = await openVote([]);
-    expect(container.textContent).toContain("No expenses to vote on");
-  });
-
-  it("expense list renders + select an expense + submit vote -> voteOnExpense", async () => {
-    voteOnExpenseMock.mockResolvedValue(undefined);
-    const { container } = await openVote([
-      expenseRow({ group_id: 9, expense_id: 42, description: "Pizza" }),
-    ]);
-    // Click the expense row to select
-    const pizzaBtn = findButton(container, "Pizza");
-    fireEvent.click(pizzaBtn);
-    await flush();
-    // Enter vote amount
-    const voteInput = container.querySelector('input[placeholder="0.00"]') as HTMLInputElement;
-    fireEvent.change(voteInput, { target: { value: "1" } });
-    fireEvent.click(findButton(container, "Submit Vote"));
-    await flush();
-    expect(voteOnExpenseMock).toHaveBeenCalledWith(9, 42, "1");
-  });
-
-  it("Submit disabled when no expense selected (even with vote amount)", async () => {
-    const { container } = await openVote([
-      expenseRow({ group_id: 9, expense_id: 42, description: "Pizza" }),
-    ]);
-    const voteInput = container.querySelector('input[placeholder="0.00"]') as HTMLInputElement;
-    fireEvent.change(voteInput, { target: { value: "1" } });
-    const submit = findButton(container, "Submit Vote");
-    expect(submit.disabled).toBe(true);
+    expect(container.querySelector('[aria-label="Vote on expense"]')).toBeNull();
   });
 });
 

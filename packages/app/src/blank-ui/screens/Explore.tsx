@@ -95,8 +95,8 @@ const sections: FeatureSection[] = [
       {
         icon: <ArrowLeftRight size={20} />,
         iconBg: "bg-amber-50 text-amber-600",
-        title: "P2P Exchange",
-        subtitle: "Trade tokens with privacy",
+        title: "Exchange",
+        subtitle: "DEX swaps and USDC bridge",
         route: "/app/swap",
       },
       {

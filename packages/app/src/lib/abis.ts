@@ -105,7 +105,10 @@ export const GroupManagerAbi = [
   { type: "function", name: "getGroup", inputs: [{ name: "groupId", type: "uint256" }], outputs: [{ name: "name", type: "string" }, { name: "members", type: "address[]" }, { name: "expenseCount", type: "uint256" }, { name: "active", type: "bool" }], stateMutability: "view" },
   { type: "function", name: "getUserGroups", inputs: [{ name: "user", type: "address" }], outputs: [{ name: "", type: "uint256[]" }], stateMutability: "view" },
   { type: "event", name: "GroupCreated", inputs: [{ name: "groupId", type: "uint256", indexed: true }, { name: "name", type: "string", indexed: false }, { name: "members", type: "address[]", indexed: false }, { name: "timestamp", type: "uint256", indexed: false }] },
-  { type: "function", name: "voteOnExpense", inputs: [{ name: "groupId", type: "uint256" }, { name: "expenseId", type: "uint256" }, { name: "encVotes", type: "bytes32", internalType: "externalEuint64" }, { name: "proof", type: "bytes" }], outputs: [], stateMutability: "nonpayable" },
+  // voteOnExpense is retired on-chain (reverts "GroupManager: retired"); past tallies stay readable.
+  { type: "function", name: "groupVault", inputs: [{ name: "", type: "uint256" }], outputs: [{ name: "", type: "address" }], stateMutability: "view" },
+  { type: "event", name: "GroupVaultPinned", inputs: [{ name: "groupId", type: "uint256", indexed: true }, { name: "vault", type: "address", indexed: true }] },
+  { type: "event", name: "ExpenseApplied", inputs: [{ name: "groupId", type: "uint256", indexed: true }, { name: "expenseId", type: "uint256", indexed: false }, { name: "applied", type: "bytes32", indexed: false, internalType: "ebool" }] },
   { type: "function", name: "getExpenseVotes", inputs: [{ name: "groupId", type: "uint256" }, { name: "expenseId", type: "uint256" }], outputs: [{ name: "", type: "uint256", internalType: "euint64" }], stateMutability: "view" },
   { type: "function", name: "addMember", inputs: [{ name: "groupId", type: "uint256" }, { name: "member", type: "address" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "addAdmin", inputs: [{ name: "groupId", type: "uint256" }, { name: "admin", type: "address" }], outputs: [], stateMutability: "nonpayable" },
@@ -126,10 +129,14 @@ export const GroupManagerAbi = [
 export const CreatorHubAbi = [
   { type: "function", name: "setProfile", inputs: [{ name: "name", type: "string" }, { name: "bio", type: "string" }, { name: "tier1", type: "uint64" }, { name: "tier2", type: "uint64" }, { name: "tier3", type: "uint64" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "support", inputs: [{ name: "creator", type: "address" }, { name: "vault", type: "address" }, { name: "encAmount", type: "bytes32", internalType: "externalEuint64" }, { name: "proof", type: "bytes" }, { name: "message", type: "string" }], outputs: [], stateMutability: "nonpayable" },
-  { type: "function", name: "checkMyTier", inputs: [{ name: "creator", type: "address" }], outputs: [{ name: "bronze", type: "uint256" }, { name: "silver", type: "uint256" }, { name: "gold", type: "uint256" }], stateMutability: "nonpayable" },
+  // Totals are per vault. checkMyTier / getMyContribution / getMyEarnings were removed on-chain.
+  { type: "function", name: "checkMyTierIn", inputs: [{ name: "creator", type: "address" }, { name: "vault", type: "address" }], outputs: [{ name: "bronze", type: "uint256", internalType: "ebool" }, { name: "silver", type: "uint256", internalType: "ebool" }, { name: "gold", type: "uint256", internalType: "ebool" }], stateMutability: "nonpayable" },
   { type: "function", name: "getProfile", inputs: [{ name: "creator", type: "address" }], outputs: [{ name: "name", type: "string" }, { name: "bio", type: "string" }, { name: "tier1", type: "uint64" }, { name: "tier2", type: "uint64" }, { name: "tier3", type: "uint64" }, { name: "supporterCount", type: "uint256" }, { name: "active", type: "bool" }], stateMutability: "view" },
-  { type: "function", name: "getMyContribution", inputs: [{ name: "creator", type: "address" }], outputs: [{ name: "", type: "uint256" }], stateMutability: "view" },
+  { type: "function", name: "getMyContributionIn", inputs: [{ name: "creator", type: "address" }, { name: "vault", type: "address" }], outputs: [{ name: "", type: "uint256", internalType: "euint64" }], stateMutability: "view" },
+  { type: "function", name: "getMyEarningsIn", inputs: [{ name: "vault", type: "address" }], outputs: [{ name: "", type: "uint256", internalType: "euint64" }], stateMutability: "view" },
+  { type: "function", name: "hasProfile", inputs: [{ name: "", type: "address" }], outputs: [{ name: "", type: "bool" }], stateMutability: "view" },
   { type: "event", name: "Supported", inputs: [{ name: "supporter", type: "address", indexed: true }, { name: "creator", type: "address", indexed: true }, { name: "message", type: "string", indexed: false }, { name: "timestamp", type: "uint256", indexed: false }] },
+  { type: "event", name: "SupportedIn", inputs: [{ name: "supporter", type: "address", indexed: true }, { name: "creator", type: "address", indexed: true }, { name: "vault", type: "address", indexed: true }, { name: "moved", type: "bytes32", indexed: false, internalType: "euint64" }] },
 ] as const;
 
 export const BusinessHubAbi = [
@@ -180,9 +187,9 @@ export const BusinessHubAbi = [
   { type: "event", name: "EscrowArbiterDecided", inputs: [{ name: "id", type: "uint256", indexed: true }, { name: "releasedToBeneficiary", type: "bool", indexed: false }, { name: "timestamp", type: "uint256", indexed: false }] },
 ] as const;
 
+// Retired: createOffer and fillOffer revert "P2PExchange: retired" and are
+// left out on purpose. Cancel, reads and trade verification still work.
 export const P2PExchangeAbi = [
-  { type: "function", name: "createOffer", inputs: [{ name: "tokenGive", type: "address" }, { name: "tokenWant", type: "address" }, { name: "amountGive", type: "uint256" }, { name: "amountWant", type: "uint256" }, { name: "expiry", type: "uint256" }], outputs: [{ name: "", type: "uint256" }], stateMutability: "nonpayable" },
-  { type: "function", name: "fillOffer", inputs: [{ name: "offerId", type: "uint256" }, { name: "encTakerPayment", type: "bytes32", internalType: "externalEuint64" }, { name: "encMakerPayment", type: "bytes32", internalType: "externalEuint64" }, { name: "proof", type: "bytes" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "cancelOffer", inputs: [{ name: "offerId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "getActiveOffers", inputs: [{ name: "offset", type: "uint256" }, { name: "limit", type: "uint256" }], outputs: [{ name: "", type: "tuple[]", components: [{ name: "maker", type: "address" }, { name: "tokenGive", type: "address" }, { name: "tokenWant", type: "address" }, { name: "amountGive", type: "uint256" }, { name: "amountWant", type: "uint256" }, { name: "expiry", type: "uint256" }, { name: "active", type: "bool" }, { name: "filled", type: "bool" }] }], stateMutability: "view" },
   { type: "function", name: "getTradeValidation", inputs: [{ name: "offerId", type: "uint256" }], outputs: [{ name: "isValid", type: "bool" }, { name: "isReady", type: "bool" }], stateMutability: "view" },
@@ -512,6 +519,21 @@ export const StorefrontAbi = [
     { name: "refunded", type: "bool" },
   ], stateMutability: "view" },
   { type: "function", name: "getSellerListings", inputs: [{ name: "seller", type: "address" }], outputs: [{ name: "", type: "uint256[]" }], stateMutability: "view" },
+  { type: "function", name: "revealWinner", inputs: [
+    { name: "listingId", type: "uint256" },
+    { name: "plaintextIdx", type: "uint8" },
+    { name: "signature", type: "bytes" },
+  ], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "getWinnerIdxHandle", inputs: [{ name: "listingId", type: "uint256" }], outputs: [{ name: "", type: "uint256", internalType: "euint8" }], stateMutability: "view" },
+  { type: "function", name: "getWinningBid", inputs: [{ name: "listingId", type: "uint256" }], outputs: [{ name: "", type: "uint256", internalType: "euint64" }], stateMutability: "view" },
+  { type: "function", name: "getEncryptedBidAmount", inputs: [{ name: "listingId", type: "uint256" }, { name: "bidIndex", type: "uint256" }], outputs: [{ name: "", type: "uint256", internalType: "euint64" }], stateMutability: "view" },
+  { type: "function", name: "getPaidByBuyer", inputs: [{ name: "listingId", type: "uint256" }, { name: "buyer", type: "address" }], outputs: [{ name: "", type: "uint256", internalType: "euint64" }], stateMutability: "view" },
+  { type: "function", name: "hasBid", inputs: [{ name: "listingId", type: "uint256" }, { name: "bidder", type: "address" }], outputs: [{ name: "", type: "bool" }], stateMutability: "view" },
+  { type: "event", name: "FixedPricePaid", inputs: [
+    { name: "listingId", type: "uint256", indexed: true },
+    { name: "buyer", type: "address", indexed: true },
+    { name: "paid", type: "bytes32", indexed: false, internalType: "euint64" },
+  ] },
   { type: "event", name: "ListingCreated", inputs: [
     { name: "listingId", type: "uint256", indexed: true },
     { name: "seller", type: "address", indexed: true },
@@ -584,7 +606,9 @@ export const EncryptedCrowdfundAbi = [
     { name: "createdAt", type: "uint256" },
   ], stateMutability: "view" },
   { type: "function", name: "getEncryptedGoal", inputs: [{ name: "campaignId", type: "uint256" }], outputs: [{ name: "", type: "uint256", internalType: "euint64" }], stateMutability: "view" },
+  // Running total: no one gets decrypt access while open; the creator does at close.
   { type: "function", name: "getEncryptedRaised", inputs: [{ name: "campaignId", type: "uint256" }], outputs: [{ name: "", type: "uint256", internalType: "euint64" }], stateMutability: "view" },
+  { type: "function", name: "releasePaid", inputs: [{ name: "", type: "uint256" }], outputs: [{ name: "", type: "bool" }], stateMutability: "view" },
   { type: "function", name: "getGoalCheckHandle", inputs: [{ name: "campaignId", type: "uint256" }], outputs: [{ name: "", type: "uint256", internalType: "ebool" }], stateMutability: "view" },
   { type: "function", name: "getContributionCount", inputs: [{ name: "campaignId", type: "uint256" }], outputs: [{ name: "", type: "uint256" }], stateMutability: "view" },
   { type: "function", name: "getContribution", inputs: [
@@ -771,6 +795,19 @@ export const P2POfframpAbi = [
   { type: "function", name: "nextFillId", inputs: [], outputs: [{ name: "", type: "uint64" }], stateMutability: "view" },
   { type: "function", name: "CHALLENGE_WINDOW_SECONDS", inputs: [], outputs: [{ name: "", type: "uint32" }], stateMutability: "view" },
   { type: "function", name: "arbiter", inputs: [], outputs: [{ name: "", type: "address" }], stateMutability: "view" },
+  { type: "function", name: "reclaimAdapter", inputs: [], outputs: [{ name: "", type: "address" }], stateMutability: "view" },
+  { type: "function", name: "resolveStaleDispute", inputs: [{ name: "fillId", type: "uint64" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "getEscrowedAmount", inputs: [{ name: "fillId", type: "uint64" }], outputs: [{ name: "", type: "uint256", internalType: "euint64" }], stateMutability: "view" },
+  { type: "function", name: "fillDisputedAt", inputs: [{ name: "", type: "uint64" }], outputs: [{ name: "", type: "uint32" }], stateMutability: "view" },
+  { type: "function", name: "activeLocks", inputs: [{ name: "", type: "address" }], outputs: [{ name: "", type: "uint32" }], stateMutability: "view" },
+  { type: "function", name: "DISPUTE_TIMEOUT_SECONDS", inputs: [], outputs: [{ name: "", type: "uint32" }], stateMutability: "view" },
+  { type: "function", name: "PROOF_WINDOW_SECONDS", inputs: [], outputs: [{ name: "", type: "uint32" }], stateMutability: "view" },
+  { type: "function", name: "MAX_ACTIVE_LOCKS_PER_TAKER", inputs: [], outputs: [{ name: "", type: "uint32" }], stateMutability: "view" },
+  { type: "event", name: "FillEscrowed", inputs: [
+    { name: "fillId", type: "uint64", indexed: true },
+    { name: "escrowed", type: "bytes32", indexed: false, internalType: "euint64" },
+  ] },
+  { type: "event", name: "StaleDisputeReleased", inputs: [{ name: "fillId", type: "uint64", indexed: true }] },
 
   { type: "event", name: "OfferCreated", inputs: [
     { name: "offerId", type: "uint64", indexed: true },
@@ -930,11 +967,22 @@ export const MockReclaimVerifierAbi = [
   { type: "function", name: "setOperator", inputs: [{ name: "_operator", type: "address" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "operator", inputs: [], outputs: [{ name: "", type: "address" }], stateMutability: "view" },
   { type: "function", name: "verifyAndConsume", inputs: [
+    { name: "proof", type: "bytes" },
     { name: "providerId", type: "uint32" },
-    { name: "receiverHandle", type: "bytes32" },
-    { name: "amount", type: "uint64" },
-    { name: "signature", type: "bytes" },
-  ], outputs: [{ name: "", type: "bool" }], stateMutability: "nonpayable" },
+    { name: "expectedReceiver", type: "bytes32" },
+    { name: "expectedAmount", type: "uint64" },
+    { name: "fillId", type: "uint64" },
+    { name: "taker", type: "address" },
+    { name: "offramp", type: "address" },
+  ], outputs: [{ name: "ok", type: "bool" }, { name: "proofHash", type: "bytes32" }], stateMutability: "view" },
+  { type: "function", name: "attestationDigest", inputs: [
+    { name: "offramp", type: "address" },
+    { name: "fillId", type: "uint64" },
+    { name: "taker", type: "address" },
+    { name: "providerId", type: "uint32" },
+    { name: "expectedReceiver", type: "bytes32" },
+    { name: "expectedAmount", type: "uint64" },
+  ], outputs: [{ name: "", type: "bytes32" }], stateMutability: "view" },
   { type: "event", name: "OperatorChanged", inputs: [
     { name: "previous", type: "address", indexed: true },
     { name: "next", type: "address", indexed: true },

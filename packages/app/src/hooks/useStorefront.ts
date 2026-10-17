@@ -1,8 +1,10 @@
 // Wave 4 task #254 — Storefront hook covering all three sale modes.
 //
-// Exposes: createListing, buyFixed, placeBid, closeAuction, claimAuctionWin,
-// refundLoserBid, payPWYW, deactivateListing. Wires the FHE pipeline so
-// every flow shows real-step progress.
+// Exposes: createListing, buyFixed, placeBid, closeAuction, revealWinner,
+// claimAuctionWin, refundLoserBid, decryptPaidByBuyer, payPWYW,
+// deactivateListing. Wires the FHE pipeline so every flow shows real-step
+// progress. Auction order: close, reveal winner, then anyone settles the
+// win and losers refund. One bid per address per listing.
 
 import { useCallback, useState } from "react";
 import { parseUnits } from "viem";
@@ -13,7 +15,13 @@ import { useEffectiveAddress } from "./useEffectiveAddress";
 import { useUnifiedWrite } from "./useUnifiedWrite";
 import { useFhePipeline } from "./useFhePipeline";
 import { useChain } from "@/providers/ChainProvider";
-import { useCofheEncrypt, useCofheConnection, Encryptable } from "@/lib/cofhe-shim";
+import {
+  useCofheEncrypt,
+  useCofheConnection,
+  useCofheDecryptForTx,
+  useCofheDecryptForView,
+  Encryptable,
+} from "@/lib/cofhe-shim";
 import { StorefrontAbi, FHERC20VaultAbi } from "@/lib/abis";
 import { MAX_UINT64, getExplorerTxUrl } from "@/lib/constants";
 import { isVaultApproved, markVaultApproved } from "@/lib/approval";
@@ -57,10 +65,21 @@ const initial: StorefrontState = {
 // Pre-fix, users saw raw function names like "closeAuction completed".
 const FRIENDLY_LABEL: Record<string, string> = {
   closeAuction: "Auction closed",
-  claimAuctionWin: "Winning bid claimed",
+  claimAuctionWin: "Auction settled. Seller paid.",
   refundLoserBid: "Losing bid refunded",
   deactivateListing: "Listing deactivated",
 };
+
+/** Map Storefront revert strings to copy a user can act on. */
+export function friendlyStorefrontError(raw: string): string {
+  if (raw.includes("already bid")) return "You already bid on this auction. Each address gets one bid.";
+  if (raw.includes("winner not revealed")) return "The winner is not revealed yet. Reveal the winner first.";
+  if (raw.includes("winning bid, use claimAuctionWin")) return "This is the winning bid. Settle the auction to pay the seller.";
+  if (raw.includes("vault not allowed")) return "This token vault is not enabled for the storefront on this chain.";
+  if (raw.includes("winner already revealed")) return "The winner is already revealed.";
+  if (raw.includes("already settled")) return "This auction is already settled.";
+  return raw;
+}
 
 // ─── Hook ────────────────────────────────────────────────────────────
 
@@ -70,6 +89,8 @@ export function useStorefront() {
   const publicClient = usePublicClient({ chainId: activeChainId });
   const { connected } = useCofheConnection();
   const { encryptInputsAsync } = useCofheEncrypt();
+  const { decryptForTx } = useCofheDecryptForTx();
+  const { decryptForView } = useCofheDecryptForView();
   const { unifiedWriteAndWait } = useUnifiedWrite();
   const pipeline = useFhePipeline();
 
@@ -208,7 +229,7 @@ export function useStorefront() {
         invalidateBalanceQueries();
         return listingId;
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
+        const msg = friendlyStorefrontError(err instanceof Error ? err.message : String(err));
         pipeline.markFailed(err);
         // §3.11: preserve prev.txHash so the error state still links to the
         // failed tx on the explorer. Pre-fix overwrote with ...initial.
@@ -280,7 +301,7 @@ export function useStorefront() {
         invalidateBalanceQueries();
         return true;
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
+        const msg = friendlyStorefrontError(err instanceof Error ? err.message : String(err));
         pipeline.markFailed(err);
         // §3.11: preserve prev.txHash so the error state still links to the
         // failed tx on the explorer. Pre-fix overwrote with ...initial.
@@ -315,6 +336,15 @@ export function useStorefront() {
           toast.error("You can't bid on your own listing.");
           return false;
         }
+        // One bid per address per listing. Check before encrypting.
+        const alreadyBid = await publicClient!.readContract({
+          address: sf, abi: StorefrontAbi, functionName: "hasBid",
+          args: [BigInt(params.listingId), address as `0x${string}`],
+        }) as boolean;
+        if (alreadyBid === true) {
+          toast.error(friendlyStorefrontError("Storefront: already bid"));
+          return false;
+        }
 
         pipeline.start();
         setState({ ...initial, step: "approving", isProcessing: true });
@@ -343,7 +373,7 @@ export function useStorefront() {
         invalidateBalanceQueries();
         return true;
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
+        const msg = friendlyStorefrontError(err instanceof Error ? err.message : String(err));
         pipeline.markFailed(err);
         // §3.11: preserve prev.txHash so the error state still links to the
         // failed tx on the explorer. Pre-fix overwrote with ...initial.
@@ -370,19 +400,21 @@ export function useStorefront() {
         // to null. UI logic that read lastListingId post-callSimple saw null
         // and lost track of which listing the user was working with.
         setState((prev) => ({ ...prev, step: "sending", isProcessing: true, error: null }));
-        await unifiedWriteAndWait({
+        const wr = await unifiedWriteAndWait({
           address: sf,
           abi: StorefrontAbi,
           functionName,
           args: args as never,
           gas: BigInt(gasLimit),
         });
-        setState((prev) => ({ ...prev, step: "success", isProcessing: false }));
+        // "idle", not "success": the success step drives the buyer's
+        // payment-confirmed screen, which is wrong for close/settle/refund.
+        setState((prev) => ({ ...prev, step: "idle", isProcessing: false, txHash: wr.hash }));
         invalidateBalanceQueries();
         toast.success(FRIENDLY_LABEL[functionName] ?? "Submitted");
         return true;
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
+        const msg = friendlyStorefrontError(err instanceof Error ? err.message : String(err));
         // §3.11: preserve prev.txHash so the error state still links to the
         // failed tx on the explorer. Pre-fix overwrote with ...initial.
         setState((prev) => ({ ...prev, isProcessing: false, step: "error", error: msg }));
@@ -402,6 +434,77 @@ export function useStorefront() {
       callSimple("claimAuctionWin", [BigInt(listingId), deliveryNoteHash]),
     [callSimple],
   );
+  // closeAuction leaves the winner encrypted. Decrypt the winner index via
+  // the Threshold Network and publish it on-chain. Anyone can call; the
+  // signature is the gate. Refunds and settlement open after this.
+  const revealWinner = useCallback(
+    async (listingId: number) => {
+      const ready = guardWalletReady();
+      if (!ready) return false;
+      const { sf } = ready;
+      const toastId = toast.loading("Decrypting the winning bid index…");
+      try {
+        setState((prev) => ({ ...prev, step: "sending", isProcessing: true, error: null }));
+        const handle = (await publicClient!.readContract({
+          address: sf,
+          abi: StorefrontAbi,
+          functionName: "getWinnerIdxHandle",
+          args: [BigInt(listingId)],
+        })) as bigint;
+        if (!handle || handle === 0n) throw new Error("Auction is not closed yet.");
+
+        const startedAt = Date.now();
+        let proof: { decryptedValue: bigint | boolean; signature: `0x${string}` } | null = null;
+        while (Date.now() - startedAt < 60_000) {
+          proof = await decryptForTx(handle, "uint8");
+          if (proof) break;
+          await new Promise((r) => setTimeout(r, 5000));
+        }
+        if (!proof) throw new Error("Decryption timed out. Try Reveal again shortly.");
+        const idx = typeof proof.decryptedValue === "bigint" ? Number(proof.decryptedValue) : Number(proof.decryptedValue ? 1 : 0);
+
+        toast.loading("Publishing the winner on-chain…", { id: toastId });
+        await unifiedWriteAndWait({
+          address: sf,
+          abi: StorefrontAbi,
+          functionName: "revealWinner",
+          args: [BigInt(listingId), idx, proof.signature],
+          gas: BigInt(3_000_000),
+        });
+        setState((prev) => ({ ...prev, step: "idle", isProcessing: false }));
+        toast.success("Winner revealed", { id: toastId });
+        return true;
+      } catch (err) {
+        const msg = friendlyStorefrontError(err instanceof Error ? err.message : String(err));
+        setState((prev) => ({ ...prev, isProcessing: false, step: "error", error: msg }));
+        toast.error(msg, { id: toastId });
+        return false;
+      }
+    },
+    [guardWalletReady, publicClient, decryptForTx, unifiedWriteAndWait],
+  );
+
+  // FixedPrice: decrypt the running total a buyer actually paid on a
+  // listing. The vault moves 0 on a short balance or a price mismatch, so
+  // the seller checks this before delivering. Buyer and seller can decrypt.
+  const decryptPaidByBuyer = useCallback(
+    async (listingId: number, buyer: `0x${string}`): Promise<bigint> => {
+      const sf = contracts.Storefront as `0x${string}`;
+      if (!publicClient || !sf || sf === ZERO_ADDRESS) throw new Error("Storefront not deployed on this chain yet");
+      const handle = (await publicClient.readContract({
+        address: sf,
+        abi: StorefrontAbi,
+        functionName: "getPaidByBuyer",
+        args: [BigInt(listingId), buyer],
+      })) as bigint;
+      if (!handle || handle === 0n) return 0n;
+      const value = await decryptForView(handle, "uint64");
+      if (typeof value !== "bigint") throw new Error("Could not decrypt the paid amount. Check your permit and try again.");
+      return value;
+    },
+    [publicClient, contracts.Storefront, decryptForView],
+  );
+
   const refundLoserBid = useCallback(
     (listingId: number, bidIndex: number) => callSimple("refundLoserBid", [BigInt(listingId), BigInt(bidIndex)]),
     [callSimple],
@@ -466,7 +569,7 @@ export function useStorefront() {
         invalidateBalanceQueries();
         return true;
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
+        const msg = friendlyStorefrontError(err instanceof Error ? err.message : String(err));
         pipeline.markFailed(err);
         // §3.11: preserve prev.txHash so the error state still links to the
         // failed tx on the explorer. Pre-fix overwrote with ...initial.
@@ -559,7 +662,9 @@ export function useStorefront() {
     placeBid,
     closeAuction,
     claimAuctionWin,
+    revealWinner,
     refundLoserBid,
+    decryptPaidByBuyer,
     payPWYW,
     deactivateListing,
     fetchSellerListings,

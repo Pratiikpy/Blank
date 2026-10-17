@@ -611,7 +611,7 @@ export function useCofheDecryptForTx() {
 
   const decryptForTx = useCallback(async (
     ctHash: bigint,
-    fheType: "uint64" | "ebool" = "uint64"
+    fheType: "uint64" | "ebool" | "uint8" = "uint64"
   ): Promise<{ decryptedValue: bigint | boolean; signature: `0x${string}` } | null> => {
     const sdkReady = await loadSdk();
     if (!sdkReady || !_sdkClient) {
@@ -630,6 +630,7 @@ export function useCofheDecryptForTx() {
     try {
       const fheTypeMap: Record<string, number> = {
         ebool: 0,
+        uint8: 2,
         uint64: 5,
       };
       const fheTypeId = fheTypeMap[fheType] ?? 5;

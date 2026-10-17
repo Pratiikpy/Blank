@@ -60,7 +60,7 @@ describe("Features — 21-feature catalog (§15.x)", () => {
       "Stealth Payments",
       "Gift Envelopes",
       "Inheritance",
-      "P2P Exchange",
+      "Exchange",
       "Encrypted Proofs",
       "Claim Links",
       "Storefront",

@@ -6,7 +6,9 @@ import { railById, type RailId } from "@/lib/reclaim-providers";
 import type { Hex } from "viem";
 
 interface ReclaimWidgetProps {
-  receiverHandleHash: `0x${string}`;
+  chainId: number;
+  offramp: `0x${string}`;
+  fillId: bigint;
   amountMicroUSD: bigint;
   providerId: RailId;
   onProof: (proof: Hex, providerId: RailId) => void;
@@ -26,7 +28,9 @@ interface ReclaimWidgetProps {
  * do and call requestProof.
  */
 export function ReclaimWidget({
-  receiverHandleHash,
+  chainId,
+  offramp,
+  fillId,
   amountMicroUSD,
   providerId,
   onProof,
@@ -39,11 +43,7 @@ export function ReclaimWidget({
 
   const start = async () => {
     try {
-      const out = await reclaim.requestProof({
-        receiverHandle: receiverHandleHash,
-        amountMicroUSD,
-        providerId,
-      });
+      const out = await reclaim.requestProof({ chainId, offramp, fillId, providerId });
       setSubmitted(true);
       onProof(out.proof, out.providerId);
     } catch {
@@ -67,8 +67,9 @@ export function ReclaimWidget({
         click below to submit settlement evidence.
         {reclaim.mode === "mock" && (
           <>
-            {" "}Testnet mock mode: an operator-signed attestation is generated
-            in-browser. Live Reclaim Protocol integration ships after Block 0.5.
+            {" "}Testnet mock mode: the Blank server signs an attestation for this
+            fill only. It does not check that fiat was sent. Live Reclaim Protocol
+            verification is not wired yet.
           </>
         )}
         {reclaim.mode !== "mock" && (

@@ -7,6 +7,7 @@ import { sepolia as cofheSepolia, baseSepolia as cofheBaseSepolia, arbSepolia as
 import {
   createPublicClient,
   createWalletClient,
+  encodeAbiParameters,
   encodePacked,
   http,
   keccak256,
@@ -566,6 +567,48 @@ task(
   }
   console.log("");
 
+  // ─── 4a. Group expense: shares must sum to the total ──────────
+  // The contract checks the sum under FHE and emits ExpenseApplied(ebool).
+  console.log("[Feature 4a] addExpense: Alice pays 0.2 USDC split Bob 0.1 / Carol 0.1");
+  if (createdGroupId === null || !cofheClient) {
+    results.push({ feature: "group_addExpense", persona: "Alice", status: "skip", error: "no group or cofhe unavailable" });
+  } else {
+    try {
+      await connectCofheAs(personas[0]!);
+      const [shareB, shareC, total, expProof] = (await cofheClient
+        .encryptInputs([
+          Encryptable.uint64(parseUnits("0.1", 6)),
+          Encryptable.uint64(parseUnits("0.1", 6)),
+          Encryptable.uint64(parseUnits("0.2", 6)),
+        ])
+        .setConsumingContract(GroupManager as `0x${string}`)
+        .execute()) as [Hex, Hex, Hex, Hex];
+      const aliceWallet = createWalletClient({ account: privateKeyToAccount(personas[0]!.privKey), chain, transport: http(rpcUrl) });
+      const expHash = await withRetry("addExpense", () => aliceWallet.writeContract({
+        address: GroupManager as `0x${string}`,
+        abi: [{ name: "addExpense", type: "function", stateMutability: "nonpayable", inputs: [
+          { name: "groupId", type: "uint256" }, { name: "splitWith", type: "address[]" }, { name: "shares", type: "bytes32[]" },
+          { name: "totalPaid", type: "bytes32" }, { name: "proof", type: "bytes" }, { name: "description", type: "string" },
+        ], outputs: [] }],
+        functionName: "addExpense",
+        args: [createdGroupId, [personas[1]!.address, personas[2]!.address], [shareB, shareC], total, expProof, "sweep dinner"],
+        gas: 5_000_000n,
+      }));
+      const expReceipt = await waitOk(expHash, "addExpense");
+      const appliedTopic = keccak256(toBytes("ExpenseApplied(uint256,uint256,bytes32)"));
+      const sawApplied = expReceipt.logs.some(
+        (lg) => lg.address.toLowerCase() === GroupManager.toLowerCase() && lg.topics[0] === appliedTopic,
+      );
+      console.log(`  Alice: addExpense ok, ExpenseApplied ${sawApplied ? "emitted" : "MISSING"}  tx=${expHash}`);
+      results.push({ feature: "group_addExpense", persona: "Alice", status: sawApplied ? "pass" : "fail", txHash: expHash, error: sawApplied ? undefined : "no ExpenseApplied event" });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message.slice(0, 200) : String(err);
+      console.log(`  Alice: addExpense FAILED ${msg}`);
+      results.push({ feature: "group_addExpense", persona: "Alice", status: "fail", error: msg });
+    }
+  }
+  console.log("");
+
   // ─── 4b. Group second-leg — Bob settles a debt with Carol ──────
   console.log("[Feature 4b] settleDebt — Bob → Carol (0.1 USDC)");
   if (createdGroupId === null || !cofheClient) {
@@ -618,6 +661,17 @@ task(
       await waitOk(settleHash, "settleHash");
       console.log(`  Bob→Carol in group ${createdGroupId}: settleDebt ok  tx=${settleHash}`);
       results.push({ feature: "settleDebt", persona: "Bob", status: "pass", txHash: settleHash });
+
+      // First settle pins the group to this vault.
+      const pinned = await publicClient.readContract({
+        address: GroupManager as `0x${string}`,
+        abi: [{ name: "groupVault", type: "function", stateMutability: "view", inputs: [{ name: "", type: "uint256" }], outputs: [{ type: "address" }] }],
+        functionName: "groupVault",
+        args: [createdGroupId],
+      });
+      const pinOk = pinned.toLowerCase() === Vault.toLowerCase();
+      console.log(`  group ${createdGroupId} pinned vault ${pinned} ${pinOk ? "✓" : "MISMATCH"}`);
+      results.push({ feature: "group_vault_pinned", persona: "Bob", status: pinOk ? "pass" : "fail", error: pinOk ? undefined : `pinned=${pinned}` });
     } catch (err) {
       const msg = err instanceof Error ? err.message.slice(0, 250) : String(err);
       console.log(`  Bob→Carol: settleDebt FAILED ${msg}`);
@@ -1483,9 +1537,24 @@ task(
           args: [justListed, encBuy, encBuyProof, deliveryNoteHash],
           gas: 5_000_000n,
         }));
-        await waitOk(buyHash, "buyHash");
+        const buyReceipt = await waitOk(buyHash, "buyHash");
         console.log(`  Carol: buyFixed listing #${justListed} ok  tx=${buyHash}`);
         results.push({ feature: "storefront_buy", persona: "Carol", status: "pass", txHash: buyHash });
+
+        // The seller verifies payment through FixedPricePaid + getPaidByBuyer.
+        const paidTopic = keccak256(toBytes("FixedPricePaid(uint256,address,bytes32)"));
+        const sawPaid = buyReceipt.logs.some(
+          (lg) => lg.address.toLowerCase() === Storefront.toLowerCase() && lg.topics[0] === paidTopic,
+        );
+        const paidHandle = await publicClient.readContract({
+          address: Storefront as `0x${string}`,
+          abi: [{ name: "getPaidByBuyer", type: "function", stateMutability: "view", inputs: [{ name: "listingId", type: "uint256" }, { name: "buyer", type: "address" }], outputs: [{ type: "bytes32" }] }],
+          functionName: "getPaidByBuyer",
+          args: [justListed, personas[2]!.address],
+        });
+        const paidOk = sawPaid && BigInt(paidHandle) !== 0n;
+        console.log(`  listing #${justListed}: FixedPricePaid ${sawPaid ? "emitted" : "MISSING"}, paid-by-buyer handle ${BigInt(paidHandle) !== 0n ? "set" : "MISSING"}`);
+        results.push({ feature: "storefront_paid_by_buyer", persona: "Alice", status: paidOk ? "pass" : "fail", error: paidOk ? undefined : "no FixedPricePaid or empty getPaidByBuyer" });
       } catch (err) {
         const msg = err instanceof Error ? err.message.slice(0, 250) : String(err);
         console.log(`  Carol: buyFixed FAILED ${msg}`);
@@ -1555,69 +1624,160 @@ task(
   }
   console.log("");
 
-  // ─── 11. P2P Exchange — Carol creates an offer (plain) ─────────
-  console.log("[Feature 11] P2P Exchange — Carol creates a TestUSDC↔WETH offer");
+  // ─── 11. P2P offramp: Carol makes an offer, Dave takes it ─────
+  // P2PExchange is retired (createOffer/fillOffer revert); the fiat
+  // offramp is the P2P surface now. Covers: create, take, escrow handle
+  // visible to the taker, one open lock per taker, providerId == rail,
+  // and (when the deployer is the mock operator) a fill-bound proof.
+  console.log("[Feature 11] P2P offramp: Carol offers 0.5 USDC, Dave takes it");
   const P2PExchange = deployments.P2PExchange;
-  // Use TestUSDC↔TestUSDC-with-a-different-amount as a plaintext-only test;
-  // P2PExchange uses ERC20 transfers, not FHE. tokenGive must != tokenWant
-  // so we use a placeholder addr (the deployer) as tokenWant since the
-  // intent here is to prove the offer-creation path, not the trade
-  // settlement. Real P2P trades require a real ERC20 on both sides.
-  const PlaceholderToken = deployments.TestUSDT || deployments.GiftMoney; // anything non-zero, non-TestUSDC
-  if (!P2PExchange || !PlaceholderToken || PlaceholderToken === TestUSDC) {
-    results.push({ feature: "p2p_offer", persona: "Carol", status: "skip", error: "P2PExchange or alt-token not available" });
-  } else {
-    try {
-      const carolWallet = createWalletClient({
-        account: privateKeyToAccount(personas[2]!.privKey),
-        chain,
-        transport: http(rpcUrl),
-      });
-      // Approve P2PExchange to spend Carol's TestUSDC
-      const apHash = await carolWallet.writeContract({
-        address: TestUSDC as `0x${string}`,
-        abi: [
-          { name: "approve", type: "function", stateMutability: "nonpayable", inputs: [{ name: "spender", type: "address" }, { name: "amount", type: "uint256" }], outputs: [{ type: "bool" }] },
-        ],
-        functionName: "approve",
-        args: [P2PExchange as `0x${string}`, parseUnits("5", 6)],
-      });
-      await waitOk(apHash, "apHash");
+  const P2POfframp = deployments.P2POfframp as `0x${string}` | undefined;
+  const OFFRAMP_ABI = [
+    { name: "createOffer", type: "function", stateMutability: "nonpayable", inputs: [
+      { name: "vault", type: "address" }, { name: "encAmount", type: "bytes32" }, { name: "encMinFill", type: "bytes32" },
+      { name: "proof", type: "bytes" }, { name: "fiatRail", type: "uint32" }, { name: "makerHandleHash", type: "bytes32" },
+      { name: "fiatAmountMicroUSD", type: "uint64" }, { name: "fiatRateMicroUSD", type: "uint64" }, { name: "expirySeconds", type: "uint32" },
+    ], outputs: [{ name: "offerId", type: "uint64" }] },
+    { name: "takeOffer", type: "function", stateMutability: "nonpayable", inputs: [{ name: "offerId", type: "uint64" }], outputs: [{ name: "fillId", type: "uint64" }] },
+    { name: "submitProof", type: "function", stateMutability: "nonpayable", inputs: [
+      { name: "fillId", type: "uint64" }, { name: "reclaimProof", type: "bytes" }, { name: "providerId", type: "uint32" },
+    ], outputs: [] },
+    { name: "getEscrowedAmount", type: "function", stateMutability: "view", inputs: [{ name: "fillId", type: "uint64" }], outputs: [{ name: "", type: "bytes32" }] },
+    { name: "getFill", type: "function", stateMutability: "view", inputs: [{ name: "fillId", type: "uint64" }], outputs: [
+      { name: "offerId", type: "uint64" }, { name: "taker", type: "address" }, { name: "fiatAmountAtLockMicroUSD", type: "uint64" },
+      { name: "lockedAt", type: "uint32" }, { name: "proofSubmittedAt", type: "uint32" }, { name: "reclaimProofHash", type: "bytes32" }, { name: "state", type: "uint8" },
+    ] },
+    { name: "activeLocks", type: "function", stateMutability: "view", inputs: [{ name: "", type: "address" }], outputs: [{ name: "", type: "uint32" }] },
+    { name: "reclaimAdapter", type: "function", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "address" }] },
+  ] as const;
+  const OFFER_CREATED = keccak256(toBytes("OfferCreated(uint64,address,uint64,uint64,uint32,bytes32,uint32)"));
+  const FILL_LOCKED = keccak256(toBytes("FillLocked(uint64,uint64,address,uint64)"));
+  const RAIL_WISE = 4;
 
-      const offerHash = await carolWallet.writeContract({
-        address: P2PExchange as `0x${string}`,
-        abi: [
-          {
-            name: "createOffer",
-            type: "function",
-            stateMutability: "nonpayable",
-            inputs: [
-              { name: "tokenGive", type: "address" },
-              { name: "tokenWant", type: "address" },
-              { name: "amountGive", type: "uint256" },
-              { name: "amountWant", type: "uint256" },
-              { name: "expiry", type: "uint256" },
-            ],
-            outputs: [{ type: "uint256" }],
-          },
-        ],
-        functionName: "createOffer",
-        args: [
-          TestUSDC as `0x${string}`,
-          PlaceholderToken as `0x${string}`,
-          parseUnits("1", 6),
-          parseUnits("1", 6),
-          BigInt(Math.floor(Date.now() / 1000) + 24 * 60 * 60), // 1 day
-        ],
-        gas: 2_000_000n,
+  // Revert check that also asserts the reason, so a different revert
+  // (bad state, missing approval) cannot pass as the guard under test.
+  async function expectRevertWith(feature: string, persona: string, reason: string, simulate: () => Promise<unknown>) {
+    try {
+      await simulate();
+      console.log(`  ${feature}: UNEXPECTED PASS, no revert`);
+      results.push({ feature, persona, status: "fail", error: "no revert" });
+    } catch (err) {
+      const msg = (err instanceof Error ? err.message : String(err)).replace(/\s+/g, " ");
+      const ok = msg.includes(reason);
+      console.log(`  ${feature}: ${ok ? "reverted with expected reason ✓" : "reverted with WRONG reason"} (${msg.slice(0, 120)})`);
+      results.push({ feature, persona, status: ok ? "pass" : "fail", error: ok ? `reverted: ${reason}` : msg.slice(0, 200) });
+    }
+  }
+
+  if (!P2POfframp || !cofheClient) {
+    results.push({ feature: "offramp_create", persona: "Carol", status: "skip", error: !P2POfframp ? "P2POfframp not deployed" : "cofhe client unavailable" });
+  } else {
+    const carol = personas[2]!;
+    const dave = personas[3]!;
+    const carolWallet = createWalletClient({ account: privateKeyToAccount(carol.privKey), chain, transport: http(rpcUrl) });
+    const daveWallet = createWalletClient({ account: privateKeyToAccount(dave.privKey), chain, transport: http(rpcUrl) });
+    try {
+      const apHash = await withRetry("carol approve offramp", () => carolWallet.writeContract({
+        address: Vault as `0x${string}`,
+        abi: [{ name: "approvePlaintext", type: "function", stateMutability: "nonpayable", inputs: [{ name: "spender", type: "address" }, { name: "amount", type: "uint64" }], outputs: [] }],
+        functionName: "approvePlaintext",
+        args: [P2POfframp, MAX_U64],
+        gas: 5_000_000n,
+      }));
+      await waitOk(apHash, "carol approve offramp");
+
+      // Two offers: the second proves Dave cannot hold two open locks.
+      const offerIds: bigint[] = [];
+      for (let i = 0; i < 2; i++) {
+        await connectCofheAs(carol);
+        const amt = parseUnits("0.5", 6);
+        const [encAmt, encMin, proof] = (await cofheClient
+          .encryptInputs([Encryptable.uint64(amt), Encryptable.uint64(amt)])
+          .setConsumingContract(P2POfframp)
+          .execute()) as [Hex, Hex, Hex];
+        const h = await withRetry("carol createOffer", () => carolWallet.writeContract({
+          address: P2POfframp,
+          abi: OFFRAMP_ABI,
+          functionName: "createOffer",
+          args: [Vault as `0x${string}`, encAmt, encMin, proof, RAIL_WISE, keccak256(toBytes("carol@wise")), 500_000n, 1_000_000n, 3600],
+          gas: 5_000_000n,
+        }));
+        await waitOk(h, "carol createOffer");
+        offerIds.push(await extractIdFromReceipt(h, P2POfframp, OFFER_CREATED));
+        console.log(`  Carol: createOffer #${offerIds[i]} ok  tx=${h}`);
+        results.push({ feature: `offramp_create_${i + 1}`, persona: "Carol", status: "pass", txHash: h });
+      }
+
+      const takeHash = await withRetry("dave takeOffer", () => daveWallet.writeContract({
+        address: P2POfframp, abi: OFFRAMP_ABI, functionName: "takeOffer", args: [offerIds[0]!], gas: 3_000_000n,
+      }));
+      await waitOk(takeHash, "dave takeOffer");
+      const fillId = await extractIdFromReceipt(takeHash, P2POfframp, FILL_LOCKED);
+      console.log(`  Dave: takeOffer #${offerIds[0]} -> fill #${fillId}  tx=${takeHash}`);
+      results.push({ feature: "offramp_take", persona: "Dave", status: "pass", txHash: takeHash });
+
+      const escrowHandle = await publicClient.readContract({ address: P2POfframp, abi: OFFRAMP_ABI, functionName: "getEscrowedAmount", args: [fillId] });
+      const locks = await publicClient.readContract({ address: P2POfframp, abi: OFFRAMP_ABI, functionName: "activeLocks", args: [dave.address] });
+      const escrowOk = BigInt(escrowHandle) !== 0n && locks === 1;
+      console.log(`  fill #${fillId}: escrow handle ${escrowOk ? "set" : "MISSING"}, Dave activeLocks=${locks}`);
+      results.push({ feature: "offramp_escrow_handle", persona: "Dave", status: escrowOk ? "pass" : "fail", error: escrowOk ? undefined : `handle=${escrowHandle} locks=${locks}` });
+
+      await expectRevertWith("neg_offramp_second_lock", "Dave", "too many open locks", () =>
+        publicClient.simulateContract({
+          account: privateKeyToAccount(dave.privKey), address: P2POfframp, abi: OFFRAMP_ABI,
+          functionName: "takeOffer", args: [offerIds[1]!], gas: 3_000_000n,
+        }));
+
+      // providerId is checked against the rail before the adapter runs,
+      // so any proof bytes exercise the guard.
+      await expectRevertWith("neg_offramp_rail_mismatch", "Dave", "provider/rail mismatch", () =>
+        publicClient.simulateContract({
+          account: privateKeyToAccount(dave.privKey), address: P2POfframp, abi: OFFRAMP_ABI,
+          functionName: "submitProof", args: [fillId, `0x${"11".repeat(65)}`, 1], gas: 1_500_000n,
+        }));
+
+      // Fill-bound mock attestation, signed exactly like api/_lib/mock-reclaim-sign.ts.
+      const adapter = await publicClient.readContract({ address: P2POfframp, abi: OFFRAMP_ABI, functionName: "reclaimAdapter" });
+      const verifier = await publicClient.readContract({
+        address: adapter,
+        abi: [{ name: "verifier", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] }],
+        functionName: "verifier",
       });
-      await waitOk(offerHash, "offerHash");
-      console.log(`  Carol: createOffer ok  tx=${offerHash}`);
-      results.push({ feature: "p2p_offer", persona: "Carol", status: "pass", txHash: offerHash });
+      const operator = await publicClient.readContract({
+        address: verifier,
+        abi: [{ name: "operator", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] }],
+        functionName: "operator",
+      });
+      if (operator.toLowerCase() !== deployerAccount.address.toLowerCase()) {
+        results.push({ feature: "offramp_submit_proof", persona: "Dave", status: "skip", error: `mock operator ${operator} is not the deployer` });
+      } else {
+        const digest = keccak256(encodeAbiParameters(
+          [{ type: "uint256" }, { type: "address" }, { type: "address" }, { type: "uint64" }, { type: "address" }, { type: "uint32" }, { type: "bytes32" }, { type: "uint64" }],
+          [BigInt(chain.id), verifier, P2POfframp, fillId, dave.address, RAIL_WISE, keccak256(toBytes("carol@wise")), 500_000n],
+        ));
+        const sig = await deployerAccount.signMessage({ message: { raw: digest } });
+
+        // A proof for this fill must not settle when someone else submits it.
+        await expectRevertWith("neg_offramp_proof_wrong_taker", "Carol", "not taker", () =>
+          publicClient.simulateContract({
+            account: privateKeyToAccount(carol.privKey), address: P2POfframp, abi: OFFRAMP_ABI,
+            functionName: "submitProof", args: [fillId, sig, RAIL_WISE], gas: 1_500_000n,
+          }));
+
+        const proofHash = await withRetry("dave submitProof", () => daveWallet.writeContract({
+          address: P2POfframp, abi: OFFRAMP_ABI, functionName: "submitProof", args: [fillId, sig, RAIL_WISE], gas: 1_500_000n,
+        }));
+        await waitOk(proofHash, "dave submitProof");
+        const fill = await publicClient.readContract({ address: P2POfframp, abi: OFFRAMP_ABI, functionName: "getFill", args: [fillId] });
+        const locksAfter = await publicClient.readContract({ address: P2POfframp, abi: OFFRAMP_ABI, functionName: "activeLocks", args: [dave.address] });
+        const proofOk = fill[6] === 1 && locksAfter === 0;
+        console.log(`  Dave: submitProof fill #${fillId} state=${fill[6]} activeLocks=${locksAfter}  tx=${proofHash}`);
+        results.push({ feature: "offramp_submit_proof", persona: "Dave", status: proofOk ? "pass" : "fail", txHash: proofHash, error: proofOk ? undefined : `state=${fill[6]} locks=${locksAfter}` });
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message.slice(0, 250) : String(err);
-      console.log(`  Carol: createOffer FAILED ${msg}`);
-      results.push({ feature: "p2p_offer", persona: "Carol", status: "fail", error: msg });
+      console.log(`  offramp flow FAILED ${msg}`);
+      results.push({ feature: "offramp_flow", persona: "Carol", status: "fail", error: msg });
     }
   }
   console.log("");
@@ -1821,6 +1981,23 @@ task(
       await waitOk(supportHash, "supportHash");
       console.log(`  Alice→Bob: support ok  tx=${supportHash}`);
       results.push({ feature: "creator_support", persona: "Alice", status: "pass", txHash: supportHash });
+
+      // Totals are per vault now. Both sides read their own handle.
+      const perVaultAbi = [
+        { name: "getMyContributionIn", type: "function", stateMutability: "view", inputs: [{ name: "creator", type: "address" }, { name: "vault", type: "address" }], outputs: [{ type: "bytes32" }] },
+        { name: "getMyEarningsIn", type: "function", stateMutability: "view", inputs: [{ name: "vault", type: "address" }], outputs: [{ type: "bytes32" }] },
+      ] as const;
+      const contribHandle = await publicClient.readContract({
+        address: CreatorHub as `0x${string}`, abi: perVaultAbi, functionName: "getMyContributionIn",
+        args: [personas[1]!.address, Vault as `0x${string}`], account: personas[0]!.address,
+      });
+      const earnHandle = await publicClient.readContract({
+        address: CreatorHub as `0x${string}`, abi: perVaultAbi, functionName: "getMyEarningsIn",
+        args: [Vault as `0x${string}`], account: personas[1]!.address,
+      });
+      const perVaultOk = BigInt(contribHandle) !== 0n && BigInt(earnHandle) !== 0n;
+      console.log(`  per-vault handles: contribution ${BigInt(contribHandle) !== 0n ? "set" : "MISSING"}, earnings ${BigInt(earnHandle) !== 0n ? "set" : "MISSING"}`);
+      results.push({ feature: "creator_per_vault_totals", persona: "Bob", status: perVaultOk ? "pass" : "fail", error: perVaultOk ? undefined : "empty per-vault handle" });
     } catch (err) {
       const msg = err instanceof Error ? err.message.slice(0, 250) : String(err);
       console.log(`  creator FAILED ${msg}`);
@@ -2186,12 +2363,12 @@ task(
   });
   console.log("");
 
-  // ─── 20. NEGATIVE: P2PExchange offer with same-token rejected ─
-  console.log("[Negative 20] createOffer with same tokenGive/tokenWant — should revert");
+  // ─── 20. NEGATIVE: retired P2PExchange rejects new offers ─────
+  console.log("[Negative 20] P2PExchange.createOffer should revert \"retired\"");
   if (!P2PExchange) {
-    results.push({ feature: "neg_p2p_same_token", persona: "Carol", status: "skip", error: "P2PExchange not deployed" });
+    results.push({ feature: "neg_p2p_exchange_retired", persona: "Carol", status: "skip", error: "P2PExchange not deployed" });
   } else {
-    await expectRevert("same-token offer", "neg_p2p_same_token", "Carol", async () => {
+    await expectRevertWith("neg_p2p_exchange_retired", "Carol", "P2PExchange: retired", async () => {
       await publicClient.simulateContract({
         account: privateKeyToAccount(personas[2]!.privKey),
         address: P2PExchange as `0x${string}`,
@@ -2211,10 +2388,9 @@ task(
           },
         ],
         functionName: "createOffer",
-        // tokenGive == tokenWant — must revert "P2PExchange: same token"
         args: [
           TestUSDC as `0x${string}`,
-          TestUSDC as `0x${string}`,
+          Vault as `0x${string}`,
           parseUnits("1", 6),
           parseUnits("1", 6),
           BigInt(Math.floor(Date.now() / 1000) + 3600),

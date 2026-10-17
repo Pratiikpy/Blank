@@ -636,7 +636,8 @@ describe("useCrowdfund — callSimple operations (§15.x)", () => {
       await result.current.closeCampaign(7);
     });
     expect(result.current.state.lastCampaignId).toBe(7);
-    expect(result.current.state.step).toBe("success");
+    // "idle": success drives the contribution-submitted screen.
+    expect(result.current.state.step).toBe("idle");
   });
 
   it("callSimple write rejection -> returns false + step=error", async () => {

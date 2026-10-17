@@ -178,14 +178,14 @@ const FEATURES: Feature[] = [
   },
   {
     tag: "11. DeFi",
-    name: "P2P Exchange",
-    pitch: "Atomic swaps with encrypted settlement. Trade token for token without publishing your price or your size.",
-    scenario: "Swap 1,000 eUSDC for ETH without revealing which direction you think the market is headed.",
+    name: "Exchange",
+    pitch: "Swap through Uniswap v3 or bridge USDC across chains with CCTP V2. Swaps and bridges are public on-chain.",
+    scenario: "Bridge 1,000 USDC from Base Sepolia to Sepolia, then shield it into your encrypted vault.",
     route: "/app/swap",
     preview: {
       kind: "swap",
-      give: "████ eUSDC",
-      want: "████ ETH",
+      give: "1,000 USDC",
+      want: "1,000 USDC",
     },
   },
   {

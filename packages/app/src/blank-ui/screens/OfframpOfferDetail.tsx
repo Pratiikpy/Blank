@@ -151,9 +151,10 @@ export default function OfframpOfferDetail() {
         </div>
 
         <div className="mt-3 rounded-xl bg-blue-500/5 border border-blue-500/20 p-3 text-xs text-blue-700">
-          The exact handle isn't shown publicly. After you take this offer, the
-          Reclaim attestation widget will give you the handle to pay so the
-          on-chain verifier can confirm the rail payment matches.
+          Only a digest of the handle is on-chain. Get the handle from the maker
+          directly. Taking the offer locks the maker's USDC in escrow. Decrypt
+          the escrowed amount on the fill page before you pay. You can hold one
+          open fill at a time.
         </div>
       </div>
 

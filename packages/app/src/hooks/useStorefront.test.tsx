@@ -71,9 +71,13 @@ vi.mock("./useEffectiveAddress", () => ({
 vi.mock("@/providers/ChainProvider", () => ({ useChain: useChainMock }));
 vi.mock("./useUnifiedWrite", () => ({ useUnifiedWrite: useUnifiedWriteMock }));
 vi.mock("./useFhePipeline", () => ({ useFhePipeline: useFhePipelineMock }));
+const decryptForTxMock = vi.hoisted(() => vi.fn());
+const decryptForViewMock = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/cofhe-shim", () => ({
   useCofheConnection: useCofheConnectionMock,
   useCofheEncrypt: useCofheEncryptMock,
+  useCofheDecryptForTx: () => ({ decryptForTx: decryptForTxMock }),
+  useCofheDecryptForView: () => ({ decryptForView: decryptForViewMock }),
   Encryptable: new Proxy({}, { get: () => (v: unknown) => ({ raw: v }) }),
 }));
 vi.mock("@/lib/abis", () => ({ StorefrontAbi: [], FHERC20VaultAbi: [] }));
@@ -93,7 +97,7 @@ vi.mock("react-hot-toast", () => ({
   },
 }));
 
-import { useStorefront, SALE_MODE } from "./useStorefront";
+import { useStorefront, SALE_MODE, friendlyStorefrontError } from "./useStorefront";
 
 const ME = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" as `0x${string}`;
 const OTHER_SELLER = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" as `0x${string}`;
@@ -185,6 +189,8 @@ beforeEach(() => {
   markFailedMock.mockReset();
   startMock.mockReset();
   pipelineResetMock.mockReset();
+  decryptForTxMock.mockReset();
+  decryptForViewMock.mockReset();
 
   useEffectiveAddressMock.mockReturnValue({ effectiveAddress: ME });
   useChainMock.mockReturnValue({
@@ -820,7 +826,7 @@ describe("useStorefront — callSimple plaintext ops (§15.x)", () => {
     const call = unifiedWriteAndWaitMock.mock.calls[0][0];
     expect(call.functionName).toBe("claimAuctionWin");
     expect(call.args).toEqual([22n, ZERO_BYTES32]);
-    expect(toastSuccessMock).toHaveBeenCalledWith("Winning bid claimed");
+    expect(toastSuccessMock).toHaveBeenCalledWith("Auction settled. Seller paid.");
   });
 
   it("claimAuctionWin(id, customHash) passes hash through", async () => {
@@ -865,7 +871,9 @@ describe("useStorefront — callSimple plaintext ops (§15.x)", () => {
       await result.current.deactivateListing(7);
     });
     expect(result.current.state.lastListingId).toBe(7);
-    expect(result.current.state.step).toBe("success");
+    // "idle": the success step drives the buyer's payment screen, so
+    // plain ops (close/settle/refund/deactivate) must not set it.
+    expect(result.current.state.step).toBe("idle");
   });
 
   it("callSimple write rejection -> returns false + step=error", async () => {
@@ -993,5 +1001,107 @@ describe("useStorefront — concurrent-invocation guard (§15.x)", () => {
     await act(async () => {
       await p1;
     });
+  });
+});
+
+// ───────────────────────────────────────────────────────────
+//  Audit fixes: one bid per address, reveal, paid-by-buyer
+// ───────────────────────────────────────────────────────────
+
+describe("useStorefront — audit fixes", () => {
+  it("placeBid when hasBid=true -> blocked before encryption with one-bid copy", async () => {
+    readContractMock.mockImplementation(async ({ functionName }: { functionName: string }) =>
+      functionName === "hasBid" ? true : [OTHER_SELLER, "x"],
+    );
+    const { result } = renderHook(() => useStorefront());
+    let ok = true;
+    await act(async () => {
+      ok = await result.current.placeBid(bidParams());
+    });
+    expect(ok).toBe(false);
+    expect(toastErrorMock).toHaveBeenCalledWith(expect.stringContaining("one bid"));
+    expect(encryptInputsAsyncMock).toHaveBeenCalledTimes(0);
+  });
+
+  it("placeBid when hasBid=false -> proceeds to placeBid write", async () => {
+    readContractMock.mockImplementation(async ({ functionName }: { functionName: string }) =>
+      functionName === "hasBid" ? false : [OTHER_SELLER, "x"],
+    );
+    const { result } = renderHook(() => useStorefront());
+    await act(async () => {
+      await result.current.placeBid(bidParams());
+    });
+    expect(unifiedWriteAndWaitMock.mock.calls.some((c) => c[0].functionName === "placeBid")).toBe(true);
+  });
+
+  it("revealWinner: decrypts the euint8 index and publishes (listingId, idx, signature)", async () => {
+    readContractMock.mockResolvedValue(0x1234n);
+    decryptForTxMock.mockResolvedValue({ decryptedValue: 2n, signature: "0xsig" });
+    const { result } = renderHook(() => useStorefront());
+    let ok = false;
+    await act(async () => {
+      ok = await result.current.revealWinner(5);
+    });
+    expect(ok).toBe(true);
+    expect(readContractMock.mock.calls[0][0].functionName).toBe("getWinnerIdxHandle");
+    expect(decryptForTxMock).toHaveBeenCalledWith(0x1234n, "uint8");
+    const call = unifiedWriteAndWaitMock.mock.calls[0][0];
+    expect(call.functionName).toBe("revealWinner");
+    expect(call.args).toEqual([5n, 2, "0xsig"]);
+  });
+
+  it("revealWinner on an unclosed auction (zero handle) -> error, no write", async () => {
+    readContractMock.mockResolvedValue(0n);
+    const { result } = renderHook(() => useStorefront());
+    let ok = true;
+    await act(async () => {
+      ok = await result.current.revealWinner(5);
+    });
+    expect(ok).toBe(false);
+    expect(unifiedWriteAndWaitMock).toHaveBeenCalledTimes(0);
+  });
+
+  it("decryptPaidByBuyer: reads getPaidByBuyer and decrypts it", async () => {
+    readContractMock.mockResolvedValue(0x99n);
+    decryptForViewMock.mockResolvedValue(3_000_000n);
+    const { result } = renderHook(() => useStorefront());
+    let paid = 0n;
+    await act(async () => {
+      paid = await result.current.decryptPaidByBuyer(3, OTHER_SELLER);
+    });
+    expect(paid).toBe(3_000_000n);
+    expect(readContractMock.mock.calls[0][0]).toMatchObject({ functionName: "getPaidByBuyer", args: [3n, OTHER_SELLER] });
+  });
+
+  it("decryptPaidByBuyer: never bought (zero handle) -> 0n without decrypting", async () => {
+    readContractMock.mockResolvedValue(0n);
+    const { result } = renderHook(() => useStorefront());
+    let paid = 1n;
+    await act(async () => {
+      paid = await result.current.decryptPaidByBuyer(3, OTHER_SELLER);
+    });
+    expect(paid).toBe(0n);
+    expect(decryptForViewMock).toHaveBeenCalledTimes(0);
+  });
+
+  it("decryptPaidByBuyer: decrypt failure throws instead of reporting 0", async () => {
+    readContractMock.mockResolvedValue(0x99n);
+    decryptForViewMock.mockResolvedValue(null);
+    const { result } = renderHook(() => useStorefront());
+    await expect(result.current.decryptPaidByBuyer(3, OTHER_SELLER)).rejects.toThrow(/decrypt/i);
+  });
+
+  it("refund before reveal -> mapped 'not revealed' copy", async () => {
+    unifiedWriteAndWaitMock.mockRejectedValue(new Error("execution reverted: Storefront: winner not revealed"));
+    const { result } = renderHook(() => useStorefront());
+    await act(async () => {
+      await result.current.refundLoserBid(1, 0);
+    });
+    expect(toastErrorMock).toHaveBeenCalledWith(expect.stringContaining("not revealed"));
+  });
+
+  it("friendlyStorefrontError passes unknown errors through", () => {
+    expect(friendlyStorefrontError("rpc down")).toBe("rpc down");
+    expect(friendlyStorefrontError("Storefront: vault not allowed")).toMatch(/not enabled/);
   });
 });
