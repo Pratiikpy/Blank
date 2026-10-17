@@ -73,13 +73,16 @@ async function deployFixture() {
   ]);
   const stealth = await deployProxy("StealthPayments", [await eventHub.getAddress()]);
   await eventHub.batchWhitelist([await stealth.getAddress()]);
+  const registry = await deployProxy("TokenRegistry");
+  await registry.registerToken(await vault.getAddress(), await testUSDC.getAddress(), "USD Coin", "USDC", USDC_DECIMALS);
+  await stealth.setTokenRegistry(await registry.getAddress());
 
   for (const s of [sender, alice, bob, eve]) {
     await testUSDC.mint(s.address, usdc(10_000));
     await testUSDC.connect(s).approve(await stealth.getAddress(), usdc(10_000));
   }
 
-  return { owner, sender, alice, bob, eve, client, testUSDC, vault, stealth };
+  return { owner, sender, alice, bob, eve, client, testUSDC, vault, stealth, registry, eventHub };
 }
 
 // Compute the claim-code hash the way the contract verifies it:
@@ -91,6 +94,17 @@ function bindClaim(claimCode: string, recipient: string): string {
 async function encAddress(client: any, signer: any, addr: string, consuming: string) {
   await hre.cofhe.connectWithHardhatSigner(client, signer);
   return await client.encryptInputs([Encryptable.address(addr)]).setConsumingContract(consuming).execute();
+}
+
+async function taskManager() {
+  const book = await hre.ethers.getContractAt(
+    ["function getTm(uint256) view returns (address)"],
+    "0xC0F4e00E531a2B086492Ae3DCC1515038307196b",
+  );
+  return hre.ethers.getContractAt(
+    ["function publishDecryptResult(uint256,uint256,bytes)"],
+    await book.getTm(1),
+  );
 }
 
 async function decryptPendingAmount(stealth: any, client: any, signer: any, transferId: number) {
@@ -277,10 +291,118 @@ describe("StealthPayments — privacy invariant: wrong claimer gets 0 (NO revert
     expect(proof.plaintext).to.equal(0n); // privacy: 0, not full amount
     await ctx.stealth.connect(ctx.bob).finalizeClaim(0, proof.plaintext, proof.signature);
 
-    // Bob got 0 tokens (no leak — the call didn't revert with a "not the
-    // recipient" message). The 75 USDC stays in the contract.
+    // Bob got 0 tokens and the call did not revert. The claim is voided.
     expect(await ctx.testUSDC.balanceOf(ctx.bob.address)).to.equal(bobBefore);
     expect(await ctx.testUSDC.balanceOf(await ctx.stealth.getAddress())).to.equal(usdc(75));
+    expect(await ctx.stealth.claimVoided(0)).to.equal(true);
+  });
+
+  // L1 exploit: the old contract marked the transfer claimed + finalized on a
+  // zero claim, so refund reverted forever and the 75 USDC was locked.
+  it("sender refunds immediately after a mismatched claim finalizes to 0", async () => {
+    const ctx = await loadFixture(deployFixture);
+    const encR = await encAddress(ctx.client, ctx.sender, ctx.alice.address, await ctx.stealth.getAddress());
+    const claimCode = hre.ethers.id("mismatch-refund");
+    await ctx.stealth.connect(ctx.sender).sendStealth(
+      usdc(75), ...encR, bindClaim(claimCode, ctx.bob.address), await ctx.vault.getAddress(), "m",
+    );
+    const senderBefore = await ctx.testUSDC.balanceOf(ctx.sender.address);
+    await ctx.stealth.connect(ctx.bob).claimStealth(0, claimCode);
+    const proof = await decryptPendingAmount(ctx.stealth, ctx.client, ctx.bob, 0);
+    await expect(ctx.stealth.connect(ctx.bob).finalizeClaim(0, proof.plaintext, proof.signature))
+      .to.emit(ctx.stealth, "StealthClaimVoided");
+
+    await ctx.stealth.connect(ctx.sender).refund(0);
+    expect(await ctx.testUSDC.balanceOf(ctx.sender.address)).to.equal(senderBefore + usdc(75));
+    expect((await ctx.stealth.getTransferInfo(0)).finalized).to.equal(true);
+    await expect(ctx.stealth.connect(ctx.sender).refund(0)).to.be.revertedWith("StealthPayments: already finalized");
+    await expect(ctx.stealth.connect(ctx.bob).finalizeClaim(0, 0, "0x")).to.be.revertedWith("StealthPayments: already finalized");
+  });
+
+  it("sender can refund a stalled mismatched claim once its 0 result is published", async () => {
+    const ctx = await loadFixture(deployFixture);
+    const encR = await encAddress(ctx.client, ctx.sender, ctx.alice.address, await ctx.stealth.getAddress());
+    const claimCode = hre.ethers.id("mismatch-stalled");
+    await ctx.stealth.connect(ctx.sender).sendStealth(
+      usdc(20), ...encR, bindClaim(claimCode, ctx.bob.address), await ctx.vault.getAddress(), "m",
+    );
+    await ctx.stealth.connect(ctx.bob).claimStealth(0, claimCode);
+    // Claim started but unpublished: refund stays blocked.
+    await expect(ctx.stealth.connect(ctx.sender).refund(0)).to.be.revertedWith("StealthPayments: already claimed");
+    // Anyone may publish the public 0 result; then the sender is unblocked.
+    const proof = await decryptPendingAmount(ctx.stealth, ctx.client, ctx.sender, 0);
+    expect(proof.plaintext).to.equal(0n);
+    const tm = await taskManager();
+    await tm.connect(ctx.sender).publishDecryptResult(await ctx.stealth.getPendingClaimHandle(0), proof.plaintext, proof.signature);
+    const before = await ctx.testUSDC.balanceOf(ctx.sender.address);
+    await ctx.stealth.connect(ctx.sender).refund(0);
+    expect(await ctx.testUSDC.balanceOf(ctx.sender.address)).to.equal(before + usdc(20));
+  });
+
+  it("a correct claim that is mid-flight still blocks the sender's refund", async () => {
+    const ctx = await loadFixture(deployFixture);
+    const encR = await encAddress(ctx.client, ctx.sender, ctx.alice.address, await ctx.stealth.getAddress());
+    const claimCode = hre.ethers.id("good-midflight");
+    await ctx.stealth.connect(ctx.sender).sendStealth(
+      usdc(20), ...encR, bindClaim(claimCode, ctx.alice.address), await ctx.vault.getAddress(), "m",
+    );
+    await ctx.stealth.connect(ctx.alice).claimStealth(0, claimCode);
+    await time.increase(30 * 86400 + 1);
+    await expect(ctx.stealth.connect(ctx.sender).refund(0)).to.be.revertedWith("StealthPayments: already claimed");
+  });
+});
+
+describe("StealthPayments — finalizeClaim publish (L2)", () => {
+  it("finalize succeeds when the decrypt result is already published, ignoring the passed signature", async () => {
+    const ctx = await loadFixture(deployFixture);
+    const encR = await encAddress(ctx.client, ctx.sender, ctx.alice.address, await ctx.stealth.getAddress());
+    const claimCode = hre.ethers.id("pre-published");
+    await ctx.stealth.connect(ctx.sender).sendStealth(
+      usdc(40), ...encR, bindClaim(claimCode, ctx.alice.address), await ctx.vault.getAddress(), "p",
+    );
+    await ctx.stealth.connect(ctx.alice).claimStealth(0, claimCode);
+    const proof = await decryptPendingAmount(ctx.stealth, ctx.client, ctx.alice, 0);
+    // A third party publishes the result directly on the TaskManager first.
+    const handle = await ctx.stealth.getPendingClaimHandle(0);
+    const tm = await taskManager();
+    await tm.connect(ctx.eve).publishDecryptResult(handle, proof.plaintext, proof.signature);
+    const before = await ctx.testUSDC.balanceOf(ctx.alice.address);
+    await ctx.stealth.connect(ctx.alice).finalizeClaim(0, 0, "0x");
+    expect(await ctx.testUSDC.balanceOf(ctx.alice.address)).to.equal(before + usdc(40));
+  });
+});
+
+describe("StealthPayments — vault allowlist (L3)", () => {
+  it("rejects an unregistered vault", async () => {
+    const ctx = await loadFixture(deployFixture);
+    const rogue = await deployProxy("FHERC20Vault", [
+      await ctx.testUSDC.getAddress(), "Rogue", "RGE", USDC_DECIMALS, await ctx.eventHub.getAddress(),
+    ]);
+    const encR = await encAddress(ctx.client, ctx.sender, ctx.alice.address, await ctx.stealth.getAddress());
+    await expect(
+      ctx.stealth.connect(ctx.sender).sendStealth(
+        usdc(1), ...encR, bindClaim(hre.ethers.id("rogue"), ctx.alice.address), await rogue.getAddress(), "x",
+      ),
+    ).to.be.revertedWith("StealthPayments: vault not allowed");
+  });
+
+  it("fails closed with no registry, and refunds still work after deactivation", async () => {
+    const ctx = await loadFixture(deployFixture);
+    const fresh = await deployProxy("StealthPayments", [await ctx.eventHub.getAddress()]);
+    const encR0 = await encAddress(ctx.client, ctx.sender, ctx.alice.address, await fresh.getAddress());
+    await expect(
+      fresh.connect(ctx.sender).sendStealth(
+        usdc(1), ...encR0, bindClaim(hre.ethers.id("nr"), ctx.alice.address), await ctx.vault.getAddress(), "x",
+      ),
+    ).to.be.revertedWith("StealthPayments: vault not allowed");
+
+    const encR = await encAddress(ctx.client, ctx.sender, ctx.alice.address, await ctx.stealth.getAddress());
+    await ctx.stealth.connect(ctx.sender).sendStealth(
+      usdc(5), ...encR, bindClaim(hre.ethers.id("deact"), ctx.alice.address), await ctx.vault.getAddress(), "x",
+    );
+    await ctx.registry.deactivateToken(await ctx.vault.getAddress());
+    await time.increase(30 * 86400 + 1);
+    await ctx.stealth.connect(ctx.sender).refund(0);
   });
 });
 

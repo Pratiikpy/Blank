@@ -1699,11 +1699,23 @@ describe("PaymentHub agent attestations", () => {
 //  GiftMoney — expiry enforcement on claim (#241)
 // ══════════════════════════════════════════════════════════════════
 
+// Hubs that accept a caller-supplied vault only trust registry-active vaults.
+async function wireTokenRegistry(base: any, hub: any) {
+  const registry = await deployProxy("TokenRegistry");
+  await registry.registerToken(
+    await base.vault.getAddress(), await base.testUSDC.getAddress(), "USD Coin", "USDC",
+    await base.testUSDC.decimals(),
+  );
+  await hub.setTokenRegistry(await registry.getAddress());
+  return registry;
+}
+
 describe("GiftMoney expiry enforcement (#241)", () => {
   async function deployGiftFixture() {
     const base = await deployBlankFixture();
     const giftMoney = await deployProxy("GiftMoney", [await base.eventHub.getAddress()]);
     await base.eventHub.batchWhitelist([await giftMoney.getAddress()]);
+    await wireTokenRegistry(base, giftMoney);
     return { ...base, giftMoney };
   }
 
@@ -2081,6 +2093,7 @@ describe("GiftMoney receipts wiring (#204)", () => {
     // Wire GiftMoney ↔ PaymentReceipts (mirrors setup-receipts.ts).
     await base.paymentReceipts.setAuthorizedCaller(await giftMoney.getAddress(), true);
     await giftMoney.setPaymentReceipts(await base.paymentReceipts.getAddress());
+    await wireTokenRegistry(base, giftMoney);
     return { ...base, giftMoney };
   }
 
@@ -2154,6 +2167,7 @@ describe("StealthPayments refund decrement (#199)", () => {
       true,
     );
     await stealthPayments.setPaymentReceipts(await base.paymentReceipts.getAddress());
+    await wireTokenRegistry(base, stealthPayments);
     return { ...base, stealthPayments };
   }
 

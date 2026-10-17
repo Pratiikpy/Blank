@@ -5,6 +5,7 @@ import "@fhenixprotocol/cofhe-contracts/FHE.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "./utils/ReentrancyGuard.sol";
+import "./interfaces/ITokenRegistry.sol";
 
 interface IFHERC20Vault {
     function transferFrom(address from, address to, externalEuint64 encAmount, bytes calldata proof) external returns (euint64);
@@ -168,6 +169,8 @@ contract GiftMoney is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         require(count > 0, "GiftMoney: no recipients");
         require(count <= MAX_RECIPIENTS, "GiftMoney: max 30 recipients");
         require(count == shares.length, "GiftMoney: length mismatch");
+        // A forged vault could return any handle and inflate receipt counters.
+        require(address(tokenRegistry) != address(0) && tokenRegistry.isActiveVault(vault), "GiftMoney: vault not allowed");
 
         uint256 envelopeId = nextEnvelopeId++;
 
@@ -424,8 +427,17 @@ contract GiftMoney is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     /// @dev Reserved storage to avoid collisions on future upgrades.
     ///      Append-only: when adding a new state variable in a later upgrade,
     ///      decrement the gap size so total storage is unchanged.
-    /// @dev Used: 11. Gap: 50.
-    uint256[50] private __gap;
+    /// @dev tokenRegistry was appended after the original 11 slots.
+    ITokenRegistry public tokenRegistry;
+    uint256[49] private __gap;
+
+    event TokenRegistrySet(address indexed registry);
+
+    function setTokenRegistry(address r) external onlyOwner {
+        require(r.code.length > 0, "GiftMoney: bad registry");
+        tokenRegistry = ITokenRegistry(r);
+        emit TokenRegistrySet(r);
+    }
 
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 }

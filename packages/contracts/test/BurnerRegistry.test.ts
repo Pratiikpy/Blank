@@ -7,10 +7,11 @@ import { loadFixture } from "@nomicfoundation/hardhat-network-helpers";
 //
 //  Covers:
 //   • setMetadata happy path stores blob + emits event
-//   • setMetadata rejects zero burner / empty blob / oversized blob
+//   • setMetadata rejects zero tag / empty blob / oversized blob
 //   • setMetadata overwrites prior value
 //   • clearMetadata happy path deletes slot + emits event
-//   • clearMetadata rejects unwritten slot / zero burner
+//   • clearMetadata rejects unwritten slot / zero tag
+//   • No event or input carries a burner address (L4)
 //   • Read helpers: getMetadata returns last written, hasMetadata reflects
 //   • Per-owner isolation: alice's writes don't appear under bob's owner key
 //   • Read of non-existent slot returns empty bytes
@@ -27,8 +28,9 @@ async function fixture() {
 // Deterministic burner addresses for tests — any 20-byte address works.
 // Use ethers' checksummed form so chai matchers' EIP-55 case-comparison
 // against the event payload doesn't bark.
-const burnerA = hre.ethers.getAddress("0xaaaa000000000000000000000000000000000001");
-const burnerB = hre.ethers.getAddress("0xaaaa000000000000000000000000000000000002");
+// Opaque tags the client derives from secret material (e.g. HMAC(backupKey, burnerId)).
+const burnerA = hre.ethers.id("tag-a");
+const burnerB = hre.ethers.id("tag-b");
 
 const blobA = "0x" + "11".repeat(64); // 64-byte blob (typical AES-GCM ciphertext size)
 const blobB = "0x" + "22".repeat(80); // 80-byte
@@ -36,10 +38,10 @@ const blobLong = "0x" + "33".repeat(1024); // exactly at MAX_BLOB_BYTES
 const blobTooLong = "0x" + "44".repeat(1025); // 1 byte over the cap
 
 describe("BurnerRegistry — setMetadata", () => {
-  it("stores blob and emits MetadataSet", async () => {
+  it("stores blob and emits BackupSet", async () => {
     const { alice, registry } = await loadFixture(fixture);
     await expect(registry.connect(alice).setMetadata(burnerA, blobA))
-      .to.emit(registry, "MetadataSet")
+      .to.emit(registry, "BackupSet")
       .withArgs(alice.address, burnerA, blobA, anyTimestamp());
 
     expect(await registry.getMetadata(alice.address, burnerA)).to.equal(blobA);
@@ -53,11 +55,11 @@ describe("BurnerRegistry — setMetadata", () => {
     expect(await registry.getMetadata(alice.address, burnerA)).to.equal(blobB);
   });
 
-  it("rejects zero burner", async () => {
+  it("rejects zero tag", async () => {
     const { alice, registry } = await loadFixture(fixture);
     await expect(
-      registry.connect(alice).setMetadata(hre.ethers.ZeroAddress, blobA),
-    ).to.be.revertedWithCustomError(registry, "ZeroBurner");
+      registry.connect(alice).setMetadata(hre.ethers.ZeroHash, blobA),
+    ).to.be.revertedWithCustomError(registry, "ZeroTag");
   });
 
   it("rejects empty blob (use clearMetadata instead)", async () => {
@@ -82,11 +84,11 @@ describe("BurnerRegistry — setMetadata", () => {
 });
 
 describe("BurnerRegistry — clearMetadata", () => {
-  it("deletes slot and emits MetadataCleared", async () => {
+  it("deletes slot and emits BackupCleared", async () => {
     const { alice, registry } = await loadFixture(fixture);
     await registry.connect(alice).setMetadata(burnerA, blobA);
     await expect(registry.connect(alice).clearMetadata(burnerA))
-      .to.emit(registry, "MetadataCleared")
+      .to.emit(registry, "BackupCleared")
       .withArgs(alice.address, burnerA, anyTimestamp());
     expect(await registry.getMetadata(alice.address, burnerA)).to.equal("0x");
     expect(await registry.hasMetadata(alice.address, burnerA)).to.equal(false);
@@ -99,11 +101,11 @@ describe("BurnerRegistry — clearMetadata", () => {
     ).to.be.revertedWithCustomError(registry, "NoMetadata");
   });
 
-  it("rejects zero burner", async () => {
+  it("rejects zero tag", async () => {
     const { alice, registry } = await loadFixture(fixture);
     await expect(
-      registry.connect(alice).clearMetadata(hre.ethers.ZeroAddress),
-    ).to.be.revertedWithCustomError(registry, "ZeroBurner");
+      registry.connect(alice).clearMetadata(hre.ethers.ZeroHash),
+    ).to.be.revertedWithCustomError(registry, "ZeroTag");
   });
 
   it("after clear, can re-set the same burner", async () => {
@@ -183,6 +185,25 @@ describe("BurnerRegistry — view defaults", () => {
   it("MAX_BLOB_BYTES exposes the upper bound", async () => {
     const { registry } = await loadFixture(fixture);
     expect(await registry.MAX_BLOB_BYTES()).to.equal(1024);
+  });
+});
+
+// L4: v1 emitted (owner, burner) as indexed topics, publishing the main-to-burner
+// link. v2 events and storage never carry a burner address.
+describe("BurnerRegistry — burner address never published (L4)", () => {
+  it("no log topic or data contains the burner address", async () => {
+    const { alice, registry } = await loadFixture(fixture);
+    const burner = hre.ethers.Wallet.createRandom().address.toLowerCase().slice(2);
+    // Real clients put the burner address only inside the encrypted blob.
+    const tag = hre.ethers.keccak256(hre.ethers.toUtf8Bytes("secret-key|burner-1"));
+    const tx = await registry.connect(alice).setMetadata(tag, blobA);
+    const rc = await tx.wait();
+    const clear = await (await registry.connect(alice).clearMetadata(tag)).wait();
+    for (const log of [...rc!.logs, ...clear!.logs]) {
+      for (const t of log.topics) expect(t.toLowerCase()).to.not.include(burner);
+      expect(log.data.toLowerCase()).to.not.include(burner);
+    }
+    expect(registry.interface.getFunction("setMetadata")!.inputs[0].type).to.equal("bytes32");
   });
 });
 

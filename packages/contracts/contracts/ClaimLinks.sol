@@ -4,7 +4,10 @@ pragma solidity ^0.8.25;
 import "@fhenixprotocol/cofhe-contracts/FHE.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import "./utils/ReentrancyGuard.sol";
+import "./interfaces/ITokenRegistry.sol";
 
 interface IFHERC20Vault {
     function transferFrom(address from, address to, externalEuint64 encAmount, bytes calldata proof) external returns (euint64);
@@ -21,21 +24,30 @@ interface IPaymentReceipts {
     function bumpGlobal(sharedEuint64 shared) external;
 }
 
-/// @title ClaimLinks — encrypted send-by-link with three security modes
-/// @notice Sender locks an encrypted amount + a secret hash. Recipient claims
-///         by presenting the secret in the URL fragment. Funds stay encrypted
-///         the whole time. The euint64 handle stays parked in this contract
-///         until claim succeeds, then FHE.allow grants decrypt rights to the
-///         claimer only.
+/// @title ClaimLinks: encrypted send-by-link with three security modes
+/// @notice Sender locks an encrypted amount and registers a one-time claim
+///         key address derived from the link secret. The recipient claims by
+///         signing (linkId, claimer, chainId, this contract) with that key,
+///         so the secret never appears in calldata and a mempool observer
+///         cannot replay the claim for themselves.
 ///
 /// @dev Three modes:
-///      1. Bearer       — anyone with the URL can claim. Lowest friction.
-///      2. EmailBound   — URL + email second factor. Default.
-///      3. AddressBound — URL + caller must equal a fixed ENS/address.
+///      1. Bearer       - anyone holding the secret can claim.
+///      2. EmailBound   - secret plus email; the email hash is mixed into the key.
+///      3. AddressBound - secret plus caller must equal boundAddress.
 ///
-///      Hash construction uses a versioned domain separator
-///      ("BLANK_CLAIM_v1") so leaked secrets cannot be replayed across
-///      contexts and rainbow-tables on email hashes are scoped.
+///      Claim key derivation (client side, v2):
+///        Bearer, AddressBound: priv = keccak256(abi.encodePacked("BLANK_CLAIM_KEY_v2", uint8(mode), secret))
+///        EmailBound:           priv = keccak256(abi.encodePacked("BLANK_CLAIM_KEY_v2", uint8(1), secret, emailHash))
+///        claimKey = address of priv (regenerate the secret if priv is 0 or >= secp256k1 n).
+///      Claim signature: EIP-191 personal_sign over the 32 raw bytes of
+///        keccak256(abi.encode(CLAIM_TYPEHASH, linkId, claimer, block.chainid, address(this))).
+///
+///      Links created before v2 only stored a secret hash. Their Bearer and
+///      EmailBound claim paths were front-runnable and are removed; such links
+///      stay refundable by the sender after expiry. Legacy AddressBound links
+///      remain claimable through claimAddressBound because only the bound
+///      address can call it.
 ///
 ///      Sender must `approvePlaintext(ClaimLinks, type(uint64).max)` on the
 ///      vault before creating links.
@@ -46,6 +58,7 @@ contract ClaimLinks is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     // ─── Domain separator (versioned hash scheme) ─────────────────────────
 
     bytes32 public constant DOMAIN = keccak256("BLANK_CLAIM_v1");
+    bytes32 public constant CLAIM_TYPEHASH = keccak256("BLANK_CLAIM_v2");
 
     // ─── Types ────────────────────────────────────────────────────────────
 
@@ -137,10 +150,8 @@ contract ClaimLinks is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     ///
     /// @param vault            FHERC20Vault address for the token.
     /// @param encAmount        Encrypted amount, locked into this contract.
-    /// @param secretHash       Pre-computed off-chain:
-    ///                         - Bearer:       keccak256(DOMAIN, 0x00, secret)
-    ///                         - EmailBound:   keccak256(DOMAIN, 0x01, secret, keccak256(email))
-    ///                         - AddressBound: keccak256(DOMAIN, 0x02, secret)
+    /// @param claimKey         One-time claim key address, derived client side
+    ///                         from the secret (see contract NatSpec).
     /// @param mode             Bearer / EmailBound / AddressBound.
     /// @param boundAddress     Required for AddressBound; ignored otherwise.
     /// @param expirySeconds    0 = use defaultExpirySeconds. Otherwise seconds-from-now.
@@ -149,13 +160,15 @@ contract ClaimLinks is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     function createLink(
         address vault,
         externalEuint64 encAmount, bytes calldata proof,
-        bytes32 secretHash,
+        address claimKey,
         LinkMode mode,
         address boundAddress,
         uint256 expirySeconds,
         string calldata note
     ) external nonReentrant returns (uint256 linkId) {
-        require(secretHash != bytes32(0), "ClaimLinks: empty secret hash");
+        require(claimKey != address(0), "ClaimLinks: empty claim key");
+        // A forged vault could return any handle and inflate receipt counters.
+        require(address(tokenRegistry) != address(0) && tokenRegistry.isActiveVault(vault), "ClaimLinks: vault not allowed");
         if (mode == LinkMode.AddressBound) {
             require(boundAddress != address(0), "ClaimLinks: bound address required");
         }
@@ -192,7 +205,7 @@ contract ClaimLinks is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
             sender: msg.sender,
             vault: vault,
             encAmount: locked,
-            secretHash: secretHash,
+            secretHash: bytes32(0),
             boundAddress: boundAddress,
             mode: mode,
             createdAt: block.timestamp,
@@ -204,6 +217,7 @@ contract ClaimLinks is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
             claimedAt: 0
         });
 
+        claimKeyOf[linkId] = claimKey;
         _sentLinks[msg.sender].push(linkId);
 
         emit LinkCreated(linkId, msg.sender, vault, mode, boundAddress, expiry, note);
@@ -212,42 +226,46 @@ contract ClaimLinks is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
     // ─── Claim ────────────────────────────────────────────────────────────
 
-    /// @notice Claim a Bearer link. Anyone with `secret` can call.
-    function claimBearer(uint256 linkId, bytes32 secret) external nonReentrant {
-        ClaimLink storage link = _claimable(linkId, LinkMode.Bearer);
-        bytes32 expected = keccak256(abi.encodePacked(DOMAIN, uint8(LinkMode.Bearer), secret));
-        require(expected == link.secretHash, "ClaimLinks: bad secret");
+    /// @notice Claim a link created with a claim key (any mode). `signature`
+    ///         is the claim key's EIP-191 signature over claimDigest(linkId,
+    ///         msg.sender). Binding the claimer makes a copied signature useless.
+    function claim(uint256 linkId, bytes calldata signature) external nonReentrant {
+        ClaimLink storage link = _claimable(linkId);
+        address key = claimKeyOf[linkId];
+        require(key != address(0), "ClaimLinks: legacy link, refund only");
+        if (link.mode == LinkMode.AddressBound) {
+            require(msg.sender == link.boundAddress, "ClaimLinks: not bound address");
+        }
+        bytes32 digest = MessageHashUtils.toEthSignedMessageHash(claimDigest(linkId, msg.sender));
+        // OZ ECDSA rejects malleable (high-s) signatures.
+        require(ECDSA.recover(digest, signature) == key, "ClaimLinks: bad claim signature");
         _release(linkId, link, msg.sender);
     }
 
-    /// @notice Claim an EmailBound link. Caller must present `secret` and `emailHash`.
-    ///         emailHash is computed CLIENT-SIDE as keccak256(lowercase(email)).
-    ///         The server never sees the email or its hash unmodified — it's hashed
-    ///         locally before being sent to the chain.
-    function claimEmailBound(uint256 linkId, bytes32 secret, bytes32 emailHash) external nonReentrant {
-        ClaimLink storage link = _claimable(linkId, LinkMode.EmailBound);
-        bytes32 expected = keccak256(abi.encodePacked(DOMAIN, uint8(LinkMode.EmailBound), secret, emailHash));
-        require(expected == link.secretHash, "ClaimLinks: bad secret/email");
-        _release(linkId, link, msg.sender);
+    /// @notice The 32-byte message the claim key signs for `claimer`.
+    function claimDigest(uint256 linkId, address claimer) public view returns (bytes32) {
+        return keccak256(abi.encode(CLAIM_TYPEHASH, linkId, claimer, block.chainid, address(this)));
     }
 
-    /// @notice Claim an AddressBound link. msg.sender must equal boundAddress
-    ///         AND `secret` must hash correctly.
+    /// @notice Claim a legacy (pre-claim-key) AddressBound link. msg.sender
+    ///         must equal boundAddress AND `secret` must hash correctly. Not
+    ///         front-runnable because only the bound address can call.
     function claimAddressBound(uint256 linkId, bytes32 secret) external nonReentrant {
-        ClaimLink storage link = _claimable(linkId, LinkMode.AddressBound);
+        ClaimLink storage link = _claimable(linkId);
+        require(link.mode == LinkMode.AddressBound, "ClaimLinks: wrong mode");
+        require(claimKeyOf[linkId] == address(0), "ClaimLinks: use claim");
         require(msg.sender == link.boundAddress, "ClaimLinks: not bound address");
         bytes32 expected = keccak256(abi.encodePacked(DOMAIN, uint8(LinkMode.AddressBound), secret));
         require(expected == link.secretHash, "ClaimLinks: bad secret");
         _release(linkId, link, msg.sender);
     }
 
-    function _claimable(uint256 linkId, LinkMode expectedMode) internal view returns (ClaimLink storage link) {
+    function _claimable(uint256 linkId) internal view returns (ClaimLink storage link) {
         link = _links[linkId];
         require(link.sender != address(0), "ClaimLinks: no such link");
         require(!link.claimed, "ClaimLinks: already claimed");
         require(!link.refunded, "ClaimLinks: refunded");
         require(block.timestamp < link.expiryTimestamp, "ClaimLinks: expired");
-        require(link.mode == expectedMode, "ClaimLinks: wrong mode");
         // Reject self-claim. A sender claiming their own link is a
         // no-op net for the vault (transferFrom self → contract +
         // transferVerified contract → self), but _release calls
@@ -297,7 +315,13 @@ contract ClaimLinks is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
         link.refunded = true;
 
-        IFHERC20Vault(link.vault).transferVerified(msg.sender, FHE.shareEuint64(link.encAmount, link.vault));
+        euint64 returned = FHE.receiveEuint64FromCall(
+            IFHERC20Vault(link.vault).transferVerified(msg.sender, FHE.shareEuint64(link.encAmount, link.vault)),
+            link.vault
+        );
+        // Let the sender verify what actually came back.
+        FHE.allowThis(returned);
+        FHE.allow(returned, msg.sender);
 
         emit LinkRefunded(linkId, msg.sender, block.timestamp);
         try eventHub.emitActivity(msg.sender, address(0), "claim_link_refunded", link.note, linkId) {} catch {}
@@ -380,8 +404,19 @@ contract ClaimLinks is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 
-    /// @dev Append-only storage. Used: 8. Gap: 50.
+    /// @dev Append-only storage. Original 8 slots, then tokenRegistry and claimKeyOf.
     /// Decrement gap by 1 when adding a new state variable; total slots
     /// (used + gap) must stay constant across UUPS upgrades.
-    uint256[50] private __gap;
+    ITokenRegistry public tokenRegistry;
+    /// @dev linkId => one-time claim key. Zero for links created before v2.
+    mapping(uint256 => address) public claimKeyOf;
+    uint256[48] private __gap;
+
+    event TokenRegistrySet(address indexed registry);
+
+    function setTokenRegistry(address r) external onlyOwner {
+        require(r.code.length > 0, "ClaimLinks: bad registry");
+        tokenRegistry = ITokenRegistry(r);
+        emit TokenRegistrySet(r);
+    }
 }
