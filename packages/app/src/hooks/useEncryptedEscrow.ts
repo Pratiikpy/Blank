@@ -464,9 +464,6 @@ export function useEncryptedEscrow() {
     [contracts.EncryptedEscrow, publicClient],
   );
 
-  // A dispute the arbiter never decides: the depositor takes the funds back
-  // DISPUTE_TIMEOUT (30 days) after it opened.
-  const claimDisputeTimeout = useCallback((id: number) => callSimple("claimDisputeTimeout", [BigInt(id)]), [callSimple]);
 
   /** Seconds since epoch the dispute opened, 0 if never or opened before the
    *  timestamp existed (those count from the deadline). Null on read failure. */
@@ -570,7 +567,6 @@ export function useEncryptedEscrow() {
     claimDisputeTimeout,
     getDisputedAt,
     claimExpiredEscrow,
-    claimDisputeTimeout,
     fetchDisputeTimeoutAt,
     arbiterDecide,
     reset,
