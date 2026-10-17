@@ -458,6 +458,26 @@ describe("InheritanceManager: audit M4/L5 + vault allowlist", () => {
       .to.be.revertedWith("InheritanceManager: claim not finalized");
   });
 
+  it("M6 exploit: a vault delisted after setVaults is skipped at claim, retry works once relisted", async () => {
+    const ctx = await loadFixture(deployFixture);
+    const v = await ctx.vault.getAddress();
+    await ctx.im.connect(ctx.principal).setHeir(ctx.heir.address, MIN_INACTIVITY);
+    await ctx.im.connect(ctx.principal).setVaults([v]);
+    await ctx.registry.deactivateToken(v);
+    await time.increase(MIN_INACTIVITY + 1);
+    await ctx.im.connect(ctx.heir).startClaim(ctx.principal.address);
+    await time.increase(CHALLENGE_PERIOD + 1);
+    const e = await encAmt(ctx.client, ctx.heir, usdc(500), await ctx.im.getAddress());
+    await expect(ctx.im.connect(ctx.heir).finalizeClaim(ctx.principal.address, [e[0]], e[1]))
+      .to.emit(ctx.im, "ClaimVaultSkipped").withArgs(ctx.principal.address, ctx.heir.address, v);
+    await mock_expectPlaintext(ctx.principal.provider, await ctx.vault.balanceOf(ctx.principal.address), usdc(500));
+
+    await ctx.registry.reactivateToken(v);
+    const e2 = await encAmt(ctx.client, ctx.heir, usdc(500), await ctx.im.getAddress());
+    await ctx.im.connect(ctx.heir).claimRemaining(ctx.principal.address, [e2[0]], e2[1]);
+    await mock_expectPlaintext(ctx.heir.provider, await ctx.vault.balanceOf(ctx.heir.address), usdc(500));
+  });
+
   it("setVaults rejects a vault the registry does not list", async () => {
     const ctx = await loadFixture(deployFixture);
     await ctx.im.connect(ctx.principal).setHeir(ctx.heir.address, MIN_INACTIVITY);

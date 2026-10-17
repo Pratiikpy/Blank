@@ -1585,7 +1585,7 @@ describe("GroupManager", () => {
     await mock_expectPlaintext(ctx.charlie.provider, await ctx.groupManager.connect(ctx.charlie).getMyDebt(0), 0n);
   });
 
-  it("archived group rejects new expenses and settlements", async () => {
+  it("archived group rejects new expenses but still settles existing debt", async () => {
     const ctx = await loadFixture(groupFixture);
     await rentGroup(ctx, usdc(200));
     await ctx.groupManager.connect(ctx.alice).archiveGroup(0);
@@ -1593,9 +1593,11 @@ describe("GroupManager", () => {
     await expect(
       ctx.groupManager.connect(ctx.bob).addExpense(0, [ctx.alice.address], [e.handles[0]], e.handles[1], e.proof, "x"),
     ).to.be.revertedWith("GroupManager: group archived");
-    const enc = await encUint64(ctx, ctx.alice, usdc(1), await ctx.groupManager.getAddress());
-    await expect(ctx.groupManager.connect(ctx.alice).settleDebt(0, ctx.bob.address, await ctx.vault.getAddress(), ...enc))
-      .to.be.revertedWith("GroupManager: group archived");
+    // Alice owes Bob 100. Old code reverted here, so the debt was stuck forever.
+    const enc = await encUint64(ctx, ctx.alice, usdc(100), await ctx.groupManager.getAddress());
+    await ctx.groupManager.connect(ctx.alice).settleDebt(0, ctx.bob.address, await ctx.vault.getAddress(), ...enc);
+    await mock_expectPlaintext(ctx.alice.provider, await ctx.groupManager.connect(ctx.alice).getMyDebt(0), 0n);
+    await mock_expectPlaintext(ctx.alice.provider, await ctx.vault.balanceOf(ctx.alice.address), usdc(100));
   });
 
   it("quadratic voting is retired", async () => {

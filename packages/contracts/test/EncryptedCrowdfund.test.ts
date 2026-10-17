@@ -477,6 +477,63 @@ describe("EncryptedCrowdfund — audit fixes", () => {
     await mock_expectPlaintext(ctx.alice.provider, await ctx.vault.balanceOf(ctx.alice.address), usdc(1_020));
   });
 
+  it("H1 exploit: a campaign swept before the upgrade cannot be swept again", async () => {
+    const ctx = await loadFixture(deployFixture);
+    const cf = await ctx.crowdfund.getAddress();
+    await ctx.crowdfund.connect(ctx.alice).createCampaign(
+      await ctx.vault.getAddress(), ...(await encUint64(ctx.client, ctx.alice, usdc(10), cf)), 3600, "A", ZERO_BYTES32,
+    );
+    await ctx.crowdfund.connect(ctx.bob).createCampaign(
+      await ctx.vault.getAddress(), ...(await encUint64(ctx.client, ctx.bob, usdc(10), cf)), 3600, "B", ZERO_BYTES32,
+    );
+    await ctx.crowdfund.connect(ctx.charlie).contribute(0, ...(await encUint64(ctx.client, ctx.charlie, usdc(20), cf)));
+    await ctx.crowdfund.connect(ctx.dave).contribute(1, ...(await encUint64(ctx.client, ctx.dave, usdc(40), cf)));
+    await time.increase(3601);
+    await ctx.crowdfund.closeCampaign(0);
+    await publishVerdict(ctx, 0);
+    await ctx.crowdfund.closeCampaign(1);
+    await publishVerdict(ctx, 1);
+    await ctx.crowdfund.connect(ctx.alice).claimRelease(0);
+
+    // Rewind to the pre-upgrade state: no releasePaid entry (slot 8 mapping)
+    // and no migration flag (slot 9). Status alone still reads Released.
+    const paidSlot = hre.ethers.keccak256(hre.ethers.AbiCoder.defaultAbiCoder().encode(["uint256", "uint256"], [0, 8]));
+    await hre.network.provider.send("hardhat_setStorageAt", [cf, paidSlot, ZERO_BYTES32]);
+    await hre.network.provider.send("hardhat_setStorageAt", [cf, "0x9", ZERO_BYTES32]);
+    expect(await ctx.crowdfund.releasePaid(0)).to.equal(false);
+    expect(await ctx.crowdfund.legacyMigrationDone()).to.equal(false);
+
+    // Window between upgrade and migration: release is closed for everyone.
+    await expect(ctx.crowdfund.connect(ctx.alice).claimRelease(0)).to.be.revertedWith("Crowdfund: migration pending");
+    await expect(ctx.crowdfund.connect(ctx.bob).claimRelease(1)).to.be.revertedWith("Crowdfund: migration pending");
+
+    // Atomic migration through upgradeToAndCall, ids from CampaignReleased events.
+    const ids = (await ctx.crowdfund.queryFilter(ctx.crowdfund.filters.CampaignReleased())).map((e: any) => e.args.campaignId);
+    expect(ids).to.deep.equal([0n]);
+    const Factory = await hre.ethers.getContractFactory("EncryptedCrowdfund");
+    const impl = await Factory.deploy();
+    const data = Factory.interface.encodeFunctionData("markLegacyReleased", [ids]);
+    await expect(ctx.crowdfund.connect(ctx.alice).upgradeToAndCall(await impl.getAddress(), data)).to.be.reverted;
+    await expect(ctx.crowdfund.upgradeToAndCall(await impl.getAddress(), data))
+      .to.emit(ctx.crowdfund, "LegacyReleaseMarked").withArgs(0n);
+    await expect(ctx.crowdfund.connect(ctx.alice).finishLegacyMigration()).to.be.reverted;
+    await expect(ctx.crowdfund.finishLegacyMigration()).to.emit(ctx.crowdfund, "LegacyMigrationFinished");
+    await expect(ctx.crowdfund.markLegacyReleased([1])).to.be.revertedWith("Crowdfund: migration done");
+    await expect(ctx.crowdfund.finishLegacyMigration()).to.be.revertedWith("Crowdfund: migration done");
+
+    await expect(ctx.crowdfund.connect(ctx.alice).claimRelease(0)).to.be.revertedWith("Crowdfund: already released");
+    await ctx.crowdfund.connect(ctx.bob).claimRelease(1);
+    await mock_expectPlaintext(ctx.alice.provider, await ctx.vault.balanceOf(cf), 0n);
+    await mock_expectPlaintext(ctx.alice.provider, await ctx.vault.balanceOf(ctx.alice.address), usdc(1_020));
+    await mock_expectPlaintext(ctx.bob.provider, await ctx.vault.balanceOf(ctx.bob.address), usdc(1_040));
+  });
+
+  it("fresh proxies start with the legacy migration closed", async () => {
+    const ctx = await loadFixture(deployFixture);
+    expect(await ctx.crowdfund.legacyMigrationDone()).to.equal(true);
+    await expect(ctx.crowdfund.markLegacyReleased([0])).to.be.revertedWith("Crowdfund: migration done");
+  });
+
   it("privacy: contributors never get decrypt access to the running total; creator gets it at close", async () => {
     const ctx = await loadFixture(deployFixture);
     const cf = await ctx.crowdfund.getAddress();

@@ -137,6 +137,13 @@ contract P2POfframp is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     uint32 public constant PROOF_WINDOW_SECONDS = 24 hours;
     /// Open locks one taker address may hold at once. Caps free offer
     /// griefing: each lock freezes a maker's offer for PROOF_WINDOW_SECONDS.
+    /// Known limitation (testnet-only feature): the cap is per address, so
+    /// fresh addresses can still lock every open offer for 24h at gas cost
+    /// only. A taker lock bond was not added: it needs a plaintext token
+    /// path, a slashing rule that must tell a griefer from a taker whose
+    /// rail payment failed, and refunds on every exit, which is more new
+    /// fund-holding surface than the grief it removes. Mainnet needs a bond
+    /// or a maker-side taker allowlist before this ships.
     uint32 public constant MAX_ACTIVE_LOCKS_PER_TAKER = 1;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
