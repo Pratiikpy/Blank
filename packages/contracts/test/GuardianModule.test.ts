@@ -2,7 +2,9 @@ import { expect } from "chai";
 import hre from "hardhat";
 import { loadFixture } from "@nomicfoundation/hardhat-network-helpers";
 
-const TESTNET_WINDOW = 600; // 10 minutes
+const TESTNET_WINDOW = 86400; // contract floor (24h)
+const KEY_X = 0x1234567890abcdefn;
+const KEY_Y = 0xfedcba0987654321n;
 
 async function deployProxy(name: string, initArgs: unknown[] = []) {
   const Factory = await hre.ethers.getContractFactory(name);
@@ -59,54 +61,101 @@ describe("GuardianModule", () => {
       .to.be.revertedWith("GuardianModule: threshold > N");
   });
 
-  it("happy path: request + approve to threshold + window-skip + finalize", async () => {
+  it("event-only finalizeRecovery is retired", async () => {
     const ctx = await loadFixture(deployFixture);
-    await seedGuardians(ctx);
-
-    await expect(
-      ctx.module.connect(ctx.g1).requestRecovery(ctx.account.address, ctx.newOwner.address),
-    ).to.emit(ctx.module, "RecoveryRequested");
-
-    // g1 auto-approved at request. g2 brings approvals to 2 = threshold.
-    await expect(ctx.module.connect(ctx.g2).approveRecovery(ctx.account.address))
-      .to.emit(ctx.module, "RecoveryApproved");
-
-    // Can't finalize before window expires.
     await expect(ctx.module.finalizeRecovery(ctx.account.address))
-      .to.be.revertedWith("GuardianModule: window open");
-
-    await hre.network.provider.send("evm_increaseTime", [TESTNET_WINDOW + 1]);
-    await hre.network.provider.send("evm_mine");
-
-    await expect(ctx.module.finalizeRecovery(ctx.account.address))
-      .to.emit(ctx.module, "RecoveryFinalized").withArgs(ctx.account.address, ctx.newOwner.address);
-
-    const state = await ctx.module.recoveryState(ctx.account.address);
-    expect(state.finalized).to.equal(true);
+      .to.be.revertedWith("GuardianModule: retired");
   });
 
-  it("veto by any guardian blocks finalize", async () => {
+  it("M5 exploit: a single guardian veto no longer blocks a 2-of-3 recovery", async () => {
     const ctx = await loadFixture(deployFixture);
     await seedGuardians(ctx);
-    await ctx.module.connect(ctx.g1).requestRecovery(ctx.account.address, ctx.newOwner.address);
-    await ctx.module.connect(ctx.g2).approveRecovery(ctx.account.address);
-
+    await ctx.module.connect(ctx.g1).requestRecovery(ctx.account.address, KEY_X, KEY_Y);
+    // g3 alone vetoes before g2 approves: 1 of the 2 votes needed.
     await expect(ctx.module.connect(ctx.g3).vetoRecovery(ctx.account.address))
-      .to.emit(ctx.module, "RecoveryVetoed");
+      .to.emit(ctx.module, "RecoveryVetoVote").withArgs(ctx.account.address, ctx.g3.address, 1, 2)
+      .and.not.to.emit(ctx.module, "RecoveryVetoed");
+    const state = await ctx.module.recoveryState(ctx.account.address);
+    expect(state.vetoed).to.equal(false);
+    await ctx.module.connect(ctx.g2).approveRecovery(ctx.account.address);
+    expect((await ctx.module.recoveryState(ctx.account.address)).approvals).to.equal(2);
+  });
 
-    await hre.network.provider.send("evm_increaseTime", [TESTNET_WINDOW + 1]);
-    await hre.network.provider.send("evm_mine");
-    await expect(ctx.module.finalizeRecovery(ctx.account.address))
-      .to.be.revertedWith("GuardianModule: vetoed");
+  it("veto quorum (N - threshold + 1) blocks the request", async () => {
+    const ctx = await loadFixture(deployFixture);
+    await seedGuardians(ctx);
+    await ctx.module.connect(ctx.account).addGuardian(ctx.g4.address);
+    await ctx.module.connect(ctx.account).setThreshold(3); // 4 guardians, quorum 2
+    await ctx.module.connect(ctx.g1).requestRecovery(ctx.account.address, KEY_X, KEY_Y);
+    expect(await ctx.module.vetoQuorum(ctx.account.address)).to.equal(2);
+    await ctx.module.connect(ctx.g3).vetoRecovery(ctx.account.address);
+    await expect(ctx.module.connect(ctx.g4).vetoRecovery(ctx.account.address))
+      .to.emit(ctx.module, "RecoveryVetoed");
+    await expect(ctx.module.connect(ctx.g2).approveRecovery(ctx.account.address))
+      .to.be.revertedWith("GuardianModule: no live request");
+  });
+
+  it("M5 exploit: a guardian cannot replace a live request", async () => {
+    const ctx = await loadFixture(deployFixture);
+    await seedGuardians(ctx);
+    await ctx.module.connect(ctx.g1).requestRecovery(ctx.account.address, KEY_X, KEY_Y);
+    await expect(
+      ctx.module.connect(ctx.g2).requestRecovery(ctx.account.address, 7n, 8n),
+    ).to.be.revertedWith("GuardianModule: request already live");
+  });
+
+  it("a guardian cannot both approve and veto", async () => {
+    const ctx = await loadFixture(deployFixture);
+    await seedGuardians(ctx);
+    await ctx.module.connect(ctx.g1).requestRecovery(ctx.account.address, KEY_X, KEY_Y);
+    await expect(ctx.module.connect(ctx.g1).vetoRecovery(ctx.account.address))
+      .to.be.revertedWith("GuardianModule: already approved");
+    await ctx.module.connect(ctx.g3).vetoRecovery(ctx.account.address);
+    await expect(ctx.module.connect(ctx.g3).approveRecovery(ctx.account.address))
+      .to.be.revertedWith("GuardianModule: already vetoed");
+  });
+
+  it("rejects a zero pubkey at request time", async () => {
+    const ctx = await loadFixture(deployFixture);
+    await seedGuardians(ctx);
+    await expect(ctx.module.connect(ctx.g1).requestRecovery(ctx.account.address, 0n, 0n))
+      .to.be.revertedWith("GuardianModule: zero pubkey");
+  });
+
+  it("threshold must be a strict majority", async () => {
+    const ctx = await loadFixture(deployFixture);
+    await seedGuardians(ctx);
+    await ctx.module.connect(ctx.account).addGuardian(ctx.g4.address);
+    await expect(ctx.module.connect(ctx.account).setThreshold(2))
+      .to.be.revertedWith("GuardianModule: threshold below majority");
+    await ctx.module.connect(ctx.account).setThreshold(3);
+  });
+
+  it("recovery window: setter and initializer enforce the 24h floor", async () => {
+    const ctx = await loadFixture(deployFixture);
+    await expect(ctx.module.setRecoveryWindow(60)).to.be.revertedWith("GuardianModule: window bounds");
+    await expect(ctx.module.setRecoveryWindow(86399)).to.be.revertedWith("GuardianModule: window bounds");
+    await ctx.module.setRecoveryWindow(2 * 86400);
+    expect(await ctx.module.effectiveRecoveryWindow()).to.equal(2 * 86400);
+    await expect(deployProxy("GuardianModule", [600])).to.be.revertedWith("GuardianModule: window too short");
+  });
+
+  it("too many guardians are rejected", async () => {
+    const ctx = await loadFixture(deployFixture);
+    for (let i = 0; i < 10; i++) {
+      await ctx.module.connect(ctx.account).addGuardian(hre.ethers.Wallet.createRandom().address);
+    }
+    await expect(ctx.module.connect(ctx.account).addGuardian(ctx.g1.address))
+      .to.be.revertedWith("GuardianModule: too many guardians");
   });
 
   it("non-guardian cannot request / approve / veto", async () => {
     const ctx = await loadFixture(deployFixture);
     await seedGuardians(ctx);
     await expect(
-      ctx.module.connect(ctx.attacker).requestRecovery(ctx.account.address, ctx.newOwner.address),
+      ctx.module.connect(ctx.attacker).requestRecovery(ctx.account.address, KEY_X, KEY_Y),
     ).to.be.revertedWith("GuardianModule: not guardian");
-    await ctx.module.connect(ctx.g1).requestRecovery(ctx.account.address, ctx.newOwner.address);
+    await ctx.module.connect(ctx.g1).requestRecovery(ctx.account.address, KEY_X, KEY_Y);
     await expect(ctx.module.connect(ctx.attacker).approveRecovery(ctx.account.address))
       .to.be.revertedWith("GuardianModule: not guardian");
     await expect(ctx.module.connect(ctx.attacker).vetoRecovery(ctx.account.address))
@@ -119,29 +168,18 @@ describe("GuardianModule", () => {
     await ctx.module.connect(ctx.account).addGuardian(ctx.g1.address);
     await ctx.module.connect(ctx.account).addGuardian(ctx.g2.address);
     await expect(
-      ctx.module.connect(ctx.g1).requestRecovery(ctx.account.address, ctx.newOwner.address),
+      ctx.module.connect(ctx.g1).requestRecovery(ctx.account.address, KEY_X, KEY_Y),
     ).to.be.revertedWith("GuardianModule: recovery not configured");
   });
 
   it("account can cancel its own recovery", async () => {
     const ctx = await loadFixture(deployFixture);
     await seedGuardians(ctx);
-    await ctx.module.connect(ctx.g1).requestRecovery(ctx.account.address, ctx.newOwner.address);
+    await ctx.module.connect(ctx.g1).requestRecovery(ctx.account.address, KEY_X, KEY_Y);
     await expect(ctx.module.connect(ctx.account).cancelRecovery())
       .to.emit(ctx.module, "RecoveryCancelled");
     const state = await ctx.module.recoveryState(ctx.account.address);
     expect(state.requestedAt).to.equal(0);
-  });
-
-  it("approve below threshold => finalize reverts even after window", async () => {
-    const ctx = await loadFixture(deployFixture);
-    await seedGuardians(ctx);
-    await ctx.module.connect(ctx.g1).requestRecovery(ctx.account.address, ctx.newOwner.address);
-    // Only g1's auto-approval (1) -> below threshold of 2.
-    await hre.network.provider.send("evm_increaseTime", [TESTNET_WINDOW + 1]);
-    await hre.network.provider.send("evm_mine");
-    await expect(ctx.module.finalizeRecovery(ctx.account.address))
-      .to.be.revertedWith("GuardianModule: below threshold");
   });
 
   it("removeGuardian preserves correctness and resets threshold below floor", async () => {
@@ -151,6 +189,15 @@ describe("GuardianModule", () => {
     // 2 guardians left -> threshold reset.
     expect(await ctx.module.thresholdOf(ctx.account.address)).to.equal(0);
     expect(await ctx.module.isGuardian(ctx.account.address, ctx.g1.address)).to.equal(false);
+  });
+
+  it("L3: removeGuardian clamps a threshold that would become unreachable", async () => {
+    const ctx = await loadFixture(deployFixture);
+    await seedGuardians(ctx);
+    await ctx.module.connect(ctx.account).addGuardian(ctx.g4.address);
+    await ctx.module.connect(ctx.account).setThreshold(4);
+    await ctx.module.connect(ctx.account).removeGuardian(ctx.g4.address);
+    expect(await ctx.module.thresholdOf(ctx.account.address)).to.equal(3);
   });
 
   it("guardiansOf returns the configured list", async () => {
@@ -164,7 +211,7 @@ describe("GuardianModule", () => {
   it("hasApproved reflects per-guardian approval state", async () => {
     const ctx = await loadFixture(deployFixture);
     await seedGuardians(ctx);
-    await ctx.module.connect(ctx.g1).requestRecovery(ctx.account.address, ctx.newOwner.address);
+    await ctx.module.connect(ctx.g1).requestRecovery(ctx.account.address, KEY_X, KEY_Y);
     expect(await ctx.module.hasApproved(ctx.account.address, ctx.g1.address)).to.equal(true);
     expect(await ctx.module.hasApproved(ctx.account.address, ctx.g2.address)).to.equal(false);
     await ctx.module.connect(ctx.g2).approveRecovery(ctx.account.address);
@@ -207,7 +254,7 @@ describe("GuardianModule — Wave 5.5 finalizeRecoveryAndRotate", () => {
 
   it("happy path: rotates pubkey on-chain after threshold + window", async () => {
     const ctx = await deployRotateFixture();
-    await ctx.module.connect(ctx.g1).requestRecovery(ctx.accountAddr, ctx.newOwnerAddr.address);
+    await ctx.module.connect(ctx.g1).requestRecovery(ctx.accountAddr, KEY_X, KEY_Y);
     await ctx.module.connect(ctx.g2).approveRecovery(ctx.accountAddr);
 
     await hre.network.provider.send("evm_increaseTime", [TESTNET_WINDOW + 1]);
@@ -219,7 +266,7 @@ describe("GuardianModule — Wave 5.5 finalizeRecoveryAndRotate", () => {
       ctx.module.connect(ctx.g1).finalizeRecoveryAndRotate(ctx.accountAddr, PUBKEY_X, PUBKEY_Y),
     )
       .to.emit(ctx.module, "RecoveryRotated").withArgs(ctx.accountAddr, PUBKEY_X, PUBKEY_Y)
-      .and.to.emit(ctx.module, "RecoveryFinalized").withArgs(ctx.accountAddr, ctx.newOwnerAddr.address);
+      .and.to.emit(ctx.module, "RecoveryFinalized").withArgs(ctx.accountAddr, hre.ethers.ZeroAddress);
 
     expect(await ctx.account.ownerX()).to.equal(PUBKEY_X);
     expect(await ctx.account.ownerY()).to.equal(PUBKEY_Y);
@@ -229,7 +276,7 @@ describe("GuardianModule — Wave 5.5 finalizeRecoveryAndRotate", () => {
 
   it("caller must be one of the approving guardians", async () => {
     const ctx = await deployRotateFixture();
-    await ctx.module.connect(ctx.g1).requestRecovery(ctx.accountAddr, ctx.newOwnerAddr.address);
+    await ctx.module.connect(ctx.g1).requestRecovery(ctx.accountAddr, KEY_X, KEY_Y);
     await ctx.module.connect(ctx.g2).approveRecovery(ctx.accountAddr);
     await hre.network.provider.send("evm_increaseTime", [TESTNET_WINDOW + 1]);
     await hre.network.provider.send("evm_mine");
@@ -247,7 +294,7 @@ describe("GuardianModule — Wave 5.5 finalizeRecoveryAndRotate", () => {
 
   it("zero pubkey rejected", async () => {
     const ctx = await deployRotateFixture();
-    await ctx.module.connect(ctx.g1).requestRecovery(ctx.accountAddr, ctx.newOwnerAddr.address);
+    await ctx.module.connect(ctx.g1).requestRecovery(ctx.accountAddr, KEY_X, KEY_Y);
     await ctx.module.connect(ctx.g2).approveRecovery(ctx.accountAddr);
     await hre.network.provider.send("evm_increaseTime", [TESTNET_WINDOW + 1]);
     await hre.network.provider.send("evm_mine");
@@ -262,7 +309,7 @@ describe("GuardianModule — Wave 5.5 finalizeRecoveryAndRotate", () => {
     // Un-wire by setting recoveryModule to a random address.
     await ctx.account.setRecoveryModule(ctx.attacker.address);
 
-    await ctx.module.connect(ctx.g1).requestRecovery(ctx.accountAddr, ctx.newOwnerAddr.address);
+    await ctx.module.connect(ctx.g1).requestRecovery(ctx.accountAddr, KEY_X, KEY_Y);
     await ctx.module.connect(ctx.g2).approveRecovery(ctx.accountAddr);
     await hre.network.provider.send("evm_increaseTime", [TESTNET_WINDOW + 1]);
     await hre.network.provider.send("evm_mine");
@@ -280,7 +327,7 @@ describe("GuardianModule — Wave 5.5 finalizeRecoveryAndRotate", () => {
 
   it("cannot rotate twice (finalized flag latches)", async () => {
     const ctx = await deployRotateFixture();
-    await ctx.module.connect(ctx.g1).requestRecovery(ctx.accountAddr, ctx.newOwnerAddr.address);
+    await ctx.module.connect(ctx.g1).requestRecovery(ctx.accountAddr, KEY_X, KEY_Y);
     await ctx.module.connect(ctx.g2).approveRecovery(ctx.accountAddr);
     await hre.network.provider.send("evm_increaseTime", [TESTNET_WINDOW + 1]);
     await hre.network.provider.send("evm_mine");
@@ -291,10 +338,10 @@ describe("GuardianModule — Wave 5.5 finalizeRecoveryAndRotate", () => {
     ).to.be.revertedWith("GuardianModule: already finalized");
   });
 
-  it("veto blocks rotate even after window", async () => {
+  it("quorum veto blocks rotate even after window", async () => {
     const ctx = await deployRotateFixture();
-    await ctx.module.connect(ctx.g1).requestRecovery(ctx.accountAddr, ctx.newOwnerAddr.address);
-    await ctx.module.connect(ctx.g2).approveRecovery(ctx.accountAddr);
+    await ctx.module.connect(ctx.g1).requestRecovery(ctx.accountAddr, PUBKEY_X, PUBKEY_Y);
+    await ctx.module.connect(ctx.g2).vetoRecovery(ctx.accountAddr);
     await ctx.module.connect(ctx.g3).vetoRecovery(ctx.accountAddr);
     await hre.network.provider.send("evm_increaseTime", [TESTNET_WINDOW + 1]);
     await hre.network.provider.send("evm_mine");
@@ -302,5 +349,75 @@ describe("GuardianModule — Wave 5.5 finalizeRecoveryAndRotate", () => {
     await expect(
       ctx.module.connect(ctx.g1).finalizeRecoveryAndRotate(ctx.accountAddr, PUBKEY_X, PUBKEY_Y),
     ).to.be.revertedWith("GuardianModule: vetoed");
+  });
+
+  it("H3 exploit: finalizer cannot swap in a key the guardians did not approve", async () => {
+    const ctx = await deployRotateFixture();
+    await ctx.module.connect(ctx.g1).requestRecovery(ctx.accountAddr, PUBKEY_X, PUBKEY_Y);
+    await ctx.module.connect(ctx.g2).approveRecovery(ctx.accountAddr);
+    await hre.network.provider.send("evm_increaseTime", [TESTNET_WINDOW + 1]);
+    await hre.network.provider.send("evm_mine");
+    await expect(
+      ctx.module.connect(ctx.g2).finalizeRecoveryAndRotate(ctx.accountAddr, 111n, 222n),
+    ).to.be.revertedWith("GuardianModule: key mismatch");
+    expect(await ctx.account.setOwnerCallCount()).to.equal(0n);
+    expect(await ctx.module.recoveryKeyHash(ctx.accountAddr)).to.equal(
+      hre.ethers.keccak256(hre.ethers.AbiCoder.defaultAbiCoder().encode(["uint256", "uint256"], [PUBKEY_X, PUBKEY_Y])),
+    );
+  });
+
+  it("M3 exploit: recovery can run a second time after a finalized one", async () => {
+    const ctx = await deployRotateFixture();
+    await ctx.module.connect(ctx.g1).requestRecovery(ctx.accountAddr, PUBKEY_X, PUBKEY_Y);
+    await ctx.module.connect(ctx.g2).approveRecovery(ctx.accountAddr);
+    await hre.network.provider.send("evm_increaseTime", [TESTNET_WINDOW + 1]);
+    await hre.network.provider.send("evm_mine");
+    await ctx.module.connect(ctx.g1).finalizeRecoveryAndRotate(ctx.accountAddr, PUBKEY_X, PUBKEY_Y);
+
+    await ctx.module.connect(ctx.g3).requestRecovery(ctx.accountAddr, 33n, 44n);
+    // Approvals from the first request do not carry over.
+    expect(await ctx.module.hasApproved(ctx.accountAddr, ctx.g1.address)).to.equal(false);
+    await ctx.module.connect(ctx.g1).approveRecovery(ctx.accountAddr);
+    await hre.network.provider.send("evm_increaseTime", [TESTNET_WINDOW + 1]);
+    await hre.network.provider.send("evm_mine");
+    await ctx.module.connect(ctx.g3).finalizeRecoveryAndRotate(ctx.accountAddr, 33n, 44n);
+    expect(await ctx.account.ownerX()).to.equal(33n);
+    expect(await ctx.account.setOwnerCallCount()).to.equal(2n);
+  });
+
+  it("L3 exploit: approvals from removed guardians do not count", async () => {
+    const ctx = await deployRotateFixture();
+    await ctx.module.connect(ctx.g1).requestRecovery(ctx.accountAddr, PUBKEY_X, PUBKEY_Y);
+    await ctx.module.connect(ctx.g2).approveRecovery(ctx.accountAddr);
+
+    await hre.network.provider.send("hardhat_impersonateAccount", [ctx.accountAddr]);
+    const acct = await hre.ethers.getSigner(ctx.accountAddr);
+    await ctx.module.connect(acct).addGuardian(ctx.g4.address);
+    await ctx.module.connect(acct).removeGuardian(ctx.g2.address);
+    await hre.network.provider.send("hardhat_stopImpersonatingAccount", [ctx.accountAddr]);
+
+    expect((await ctx.module.recoveryState(ctx.accountAddr)).approvals).to.equal(1);
+    await hre.network.provider.send("evm_increaseTime", [TESTNET_WINDOW + 1]);
+    await hre.network.provider.send("evm_mine");
+    await expect(
+      ctx.module.connect(ctx.g1).finalizeRecoveryAndRotate(ctx.accountAddr, PUBKEY_X, PUBKEY_Y),
+    ).to.be.revertedWith("GuardianModule: below threshold");
+  });
+
+  it("window floor applies to proxies initialized with a short window", async () => {
+    const ctx = await deployRotateFixture();
+    // Simulate a legacy proxy whose stored window is 600s.
+    await hre.network.provider.send("hardhat_setStorageAt", [
+      await ctx.module.getAddress(), "0x2", hre.ethers.zeroPadValue("0x0258", 32),
+    ]);
+    expect(await ctx.module.RECOVERY_WINDOW_SECONDS()).to.equal(600);
+    expect(await ctx.module.effectiveRecoveryWindow()).to.equal(86400);
+    await ctx.module.connect(ctx.g1).requestRecovery(ctx.accountAddr, PUBKEY_X, PUBKEY_Y);
+    await ctx.module.connect(ctx.g2).approveRecovery(ctx.accountAddr);
+    await hre.network.provider.send("evm_increaseTime", [601]);
+    await hre.network.provider.send("evm_mine");
+    await expect(
+      ctx.module.connect(ctx.g1).finalizeRecoveryAndRotate(ctx.accountAddr, PUBKEY_X, PUBKEY_Y),
+    ).to.be.revertedWith("GuardianModule: window open");
   });
 });

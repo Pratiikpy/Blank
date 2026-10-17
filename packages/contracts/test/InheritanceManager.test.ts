@@ -66,6 +66,9 @@ async function deployFixture() {
   ]);
   const im = await deployProxy("InheritanceManager", [await eventHub.getAddress()]);
   await eventHub.batchWhitelist([await im.getAddress()]);
+  const registry = await deployProxy("TokenRegistry");
+  await registry.registerToken(await vault.getAddress(), await testUSDC.getAddress(), "USD Coin", "USDC", USDC_DECIMALS);
+  await im.setTokenRegistry(await registry.getAddress());
 
   // Principal shields some USDC + approves IM as a spender on the vault.
   await testUSDC.mint(principal.address, usdc(10_000));
@@ -74,7 +77,7 @@ async function deployFixture() {
   const MAX = (1n << 64n) - 1n;
   await vault.connect(principal).approvePlaintext(await im.getAddress(), MAX);
 
-  return { owner, principal, heir, otherHeir, stranger, client, testUSDC, vault, im };
+  return { owner, principal, heir, otherHeir, stranger, client, testUSDC, vault, im, registry, eventHub };
 }
 
 async function encAmt(client: any, signer: any, amount: bigint, consuming: string) {
@@ -373,3 +376,107 @@ describe("InheritanceManager — isClaimable view", () => {
 async function timestamp1(): Promise<number> {
   return (await time.latest()) + 1;
 }
+
+describe("InheritanceManager: audit M4/L5 + vault allowlist", () => {
+  async function taskManager() {
+    const book = new hre.ethers.Contract(
+      "0xC0F4e00E531a2B086492Ae3DCC1515038307196b",
+      ["function getTm(uint256) view returns (address)"],
+      hre.ethers.provider,
+    );
+    return new hre.ethers.Contract(
+      await book.getTm(1),
+      ["function isAllowed(uint256 ctHash, address account) view returns (bool)"],
+      hre.ethers.provider,
+    );
+  }
+
+  async function readyToFinalize(ctx: any) {
+    await ctx.im.connect(ctx.principal).setHeir(ctx.heir.address, MIN_INACTIVITY);
+    await ctx.im.connect(ctx.principal).setVaults([await ctx.vault.getAddress()]);
+    await time.increase(MIN_INACTIVITY + 1);
+    await ctx.im.connect(ctx.heir).startClaim(ctx.principal.address);
+    await time.increase(CHALLENGE_PERIOD + 1);
+  }
+
+  function movedHandles(ctx: any, rc: any): bigint[] {
+    return rc.logs
+      .map((l: any) => { try { return ctx.im.interface.parseLog(l); } catch { return null; } })
+      .filter((p: any) => p?.name === "ClaimVaultTransferred")
+      .map((p: any) => BigInt(p.args.moved));
+  }
+
+  it("M4 exploit: a wrong amount that moved 0 can be retried with claimRemaining", async () => {
+    const ctx = await loadFixture(deployFixture);
+    await readyToFinalize(ctx);
+    const max = (1n << 64n) - 1n;
+    const bad = await encAmt(ctx.client, ctx.heir, max, await ctx.im.getAddress());
+    await ctx.im.connect(ctx.heir).finalizeClaim(ctx.principal.address, [bad[0]], bad[1]);
+    await mock_expectPlaintext(ctx.heir.provider, await ctx.vault.balanceOf(ctx.heir.address), 0n);
+
+    const good = await encAmt(ctx.client, ctx.heir, usdc(500), await ctx.im.getAddress());
+    await expect(ctx.im.connect(ctx.heir).claimRemaining(ctx.principal.address, [good[0]], good[1]))
+      .to.emit(ctx.im, "ClaimRetried");
+    await mock_expectPlaintext(ctx.heir.provider, await ctx.vault.balanceOf(ctx.heir.address), usdc(500));
+    await mock_expectPlaintext(ctx.principal.provider, await ctx.vault.balanceOf(ctx.principal.address), 0n);
+  });
+
+  it("L5: the heir holds a persistent ACL grant on the amount that actually moved", async () => {
+    const ctx = await loadFixture(deployFixture);
+    await readyToFinalize(ctx);
+    const max = (1n << 64n) - 1n;
+    const bad = await encAmt(ctx.client, ctx.heir, max, await ctx.im.getAddress());
+    const rc = await (await ctx.im.connect(ctx.heir).finalizeClaim(ctx.principal.address, [bad[0]], bad[1])).wait();
+    const [moved] = movedHandles(ctx, rc);
+    expect(typeof moved).to.equal("bigint");
+    // The moved handle is the vault's result (0), not the requested max.
+    await mock_expectPlaintext(ctx.heir.provider, moved, 0n);
+    // allowTransient would have expired with the tx. FHE.allow persists.
+    const tm = await taskManager();
+    expect(await tm.isAllowed(moved, ctx.heir.address)).to.equal(true);
+    expect(await tm.isAllowed(moved, ctx.stranger.address)).to.equal(false);
+  });
+
+  it("claimRemaining: only the heir, only after finalize, ends on removeHeir", async () => {
+    const ctx = await loadFixture(deployFixture);
+    await readyToFinalize(ctx);
+    const e = await encAmt(ctx.client, ctx.heir, usdc(1), await ctx.im.getAddress());
+    await expect(ctx.im.connect(ctx.heir).claimRemaining(ctx.principal.address, [e[0]], e[1]))
+      .to.be.revertedWith("InheritanceManager: claim not finalized");
+
+    const f = await encAmt(ctx.client, ctx.heir, usdc(100), await ctx.im.getAddress());
+    await ctx.im.connect(ctx.heir).finalizeClaim(ctx.principal.address, [f[0]], f[1]);
+
+    const s = await encAmt(ctx.client, ctx.stranger, usdc(1), await ctx.im.getAddress());
+    await expect(ctx.im.connect(ctx.stranger).claimRemaining(ctx.principal.address, [s[0]], s[1]))
+      .to.be.revertedWith("InheritanceManager: not heir");
+
+    // The principal returns and ends the claim.
+    await ctx.im.connect(ctx.principal).removeHeir();
+    const g = await encAmt(ctx.client, ctx.heir, usdc(1), await ctx.im.getAddress());
+    await expect(ctx.im.connect(ctx.heir).claimRemaining(ctx.principal.address, [g[0]], g[1]))
+      .to.be.revertedWith("InheritanceManager: claim not finalized");
+  });
+
+  it("setVaults rejects a vault the registry does not list", async () => {
+    const ctx = await loadFixture(deployFixture);
+    await ctx.im.connect(ctx.principal).setHeir(ctx.heir.address, MIN_INACTIVITY);
+    const fake = await (await hre.ethers.getContractFactory("MockVaultStub")).deploy(await ctx.testUSDC.getAddress());
+    await expect(ctx.im.connect(ctx.principal).setVaults([await fake.getAddress()]))
+      .to.be.revertedWith("InheritanceManager: vault not allowed");
+  });
+
+  it("setVaults fails closed while the registry is unset", async () => {
+    const ctx = await loadFixture(deployFixture);
+    const im = await deployProxy("InheritanceManager", [await ctx.eventHub.getAddress()]);
+    await im.connect(ctx.principal).setHeir(ctx.heir.address, MIN_INACTIVITY);
+    await expect(im.connect(ctx.principal).setVaults([await ctx.vault.getAddress()]))
+      .to.be.revertedWith("InheritanceManager: vault not allowed");
+  });
+
+  it("setTokenRegistry is owner-only and rejects an EOA", async () => {
+    const ctx = await loadFixture(deployFixture);
+    await expect(ctx.im.connect(ctx.stranger).setTokenRegistry(await ctx.registry.getAddress())).to.be.reverted;
+    await expect(ctx.im.setTokenRegistry(ctx.stranger.address)).to.be.revertedWith("InheritanceManager: bad registry");
+  });
+});

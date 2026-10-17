@@ -1,28 +1,44 @@
 {
   "storage": [
     {
-      "astId": 56691,
+      "astId": 63311,
       "contract": "contracts/GuardianModule.sol:GuardianModule",
       "label": "_sets",
       "offset": 0,
       "slot": "0",
-      "type": "t_mapping(t_address,t_struct(GuardianSet)56671_storage)"
+      "type": "t_mapping(t_address,t_struct(GuardianSet)63291_storage)"
     },
     {
-      "astId": 56696,
+      "astId": 63316,
       "contract": "contracts/GuardianModule.sol:GuardianModule",
       "label": "_recoveries",
       "offset": 0,
       "slot": "1",
-      "type": "t_mapping(t_address,t_struct(RecoveryRequest)56686_storage)"
+      "type": "t_mapping(t_address,t_struct(RecoveryRequest)63306_storage)"
     },
     {
-      "astId": 56699,
+      "astId": 63319,
       "contract": "contracts/GuardianModule.sol:GuardianModule",
       "label": "RECOVERY_WINDOW_SECONDS",
       "offset": 0,
       "slot": "2",
       "type": "t_uint32"
+    },
+    {
+      "astId": 63350,
+      "contract": "contracts/GuardianModule.sol:GuardianModule",
+      "label": "recoveryNonce",
+      "offset": 0,
+      "slot": "3",
+      "type": "t_mapping(t_address,t_uint256)"
+    },
+    {
+      "astId": 63357,
+      "contract": "contracts/GuardianModule.sol:GuardianModule",
+      "label": "_ballots",
+      "offset": 0,
+      "slot": "4",
+      "type": "t_mapping(t_address,t_mapping(t_uint256,t_struct(Ballot)63345_storage))"
     }
   ],
   "types": {
@@ -42,6 +58,11 @@
       "label": "bool",
       "numberOfBytes": "1"
     },
+    "t_bytes32": {
+      "encoding": "inplace",
+      "label": "bytes32",
+      "numberOfBytes": "32"
+    },
     "t_mapping(t_address,t_bool)": {
       "encoding": "mapping",
       "key": "t_address",
@@ -49,26 +70,78 @@
       "numberOfBytes": "32",
       "value": "t_bool"
     },
-    "t_mapping(t_address,t_struct(GuardianSet)56671_storage)": {
+    "t_mapping(t_address,t_mapping(t_uint256,t_struct(Ballot)63345_storage))": {
+      "encoding": "mapping",
+      "key": "t_address",
+      "label": "mapping(address => mapping(uint256 => struct GuardianModule.Ballot))",
+      "numberOfBytes": "32",
+      "value": "t_mapping(t_uint256,t_struct(Ballot)63345_storage)"
+    },
+    "t_mapping(t_address,t_struct(GuardianSet)63291_storage)": {
       "encoding": "mapping",
       "key": "t_address",
       "label": "mapping(address => struct GuardianModule.GuardianSet)",
       "numberOfBytes": "32",
-      "value": "t_struct(GuardianSet)56671_storage"
+      "value": "t_struct(GuardianSet)63291_storage"
     },
-    "t_mapping(t_address,t_struct(RecoveryRequest)56686_storage)": {
+    "t_mapping(t_address,t_struct(RecoveryRequest)63306_storage)": {
       "encoding": "mapping",
       "key": "t_address",
       "label": "mapping(address => struct GuardianModule.RecoveryRequest)",
       "numberOfBytes": "32",
-      "value": "t_struct(RecoveryRequest)56686_storage"
+      "value": "t_struct(RecoveryRequest)63306_storage"
     },
-    "t_struct(GuardianSet)56671_storage": {
+    "t_mapping(t_address,t_uint256)": {
+      "encoding": "mapping",
+      "key": "t_address",
+      "label": "mapping(address => uint256)",
+      "numberOfBytes": "32",
+      "value": "t_uint256"
+    },
+    "t_mapping(t_uint256,t_struct(Ballot)63345_storage)": {
+      "encoding": "mapping",
+      "key": "t_uint256",
+      "label": "mapping(uint256 => struct GuardianModule.Ballot)",
+      "numberOfBytes": "32",
+      "value": "t_struct(Ballot)63345_storage"
+    },
+    "t_struct(Ballot)63345_storage": {
+      "encoding": "inplace",
+      "label": "struct GuardianModule.Ballot",
+      "members": [
+        {
+          "astId": 63336,
+          "contract": "contracts/GuardianModule.sol:GuardianModule",
+          "label": "newKeyHash",
+          "offset": 0,
+          "slot": "0",
+          "type": "t_bytes32"
+        },
+        {
+          "astId": 63340,
+          "contract": "contracts/GuardianModule.sol:GuardianModule",
+          "label": "approved",
+          "offset": 0,
+          "slot": "1",
+          "type": "t_mapping(t_address,t_bool)"
+        },
+        {
+          "astId": 63344,
+          "contract": "contracts/GuardianModule.sol:GuardianModule",
+          "label": "vetoed",
+          "offset": 0,
+          "slot": "2",
+          "type": "t_mapping(t_address,t_bool)"
+        }
+      ],
+      "numberOfBytes": "96"
+    },
+    "t_struct(GuardianSet)63291_storage": {
       "encoding": "inplace",
       "label": "struct GuardianModule.GuardianSet",
       "members": [
         {
-          "astId": 56664,
+          "astId": 63284,
           "contract": "contracts/GuardianModule.sol:GuardianModule",
           "label": "guardians",
           "offset": 0,
@@ -76,7 +149,7 @@
           "type": "t_array(t_address)dyn_storage"
         },
         {
-          "astId": 56668,
+          "astId": 63288,
           "contract": "contracts/GuardianModule.sol:GuardianModule",
           "label": "isGuardian",
           "offset": 0,
@@ -84,7 +157,7 @@
           "type": "t_mapping(t_address,t_bool)"
         },
         {
-          "astId": 56670,
+          "astId": 63290,
           "contract": "contracts/GuardianModule.sol:GuardianModule",
           "label": "threshold",
           "offset": 0,
@@ -94,12 +167,12 @@
       ],
       "numberOfBytes": "96"
     },
-    "t_struct(RecoveryRequest)56686_storage": {
+    "t_struct(RecoveryRequest)63306_storage": {
       "encoding": "inplace",
       "label": "struct GuardianModule.RecoveryRequest",
       "members": [
         {
-          "astId": 56673,
+          "astId": 63293,
           "contract": "contracts/GuardianModule.sol:GuardianModule",
           "label": "newOwner",
           "offset": 0,
@@ -107,7 +180,7 @@
           "type": "t_address"
         },
         {
-          "astId": 56675,
+          "astId": 63295,
           "contract": "contracts/GuardianModule.sol:GuardianModule",
           "label": "requestedAt",
           "offset": 20,
@@ -115,7 +188,7 @@
           "type": "t_uint32"
         },
         {
-          "astId": 56677,
+          "astId": 63297,
           "contract": "contracts/GuardianModule.sol:GuardianModule",
           "label": "approvals",
           "offset": 24,
@@ -123,7 +196,7 @@
           "type": "t_uint8"
         },
         {
-          "astId": 56681,
+          "astId": 63301,
           "contract": "contracts/GuardianModule.sol:GuardianModule",
           "label": "hasApproved",
           "offset": 0,
@@ -131,7 +204,7 @@
           "type": "t_mapping(t_address,t_bool)"
         },
         {
-          "astId": 56683,
+          "astId": 63303,
           "contract": "contracts/GuardianModule.sol:GuardianModule",
           "label": "vetoed",
           "offset": 0,
@@ -139,7 +212,7 @@
           "type": "t_bool"
         },
         {
-          "astId": 56685,
+          "astId": 63305,
           "contract": "contracts/GuardianModule.sol:GuardianModule",
           "label": "finalized",
           "offset": 1,
@@ -148,6 +221,11 @@
         }
       ],
       "numberOfBytes": "96"
+    },
+    "t_uint256": {
+      "encoding": "inplace",
+      "label": "uint256",
+      "numberOfBytes": "32"
     },
     "t_uint32": {
       "encoding": "inplace",

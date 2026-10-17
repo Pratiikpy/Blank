@@ -6,17 +6,16 @@ import { resolve } from "path";
 /**
  * Deploy GuardianModule (Wave 5 Block 3) as a UUPS proxy.
  *
- *   pnpm hardhat deploy-guardian-module --network <chain> --window 600
+ *   pnpm hardhat deploy-guardian-module --network <chain> --window 86400
  *
- * --window default 600s (10 min) for testnet. Mainnet (if ever) should
- * use 86400 (24h). Writes the addresses back to deployments/<chain>.json.
+ * --window default 86400s (24h), the contract floor. Writes the addresses back to deployments/<chain>.json.
  *
  * After deploy, operator should also call BlankHandles.setRecoveryHook
  * with this module's address so the handle rebind happens automatically
  * on RecoveryFinalized.
  */
 task("deploy-guardian-module", "Deploy GuardianModule UUPS proxy")
-  .addOptionalParam("window", "Recovery challenge window seconds", "600")
+  .addOptionalParam("window", "Recovery challenge window seconds (min 86400)", "86400")
   .setAction(async (args, hre: HardhatRuntimeEnvironment) => {
     const networkName = hre.network.name;
     const file =
@@ -31,8 +30,8 @@ task("deploy-guardian-module", "Deploy GuardianModule UUPS proxy")
     catch (err) { throw new Error(`Need deploy-all first. ${err instanceof Error ? err.message : String(err)}`); }
 
     const win = Number(args.window);
-    if (!Number.isInteger(win) || win < 60 || win > 30 * 24 * 3600) {
-      throw new Error(`deploy-guardian-module: --window must be 60..2592000`);
+    if (!Number.isInteger(win) || win < 86400 || win > 30 * 24 * 3600) {
+      throw new Error(`deploy-guardian-module: --window must be 86400..2592000`);
     }
 
     const [deployer] = await hre.ethers.getSigners();

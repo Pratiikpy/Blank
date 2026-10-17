@@ -1472,6 +1472,9 @@ describe("InheritanceManager finalizeClaim mutex (#185)", () => {
       await base.eventHub.getAddress(),
     ]);
     await base.eventHub.batchWhitelist([await inheritanceManager.getAddress()]);
+    const registry = await deployProxy("TokenRegistry");
+    await registry.registerToken(await base.vault.getAddress(), await base.testUSDC.getAddress(), "USD Coin", "USDC", 6);
+    await inheritanceManager.setTokenRegistry(await registry.getAddress());
     return { ...base, inheritanceManager };
   }
 

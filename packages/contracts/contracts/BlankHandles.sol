@@ -34,7 +34,7 @@ contract BlankHandles is UUPSUpgradeable, OwnableUpgradeable {
         bytes32 emailDigest;      // optional FHE-friendly digest
         bytes32 ensRecord;        // optional ENS fallback
         uint64 createdAt;
-        uint64 lastActivityAt;    // for the 30-day inactivity reclaim path
+        uint64 lastActivityAt;    // informational, no longer drives reclaim
     }
 
     // ─── State ─────────────────────────────────────────────────────
@@ -94,9 +94,23 @@ contract BlankHandles is UUPSUpgradeable, OwnableUpgradeable {
         require(to != address(0), "BlankHandles: to=0");
         uint32 len = uint32(bytes(handle).length);
         require(len >= MIN_HANDLE_LEN && len <= SHORT_HANDLE_THRESHOLD, "BlankHandles: not short");
+        require(_isValidChars(handle), "BlankHandles: bad chars");
         bytes32 h = _normalizeAndHash(handle);
+        require(!reservedHandles[h], "BlankHandles: reserved");
         require(handles[h].owner == address(0), "BlankHandles: taken");
+        require(ownerToHandle[to] == bytes32(0), "BlankHandles: already have handle");
         _writeHandle(h, to, handle);
+    }
+
+    /// Owner-only removal for abusive or impersonating handles. Frees the
+    /// handle and clears the reverse record.
+    function adminReclaim(string calldata handle) external onlyOwner {
+        bytes32 h = _normalizeAndHash(handle);
+        address prev = handles[h].owner;
+        require(prev != address(0), "BlankHandles: unknown");
+        if (ownerToHandle[prev] == h) delete ownerToHandle[prev];
+        delete handles[h];
+        emit HandleOwnerTransferred(h, prev, address(0));
     }
 
     // ─── Public reserve ───────────────────────────────────────────
@@ -142,10 +156,9 @@ contract BlankHandles is UUPSUpgradeable, OwnableUpgradeable {
         emit HandleEnsSet(h, ensRecord);
     }
 
-    /// Anyone can call to record activity. The handle's lastActivityAt
-    /// drives the 30-day inactivity reclaim. Usually emitted from
-    /// integrations on send/receive so handles stay live without the
-    /// owner manually pinging.
+    /// Records activity on a handle. Informational only: the public
+    /// inactivity reclaim was removed because nothing pinged handles, which
+    /// made every handle claimable by anyone after 30 days.
     function pingActivity(string calldata handle) external {
         bytes32 h = _normalizeAndHash(handle);
         require(handles[h].owner != address(0), "BlankHandles: unknown");
@@ -153,21 +166,8 @@ contract BlankHandles is UUPSUpgradeable, OwnableUpgradeable {
         emit HandleActivityPing(h);
     }
 
-    /// Reclaim a handle whose owner has been inactive for
-    /// INACTIVITY_RECLAIM_SECONDS. Anyone can trigger; the handle is
-    /// freed for a new reserve.
-    function reclaimInactive(string calldata handle) external {
-        bytes32 h = _normalizeAndHash(handle);
-        Handle storage e = handles[h];
-        require(e.owner != address(0), "BlankHandles: unknown");
-        require(
-            block.timestamp >= e.lastActivityAt + INACTIVITY_RECLAIM_SECONDS,
-            "BlankHandles: not inactive"
-        );
-        address prev = e.owner;
-        delete ownerToHandle[prev];
-        delete handles[h];
-        emit HandleOwnerTransferred(h, prev, address(0));
+    function reclaimInactive(string calldata) external pure {
+        revert("BlankHandles: retired");
     }
 
     // ─── Recovery-hook rebind ─────────────────────────────────────
@@ -180,6 +180,9 @@ contract BlankHandles is UUPSUpgradeable, OwnableUpgradeable {
         require(newOwner != address(0), "BlankHandles: to=0");
         Handle storage e = handles[handleHash];
         require(e.owner != address(0), "BlankHandles: unknown");
+        // One handle per address: overwriting newOwner's record would orphan
+        // their existing handle.
+        require(ownerToHandle[newOwner] == bytes32(0), "BlankHandles: already have handle");
         address prev = e.owner;
         delete ownerToHandle[prev];
         e.owner = newOwner;
