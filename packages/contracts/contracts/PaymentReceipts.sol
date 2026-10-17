@@ -619,11 +619,63 @@ contract PaymentReceipts is UUPSUpgradeable, OwnableUpgradeable {
     euint64 private _snapshotTxCount;
     uint256 public lastSnapshotAt;
 
+    bool public legacyLayoutRepaired;
+
+    event LegacyLayoutRepaired(euint64 volume, euint64 txCount, uint256 proofCount);
+
+    // Proxies first deployed before `_statsInitialized` was declared hold the
+    // global stats one slot lower than this code expects: _globalVolume in
+    // slot 8, _globalTxCount in 9, _globalStatsInitialized in 10 and
+    // proofCount in 11. Read through the current layout, _globalTxCount is the
+    // bool `1` and every global bump fails. This moves the real values back.
+    // Proofs written under the old layout sit in a mapping this code no longer
+    // reads; proofCount is restored so new ids never reuse an old one.
+    uint256 private constant LEGACY_VOLUME_SLOT = 8;
+    uint256 private constant LEGACY_TX_COUNT_SLOT = 9;
+    uint256 private constant LEGACY_INIT_SLOT = 10;
+    uint256 private constant LEGACY_PROOF_COUNT_SLOT = 11;
+
+    /// @notice One-shot repair for proxies with the shifted legacy layout.
+    ///         Reverts unless the exact shift signature is present.
+    function repairLegacyLayout() external onlyOwner {
+        require(!legacyLayoutRepaired, "PaymentReceipts: already repaired");
+        bytes32 vol;
+        bytes32 cnt;
+        uint256 init;
+        uint256 legacyProofs;
+        assembly {
+            vol := sload(LEGACY_VOLUME_SLOT)
+            cnt := sload(LEGACY_TX_COUNT_SLOT)
+            init := sload(LEGACY_INIT_SLOT)
+            legacyProofs := sload(LEGACY_PROOF_COUNT_SLOT)
+        }
+        // Signature of the shift: the slot this code reads as _globalTxCount
+        // holds the old bool, and both old handles are real ciphertexts.
+        require(init == 1, "PaymentReceipts: layout not shifted");
+        require(uint256(vol) > type(uint128).max && uint256(cnt) > type(uint128).max, "PaymentReceipts: no legacy handles");
+        require(proofCount == 0, "PaymentReceipts: proofs written since");
+
+        legacyLayoutRepaired = true;
+        assembly {
+            // Slot 8 is the root of the _statsInitialized mapping now; its
+            // own word is never read, but clear the stale handle anyway.
+            sstore(LEGACY_VOLUME_SLOT, 0)
+        }
+        _globalVolume = euint64.wrap(vol);
+        _globalTxCount = euint64.wrap(cnt);
+        _globalStatsInitialized = true;
+        proofCount = legacyProofs;
+        FHE.allowThis(_globalVolume);
+        FHE.allowThis(_globalTxCount);
+        emit LegacyLayoutRepaired(_globalVolume, _globalTxCount, legacyProofs);
+    }
+
     /// @dev Reserved storage to avoid collisions on future upgrades.
     ///      Append-only: when adding a new state variable in a later upgrade,
     ///      decrement the gap size so total storage is unchanged.
-    /// @dev Gap reduced by 3 for the snapshot fields above.
-    uint256[46] private __gap;
+    /// @dev Gap reduced by 3 for the snapshot fields and 1 for
+    ///      legacyLayoutRepaired.
+    uint256[45] private __gap;
 
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 }

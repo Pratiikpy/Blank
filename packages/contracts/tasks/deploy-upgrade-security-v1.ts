@@ -209,6 +209,16 @@ task("deploy-upgrade-security-v1", "Ship the pre-mainnet audit fixes to a testne
       let initData = WIRE_REGISTRY.includes(u.key)
         ? Factory.interface.encodeFunctionData("setTokenRegistry", [d.TokenRegistry!])
         : "0x";
+      if (u.key === "PaymentReceipts") {
+        // Eth and Base proxies carry the global stats one slot low (see
+        // repairLegacyLayout). The slot this code reads as _globalTxCount
+        // holds the old bool 1 there; repair in the upgrade call itself.
+        const raw = BigInt(await hre.ethers.provider.getStorage(d[u.key]!, 10));
+        if (raw === 1n) {
+          console.log(`   legacy shifted layout detected, repairing in the upgrade call`);
+          initData = Factory.interface.encodeFunctionData("repairLegacyLayout");
+        }
+      }
       if (u.key === "EncryptedCrowdfund") {
         // Campaigns swept before this upgrade have releasePaid == false. Mark
         // them in the upgrade call itself; claimRelease stays closed until

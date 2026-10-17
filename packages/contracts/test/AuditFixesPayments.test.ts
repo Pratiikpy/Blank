@@ -412,3 +412,52 @@ describe("Audit A2/A3: PaymentReceipts", () => {
     expect(await r.getGlobalVolumeHandle()).to.equal(snap);
   });
 });
+
+describe("PaymentReceipts: repair of the shifted legacy layout", () => {
+  // Eth and Base Sepolia proxies hold the global stats one slot lower than
+  // the code expects (see repairLegacyLayout). Reproduce that on a fresh
+  // proxy by moving real handles down one slot, then repair.
+  async function shiftedFixture() {
+    const ctx = await fixture();
+    const hub = await ctx.paymentHub.getAddress();
+    for (let i = 0; i < 5; i++) {
+      await ctx.paymentHub.connect(ctx.alice).sendPayment(
+        ctx.bob.address, await ctx.vault.getAddress(), ...(await enc(ctx, ctx.alice, usdc(11), hub)), "",
+      );
+    }
+    const addr = await ctx.paymentReceipts.getAddress();
+    const at = (s: number) => hre.ethers.provider.getStorage(addr, s);
+    const set = (s: number, v: string) =>
+      hre.network.provider.send("hardhat_setStorageAt", [addr, "0x" + s.toString(16), hre.ethers.zeroPadValue(v, 32)]);
+    const vol = await at(9);
+    const cnt = await at(10);
+    await set(8, vol);
+    await set(9, cnt);
+    await set(10, "0x01");
+    await set(11, "0x07"); // legacy proofCount
+    await set(12, "0x00");
+    return ctx;
+  }
+
+  it("reproduces the broken state: a snapshot reverts on the shifted layout", async () => {
+    const ctx = await loadFixture(shiftedFixture);
+    await expect(ctx.paymentReceipts.publishGlobalSnapshot()).to.be.reverted;
+  });
+
+  it("restores the real totals and the proof counter, once, owner only", async () => {
+    const ctx = await loadFixture(shiftedFixture);
+    const r = ctx.paymentReceipts;
+    await expect(r.connect(ctx.alice).repairLegacyLayout()).to.be.revertedWithCustomError(r, "OwnableUnauthorizedAccount");
+    await expect(r.repairLegacyLayout()).to.emit(r, "LegacyLayoutRepaired");
+    expect(await r.legacyLayoutRepaired()).to.equal(true);
+    expect(await r.proofCount()).to.equal(7n);
+    await r.publishGlobalSnapshot();
+    expect(await snapshotValues(ctx)).to.deep.equal([usdc(55), 5n]);
+    await expect(r.repairLegacyLayout()).to.be.revertedWith("PaymentReceipts: already repaired");
+  });
+
+  it("refuses to touch a proxy whose layout is not shifted", async () => {
+    const ctx = await loadFixture(fixture);
+    await expect(ctx.paymentReceipts.repairLegacyLayout()).to.be.revertedWith("PaymentReceipts: layout not shifted");
+  });
+});
