@@ -79,6 +79,13 @@ async function deployBlankFixture() {
     await groupManager.getAddress(),
   ]);
 
+  // Vault allowlist: PaymentHub only accepts registered vaults.
+  const tokenRegistry = await deployProxy("TokenRegistry", []);
+  await tokenRegistry.registerToken(
+    await vault.getAddress(), await testUSDC.getAddress(), "USD Coin", "USDC", USDC_DECIMALS,
+  );
+  await paymentHub.setTokenRegistry(await tokenRegistry.getAddress());
+
   // Mint alice + bob some test USDC and shield it
   await testUSDC.mint(alice.address, usdc(10_000));
   await testUSDC.mint(bob.address, usdc(10_000));
@@ -88,6 +95,7 @@ async function deployBlankFixture() {
   return {
     owner, alice, bob, charlie, client,
     testUSDC, eventHub, vault, paymentHub, businessHub, groupManager, paymentReceipts,
+    tokenRegistry,
   };
 }
 
@@ -1916,6 +1924,7 @@ describe("PaymentReceipts qualification proofs", () => {
 
   it("exposes global volume + tx count handles for public decryption", async () => {
     const ctx = await loadFixture(deployBlankFixture);
+    await ctx.paymentReceipts.publishGlobalSnapshot();
 
     // Both getters must return non-zero handles even on a fresh contract —
     // _globalVolume is initialized in initialize(), _globalTxCount is
@@ -2115,6 +2124,7 @@ describe("GiftMoney receipts wiring (#204)", () => {
 
     // Global volume should decrypt to the sum (100 USDC). Use erin as a
     // disinterested third party — proves the FHE.allowGlobal path works.
+    await ctx.paymentReceipts.publishGlobalSnapshot();
     const volHandle = await ctx.paymentReceipts.getGlobalVolumeHandle();
     await hre.cofhe.connectWithHardhatSigner(ctx.client, erin);
     await ctx.client.acp.createSelf({
@@ -2172,6 +2182,7 @@ describe("StealthPayments refund decrement (#199)", () => {
     // wall-clock) would expire mid-test once block.timestamp jumps ahead.
     const nowTs = (await hre.ethers.provider.getBlock("latest"))!.timestamp;
     const FAR_FUTURE_TS = nowTs + 365 * 24 * 3600;
+    await ctx.paymentReceipts.publishGlobalSnapshot();
     const volHandleBefore = await ctx.paymentReceipts.getGlobalVolumeHandle();
     await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.charlie);
     await ctx.client.acp.createSelf({
@@ -2206,6 +2217,9 @@ describe("StealthPayments refund decrement (#199)", () => {
         "for groceries",
       );
 
+    // The public total only moves when a daily snapshot is cut.
+    await hre.network.provider.send("evm_increaseTime", [24 * 3600]);
+    await ctx.paymentReceipts.publishGlobalSnapshot();
     const volHandleMid = await ctx.paymentReceipts.getGlobalVolumeHandle();
     await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.charlie);
     const volMid = await ctx.client
@@ -2230,6 +2244,7 @@ describe("StealthPayments refund decrement (#199)", () => {
     // (FHE.allowGlobal preserved through the FHE.select clamp) AND that the
     // value matches volBefore exactly. Re-create the permit AFTER the
     // 31-day time jump — the original would have expired (default permit TTL).
+    await ctx.paymentReceipts.publishGlobalSnapshot();
     const volHandleAfter = await ctx.paymentReceipts.getGlobalVolumeHandle();
     await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.charlie);
     await ctx.client.acp.createSelf({
@@ -2255,7 +2270,7 @@ describe("StealthPayments refund decrement (#199)", () => {
 describe("PaymentReceiptsSet event (PaymentHub + BusinessHub)", () => {
   it("PaymentHub: emits PaymentReceiptsSet on first set", async () => {
     const ctx = await loadFixture(deployBlankFixture);
-    const fake = "0x000000000000000000000000000000000000bEEF";
+    const fake = await ctx.paymentReceipts.getAddress();
 
     // Deploy fresh PaymentHub so paymentReceipts starts at zero.
     const PaymentHub = await hre.ethers.getContractFactory("PaymentHub");
@@ -2280,8 +2295,8 @@ describe("PaymentReceiptsSet event (PaymentHub + BusinessHub)", () => {
 
   it("PaymentHub: emits PaymentReceiptsSet with prior address on subsequent set", async () => {
     const ctx = await loadFixture(deployBlankFixture);
-    const first = "0x000000000000000000000000000000000000dEaD";
-    const second = "0x000000000000000000000000000000000000bEEF";
+    const first = await ctx.paymentReceipts.getAddress();
+    const second = await ctx.eventHub.getAddress();
 
     // Reset from the fixture default (which is the deployed PaymentReceipts).
     await ctx.paymentHub.connect(ctx.owner).setPaymentReceipts(first);

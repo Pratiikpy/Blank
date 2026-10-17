@@ -130,13 +130,26 @@ contract FHERC20Vault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         // bound is honest at the source.
         require(amount <= type(uint64).max, "FHERC20Vault: amount exceeds uint64");
 
-        // Transfer underlying tokens from user to vault
+        // Credit what actually arrived, so a fee-on-transfer token cannot
+        // mint encrypted balance the vault does not hold.
+        uint256 balanceBefore = underlyingToken.balanceOf(address(this));
         underlyingToken.safeTransferFrom(msg.sender, address(this), amount);
+        uint256 balanceAfter = underlyingToken.balanceOf(address(this));
+        uint256 received = balanceAfter - balanceBefore;
+        require(received > 0, "FHERC20Vault: nothing received");
+
+        // Overflow bound. Every encrypted balance and pending unshield is
+        // backed 1:1 by underlying held here, so their sum never exceeds this
+        // contract's token balance. Capping that balance at uint64 max means
+        // no single encrypted balance can reach the wrap point, so the FHE.add
+        // below cannot wrap. Checking here (in plaintext, before crediting)
+        // reverts the whole shield instead of stranding pulled tokens.
+        require(balanceAfter <= type(uint64).max, "FHERC20Vault: vault supply cap");
 
         _ensureInitialized(msg.sender);
 
         // Encrypt the amount and add to user's encrypted balance
-        euint64 encAmount = FHE.asEuint64(amount);
+        euint64 encAmount = FHE.asEuint64(received);
         _balances[msg.sender] = FHE.add(_balances[msg.sender], encAmount);
 
         // Grant permissions
@@ -221,6 +234,8 @@ contract FHERC20Vault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         // Clear pending (can't delete FHE types, reset to zero)
         _pendingUnshields[msg.sender] = FHE.asEuint64(0);
         FHE.allowThis(_pendingUnshields[msg.sender]);
+        // The user reads this handle to know the claim cleared.
+        FHE.allowSender(_pendingUnshields[msg.sender]);
 
         // Transfer underlying tokens back to user
         underlyingToken.safeTransfer(msg.sender, plainAmount);
@@ -261,11 +276,7 @@ contract FHERC20Vault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
         // Privacy-preserving balance check
         ebool hasEnough = FHE.gte(_balances[msg.sender], amount);
-        euint64 actualAmount = FHE.select(hasEnough, amount, ZERO);
-
-        // Execute transfer
-        _balances[msg.sender] = FHE.sub(_balances[msg.sender], actualAmount);
-        _balances[to] = FHE.add(_balances[to], actualAmount);
+        euint64 actualAmount = _move(msg.sender, to, FHE.select(hasEnough, amount, ZERO));
 
         // Grant permissions — CRITICAL for both parties
         FHE.allowThis(_balances[msg.sender]);
@@ -318,11 +329,7 @@ contract FHERC20Vault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
         // Privacy-preserving balance check
         ebool hasEnough = FHE.gte(_balances[msg.sender], amount);
-        euint64 actualAmount = FHE.select(hasEnough, amount, ZERO);
-
-        // Execute transfer
-        _balances[msg.sender] = FHE.sub(_balances[msg.sender], actualAmount);
-        _balances[to] = FHE.add(_balances[to], actualAmount);
+        euint64 actualAmount = _move(msg.sender, to, FHE.select(hasEnough, amount, ZERO));
 
         // Grant permissions — both parties + this contract
         FHE.allowThis(_balances[msg.sender]);
@@ -412,14 +419,10 @@ contract FHERC20Vault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         ebool hasAllowance = FHE.gte(_allowances[from][msg.sender], amount);
         ebool canTransfer = FHE.and(hasBalance, hasAllowance);
 
-        euint64 actualAmount = FHE.select(canTransfer, amount, ZERO);
+        euint64 actualAmount = _move(from, to, FHE.select(canTransfer, amount, ZERO));
 
-        // Deduct allowance
+        // Deduct allowance by what actually moved
         _allowances[from][msg.sender] = FHE.sub(_allowances[from][msg.sender], actualAmount);
-
-        // Execute transfer
-        _balances[from] = FHE.sub(_balances[from], actualAmount);
-        _balances[to] = FHE.add(_balances[to], actualAmount);
 
         // Grant permissions
         FHE.allowThis(_balances[from]);
@@ -434,6 +437,19 @@ contract FHERC20Vault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         emit EncryptedTransfer(from, to, block.timestamp);
 
         return actualAmount;
+    }
+
+    /// @dev Moves an already balance-checked amount. If crediting `to` would
+    ///      wrap euint64, nothing moves: the debit uses the same guarded
+    ///      amount, so total supply stays consistent. The shield supply cap
+    ///      makes the wrap unreachable today; this keeps it unreachable if
+    ///      that bound is ever relaxed. Returns the amount actually moved.
+    function _move(address from, address to, euint64 amount) internal returns (euint64 moved) {
+        euint64 sum = FHE.add(_balances[to], amount);
+        ebool noWrap = FHE.gte(sum, _balances[to]);
+        moved = FHE.select(noWrap, amount, ZERO);
+        _balances[from] = FHE.sub(_balances[from], moved);
+        _balances[to] = FHE.select(noWrap, sum, _balances[to]);
     }
 
     // ─── Approve ────────────────────────────────────────────────────────
@@ -520,6 +536,9 @@ contract FHERC20Vault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
     /// @notice Update the EventHub address (in case of upgrade)
     function setEventHub(address _eventHub) external onlyOwner {
+        // A codeless hub makes every emitActivity call revert outside the
+        // try/catch (extcodesize check), which would brick shield/unshield.
+        require(_eventHub.code.length > 0, "FHERC20Vault: bad event hub");
         eventHub = IEventHub(_eventHub);
     }
 

@@ -7,6 +7,7 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
+import {ITokenRegistry} from "./interfaces/ITokenRegistry.sol";
 
 interface IFHERC20Vault {
     function transferFrom(address from, address to, externalEuint64 encAmount, bytes calldata proof) external returns (euint64);
@@ -42,7 +43,9 @@ contract PaymentHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
     // ─── Types ──────────────────────────────────────────────────────────
 
-    enum RequestStatus { Pending, Fulfilled, Cancelled }
+    /// @dev Settling (appended) = funds attempted, waiting for the public
+    ///      decrypt of "moved == requested" via finalizeRequest.
+    enum RequestStatus { Pending, Fulfilled, Cancelled, Settling }
 
     struct PaymentRequest {
         address from;           // Who should pay
@@ -124,6 +127,11 @@ contract PaymentHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     );
     event ReceiptsBumpFailed(string kind, bytes reason);
     event PaymentReceiptsSet(address indexed previous, address indexed current);
+    event TokenRegistrySet(address indexed registry);
+    /// @notice Payment attempted; finalizeRequest settles the status.
+    event RequestSettling(uint256 indexed requestId, uint256 timestamp);
+    /// @notice The attempt moved nothing; the request is Pending again.
+    event RequestFulfillFailed(uint256 indexed requestId, uint256 timestamp);
 
     // ─── Initializer ────────────────────────────────────────────────────
 
@@ -152,6 +160,7 @@ contract PaymentHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         string calldata note
     ) external nonReentrant {
         require(to != address(0) && to != msg.sender, "PaymentHub: invalid recipient");
+        _requireVault(vault);
 
         // Verify the encrypted input in THIS contract's context where msg.sender
         // is the user's wallet address. This is critical because FHE.asEuint64()
@@ -188,6 +197,7 @@ contract PaymentHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         string calldata note
     ) external nonReentrant returns (uint256) {
         require(from != address(0) && from != msg.sender, "PaymentHub: invalid payer");
+        _requireVault(vault);
 
         euint64 amount = FHE.asEuint64(encAmount, proof);
         FHE.allowThis(amount);
@@ -214,10 +224,18 @@ contract PaymentHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         return id;
     }
 
-    /// @notice Fulfill a payment request. Only the designated payer can call this.
-    ///         The payer must have approved this contract on the FHERC20Vault.
-    /// @param requestId The request to fulfill
-    /// @param encAmount Encrypted amount to pay (should match the request)
+    /// @notice Pay a payment request (step 1 of 2). Only the designated payer
+    ///         can call this. The payer must have approved this contract on
+    ///         the FHERC20Vault.
+    /// @dev    Only the exact requested amount, or nothing, is ever sent:
+    ///         a mismatched input is replaced by zero before the transfer, and
+    ///         the vault itself moves zero on a short balance. The request
+    ///         goes to Settling with a public ebool `moved == requested`;
+    ///         finalizeRequest publishes its decryption and only then marks
+    ///         the request Fulfilled (or returns it to Pending if nothing
+    ///         moved). A request can therefore never read Fulfilled unpaid.
+    /// @param requestId The request to pay
+    /// @param encAmount Encrypted amount to pay (must equal the request)
     function fulfillRequest(
         uint256 requestId,
         externalEuint64 encAmount, bytes calldata proof
@@ -225,27 +243,59 @@ contract PaymentHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         PaymentRequest storage req = _requests[requestId];
         require(req.status == RequestStatus.Pending, "PaymentHub: not pending");
         require(msg.sender == req.from, "PaymentHub: not the payer");
+        // Requests created before the allowlist may name any vault; a fake
+        // one would forge the creator's income via the receipt bump.
+        _requireVault(req.vault);
 
         // Verify encrypted input here (msg.sender = user) before cross-contract call
         euint64 verifiedAmount = FHE.asEuint64(encAmount, proof);
+        euint64 toSend = FHE.select(FHE.eq(verifiedAmount, req.amount), req.amount, FHE.asEuint64(0));
 
         euint64 actual = FHE.receiveEuint64FromCall(
-            IFHERC20Vault(req.vault).transferFromVerified(msg.sender, req.to, FHE.shareEuint64(verifiedAmount, req.vault)),
+            IFHERC20Vault(req.vault).transferFromVerified(msg.sender, req.to, FHE.shareEuint64(toSend, req.vault)),
             req.vault
         );
         FHE.allowSender(actual);  // Payer can verify transfer succeeded
+        FHE.allow(actual, req.to);
         FHE.allowThis(actual);    // Needed for _bumpAggregate
-        req.status = RequestStatus.Fulfilled;
 
-        // #84: fulfillRequest previously skipped _bumpAggregate, so landing
-        // page "encrypted volume" counter under-counted every request-driven
-        // payment. sendPayment() and batchSend() already bump — match them.
-        // #207: also bump the recipient's per-user received counter so the
-        // request creator (req.to) can prove income from fulfilled requests.
+        ebool paid = FHE.eq(actual, req.amount);
+        FHE.allowThis(paid);
+        FHE.allowPublic(paid);
+        _fulfillCheck[requestId] = paid;
+        req.status = RequestStatus.Settling;
+
+        // #84 / #207: bump with the moved handle (zero when nothing moved).
         _bumpAggregate(req.to, actual);
 
-        emit RequestFulfilled(requestId, req.vault, block.timestamp);
-        try eventHub.emitActivity(msg.sender, req.to, "request_fulfilled", req.note, requestId) {} catch {}
+        emit RequestSettling(requestId, block.timestamp);
+    }
+
+    /// @notice Settle a paid request (step 2 of 2). Anyone may call with the
+    ///         Threshold Network decryption of getFulfillCheck(requestId).
+    ///         true: Fulfilled. false: nothing moved, back to Pending so the
+    ///         payer can retry or the creator can cancel.
+    function finalizeRequest(uint256 requestId, bool paidPlaintext, bytes calldata signature) external nonReentrant {
+        PaymentRequest storage req = _requests[requestId];
+        require(req.status == RequestStatus.Settling, "PaymentHub: not settling");
+        ebool check = _fulfillCheck[requestId];
+        FHE.publishDecryptResult(check, paidPlaintext, signature);
+        (bool paid, bool ready) = FHE.getDecryptResultSafe(check);
+        require(ready, "PaymentHub: decryption not ready");
+
+        if (paid) {
+            req.status = RequestStatus.Fulfilled;
+            emit RequestFulfilled(requestId, req.vault, block.timestamp);
+            try eventHub.emitActivity(req.from, req.to, "request_fulfilled", req.note, requestId) {} catch {}
+        } else {
+            req.status = RequestStatus.Pending;
+            emit RequestFulfillFailed(requestId, block.timestamp);
+        }
+    }
+
+    /// @notice The public ebool "moved == requested" for a Settling request.
+    function getFulfillCheck(uint256 requestId) external view returns (ebool) {
+        return _fulfillCheck[requestId];
     }
 
     /// @notice Cancel a payment request. Only the creator can cancel.
@@ -281,6 +331,7 @@ contract PaymentHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         require(count <= MAX_BATCH_SIZE, "PaymentHub: max 30 recipients");
         require(count == amounts.length, "PaymentHub: length mismatch");
         require(count == notes.length, "PaymentHub: notes length mismatch");
+        _requireVault(vault);
 
         IFHERC20Vault vaultContract = IFHERC20Vault(vault);
 
@@ -381,6 +432,7 @@ contract PaymentHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         bytes calldata agentSignature
     ) external nonReentrant {
         require(to != address(0) && to != msg.sender, "PaymentHub: invalid recipient");
+        _requireVault(vault);
         require(agent != address(0), "PaymentHub: agent zero");
         // #245 — Tighten from <= to <. The attestation's `expiry` is the first
         // block.timestamp at which the signature is considered invalid, not the
@@ -421,14 +473,34 @@ contract PaymentHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     // ─── Admin ──────────────────────────────────────────────────────────
 
     function setEventHub(address _eventHub) external onlyOwner {
+        require(_eventHub.code.length > 0, "PaymentHub: bad event hub");
         eventHub = IEventHub(_eventHub);
+    }
+
+    function setTokenRegistry(address r) external onlyOwner {
+        require(r.code.length > 0, "PaymentHub: bad registry");
+        tokenRegistry = ITokenRegistry(r);
+        emit TokenRegistrySet(r);
+    }
+
+    /// @dev Fails closed: no registry means no vault is trusted.
+    function _requireVault(address vault) internal view {
+        require(
+            address(tokenRegistry) != address(0) && tokenRegistry.isActiveVault(vault),
+            "PaymentHub: vault not allowed"
+        );
     }
 
     /// @notice Set the PaymentReceipts contract address. When non-zero,
     ///         sendPayment / batchSend / sendPaymentAsAgent forward the
     ///         transferred amount to paymentReceipts.bumpGlobalVolume so
     ///         the landing-page counter increments.
+    ///         Zero turns the bump off; anything else must be a contract.
     function setPaymentReceipts(address _paymentReceipts) external onlyOwner {
+        require(
+            _paymentReceipts == address(0) || _paymentReceipts.code.length > 0,
+            "PaymentHub: bad receipts"
+        );
         address previous = paymentReceipts;
         paymentReceipts = _paymentReceipts;
         emit PaymentReceiptsSet(previous, _paymentReceipts);
@@ -444,6 +516,10 @@ contract PaymentHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     ///      Note: allowTransient is scoped to a single external call frame, so
     ///      we must re-authorize the amount handle before each cross-contract
     ///      call. Mirrors BusinessHub._bumpReceipts.
+    ///
+    ///      The per-user counter records gross inflow. Money a user sends out
+    ///      and gets sent back counts twice, so PaymentReceipts.proveIncomeAbove
+    ///      proves gross received volume, not net income or a balance.
     function _bumpAggregate(address recipient, euint64 amount) internal {
         if (paymentReceipts == address(0)) return;
         // Global aggregate (landing-page counter).
@@ -462,8 +538,14 @@ contract PaymentHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     /// @dev Reserved storage to avoid collisions on future upgrades.
     ///      Append-only: when adding a new state variable in a later upgrade,
     ///      decrement the gap size so total storage is unchanged.
-    /// @dev Used: 8. Gap: 50.
-    uint256[50] private __gap;
+    /// @notice Vault allowlist. Unset = every payment entry point reverts.
+    ITokenRegistry public tokenRegistry;
+
+    /// @dev requestId => public ebool "moved == requested" for finalizeRequest.
+    mapping(uint256 => ebool) private _fulfillCheck;
+
+    /// @dev Used: 10. Gap: 48.
+    uint256[48] private __gap;
 
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 }

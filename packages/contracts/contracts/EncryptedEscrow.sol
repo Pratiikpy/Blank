@@ -7,6 +7,7 @@ import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "./utils/ReentrancyGuard.sol";
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import {IConditionResolver} from "./interfaces/IConditionResolver.sol";
+import {ITokenRegistry} from "./interfaces/ITokenRegistry.sol";
 
 interface IFHERC20Vault {
     function transferFromVerified(address from, address to, sharedEuint64 shared) external returns (sharedEuint64);
@@ -30,7 +31,8 @@ interface IPaymentReceipts {
 ///
 /// @dev Lifecycle:
 ///        Active → (markDelivered + approveRelease) → Released
-///        Active → disputeEscrow → Disputed → arbiterDecide → Released
+///        Active → disputeEscrow → Disputed → arbiterDecide → Released | Refunded
+///        Disputed → claimDisputeTimeout (DISPUTE_TIMEOUT after dispute) → Refunded
 ///        Active → claimExpiredEscrow (after deadline) → Refunded
 ///
 ///      Same actor model as BusinessHub.Escrow (depositor, beneficiary,
@@ -88,6 +90,12 @@ contract EncryptedEscrow is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
     /// bump call reverts. kind is "user" or "global". Indexer detects + replays.
     event ReceiptsBumpFailed(string kind, bytes reason);
     event PaymentReceiptsSet(address indexed previous, address indexed current);
+    event TokenRegistrySet(address indexed registry);
+    /// @notice Funds went back to the depositor through a dispute path.
+    event EscrowRefunded(uint256 indexed escrowId, address indexed depositor);
+
+    /// @notice An unresolved dispute can be unwound by the depositor after this.
+    uint256 public constant DISPUTE_TIMEOUT = 30 days;
 
     // ─── Initializer ──────────────────────────────────────────────────
 
@@ -115,6 +123,7 @@ contract EncryptedEscrow is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
     ) external nonReentrant returns (uint256 escrowId) {
         require(beneficiary != address(0) && beneficiary != msg.sender, "EncryptedEscrow: bad beneficiary");
         require(vault != address(0), "EncryptedEscrow: zero vault");
+        _requireVault(vault);
         require(deadline >= block.timestamp + 1 days, "EncryptedEscrow: deadline < 1 day out");
         require(bytes(description).length <= 512, "EncryptedEscrow: description too long");
         // Arbiter conflict-of-interest gate. Both shapes are real bugs:
@@ -190,6 +199,7 @@ contract EncryptedEscrow is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
     ) external nonReentrant returns (uint256 escrowId) {
         require(beneficiary != address(0) && beneficiary != msg.sender, "EncryptedEscrow: bad beneficiary");
         require(vault != address(0), "EncryptedEscrow: zero vault");
+        _requireVault(vault);
         require(resolver != address(0), "EncryptedEscrow: zero resolver");
         require(
             IERC165(resolver).supportsInterface(type(IConditionResolver).interfaceId),
@@ -288,6 +298,7 @@ contract EncryptedEscrow is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
         require(msg.sender == e.depositor || msg.sender == e.beneficiary, "EncryptedEscrow: not a party");
         require(e.arbiter != address(0), "EncryptedEscrow: no arbiter, use claimExpiredEscrow at deadline");
         e.status = EscrowStatus.Disputed;
+        _disputedAt[escrowId] = block.timestamp;
         // §2.4: grant arbiter decrypt rights only when dispute opens.
         // arbiterDecide will need the encrypted amount to make an informed
         // call. Pre-dispute, the grant was unnecessary leakage.
@@ -302,7 +313,7 @@ contract EncryptedEscrow is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
         require(e.arbiter != address(0) && msg.sender == e.arbiter, "EncryptedEscrow: not arbiter");
 
         address recipient = releaseToBeneficiary ? e.beneficiary : e.depositor;
-        e.status = EscrowStatus.Released;
+        e.status = releaseToBeneficiary ? EscrowStatus.Released : EscrowStatus.Refunded;
 
         euint64 paid = FHE.receiveEuint64FromCall(
             IFHERC20Vault(e.vault).transferVerified(recipient, FHE.shareEuint64(e.encAmount, e.vault)),
@@ -314,8 +325,38 @@ contract EncryptedEscrow is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
         if (releaseToBeneficiary) _bumpReceiptsAndGlobal(e.beneficiary, paid);
 
         emit EscrowArbiterDecided(escrowId, msg.sender, releaseToBeneficiary);
-        emit EscrowReleased(escrowId, recipient);
+        if (releaseToBeneficiary) emit EscrowReleased(escrowId, recipient);
+        else emit EscrowRefunded(escrowId, recipient);
         try eventHub.emitActivity(msg.sender, recipient, "escrow_arbiter_decided", e.description, escrowId) {} catch {}
+    }
+
+    /// @notice If the arbiter never rules, the depositor takes the funds back
+    ///         DISPUTE_TIMEOUT after the dispute opened. Disputes opened before
+    ///         this upgrade carry no timestamp and count from the deadline.
+    function claimDisputeTimeout(uint256 escrowId) external nonReentrant {
+        Escrow storage e = _escrows[escrowId];
+        require(e.status == EscrowStatus.Disputed, "EncryptedEscrow: not disputed");
+        require(msg.sender == e.depositor, "EncryptedEscrow: not depositor");
+        uint256 start = _disputedAt[escrowId];
+        if (start == 0) start = e.deadline;
+        require(block.timestamp >= start + DISPUTE_TIMEOUT, "EncryptedEscrow: dispute not timed out");
+
+        e.status = EscrowStatus.Refunded;
+
+        euint64 paid = FHE.receiveEuint64FromCall(
+            IFHERC20Vault(e.vault).transferVerified(msg.sender, FHE.shareEuint64(e.encAmount, e.vault)),
+            e.vault
+        );
+        FHE.allowThis(paid);
+        FHE.allow(paid, msg.sender);
+
+        emit EscrowRefunded(escrowId, msg.sender);
+        try eventHub.emitActivity(msg.sender, address(0), "escrow_dispute_timeout", e.description, escrowId) {} catch {}
+    }
+
+    /// @notice When a dispute opened (0 if never, or opened before this field existed).
+    function getDisputedAt(uint256 escrowId) external view returns (uint256) {
+        return _disputedAt[escrowId];
     }
 
     // ─── Expiry refund ────────────────────────────────────────────────
@@ -390,10 +431,31 @@ contract EncryptedEscrow is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
     // ─── Admin ────────────────────────────────────────────────────────
 
     function setEventHub(address _eventHub) external onlyOwner {
+        require(_eventHub.code.length > 0, "EncryptedEscrow: bad event hub");
         eventHub = IEventHub(_eventHub);
     }
 
+    function setTokenRegistry(address r) external onlyOwner {
+        require(r.code.length > 0, "EncryptedEscrow: bad registry");
+        tokenRegistry = ITokenRegistry(r);
+        emit TokenRegistrySet(r);
+    }
+
+    /// @dev Fails closed: no registry means no vault is trusted. Exits on
+    ///      existing escrows do not call this.
+    function _requireVault(address vault) internal view {
+        require(
+            address(tokenRegistry) != address(0) && tokenRegistry.isActiveVault(vault),
+            "EncryptedEscrow: vault not allowed"
+        );
+    }
+
+    /// @dev Zero turns the receipts bump off; anything else must be a contract.
     function setPaymentReceipts(address _paymentReceipts) external onlyOwner {
+        require(
+            _paymentReceipts == address(0) || _paymentReceipts.code.length > 0,
+            "EncryptedEscrow: bad receipts"
+        );
         address previous = paymentReceipts;
         paymentReceipts = _paymentReceipts;
         emit PaymentReceiptsSet(previous, _paymentReceipts);
@@ -412,8 +474,14 @@ contract EncryptedEscrow is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
 
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 
-    /// @dev Append-only storage. Used: 7 (added _escrowResolver in this rev).
-    /// Gap: 49. Decrement gap by 1 when adding a new state variable; total
-    /// slots (used + gap) must stay constant across UUPS upgrades.
-    uint256[49] private __gap;
+    /// @notice Vault allowlist. Unset = createEscrow / createConditionalEscrow revert.
+    ITokenRegistry public tokenRegistry;
+
+    /// @dev escrowId => timestamp the dispute opened.
+    mapping(uint256 => uint256) private _disputedAt;
+
+    /// @dev Append-only storage. Used: 9. Gap: 47. Decrement gap by 1 when
+    /// adding a new state variable; total slots (used + gap) must stay
+    /// constant across UUPS upgrades.
+    uint256[47] private __gap;
 }

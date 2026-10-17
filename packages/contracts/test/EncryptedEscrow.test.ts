@@ -45,6 +45,12 @@ async function deployFixture() {
   const escrow = await deployProxy("EncryptedEscrow", [await eventHub.getAddress()]);
   await eventHub.batchWhitelist([await escrow.getAddress()]);
 
+  const registry = await deployProxy("TokenRegistry");
+  await registry.registerToken(
+    await vault.getAddress(), await testUSDC.getAddress(), "USD Coin", "USDC", USDC_DECIMALS,
+  );
+  await escrow.setTokenRegistry(await registry.getAddress());
+
   const Resolver = await hre.ethers.getContractFactory("InvoiceApprovalResolver");
   const resolver = await Resolver.deploy();
   await resolver.waitForDeployment();
@@ -59,7 +65,7 @@ async function deployFixture() {
     await vault.connect(signer).approvePlaintext(await escrow.getAddress(), MAX);
   }
 
-  return { owner, alice, bob, charlie, client, vault, escrow, resolver };
+  return { owner, alice, bob, charlie, client, vault, escrow, resolver, registry, testUSDC, eventHub };
 }
 
 async function encUint64(client: any, signer: any, amount: bigint, consuming: string) {
@@ -193,10 +199,137 @@ describe("EncryptedEscrow", () => {
     );
 
     await ctx.escrow.connect(ctx.bob).disputeEscrow(0);
-    await ctx.escrow.connect(ctx.charlie).arbiterDecide(0, false);
+    await expect(ctx.escrow.connect(ctx.charlie).arbiterDecide(0, false))
+      .to.emit(ctx.escrow, "EscrowRefunded").withArgs(0, ctx.alice.address)
+      .and.not.to.emit(ctx.escrow, "EscrowReleased");
 
     const aliceBalance = await ctx.vault.balanceOf(ctx.alice.address);
     await mock_expectPlaintext(ctx.alice.provider, aliceBalance, usdc(1_000));
+    // A11: a refund must read as Refunded, not Released.
+    expect((await ctx.escrow.getEscrow(0)).status).to.equal(STATUS_REFUNDED);
+  });
+
+  // A10: an arbiter who never rules must not lock funds forever.
+  it("dispute timeout: depositor reclaims after DISPUTE_TIMEOUT, not before", async () => {
+    const ctx = await loadFixture(deployFixture);
+    const enc = await encUint64(ctx.client, ctx.alice, usdc(40), await ctx.escrow.getAddress());
+    await ctx.escrow.connect(ctx.alice).createEscrow(
+      ctx.bob.address, await ctx.vault.getAddress(), ...enc,
+      "silent arbiter", ctx.charlie.address, (await time.latest()) + 7 * 86400,
+    );
+    await ctx.escrow.connect(ctx.bob).disputeEscrow(0);
+    expect(await ctx.escrow.getDisputedAt(0)).to.equal(await time.latest());
+
+    await expect(ctx.escrow.connect(ctx.alice).claimDisputeTimeout(0))
+      .to.be.revertedWith("EncryptedEscrow: dispute not timed out");
+    await time.increase(30 * 86400);
+    await expect(ctx.escrow.connect(ctx.bob).claimDisputeTimeout(0))
+      .to.be.revertedWith("EncryptedEscrow: not depositor");
+    await expect(ctx.escrow.connect(ctx.alice).claimDisputeTimeout(0))
+      .to.emit(ctx.escrow, "EscrowRefunded").withArgs(0, ctx.alice.address);
+
+    expect((await ctx.escrow.getEscrow(0)).status).to.equal(STATUS_REFUNDED);
+    await mock_expectPlaintext(ctx.alice.provider, await ctx.vault.balanceOf(ctx.alice.address), usdc(1_000));
+    await expect(ctx.escrow.connect(ctx.charlie).arbiterDecide(0, true))
+      .to.be.revertedWith("EncryptedEscrow: not disputed");
+  });
+
+  it("claimDisputeTimeout rejects an escrow that is not disputed", async () => {
+    const ctx = await loadFixture(deployFixture);
+    const enc = await encUint64(ctx.client, ctx.alice, usdc(5), await ctx.escrow.getAddress());
+    await ctx.escrow.connect(ctx.alice).createEscrow(
+      ctx.bob.address, await ctx.vault.getAddress(), ...enc,
+      "x", ctx.charlie.address, (await time.latest()) + 7 * 86400,
+    );
+    await time.increase(60 * 86400);
+    await expect(ctx.escrow.connect(ctx.alice).claimDisputeTimeout(0))
+      .to.be.revertedWith("EncryptedEscrow: not disputed");
+  });
+
+  // A1: a vault outside the registry could fake transfers and forge income.
+  it("createEscrow and createConditionalEscrow reject an unregistered vault", async () => {
+    const ctx = await loadFixture(deployFixture);
+    const Stub = await hre.ethers.getContractFactory("MockVaultStub");
+    const fake = await (await Stub.deploy(await ctx.testUSDC.getAddress())).getAddress();
+    const enc = await encUint64(ctx.client, ctx.alice, usdc(5), await ctx.escrow.getAddress());
+    await expect(
+      ctx.escrow.connect(ctx.alice).createEscrow(
+        ctx.bob.address, fake, ...enc, "x", hre.ethers.ZeroAddress, (await time.latest()) + 7 * 86400,
+      ),
+    ).to.be.revertedWith("EncryptedEscrow: vault not allowed");
+    await expect(
+      ctx.escrow.connect(ctx.alice).createConditionalEscrow(
+        ctx.bob.address, fake, ...enc, "x", await ctx.resolver.getAddress(), "0x",
+        (await time.latest()) + 7 * 86400,
+      ),
+    ).to.be.revertedWith("EncryptedEscrow: vault not allowed");
+  });
+
+  it("fails closed when no registry is set, and a deactivated vault cannot open escrows", async () => {
+    const ctx = await loadFixture(deployFixture);
+    const Escrow = await hre.ethers.getContractFactory("EncryptedEscrow");
+    const impl = await Escrow.deploy();
+    const Proxy = await hre.ethers.getContractFactory(
+      "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol:ERC1967Proxy",
+    );
+    const p = await Proxy.deploy(
+      await impl.getAddress(),
+      Escrow.interface.encodeFunctionData("initialize", [await ctx.eventHub.getAddress()]),
+    );
+    const bare = Escrow.attach(await p.getAddress()) as any;
+    const enc = await encUint64(ctx.client, ctx.alice, usdc(5), await bare.getAddress());
+    await expect(
+      bare.connect(ctx.alice).createEscrow(
+        ctx.bob.address, await ctx.vault.getAddress(), ...enc, "x", hre.ethers.ZeroAddress,
+        (await time.latest()) + 7 * 86400,
+      ),
+    ).to.be.revertedWith("EncryptedEscrow: vault not allowed");
+
+    await ctx.registry.deactivateToken(await ctx.vault.getAddress());
+    const enc2 = await encUint64(ctx.client, ctx.alice, usdc(5), await ctx.escrow.getAddress());
+    await expect(
+      ctx.escrow.connect(ctx.alice).createEscrow(
+        ctx.bob.address, await ctx.vault.getAddress(), ...enc2, "x", hre.ethers.ZeroAddress,
+        (await time.latest()) + 7 * 86400,
+      ),
+    ).to.be.revertedWith("EncryptedEscrow: vault not allowed");
+  });
+
+  it("existing escrows still refund after their vault is deactivated", async () => {
+    const ctx = await loadFixture(deployFixture);
+    const enc = await encUint64(ctx.client, ctx.alice, usdc(25), await ctx.escrow.getAddress());
+    await ctx.escrow.connect(ctx.alice).createEscrow(
+      ctx.bob.address, await ctx.vault.getAddress(), ...enc, "x", hre.ethers.ZeroAddress,
+      (await time.latest()) + 7 * 86400,
+    );
+    await ctx.registry.deactivateToken(await ctx.vault.getAddress());
+    await time.increase(7 * 86400 + 1);
+    await ctx.escrow.connect(ctx.alice).claimExpiredEscrow(0);
+    await mock_expectPlaintext(ctx.alice.provider, await ctx.vault.balanceOf(ctx.alice.address), usdc(1_000));
+  });
+
+  // A12: the record holds what moved, so a short balance locks (and later pays) zero.
+  it("records the moved amount, not the requested one, on a short balance", async () => {
+    const ctx = await loadFixture(deployFixture);
+    const enc = await encUint64(ctx.client, ctx.alice, usdc(5_000), await ctx.escrow.getAddress());
+    await ctx.escrow.connect(ctx.alice).createEscrow(
+      ctx.bob.address, await ctx.vault.getAddress(), ...enc, "x", hre.ethers.ZeroAddress,
+      (await time.latest()) + 7 * 86400,
+    );
+    await mock_expectPlaintext(ctx.bob.provider, await ctx.escrow.getEncryptedAmount(0), 0n);
+    await ctx.escrow.connect(ctx.bob).markDelivered(0);
+    await ctx.escrow.connect(ctx.alice).approveRelease(0);
+    await mock_expectPlaintext(ctx.bob.provider, await ctx.vault.balanceOf(ctx.bob.address), usdc(1_000));
+  });
+
+  it("A6: setters reject codeless addresses; registry setter is owner-only", async () => {
+    const ctx = await loadFixture(deployFixture);
+    const eoa = "0x000000000000000000000000000000000000bEEF";
+    await expect(ctx.escrow.setEventHub(eoa)).to.be.revertedWith("EncryptedEscrow: bad event hub");
+    await expect(ctx.escrow.setPaymentReceipts(eoa)).to.be.revertedWith("EncryptedEscrow: bad receipts");
+    await expect(ctx.escrow.setTokenRegistry(eoa)).to.be.revertedWith("EncryptedEscrow: bad registry");
+    await expect(ctx.escrow.connect(ctx.alice).setTokenRegistry(await ctx.registry.getAddress())).to.be.reverted;
+    await expect(ctx.escrow.setPaymentReceipts(hre.ethers.ZeroAddress)).to.not.be.reverted;
   });
 
   it("expired escrow: depositor refunds after deadline", async () => {
@@ -379,7 +512,7 @@ describe("EncryptedEscrow", () => {
   describe("PaymentReceiptsSet event", () => {
     it("emits PaymentReceiptsSet with previous=zero, current=newAddr on first set", async () => {
       const ctx = await loadFixture(deployFixture);
-      const fake = "0x000000000000000000000000000000000000bEEF";
+      const fake = await ctx.resolver.getAddress();
 
       await expect(ctx.escrow.connect(ctx.owner).setPaymentReceipts(fake))
         .to.emit(ctx.escrow, "PaymentReceiptsSet")
@@ -390,8 +523,8 @@ describe("EncryptedEscrow", () => {
 
     it("emits PaymentReceiptsSet with the prior address on subsequent set", async () => {
       const ctx = await loadFixture(deployFixture);
-      const first = "0x000000000000000000000000000000000000dEaD";
-      const second = "0x000000000000000000000000000000000000bEEF";
+      const first = await ctx.resolver.getAddress();
+      const second = await ctx.vault.getAddress();
 
       await ctx.escrow.connect(ctx.owner).setPaymentReceipts(first);
 
@@ -402,7 +535,7 @@ describe("EncryptedEscrow", () => {
 
     it("only owner can call setPaymentReceipts", async () => {
       const ctx = await loadFixture(deployFixture);
-      const fake = "0x000000000000000000000000000000000000bEEF";
+      const fake = await ctx.resolver.getAddress();
 
       await expect(
         ctx.escrow.connect(ctx.alice).setPaymentReceipts(fake),

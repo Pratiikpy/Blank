@@ -62,10 +62,9 @@ contract PaymentReceipts is UUPSUpgradeable, OwnableUpgradeable {
     mapping(address => euint64) private _transactionCount; // Encrypted tx count
     mapping(address => bool) private _statsInitialized;   // Whether user stats have been initialized
 
-    // Encrypted global stats — anyone can decrypt via FHE.allowGlobal.
-    // Used for the landing-page "$X moved encrypted through Blank" counter.
-    // Aggregates are safe to expose because no individual transaction can
-    // be inferred from them (anonymity set = all platform users).
+    // Encrypted global stats, readable only by this contract. The public
+    // view is the periodic snapshot (publishGlobalSnapshot), because a
+    // public live total leaks each payment as the difference of two reads.
     euint64 private _globalVolume;
     euint64 private _globalTxCount;
     bool private _globalStatsInitialized;
@@ -124,10 +123,8 @@ contract PaymentReceipts is UUPSUpgradeable, OwnableUpgradeable {
         __Ownable_init(msg.sender);
         _globalVolume = FHE.asEuint64(0);
         FHE.allowThis(_globalVolume);
-        FHE.allowGlobal(_globalVolume);
         _globalTxCount = FHE.asEuint64(0);
         FHE.allowThis(_globalTxCount);
-        FHE.allowGlobal(_globalTxCount);
         _globalStatsInitialized = true;
     }
 
@@ -218,15 +215,12 @@ contract PaymentReceipts is UUPSUpgradeable, OwnableUpgradeable {
         FHE.allowThis(_transactionCount[payee]);
         FHE.allow(_transactionCount[payee], payee);
 
-        // Update global aggregates — public via FHE.allowGlobal so the
-        // landing page (and anyone else) can decrypt and display them.
+        // Update global aggregates (published only via the daily snapshot).
         _ensureGlobalStatsInit();
         _globalVolume = FHE.add(_globalVolume, amount);
         FHE.allowThis(_globalVolume);
-        FHE.allowGlobal(_globalVolume);
         _globalTxCount = FHE.add(_globalTxCount, FHE.asEuint64(1));
         FHE.allowThis(_globalTxCount);
-        FHE.allowGlobal(_globalTxCount);
 
         // Track receipts per user
         _userReceipts[payer].push(receiptHash);
@@ -282,10 +276,7 @@ contract PaymentReceipts is UUPSUpgradeable, OwnableUpgradeable {
         require(_receipts[hash1].exists && _receipts[hash2].exists, "Receipt not found");
         Receipt storage r1 = _receipts[hash1];
         Receipt storage r2 = _receipts[hash2];
-        require(
-            msg.sender == r1.payer || msg.sender == r1.payee || msg.sender == r2.payer || msg.sender == r2.payee,
-            "PaymentReceipts: not a party"
-        );
+        _requireBothParties(r1, r2);
         ebool areEqual = FHE.eq(r1.amount, r2.amount);
         FHE.allowSender(areEqual);
         return areEqual;
@@ -297,10 +288,7 @@ contract PaymentReceipts is UUPSUpgradeable, OwnableUpgradeable {
         require(_receipts[hash1].exists && _receipts[hash2].exists, "Receipt not found");
         Receipt storage r1 = _receipts[hash1];
         Receipt storage r2 = _receipts[hash2];
-        require(
-            msg.sender == r1.payer || msg.sender == r1.payee || msg.sender == r2.payer || msg.sender == r2.payee,
-            "PaymentReceipts: not a party"
-        );
+        _requireBothParties(r1, r2);
         euint64 result = FHE.max(r1.amount, r2.amount);
         FHE.allowSender(result);
         return result;
@@ -311,16 +299,24 @@ contract PaymentReceipts is UUPSUpgradeable, OwnableUpgradeable {
         require(_receipts[hash1].exists && _receipts[hash2].exists, "Receipt not found");
         Receipt storage r1 = _receipts[hash1];
         Receipt storage r2 = _receipts[hash2];
-        require(
-            msg.sender == r1.payer || msg.sender == r1.payee || msg.sender == r2.payer || msg.sender == r2.payee,
-            "PaymentReceipts: not a party"
-        );
+        _requireBothParties(r1, r2);
         euint64 result = FHE.min(r1.amount, r2.amount);
         FHE.allowSender(result);
         return result;
     }
 
     /// @notice Get all receipt hashes for a user
+    /// @dev The caller must be a party to BOTH receipts. One party check was
+    ///      enough to compare your own receipt against a stranger's and
+    ///      binary-search their amount.
+    function _requireBothParties(Receipt storage r1, Receipt storage r2) internal view {
+        require(
+            (msg.sender == r1.payer || msg.sender == r1.payee) &&
+                (msg.sender == r2.payer || msg.sender == r2.payee),
+            "PaymentReceipts: not a party"
+        );
+    }
+
     function getUserReceipts(address user) external view returns (bytes32[] memory) {
         return _userReceipts[user];
     }
@@ -347,6 +343,9 @@ contract PaymentReceipts is UUPSUpgradeable, OwnableUpgradeable {
     ///         can be shared as a verification link. Anyone can finalize the
     ///         proof on-chain via publishProof() — only the prover ever
     ///         learns the underlying income amount.
+    /// @dev    Proves GROSS inflow: every credited receipt or hub bump counts,
+    ///         including money the prover sent out and had sent back. It is
+    ///         not a statement about net income or current balance.
     /// @param thresholdPlaintext Public threshold to prove against (e.g. $50,000)
     function proveIncomeAbove(uint64 thresholdPlaintext) external returns (uint256 proofId) {
         _initUserStats(msg.sender);
@@ -457,8 +456,8 @@ contract PaymentReceipts is UUPSUpgradeable, OwnableUpgradeable {
     //
     // Takes a pre-verified euint64 handle (verified in the caller's context
     // to avoid the InvalidSigner bind issue). Adds it to the global volume
-    // and increments the global tx count. Both stay FHE.allowGlobal so the
-    // landing counter can publicly decrypt the totals.
+    // and increments the global tx count. The landing counter reads the
+    // daily snapshot, not these live handles.
     //
     // Authorized callers only — PaymentHub, BusinessHub, etc. must be
     // explicitly setAuthorizedCaller'd by the owner.
@@ -515,10 +514,8 @@ contract PaymentReceipts is UUPSUpgradeable, OwnableUpgradeable {
         _ensureGlobalStatsInit();
         _globalVolume = FHE.add(_globalVolume, amount);
         FHE.allowThis(_globalVolume);
-        FHE.allowGlobal(_globalVolume);
         _globalTxCount = FHE.add(_globalTxCount, FHE.asEuint64(1));
         FHE.allowThis(_globalTxCount);
-        FHE.allowGlobal(_globalTxCount);
     }
 
     /// @notice #199: Decrement the encrypted global volume aggregate. Called
@@ -539,23 +536,50 @@ contract PaymentReceipts is UUPSUpgradeable, OwnableUpgradeable {
         euint64 newVal = FHE.select(canSub, FHE.sub(_globalVolume, amount), FHE.asEuint64(0));
         _globalVolume = newVal;
         FHE.allowThis(_globalVolume);
-        FHE.allowGlobal(_globalVolume);
     }
 
     // ─── Public encrypted aggregates ────────────────────────────────────
 
-    /// @notice Encrypted handle for total volume across all receipts. Anyone
-    ///         can decrypt via cofhe-sdk's decryptForView (no permit needed
-    ///         because the contract calls FHE.allowGlobal). Used by the
-    ///         landing-page counter.
-    function getGlobalVolumeHandle() external view returns (euint64) {
-        return _globalVolume;
+    // The live aggregates are private to this contract. Publishing every
+    // bumped handle let anyone diff two consecutive totals and read each
+    // individual payment. Instead a public snapshot is cut at most once per
+    // SNAPSHOT_INTERVAL, so a diff only reveals the sum of a whole period.
+
+    /// @notice Copy the live totals into the public snapshot. Anyone may
+    ///         call, at most once per SNAPSHOT_INTERVAL.
+    function publishGlobalSnapshot() external {
+        require(
+            lastSnapshotAt == 0 || block.timestamp >= lastSnapshotAt + SNAPSHOT_INTERVAL,
+            "PaymentReceipts: snapshot too soon"
+        );
+        _ensureGlobalStatsInit();
+        _snapshotVolume = _globalVolume;
+        _snapshotTxCount = _globalTxCount;
+        FHE.allowGlobal(_snapshotVolume);
+        FHE.allowGlobal(_snapshotTxCount);
+        lastSnapshotAt = block.timestamp;
+        emit GlobalSnapshotPublished(_snapshotVolume, _snapshotTxCount, block.timestamp);
     }
 
-    /// @notice Encrypted handle for total transaction count. Same global
-    ///         decrypt semantics as getGlobalVolumeHandle.
+    /// @notice Publicly decryptable total volume as of lastSnapshotAt.
+    function getSnapshotVolumeHandle() external view returns (euint64) {
+        return _snapshotVolume;
+    }
+
+    /// @notice Publicly decryptable total tx count as of lastSnapshotAt.
+    function getSnapshotTxCountHandle() external view returns (euint64) {
+        return _snapshotTxCount;
+    }
+
+    /// @notice Kept for the landing-page counter: now returns the latest
+    ///         public snapshot (zero handle until the first snapshot).
+    function getGlobalVolumeHandle() external view returns (euint64) {
+        return _snapshotVolume;
+    }
+
+    /// @notice Kept for the landing-page counter: latest snapshot tx count.
     function getGlobalTxCountHandle() external view returns (euint64) {
-        return _globalTxCount;
+        return _snapshotTxCount;
     }
 
     function _ensureGlobalStatsInit() internal {
@@ -565,18 +589,22 @@ contract PaymentReceipts is UUPSUpgradeable, OwnableUpgradeable {
             // _globalTxCount needs explicit init since it was added later.
             _globalTxCount = FHE.asEuint64(0);
             FHE.allowThis(_globalTxCount);
-            FHE.allowGlobal(_globalTxCount);
-            // Also re-mark _globalVolume as global (idempotent — was previously
-            // only allowThis'd in the v1 initializer).
-            FHE.allowGlobal(_globalVolume);
         }
     }
+
+    uint256 public constant SNAPSHOT_INTERVAL = 1 days;
+
+    event GlobalSnapshotPublished(euint64 volume, euint64 txCount, uint256 timestamp);
+
+    euint64 private _snapshotVolume;
+    euint64 private _snapshotTxCount;
+    uint256 public lastSnapshotAt;
 
     /// @dev Reserved storage to avoid collisions on future upgrades.
     ///      Append-only: when adding a new state variable in a later upgrade,
     ///      decrement the gap size so total storage is unchanged.
-    /// @dev Used: 14. Gap: 50.
-    uint256[49] private __gap;
+    /// @dev Gap reduced by 3 for the snapshot fields above.
+    uint256[46] private __gap;
 
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 }
