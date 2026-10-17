@@ -107,32 +107,8 @@ task("deploy-upgrade-security-v1", "Ship the pre-mainnet audit fixes to a testne
       return;
     }
 
-    // ── 1. upgrades ────────────────────────────────────────────────────
-    for (const u of plan) {
-      console.log(`\n── upgrade ${u.key} (${u.contract})`);
-      const proxy = await hre.ethers.getContractAt(u.contract, d[u.key]!, deployer);
-      const owner: string = await proxy.owner();
-      if (owner.toLowerCase() !== deployer.address.toLowerCase()) {
-        throw new Error(`${u.key}: deployer is not owner (${owner})`);
-      }
-      const before = await proxy[u.probe]();
-      const impl = await (await hre.ethers.getContractFactory(u.contract)).deploy();
-      await impl.deploymentTransaction()?.wait(2);
-      const implAddr = await impl.getAddress();
-      await wait(await proxy.upgradeToAndCall(implAddr, "0x"), "upgradeToAndCall");
-      const after = await proxy[u.probe]();
-      if (String(before) !== String(after)) {
-        throw new Error(`${u.key}: ${u.probe} changed across upgrade (${before} -> ${after})`);
-      }
-      console.log(`   impl=${implAddr}, ${u.probe} survived: ${after}`);
-      d[`${u.key}_Impl_security_v1`] = implAddr;
-      save();
-    }
-
-    const registry = await hre.ethers.getContractAt("TokenRegistry", d.TokenRegistry!, deployer);
-
-    // ── 2. register every live vault ───────────────────────────────────
-    if (run("register")) {
+    const registerVaults = async () => {
+      const registry = await hre.ethers.getContractAt("TokenRegistry", d.TokenRegistry!, deployer);
       console.log(`\n── register vaults`);
       for (const key of Object.keys(d).filter((k) => /^FHERC20Vault_[A-Z]+$/.test(k))) {
         const vault = d[key]!;
@@ -152,6 +128,45 @@ task("deploy-upgrade-security-v1", "Ship the pre-mainnet audit fixes to a testne
           `registerToken ${key} (${sym}, ${dec} dec)`,
         );
       }
+    };
+
+    // ── 1. upgrades. TokenRegistry goes first and every live vault is
+    // registered before any hub upgrade, because hubs fail closed on an
+    // unregistered vault. Hubs that take a vault get setTokenRegistry in the
+    // same upgradeToAndCall, so no hub is ever live without its allowlist.
+    for (const u of plan) {
+      const implKey = `${u.key}_Impl_security_v1`;
+      if (d[implKey]) {
+        console.log(`\n── ${u.key} already upgraded (${d[implKey]})`);
+        if (u.key === "TokenRegistry" && run("register")) await registerVaults();
+        continue;
+      }
+      console.log(`\n── upgrade ${u.key} (${u.contract})`);
+      const proxy = await hre.ethers.getContractAt(u.contract, d[u.key]!, deployer);
+      const owner: string = await proxy.owner();
+      if (owner.toLowerCase() !== deployer.address.toLowerCase()) {
+        throw new Error(`${u.key}: deployer is not owner (${owner})`);
+      }
+      const before = await proxy[u.probe]();
+      const Factory = await hre.ethers.getContractFactory(u.contract);
+      const impl = await Factory.deploy();
+      await impl.deploymentTransaction()?.wait(2);
+      const implAddr = await impl.getAddress();
+      const initData = WIRE_REGISTRY.includes(u.key)
+        ? Factory.interface.encodeFunctionData("setTokenRegistry", [d.TokenRegistry!])
+        : "0x";
+      await wait(
+        await proxy.upgradeToAndCall(implAddr, initData),
+        initData === "0x" ? "upgradeToAndCall" : "upgradeToAndCall + setTokenRegistry",
+      );
+      const after = await proxy[u.probe]();
+      if (String(before) !== String(after)) {
+        throw new Error(`${u.key}: ${u.probe} changed across upgrade (${before} -> ${after})`);
+      }
+      console.log(`   impl=${implAddr}, ${u.probe} survived: ${after}`);
+      d[implKey] = implAddr;
+      save();
+      if (u.key === "TokenRegistry" && run("register")) await registerVaults();
     }
 
     // ── 3. wire the allowlist into every hub ───────────────────────────
