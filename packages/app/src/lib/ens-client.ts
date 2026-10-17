@@ -16,9 +16,13 @@ import { mainnet } from "viem/chains";
 // Removed; publicnode and cloudflare-eth still cover the same chain.
 // Server-side flows that need wider provider pools should construct
 // their own client — this one is browser-only.
+// 2026-10-17: some ISPs (Airtel, India) hijack ethereum-rpc.publicnode.com and
+// serve their own certificate; ethereum.publicnode.com is the same service and
+// resolves. cloudflare-eth.com now fails eth_call with -32603, so ENS lookups
+// fall back to drpc, which answers mainnet reads on its free plan.
 const MAINNET_RPCS = [
-  "https://ethereum-rpc.publicnode.com",
-  "https://cloudflare-eth.com",
+  "https://ethereum.publicnode.com",
+  "https://eth.drpc.org",
 ];
 
 function envMainnetRpc(): string | undefined {

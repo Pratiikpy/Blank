@@ -45,10 +45,11 @@ import { ETH_SEPOLIA_ID, BASE_SEPOLIA_ID, ARB_SEPOLIA_ID, type SupportedChainId 
 const PUBLIC_RPCS: Record<SupportedChainId, string[]> = {
   [ETH_SEPOLIA_ID]: [
     "https://ethereum-sepolia-rpc.publicnode.com",
-    // 2026-10-12: 1rpc.io answers browser preflights with 503, so every page
-    // load logged blocked requests. drpc returns chain id 0xaa36a7 and allows
-    // browser origins. Tenderly is left out: its reads lag after a block.
-    "https://sepolia.drpc.org",
+    // 2026-10-17: drpc now answers Sepolia with "chain is not available on
+    // free plan" (HTTP 400). 0xrpc.io returns chain id 0xaa36a7, serves
+    // eth_getLogs and allows browser origins. Tenderly is left out: its reads
+    // lag after a block.
+    "https://0xrpc.io/sep",
   ],
   [BASE_SEPOLIA_ID]: [
     "https://base-sepolia-rpc.publicnode.com",

@@ -43,7 +43,7 @@ const SUPPORTED_CHAINS: Record<number, { rpcUrls: string[]; entryPoint: string }
     rpcUrls: [
       process.env.SEPOLIA_RPC_URL,
       "https://ethereum-sepolia-rpc.publicnode.com",
-      "https://sepolia.drpc.org",
+      "https://0xrpc.io/sep",
       "https://1rpc.io/sepolia",
       "https://rpc.sepolia.org",
     ].filter((u): u is string => typeof u === "string" && u.length > 0),

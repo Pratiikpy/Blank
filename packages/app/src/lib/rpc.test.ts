@@ -31,7 +31,8 @@ describe("getRpcUrls", () => {
     const urls = getRpcUrls(ETH_SEPOLIA_ID);
     for (const url of urls) {
       const lower = url.toLowerCase();
-      const ok = lower.includes("sepolia") || lower.includes("publicnode");
+      // 0xrpc.io only serves Sepolia under /sep.
+      const ok = lower.includes("sepolia") || lower.includes("publicnode") || lower.endsWith("0xrpc.io/sep");
       expect(ok).toBe(true);
     }
   });
