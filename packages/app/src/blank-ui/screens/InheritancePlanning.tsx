@@ -341,7 +341,7 @@ function HeirAssignmentCard({
 // ---------------------------------------------------------------
 
 export default function InheritancePlanning() {
-  const { plan, setHeir, setVaults, heartbeat, removeHeir, startClaim, finalizeClaim, isProcessing, blockTimestamp } = useInheritance();
+  const { plan, setHeir, setVaults, heartbeat, removeHeir, startClaim, finalizeClaim, claimRemaining, isProcessing, blockTimestamp } = useInheritance();
   const { contracts, activeChainId } = useChain();
   const { effectiveAddress } = useEffectiveAddress();
   const availableVaults = buildAvailableVaults(contracts);
@@ -414,6 +414,18 @@ export default function InheritancePlanning() {
   });
   const ownerPlanTuple = ownerPlanData as readonly [string, bigint, bigint, bigint, boolean, readonly string[]] | undefined;
   const ownerVaultCount = ownerPlanTuple?.[5]?.length ?? 0;
+  // After finalizeClaim the heir can pull again with claimRemaining.
+  const { data: ownerClaimFinalizedData, refetch: refetchOwnerClaimFinalized } = useReadContract({
+    address: contracts.InheritanceManager,
+    abi: InheritanceManagerAbi,
+    functionName: "claimFinalized",
+    args: isValidClaimOwner ? [claimOwner as `0x${string}`] : undefined,
+    chainId: activeChainId,
+    query: { enabled: isValidClaimOwner },
+  });
+  const ownerClaimFinalized = ownerClaimFinalizedData === true;
+  const isHeirOfClaimOwner =
+    !!effectiveAddress && !!ownerPlanTuple && ownerPlanTuple[0].toLowerCase() === effectiveAddress.toLowerCase();
   // Audit Top-28 #27: derive whether the owner's 7-day challenge period
   // has elapsed so the Finalize button can disable + explain rather than
   // silently revert on-chain. The contract enforces the same check; this
@@ -892,10 +904,10 @@ export default function InheritancePlanning() {
                     toast.error("Invalid Ethereum address");
                   }
                 }}
-                disabled={isProcessing || !claimOwner || ownerVaultCount === 0 || finalizeBlockedByGrace || finalizeBlockedNoClaim}
+                disabled={isProcessing || !claimOwner || ownerVaultCount === 0 || finalizeBlockedByGrace || finalizeBlockedNoClaim || ownerClaimFinalized}
                 className={cn(
                   "h-12 flex-1 rounded-xl font-medium flex items-center justify-center gap-2 transition-colors",
-                  isProcessing || !claimOwner || ownerVaultCount === 0 || finalizeBlockedByGrace || finalizeBlockedNoClaim
+                  isProcessing || !claimOwner || ownerVaultCount === 0 || finalizeBlockedByGrace || finalizeBlockedNoClaim || ownerClaimFinalized
                     ? "bg-gray-200 dark:bg-white/10 text-gray-500 dark:text-white/40 cursor-not-allowed"
                     : "bg-emerald-500 hover:bg-emerald-600 text-white",
                 )}
@@ -920,6 +932,33 @@ export default function InheritancePlanning() {
               <p className="mt-2 text-xs text-[var(--text-secondary)]">
                 Tap "Start Claim" first. After the 7-day challenge period elapses,
                 "Finalize Claim" will become available.
+              </p>
+            )}
+            {/* After finalize: the heir can pull again (a vault that moved
+                0, or funds that arrived later). Open until the principal
+                sets a new heir or removes the plan. */}
+            {ownerClaimFinalized && isHeirOfClaimOwner && (
+              <div className="mt-3 p-4 rounded-2xl bg-emerald-50/60 dark:bg-emerald-500/10 border border-emerald-100 dark:border-emerald-500/20" data-testid="inheritance-claim-remaining">
+                <p className="text-sm text-[var(--text-primary)] mb-2">
+                  This claim is finalized. If a vault moved nothing or received
+                  funds since, you can claim what is left.
+                </p>
+                <button
+                  onClick={async () => {
+                    await claimRemaining(claimOwner, ownerVaultCount);
+                    await refetchOwnerClaimFinalized();
+                  }}
+                  disabled={isProcessing || ownerVaultCount === 0}
+                  className="h-11 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium flex items-center gap-2 disabled:opacity-50"
+                >
+                  {isProcessing ? <Loader2 size={16} className="animate-spin" /> : null}
+                  Claim remaining{ownerVaultCount > 0 ? ` (${ownerVaultCount} vault${ownerVaultCount !== 1 ? "s" : ""})` : ""}
+                </button>
+              </div>
+            )}
+            {ownerClaimFinalized && !isHeirOfClaimOwner && isValidClaimOwner && (
+              <p className="mt-2 text-xs text-[var(--text-secondary)]">
+                This plan's claim is already finalized.
               </p>
             )}
           </div>

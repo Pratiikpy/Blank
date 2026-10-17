@@ -435,6 +435,57 @@ export function useInheritance() {
     [address, publicClient, unifiedWrite, refetchPlan, contracts]
   );
 
+  // Claim again after finalizeClaim (as heir). The first claim moves
+  // min(requested, balance, allowance) per vault, so a vault that moved 0
+  // or was funded later can be pulled again. Same max-amount request.
+  const claimRemaining = useCallback(
+    async (ownerAddress: string, vaultCount: number) => {
+      if (!address || !publicClient) return;
+      if (vaultCount === 0) {
+        toast.error("No vaults configured in the owner's inheritance plan");
+        return;
+      }
+      setIsProcessing(true);
+      try {
+        const batch = await encryptInputsAsync(
+          Array.from({ length: vaultCount }, () => Encryptable.uint64(MAX_UINT64)),
+          contracts.InheritanceManager as `0x${string}`,
+        );
+        const amounts = batch.slice(0, -1);
+        const proof = batch[batch.length - 1];
+        const hash = await unifiedWrite({
+          address: contracts.InheritanceManager,
+          abi: InheritanceManagerAbi,
+          functionName: "claimRemaining",
+          args: [ownerAddress as `0x${string}`, amounts, proof],
+          gas: BigInt(5_000_000), // FHE: manual gas limit
+        });
+        const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
+        if (receipt.status === "reverted") throw new Error("Transaction reverted on-chain");
+
+        await insertActivity({
+          tx_hash: hash,
+          user_from: address.toLowerCase(),
+          user_to: address.toLowerCase(),
+          activity_type: ACTIVITY_TYPES.INHERITANCE_CLAIM_FINALIZED,
+          contract_address: contracts.InheritanceManager,
+          note: `Claimed remaining inheritance from ${ownerAddress.slice(0, 6)}…${ownerAddress.slice(-4)}`,
+          token_address: contracts.FHERC20Vault_USDC,
+          block_number: Number(receipt.blockNumber),
+        });
+        broadcastAction("balance_changed");
+        broadcastAction("activity_added");
+        invalidateBalanceQueries();
+        toast.success("Remaining funds claimed.");
+      } catch (err) {
+        toastMappedError(err);
+      } finally {
+        setIsProcessing(false);
+      }
+    },
+    [address, publicClient, unifiedWrite, contracts, encryptInputsAsync],
+  );
+
   return {
     plan,
     isProcessing,
@@ -444,6 +495,7 @@ export function useInheritance() {
     removeHeir,
     startClaim,
     finalizeClaim,
+    claimRemaining,
     refetchPlan,
     /** Latest on-chain block.timestamp from the active chain, refreshed
      *  every 10s. Consumers use this as the reference clock for

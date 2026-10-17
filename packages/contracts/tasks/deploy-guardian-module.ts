@@ -10,12 +10,17 @@ import { resolve } from "path";
  *
  * --window default 86400s (24h), the contract floor. Writes the addresses back to deployments/<chain>.json.
  *
+ * For an EXISTING module, do not run this: deploy-upgrade-security-v1
+ * upgrades the proxy in place (and raises the window to the 24h floor).
+ * A second proxy would orphan every account's guardian set.
+ *
  * After deploy, operator should also call BlankHandles.setRecoveryHook
  * with this module's address so the handle rebind happens automatically
  * on RecoveryFinalized.
  */
 task("deploy-guardian-module", "Deploy GuardianModule UUPS proxy")
   .addOptionalParam("window", "Recovery challenge window seconds (min 86400)", "86400")
+  .addFlag("force", "Deploy a new proxy even though one is recorded")
   .setAction(async (args, hre: HardhatRuntimeEnvironment) => {
     const networkName = hre.network.name;
     const file =
@@ -28,6 +33,12 @@ task("deploy-guardian-module", "Deploy GuardianModule UUPS proxy")
     let existing: Record<string, string> = {};
     try { existing = JSON.parse(readFileSync(path, "utf8")); }
     catch (err) { throw new Error(`Need deploy-all first. ${err instanceof Error ? err.message : String(err)}`); }
+    if (existing.GuardianModule && !args.force) {
+      throw new Error(
+        `GuardianModule already at ${existing.GuardianModule}. Upgrade it with deploy-upgrade-security-v1; ` +
+          `pass --force only to abandon every existing guardian set.`,
+      );
+    }
 
     const win = Number(args.window);
     if (!Number.isInteger(win) || win < 86400 || win > 30 * 24 * 3600) {
@@ -57,5 +68,7 @@ task("deploy-guardian-module", "Deploy GuardianModule UUPS proxy")
     console.log(`Next:`);
     console.log(`  1. Pin GuardianModule in packages/app/src/lib/constants.ts`);
     console.log(`  2. Wire BlankHandles.setRecoveryHook(${proxyAddress})`);
-    console.log(`  3. Wave 5.5: extend BlankAccount to consume RecoveryFinalized events`);
+    console.log(`  3. wire-paymaster-targets so guardian votes are sponsored`);
+    console.log(`  4. Each account connects it once from /recover/<handle> (setRecoveryModule,`);
+    console.log(`     self-paid); finalizeRecoveryAndRotate then rotates the owner key.`);
   });

@@ -258,6 +258,16 @@ function humanizeWriteError(err: unknown): string {
   if (s.includes("aa33")) {
     return "The gas sponsor refused this transaction. It will not succeed on a retry; please report it.";
   }
+  // /api/paymaster/sponsor refused before anything was signed. Its reason
+  // is already written for people, so pass it through.
+  if (s.includes("gas sponsorship refused:")) {
+    return raw.slice(s.indexOf("gas sponsorship refused:"));
+  }
+  // AA21: the account itself had to pay (self-pay mode, or an account
+  // settings change the sponsor never covers) and holds no gas.
+  if (s.includes("aa21") || s.includes("didn't pay prefund")) {
+    return "Your smart wallet has no gas for this. Account settings changes pay their own gas: add a little ETH on the Smart wallet screen and try again.";
+  }
   // Generic bare-reason-null fallback. Could be many root causes;
   // suggest retry without claiming knowledge of paymaster funding.
   if (s.includes("entrypoint.handleops failed") && s.includes("reason=null")) {
@@ -413,8 +423,13 @@ export function useUnifiedWrite(): UseUnifiedWriteReturn {
       // has deposited their own ETH for gas, it gets used. We resolve
       // BEFORE the passphrase prompt so its subtitle reflects the
       // actual mode the user is about to authorize.
+      // A call into the account itself is never sponsored (see
+      // useSmartAccount.submitCallData), so say so in the prompt.
+      const isSelfCall =
+        !!smartAccount.account &&
+        params.address.toLowerCase() === smartAccount.account.address.toLowerCase();
       const resolvedPaymaster = await resolvePaymasterMode(
-        params.paymaster,
+        isSelfCall ? "self" : params.paymaster,
         publicClient as PublicClient | undefined,
         contracts.EntryPoint as Address | undefined,
         smartAccount.account?.address as Address | undefined,

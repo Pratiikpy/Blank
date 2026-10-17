@@ -228,6 +228,19 @@ describe("/api/relay — validateUserOp (§15.x security boundary)", () => {
     expect(res.captured.status).toBe(500);
   });
 
+  it("rejects paymasterAndData that is neither empty nor a 129-byte verifying sponsorship", async () => {
+    // The retired 84-byte transferAmount layout can only fail paymaster
+    // validation on-chain; refuse it before the relayer pays for a revert.
+    const res = await call({ paymasterAndData: "0x" + "11".repeat(84) });
+    expect(res.captured.status).toBe(400);
+    expect(String(res.captured.body?.error)).toMatch(/129-byte/);
+  });
+
+  it("ACCEPTS a 129-byte sponsorship past validation", async () => {
+    const res = await call({ paymasterAndData: "0x" + "11".repeat(129) });
+    expect(res.captured.status).toBe(500);
+  });
+
   it("selector comparison is case-insensitive (uppercase selector body doesn't bypass)", async () => {
     // Source explicitly lowercases the selector before compare. Keep
     // the "0x" prefix lowercase because ethers.isHexString rejects "0X".

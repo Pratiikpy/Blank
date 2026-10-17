@@ -19,7 +19,9 @@ import { log } from "@/lib/log";
 // Side-effect component — renders nothing.
 export function SmartAccountCofheBinder() {
   const { status, account } = useSmartAccount();
-  const { activeChainId } = useChain();
+  const { activeChainId, contracts } = useChain();
+  const pm = contracts?.BlankPaymaster;
+  const sponsored = !!pm && pm !== "0x0000000000000000000000000000000000000000";
   const { chain: wagmiChain } = useAccount();
   const publicClient = usePublicClient();
   const { request: requestPassphrase } = usePassphrasePrompt();
@@ -55,12 +57,13 @@ export function SmartAccountCofheBinder() {
       publicClient,
       chain,
       requestPassphrase,
+      sponsored,
     });
     // `requestPassphrase` is stable across renders (useCallback inside
     // PassphrasePromptProvider with empty deps), so it doesn't force a
     // rebuild. `account.address` + `account.isDeployed` changes do.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status, account?.address, account?.isDeployed, activeChainId, publicClient, wagmiChain]);
+  }, [status, account?.address, account?.isDeployed, activeChainId, publicClient, wagmiChain, sponsored]);
 
   // Actually bind the SDK — pass null when client is null so the
   // EOA path can reclaim the connection on the next tick.

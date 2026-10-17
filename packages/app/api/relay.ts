@@ -137,6 +137,15 @@ function validateUserOp(op: SerializedUserOp): { ok: true } | { ok: false; error
     return { ok: false, error: "gasFees must be 32-byte hex" };
   }
 
+  // paymasterAndData is empty (the account pays) or a full verifying
+  // BlankPaymaster blob from /api/paymaster/sponsor: 52-byte prefix +
+  // validUntil + validAfter + 65-byte signature = 129 bytes. Anything else
+  // fails paymaster validation on-chain and would only burn relayer gas.
+  const pmd = op.paymasterAndData ?? "0x";
+  if (!ethers.isHexString(pmd) || (pmd !== "0x" && pmd.length !== 2 + 129 * 2)) {
+    return { ok: false, error: "paymasterAndData must be empty or a 129-byte sponsorship from /api/paymaster/sponsor" };
+  }
+
   // Only allow BlankAccount.execute or executeBatch — narrows attack surface.
   // Anything else routed through here can target arbitrary contracts.
   const selector = op.callData.slice(0, 10).toLowerCase();

@@ -2,6 +2,7 @@ import { task } from "hardhat/config";
 import { HardhatRuntimeEnvironment } from "hardhat/types";
 import * as fs from "fs";
 import * as path from "path";
+import { PAYMASTER_TARGETS } from "./lib/paymaster-targets";
 
 // ─── setup-aa — wire paymaster + EntryPoint after deploy ─────────────────
 //
@@ -33,6 +34,9 @@ const PAYMASTER_ABI = [
   "function approvedTargets(address) view returns (bool)",
   "function approvedTargetsCount() view returns (uint256)",
   "function owner() view returns (address)",
+  "function verifyingSigner() view returns (address)",
+  "function accountCodeHash() view returns (bytes32)",
+  "function maxCostCap() view returns (uint256)",
 ];
 
 function loadDeployment(network: string): Record<string, string> {
@@ -78,25 +82,20 @@ task("setup-aa", "Whitelist Blank hubs in BlankPaymaster + fund paymaster ETH st
       throw new Error(`paymaster owner is ${owner}, deployer is ${deployer.address}`);
     }
 
-    // ─── 1. Whitelist Blank hubs as sponsorable targets ────────────────
-    // Order matters — most-used hubs first so common UserOps pass cheapest.
-    const targets: Array<{ key: string; label: string }> = [
-      { key: "FHERC20Vault_USDC", label: "FHERC20Vault USDC (shield/unshield)" },
-      { key: "FHERC20Vault_USDT", label: "FHERC20Vault USDT (P2P swap)" },
-      { key: "TestUSDC",          label: "TestUSDC (faucet/approve)" },
-      { key: "TestUSDT",          label: "TestUSDT (P2P swap)" },
-      { key: "PaymentHub",        label: "PaymentHub" },
-      { key: "BusinessHub",       label: "BusinessHub" },
-      { key: "GroupManager",      label: "GroupManager" },
-      { key: "CreatorHub",        label: "CreatorHub" },
-      { key: "P2PExchange",       label: "P2PExchange" },
-      { key: "GiftMoney",         label: "GiftMoney" },
-      { key: "StealthPayments",   label: "StealthPayments" },
-      { key: "InheritanceManager",label: "InheritanceManager" },
-      { key: "PrivacyRouter",     label: "PrivacyRouter" },
-      { key: "PaymentReceipts",   label: "PaymentReceipts" },
-      { key: "EncryptedFlags",    label: "EncryptedFlags" },
-    ];
+    // The verifying paymaster sponsors nothing until deploy-paymaster-v2 has
+    // set the account code hash and gas caps, and the backend holds the key
+    // for verifyingSigner in BLANK_PAYMASTER_SIGNER_PK.
+    const [vSigner, codeHash, costCap] = await Promise.all([
+      paymaster.verifyingSigner(), paymaster.accountCodeHash(), paymaster.maxCostCap(),
+    ]);
+    console.log(`  verifyingSigner: ${vSigner} (backend env BLANK_PAYMASTER_SIGNER_PK must hold this key)`);
+    if (codeHash === hre.ethers.ZeroHash || costCap === 0n) {
+      console.warn("  WARNING: account code hash or gas caps unset; run deploy-paymaster-v2 (it sets both).");
+    }
+
+    // ─── 1. Whitelist Blank contracts as sponsorable targets ───────────
+    // One list shared with wire-paymaster-targets (tasks/lib/paymaster-targets.ts).
+    const targets = PAYMASTER_TARGETS;
 
     console.log("1/2  Whitelisting sponsorable targets...\n");
     let approvedCount = 0;

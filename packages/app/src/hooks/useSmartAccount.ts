@@ -2,18 +2,21 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { usePublicClient } from "wagmi";
 import type { Address, Hex } from "viem";
 import { useChain } from "@/providers/ChainProvider";
-import { BlankAccountFactoryAbi } from "@/lib/abis";
+import { BlankAccountAbi, BlankAccountFactoryAbi } from "@/lib/abis";
 import {
   hasPasskey,
   getPasskeyPubkey,
   createPasskey,
   signHash,
   deletePasskey,
+  getRecoveredAccount,
 } from "@/lib/passkey";
 import {
   buildUserOp,
   computeUserOpHash,
-  encodeBlankPaymasterData,
+  requestSponsorship,
+  applySponsorship,
+  callDataTargetsSelf,
   encodeExecuteCall,
   encodeExecuteBatchCall,
   encodeP256Signature,
@@ -100,6 +103,14 @@ export interface SmartAccount {
   pubX: Hex;
   pubY: Hex;
   isDeployed: boolean;
+  /** Keys the account was created with, when they differ from pubX/pubY
+   *  (an account taken over by guardian recovery). The paymaster sponsor
+   *  re-derives the CREATE2 address from these. */
+  initOwnerX?: Hex;
+  initOwnerY?: Hex;
+  /** Bound to a recovered account whose owner key has not been rotated to
+   *  this passkey yet. Nothing can be signed until the guardians finalize. */
+  recoveryPending?: boolean;
 }
 
 // Cache keyed by chainId. StrictMode double-mounts and full-page navigations
@@ -266,22 +277,47 @@ export function useSmartAccount() {
         return;
       }
 
-      const predicted = (await publicClient.readContract({
-        address: contracts.BlankAccountFactory,
-        abi: BlankAccountFactoryAbi,
-        functionName: "getAddress",
-        args: [BigInt(pub.pubX), BigInt(pub.pubY), ZERO_ADDRESS, 0n],
-      })) as Address;
+      // A key created to take over an account by guardian recovery points
+      // at that account instead of its own counterfactual address.
+      const recovered = await getRecoveredAccount(activeChainId);
+      let resolved: SmartAccount;
+      if (recovered) {
+        const code = await publicClient.getCode({ address: recovered.address });
+        const isDeployed = code !== undefined && code !== "0x";
+        let rotated = false;
+        if (isDeployed) {
+          const [ox, oy] = (await Promise.all([
+            publicClient.readContract({ address: recovered.address, abi: BlankAccountAbi, functionName: "ownerX" }),
+            publicClient.readContract({ address: recovered.address, abi: BlankAccountAbi, functionName: "ownerY" }),
+          ])) as [bigint, bigint];
+          rotated = ox === BigInt(pub.pubX) && oy === BigInt(pub.pubY);
+        }
+        resolved = {
+          address: recovered.address,
+          pubX: pub.pubX,
+          pubY: pub.pubY,
+          isDeployed,
+          initOwnerX: recovered.initOwnerX,
+          initOwnerY: recovered.initOwnerY,
+          recoveryPending: !rotated,
+        };
+      } else {
+        const predicted = (await publicClient.readContract({
+          address: contracts.BlankAccountFactory,
+          abi: BlankAccountFactoryAbi,
+          functionName: "getAddress",
+          args: [BigInt(pub.pubX), BigInt(pub.pubY), ZERO_ADDRESS, 0n],
+        })) as Address;
 
-      const code = await publicClient.getCode({ address: predicted });
-      const isDeployed = code !== undefined && code !== "0x";
-
-      const resolved: SmartAccount = {
-        address: predicted,
-        pubX: pub.pubX,
-        pubY: pub.pubY,
-        isDeployed,
-      };
+        const code = await publicClient.getCode({ address: predicted });
+        const isDeployed = code !== undefined && code !== "0x";
+        resolved = {
+          address: predicted,
+          pubX: pub.pubX,
+          pubY: pub.pubY,
+          isDeployed,
+        };
+      }
       writeSaCache(activeChainId, resolved);
       setAccount(resolved);
       setStatus("ready");
@@ -434,8 +470,16 @@ export function useSmartAccount() {
       const existing = inflightRef.current.get(callData);
       if (existing) return existing;
 
+      if (account.recoveryPending) {
+        const msg = "Recovery is not finalized yet. Your guardians must finalize it before this passkey can sign.";
+        setError(msg);
+        throw new Error(msg);
+      }
+
       const work = (async (): Promise<UserOpResult | null> => {
         setError(null);
+        let reservedNonce: bigint | null = null;
+        let relayed = false;
         const isFirstOp = !account.isDeployed;
         setStatus(isFirstOp ? "deploying" : "submitting");
 
@@ -454,6 +498,7 @@ export function useSmartAccount() {
           if (reserved !== undefined && reserved > nonce) nonce = reserved;
           pendingNonceRef.current = nonce + 1n;
           reserveNonce(account.address, activeChainId, nonce);
+          reservedNonce = nonce;
 
           // First UserOp must include initCode so EntryPoint deploys via factory.
           let initCode: Hex = "0x";
@@ -468,28 +513,6 @@ export function useSmartAccount() {
             );
           }
 
-          // R5-D: wire the paymaster. Without this, the UserOp has
-          // paymasterAndData="0x" which means the smart account must
-          // pre-fund ETH to pay gas. Passkey accounts start with 0 ETH
-          // so EntryPoint reverts with "insufficient funds" at pre-
-          // validation (gasUsed ≈ 44k, no event emitted). Setting the
-          // paymaster makes BlankPaymaster sponsor gas in exchange for
-          // a USDC fee (0 for testnet) out of the smart account's USDC.
-          //
-          // Phase 7.5 — when caller passes `paymaster: "self"`, omit the
-          // paymasterAndData field entirely so the AA pays its own gas
-          // via BaseAccount._payPrefund (transfers ETH from the AA's
-          // own balance to EntryPoint during validateUserOp). Used as
-          // the resilience fallback when BlankPaymaster's deposit is
-          // depleted; caller is expected to have already verified the
-          // AA has sufficient ETH on the active chain (see
-          // FundAccountModal in Phase 7.6).
-          const useSponsored = (options?.paymaster ?? "sponsored") === "sponsored";
-          const paymasterAndData =
-            useSponsored && contracts.BlankPaymaster
-              ? encodeBlankPaymasterData(contracts.BlankPaymaster, 0n)
-              : ("0x" as Hex);
-
           // First UserOp must include initCode + creates the account via
           // the factory's createAccount call. Factory + UUPS proxy + init
           // costs ~300-500k gas, plus validateUserOp's P-256 verify on
@@ -503,10 +526,36 @@ export function useSmartAccount() {
             nonce,
             initCode,
             callData,
-            paymasterAndData,
             verificationGasLimit,
             callGasLimit: options?.callGasLimit,
           });
+
+          // Sponsored (default): BlankPaymaster is a verifying paymaster, so
+          // the backend signs paymasterAndData and picks gasFees under the
+          // paymaster's caps. "self" (Phase 7.5 fallback, chosen by the
+          // caller from usePaymasterHealth): no paymaster, the account pays
+          // from its own ETH via BaseAccount._payPrefund.
+          //
+          // Order matters: in EntryPoint v0.8 paymasterAndData is part of
+          // the userOpHash, so the passkey signs only after it is final.
+          // Calls back into the account (upgrade, enableValidator,
+          // setRecoveryModule) are never sponsored: the paymaster's target
+          // allowlist cannot list every account. They pay their own gas.
+          const selfCall = callDataTargetsSelf(callData, account.address);
+          const useSponsored = !selfCall && (options?.paymaster ?? "sponsored") === "sponsored";
+          if (useSponsored && contracts.BlankPaymaster) {
+            const sponsorship = await requestSponsorship({
+              chainId: activeChainId,
+              userOp,
+              account: {
+                ownerX: account.initOwnerX ?? account.pubX,
+                ownerY: account.initOwnerY ?? account.pubY,
+                recoveryModule: ZERO_ADDRESS,
+                salt: 0n,
+              },
+            });
+            userOp = applySponsorship(userOp, sponsorship);
+          }
 
           // Authoritative hash via on-chain EntryPoint view call
           const userOpHash = await computeUserOpHash(publicClient, userOp);
@@ -537,6 +586,7 @@ export function useSmartAccount() {
             rollbackReservation(account.address, activeChainId, nonce);
             throw new Error((body as any).error ?? `relay HTTP ${res.status}`);
           }
+          relayed = true;
           const resBody = (await res.json()) as {
             hash: Hex;
             userOpSuccess?: boolean;
@@ -599,6 +649,12 @@ export function useSmartAccount() {
             logs: resBody.logs,
           };
         } catch (err) {
+          // Failed before the relay took it (sponsor refused, hash read
+          // failed, wrong passphrase): free the nonce slot for the retry.
+          if (!relayed && reservedNonce !== null) {
+            pendingNonceRef.current = reservedNonce;
+            rollbackReservation(account.address, activeChainId, reservedNonce);
+          }
           const msg = err instanceof Error ? err.message : "UserOp submission failed";
           setError(msg);
           setStatus("error");

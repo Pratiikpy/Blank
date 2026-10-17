@@ -44,10 +44,13 @@ const useChainMock = vi.hoisted(() => vi.fn());
 const useEffectiveAddressMock = vi.hoisted(() => vi.fn());
 const usePassphrasePromptMock = vi.hoisted(() => vi.fn());
 const signHashMock = vi.hoisted(() => vi.fn());
+const erc1271DigestForMock = vi.hoisted(() => vi.fn());
+const PUBLIC_CLIENT = vi.hoisted(() => ({ readContract: () => Promise.resolve("0x") }));
 
 vi.mock("wagmi", () => ({
   useAccount: useAccountMock,
   useSignMessage: useSignMessageMock,
+  usePublicClient: () => PUBLIC_CLIENT,
 }));
 vi.mock("@/providers/ChainProvider", () => ({ useChain: useChainMock }));
 vi.mock("./useEffectiveAddress", () => ({
@@ -58,6 +61,7 @@ vi.mock("@/components/PassphrasePrompt", () => ({
   usePassphrasePrompt: usePassphrasePromptMock,
 }));
 vi.mock("@/lib/passkey", () => ({ signHash: signHashMock }));
+vi.mock("@/lib/blank-account-1271", () => ({ erc1271DigestFor: erc1271DigestForMock }));
 
 import { useEmailAuthSigner } from "./useEmailAuthSigner";
 
@@ -95,6 +99,9 @@ beforeEach(() => {
   usePassphrasePromptMock.mockReset();
   signHashMock.mockReset();
   passphraseRequestMock.mockReset();
+  erc1271DigestForMock.mockReset();
+  // Legacy implementation by default: the digest to sign is the hash itself.
+  erc1271DigestForMock.mockImplementation(async (_pc: unknown, _a: string, _c: number, h: string) => h);
 
   useChainMock.mockReturnValue({ activeChainId: CHAIN_ID });
   useSignMessageMock.mockReturnValue({ signMessageAsync: signMessageAsyncMock });
@@ -302,6 +309,23 @@ describe("useEmailAuthSigner — passkey-AA path (§15.x)", () => {
     expect(sig?.signerAddress).toBe(AA);
     expect(sig?.signerChainId).toBe(CHAIN_ID);
     expect(sig?.signedAt).toBe(7_777);
+  });
+
+  it("security-v1 account: the passkey signs replaySafeHash(eip191Hash), resolved against the AA on this chain", async () => {
+    setEffective(AA);
+    setWagmiAccount(null);
+    setSmartAccount({ status: "ready", account: { address: AA } });
+    passphraseRequestMock.mockResolvedValue("pw");
+    const WRAPPED = ("0x" + "77".repeat(32)) as `0x${string}`;
+    erc1271DigestForMock.mockResolvedValue(WRAPPED);
+    signHashMock.mockResolvedValue({ r: "0x01", s: "0x02" });
+    const { hashMessage } = await import("viem");
+
+    const { result } = renderHook(() => useEmailAuthSigner());
+    await act(async () => result.current.signEmailAuth("hello", 1));
+
+    expect(erc1271DigestForMock).toHaveBeenCalledWith(PUBLIC_CLIENT, AA, CHAIN_ID, hashMessage("hello"));
+    expect(signHashMock.mock.calls[0][2]).toBe(WRAPPED);
   });
 
   it("user cancels passphrase prompt -> returns null without calling signHash", async () => {

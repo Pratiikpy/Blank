@@ -37,22 +37,27 @@ const RPC_URLS: Record<SupportedChain, string> = {
  *  signature + ~1 RPC submit. Stays well under Vercel's 10s limit. */
 const MAX_FIRES_PER_TICK = 25;
 
-const VALIDATOR_ABI = [
-  "function getScope(address account, address sessionKey) view returns (tuple(address recipient, address spendToken, uint128 maxAmountPerCall, uint48 periodSeconds, uint48 validUntil, uint48 lastFiredAt))",
-];
+const SCOPE_TUPLE =
+  "tuple(address recipient, address spendToken, uint128 maxAmountPerCall, uint48 periodSeconds, uint48 validUntil, uint48 lastFiredAt, uint128 maxFeePerGas, uint64 maxTotalGas, address paymaster)";
+const VALIDATOR_ABI = [`function getScope(address account, address sessionKey) view returns (${SCOPE_TUPLE})`];
 
 const BLANK_ACCOUNT_ABI = [
-  "function enabledValidators(address) view returns (bool)",
+  // security-v1: enabled AND enabled in the current owner epoch.
+  "function isValidatorEnabled(address validator) view returns (bool)",
 ];
 
 const ENTRYPOINT_ABI = [
   "function getNonce(address sender, uint192 key) view returns (uint256)",
-  // v0.8 canonical userOpHash. We READ this from the chain rather than
-  // hand-rolling the EIP-712 typed-data hash because (a) the EntryPoint
-  // is the authority and (b) library drift across v0.7→v0.8 trapped
-  // the previous hand-rolled implementation in this file.
+  // v0.8 canonical userOpHash, read from the EntryPoint rather than
+  // re-implemented (v0.8 hashes EIP-712 typed data, paymasterAndData included).
   "function getUserOpHash((address sender, uint256 nonce, bytes initCode, bytes callData, bytes32 accountGasLimits, uint256 preVerificationGas, bytes32 gasFees, bytes paymasterAndData, bytes signature) userOp) view returns (bytes32)",
 ];
+
+/** Gas budget for one fire. The scope's maxTotalGas must cover these
+ *  (plus the paymaster's two limits when sponsored). */
+export const FIRE_VERIFICATION_GAS = 600_000n;
+export const FIRE_CALL_GAS = 200_000n;
+export const FIRE_PRE_VERIFICATION_GAS = 60_000n;
 
 interface ChainSnapshot {
   chainId: number;
@@ -63,17 +68,84 @@ interface ChainSnapshot {
   errors: string[];
 }
 
-interface FireParams {
-  account: string;
-  sessionKey: string;
+export interface OnChainScope {
   recipient: string;
   spendToken: string;
   maxAmountPerCall: bigint;
+  periodSeconds: number;
   validUntil: number;
+  lastFiredAt: number;
+  maxFeePerGas: bigint;
+  maxTotalGas: bigint;
+  paymaster: string;
+}
+
+export function decodeScope(raw: ArrayLike<unknown>): OnChainScope {
+  return {
+    recipient: raw[0] as string,
+    spendToken: raw[1] as string,
+    maxAmountPerCall: raw[2] as bigint,
+    periodSeconds: Number(raw[3]),
+    validUntil: Number(raw[4]),
+    lastFiredAt: Number(raw[5]),
+    maxFeePerGas: raw[6] as bigint,
+    maxTotalGas: raw[7] as bigint,
+    paymaster: raw[8] as string,
+  };
+}
+
+interface FireParams {
+  account: string;
+  sessionKey: string;
+  scope: OnChainScope;
   encryptedPrivateKey: string;
   chainId: number;
   rpcUrl: string;
+  validatorAddr: string;
 }
+
+/** SessionKeyValidator.sessionDigest: what the session key signs. */
+export function sessionDigest(userOpHash: string, notBefore: number): string {
+  return ethers.keccak256(
+    ethers.AbiCoder.defaultAbiCoder().encode(["bytes32", "uint48"], [userOpHash, notBefore]),
+  );
+}
+
+/**
+ * userOp.signature for a session-key fire:
+ *   BlankAccount layer:   abi.encode(address validator, bytes inner)
+ *   validator layer:      inner = abi.encode(address sessionKey, uint48 notBefore, bytes ecdsaSig)
+ * ecdsaSig is a raw (no EIP-191 prefix) signature over sessionDigest(userOpHash, notBefore).
+ */
+export function encodeSessionSignature(
+  validator: string,
+  sessionKey: string,
+  notBefore: number,
+  ecdsaSig: string,
+): string {
+  const coder = ethers.AbiCoder.defaultAbiCoder();
+  const inner = coder.encode(["address", "uint48", "bytes"], [sessionKey, notBefore, ecdsaSig]);
+  return coder.encode(["address", "bytes"], [validator, inner]);
+}
+
+/** Fees for an unsponsored fire, under the scope's maxFeePerGas.
+ *  The validator applies that cap to both maxFee and the priority fee. */
+export function chooseSessionFees(
+  baseFee: bigint,
+  networkPriority: bigint,
+  scopeMaxFee: bigint,
+): { maxFeePerGas: bigint; maxPriorityFeePerGas: bigint } {
+  let maxFee = 2n * baseFee + networkPriority;
+  if (maxFee > scopeMaxFee) maxFee = scopeMaxFee;
+  if (maxFee < baseFee) {
+    throw new Error(`base fee ${baseFee} wei is above this schedule's gas cap of ${scopeMaxFee} wei`);
+  }
+  const priority = networkPriority < maxFee ? networkPriority : maxFee;
+  return { maxFeePerGas: maxFee, maxPriorityFeePerGas: priority };
+}
+
+const pack128 = (hi: bigint, lo: bigint) =>
+  "0x" + hi.toString(16).padStart(32, "0") + lo.toString(16).padStart(32, "0");
 
 /** Build + sign + submit a single scheduled UserOp. Returns the relay's
  *  tx hash on success. Throws with a sanitized error on failure (caller
@@ -81,100 +153,103 @@ interface FireParams {
 async function fireScheduledSend(args: FireParams): Promise<string> {
   const provider = new ethers.JsonRpcProvider(args.rpcUrl);
   const entryPoint = new ethers.Contract(ENTRYPOINT_V08, ENTRYPOINT_ABI, provider);
-  const validatorAddr = process.env[`VITE_BLANK_${args.chainId}_SESSION_KEY_VALIDATOR`];
-  if (!validatorAddr || !/^0x[0-9a-fA-F]{40}$/.test(validatorAddr)) {
-    throw new Error("SessionKeyValidator address not configured for this chain");
+  const { scope } = args;
+
+  // The validator requires execute(spendToken, 0, transfer(recipient, amount<=cap)).
+  const transferIface = new ethers.Interface(["function transfer(address to, uint256 amount)"]);
+  const transferCalldata = transferIface.encodeFunctionData("transfer", [scope.recipient, scope.maxAmountPerCall]);
+  const executeIface = new ethers.Interface(["function execute(address target, uint256 value, bytes data)"]);
+  const callData = executeIface.encodeFunctionData("execute", [scope.spendToken, 0n, transferCalldata]);
+
+  const [nonce, block] = await Promise.all([
+    entryPoint.getNonce(args.account, 0) as Promise<bigint>,
+    provider.getBlock("latest"),
+  ]);
+  if (!block) throw new Error("no latest block");
+  // notBefore pins the fire slot to now: slot = max(lastFiredAt + period,
+  // notBefore), valid until slot + grace. A stale slot from a missed
+  // period would otherwise already be past its grace window.
+  const notBefore = Number(block.timestamp);
+  const baseFee = block.baseFeePerGas ?? 0n;
+  let networkPriority = 1_000_000n;
+  try {
+    networkPriority = BigInt((await provider.send("eth_maxPriorityFeePerGas", [])) as string);
+  } catch { /* keep the floor */ }
+
+  const accountGasLimits = pack128(FIRE_VERIFICATION_GAS, FIRE_CALL_GAS);
+  const baseGas = FIRE_VERIFICATION_GAS + FIRE_CALL_GAS + FIRE_PRE_VERIFICATION_GAS;
+  let gasFees: string;
+  let paymasterAndData = "0x";
+
+  // Sponsored when the scope names the paymaster and the sponsor agrees;
+  // otherwise the account's own EntryPoint deposit pays.
+  let sponsored = false;
+  const { getContracts } = await import("../addresses.js");
+  const pmAddr = getContracts(args.chainId)?.BlankPaymaster;
+  if (
+    pmAddr &&
+    scope.paymaster.toLowerCase() === pmAddr.toLowerCase() &&
+    process.env.BLANK_PAYMASTER_SIGNER_PK
+  ) {
+    const lib = await import("../paymaster-sponsor.js");
+    if (baseGas + lib.PM_VERIFICATION_GAS + lib.PM_POSTOP_GAS <= scope.maxTotalGas) {
+      try {
+        const s = await lib.sponsorUserOp(
+          lib.ethersSponsorChain(provider, args.chainId, pmAddr),
+          lib.loadSponsorSigner(),
+          {
+            userOp: {
+              sender: args.account,
+              nonce: nonce.toString(),
+              initCode: "0x",
+              callData,
+              accountGasLimits,
+              preVerificationGas: FIRE_PRE_VERIFICATION_GAS.toString(),
+              gasFees: pack128(0n, 0n),
+            },
+            maxFeePerGasCeiling: scope.maxFeePerGas,
+          },
+        );
+        gasFees = s.gasFees;
+        paymasterAndData = s.paymasterAndData;
+        sponsored = true;
+      } catch (err) {
+        console.warn(
+          `[scheduled-sends-tick] sponsorship refused for ${args.account}, account pays: ${err instanceof Error ? err.message : err}`,
+        );
+      }
+    }
+  }
+  if (!sponsored) {
+    if (baseGas > scope.maxTotalGas) {
+      throw new Error(`schedule gas cap ${scope.maxTotalGas} is below the ${baseGas} a fire needs`);
+    }
+    const fees = chooseSessionFees(baseFee, networkPriority, scope.maxFeePerGas);
+    gasFees = pack128(fees.maxPriorityFeePerGas, fees.maxFeePerGas);
   }
 
-  // Encode inner ERC-20 transfer(recipient, maxAmountPerCall) — the
-  // validator enforces that the AA's execute target is exactly the
-  // spendToken AND inner data is transfer(scope.recipient, amount<=cap).
-  const transferIface = new ethers.Interface([
-    "function transfer(address to, uint256 amount)",
-  ]);
-  const transferCalldata = transferIface.encodeFunctionData("transfer", [
-    args.recipient,
-    args.maxAmountPerCall,
-  ]);
-
-  // Encode outer execute(spendToken, 0, transferCalldata).
-  const executeIface = new ethers.Interface([
-    "function execute(address target, uint256 value, bytes data)",
-  ]);
-  const callData = executeIface.encodeFunctionData("execute", [
-    args.spendToken,
-    0n,
-    transferCalldata,
-  ]);
-
-  // Get the AA's current nonce (key=0).
-  const nonce = (await entryPoint.getNonce(args.account, 0)) as bigint;
-
-  // Pack accountGasLimits = (verificationGasLimit << 128) | callGasLimit.
-  // Conservative budgets: validator dispatch + transfer.
-  const verificationGasLimit = 600_000n;
-  const callGasLimit = 200_000n;
-  const accountGasLimits =
-    "0x" + verificationGasLimit.toString(16).padStart(32, "0") + callGasLimit.toString(16).padStart(32, "0");
-  // gasFees = (maxPriorityFeePerGas << 128) | maxFeePerGas. Use modest
-  // testnet defaults; relayer's fee config could override but for testnet
-  // these stick.
-  const maxPriorityFeePerGas = 1_500_000_000n; // 1.5 gwei
-  const maxFeePerGas = 30_000_000_000n; // 30 gwei
-  const gasFees =
-    "0x" +
-    maxPriorityFeePerGas.toString(16).padStart(32, "0") +
-    maxFeePerGas.toString(16).padStart(32, "0");
-
-  // Read the canonical v0.8 userOpHash directly from the EntryPoint.
-  // v0.8 uses EIP-712 typed-data hashing (not v0.7's
-  // keccak(packed || entryPoint || chainId)) — replicating that math
-  // here is fragile against library drift, so we let the EntryPoint
-  // do it. The contract gives us the SAME hash the validator + EntryPoint
-  // will use during validation, so signature recovery succeeds.
-  // Signature must be empty for the read because it's part of the struct
-  // shape (the EntryPoint omits it from the hash internally).
-  const preVerificationGas = 60_000n;
-  const userOpForHashStruct = {
+  const op = {
     sender: args.account,
     nonce,
     initCode: "0x",
     callData,
     accountGasLimits,
-    preVerificationGas,
-    gasFees,
-    paymasterAndData: "0x",
+    preVerificationGas: FIRE_PRE_VERIFICATION_GAS,
+    gasFees: gasFees!,
+    paymasterAndData,
     signature: "0x",
   };
-  const userOpHash = (await entryPoint.getUserOpHash(userOpForHashStruct)) as string;
+  const userOpHash = (await entryPoint.getUserOpHash(op)) as string;
 
-  // Sign the userOpHash with the session key (decrypt-in-memory, sign,
-  // discard). Then wrap in BlankAccount's outer (validator, innerSig)
-  // format so the AA's _validateSignature dispatches to our validator.
   const { signWithSessionKey } = await import("../session-keys-store.js");
   const ecdsaSig = await signWithSessionKey({
     encryptedPrivateKey: args.encryptedPrivateKey,
-    digest: userOpHash,
+    digest: sessionDigest(userOpHash, notBefore),
   });
-  // SessionKeyValidator expects userOp.signature = abi.encode(sessionKey, innerSig).
-  const innerSig = ethers.AbiCoder.defaultAbiCoder().encode(
-    ["address", "bytes"],
-    [args.sessionKey, ecdsaSig],
-  );
-  // BlankAccount's _validateSignature expects abi.encode(validator, innerSig)
-  // when sig.length != 64 → routes to the validator.
-  const outerSig = ethers.AbiCoder.defaultAbiCoder().encode(
-    ["address", "bytes"],
-    [validatorAddr, innerSig],
-  );
+  const signature = encodeSessionSignature(args.validatorAddr, args.sessionKey, notBefore, ecdsaSig);
 
-  // Submit to /api/relay using the same shape the frontend uses. We
-  // proxy through relay rather than calling EntryPoint directly so the
-  // relayer's ETH funds gas (paymaster sponsorship layer is preserved).
-  // Hard-fail when neither env var is set in production-like environments
-  // — silently falling back to localhost would mean every cron fire
-  // ECONNREFUSEs and the operator gets no obvious "your env is misconfigured"
-  // signal, just opaque per-scope errors.
+  // Submit through /api/relay so the relayer EOA submits handleOps.
+  // Hard-fail when neither env var is set in production-like environments.
   let relayUrl: string;
   if (process.env.PUBLIC_APP_URL) {
     relayUrl = `${process.env.PUBLIC_APP_URL}/api/relay`;
@@ -188,21 +263,18 @@ async function fireScheduledSend(args: FireParams): Promise<string> {
     );
   }
 
-  const userOpForRelay = {
-    sender: args.account,
-    nonce: nonce.toString(),
-    initCode: "0x",
-    callData,
-    accountGasLimits,
-    preVerificationGas: preVerificationGas.toString(),
-    gasFees,
-    paymasterAndData: "0x",
-    signature: outerSig,
-  };
   const resp = await fetch(relayUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ userOp: userOpForRelay, chainId: args.chainId }),
+    body: JSON.stringify({
+      userOp: {
+        ...op,
+        nonce: nonce.toString(),
+        preVerificationGas: FIRE_PRE_VERIFICATION_GAS.toString(),
+        signature,
+      },
+      chainId: args.chainId,
+    }),
   });
   if (!resp.ok) {
     const errBody = (await resp.json().catch(() => ({}))) as { error?: string };
@@ -267,26 +339,20 @@ export default async function handler(req: any, res: any) {
         continue;
       }
       try {
-        // Read account-side validator-enabled flag first. If the user
-        // called BlankAccount.disableValidator (revokes ALL session keys
-        // routed via this validator), every fire would silently
-        // SIG_VALIDATION_FAILED at the AA gate. Mark the row revoked so
-        // we stop polling it and clutter logs with each tick.
-        const accountContract = new ethers.Contract(
-          k.account,
-          BLANK_ACCOUNT_ABI,
-          provider,
-        );
-        const validatorEnabled = (await accountContract.enabledValidators(
-          validatorAddr,
-        )) as boolean;
+        // The account must have this validator enabled in its current
+        // owner epoch. After the security upgrade (new validator) or a
+        // guardian recovery (epoch bump) it is not, until the owner
+        // enables it again from the Scheduled sends screen, so skip
+        // without revoking the row. Older implementations have no
+        // isValidatorEnabled and cannot use this validator at all.
+        const accountContract = new ethers.Contract(k.account, BLANK_ACCOUNT_ABI, provider);
+        let validatorEnabled = false;
+        try {
+          validatorEnabled = (await accountContract.isValidatorEnabled(validatorAddr)) as boolean;
+        } catch {
+          validatorEnabled = false;
+        }
         if (!validatorEnabled) {
-          const { markRevoked } = await import("../session-keys-store.js");
-          await markRevoked({
-            account: k.account,
-            sessionKey: k.sessionKey,
-            chainId,
-          });
           snap.skipped += 1;
           continue;
         }
@@ -294,15 +360,7 @@ export default async function handler(req: any, res: any) {
         // Read scope state on chain. Authoritative — even if the local
         // row says "active", a chain `revokeScope` makes the scope
         // inert and the cron should treat it as such.
-        const scopeRaw = await validator.getScope(k.account, k.sessionKey);
-        const scope = {
-          recipient: scopeRaw[0] as string,
-          spendToken: scopeRaw[1] as string,
-          maxAmountPerCall: scopeRaw[2] as bigint,
-          periodSeconds: Number(scopeRaw[3]),
-          validUntil: Number(scopeRaw[4]),
-          lastFiredAt: Number(scopeRaw[5]),
-        };
+        const scope = decodeScope(await validator.getScope(k.account, k.sessionKey));
         if (scope.recipient === ethers.ZeroAddress) {
           // Revoked on chain — soft-mark the row so we stop polling it.
           const { markRevoked } = await import("../session-keys-store.js");
@@ -328,13 +386,11 @@ export default async function handler(req: any, res: any) {
         const txHash = await fireScheduledSend({
           account: k.account,
           sessionKey: k.sessionKey,
-          recipient: scope.recipient,
-          spendToken: scope.spendToken,
-          maxAmountPerCall: scope.maxAmountPerCall,
-          validUntil: scope.validUntil,
+          scope,
           encryptedPrivateKey: k.encryptedPrivateKey,
           chainId,
           rpcUrl: RPC_URLS[chainId],
+          validatorAddr,
         });
         console.log(
           `[scheduled-sends-tick] fired chainId=${chainId} account=${k.account}` +

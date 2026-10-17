@@ -49,6 +49,9 @@ const toastMock = vi.hoisted(() => vi.fn());
 const isAddressMock = vi.hoisted(() => vi.fn());
 const computeNextFireSecondsMock = vi.hoisted(() => vi.fn());
 const formatTimeUntilMock = vi.hoisted(() => vi.fn());
+const useAccountGasFundsMock = vi.hoisted(() => vi.fn());
+const useQueryMock = vi.hoisted(() => vi.fn());
+const validatorRefetchMock = vi.hoisted(() => vi.fn());
 
 vi.mock("wagmi", () => ({
   usePublicClient: usePublicClientMock,
@@ -72,14 +75,19 @@ vi.mock("@/lib/email-client", () => ({
   buildScheduledSendCreateSignableMessage: () => "test-sig-message",
 }));
 vi.mock("@/hooks/usePaymasterHealth", () => ({ usePaymasterHealth: usePaymasterHealthMock }));
-vi.mock("@/lib/scheduled-sends", () => ({
+vi.mock("@/hooks/useAccountGasFunds", () => ({
+  useAccountGasFunds: useAccountGasFundsMock,
+  SELF_PAID_SETTINGS_OP_WEI: 2_700_000_000_000_000n,
+}));
+vi.mock("@tanstack/react-query", () => ({ useQuery: useQueryMock }));
+vi.mock("@/lib/scheduled-sends", async () => ({
+  ...(await vi.importActual<typeof import("@/lib/scheduled-sends")>("@/lib/scheduled-sends")),
   PERIOD_PRESETS: [
     { label: "Daily", seconds: 86_400 },
     { label: "Weekly", seconds: 7 * 86_400 },
     { label: "Monthly", seconds: 30 * 86_400 },
     { label: "Yearly", seconds: 365 * 86_400 },
   ],
-  SessionKeyValidatorAbi: [],
   computeNextFireSeconds: computeNextFireSecondsMock,
   formatTimeUntil: formatTimeUntilMock,
 }));
@@ -104,6 +112,7 @@ const RECIPIENT = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 const VALIDATOR = "0xcccccccccccccccccccccccccccccccccccccccc";
 const USDC = "0xddddddddddddddddddddddddddddddddddddddd1";
 const ZERO = "0x0000000000000000000000000000000000000000";
+const PAYMASTER = "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
 
 let refetchMock: ReturnType<typeof vi.fn>;
 let revokeScopeMock: ReturnType<typeof vi.fn>;
@@ -182,7 +191,7 @@ beforeEach(() => {
   useEffectiveAddressMock.mockReturnValue({ effectiveAddress: ME });
   useAccountVersionMock.mockReturnValue({ status: "current" });
   useChainMock.mockReturnValue({
-    contracts: { SessionKeyValidator: VALIDATOR, TestUSDC: USDC },
+    contracts: { SessionKeyValidator: VALIDATOR, TestUSDC: USDC, BlankPaymaster: PAYMASTER },
     activeChain: { name: "Ethereum Sepolia" },
     activeChainId: 11155111,
   });
@@ -203,6 +212,10 @@ beforeEach(() => {
   isAddressMock.mockImplementation((v: string) => /^0x[a-fA-F0-9]{40}$/.test(v));
   computeNextFireSecondsMock.mockReturnValue(Math.floor(Date.now() / 1000) + 86_400);
   formatTimeUntilMock.mockReturnValue("in 1d");
+  useAccountGasFundsMock.mockReturnValue({ totalWei: 10n ** 17n });
+  validatorRefetchMock.mockReset();
+  validatorRefetchMock.mockResolvedValue(undefined);
+  useQueryMock.mockReturnValue({ data: false, isSuccess: true, refetch: validatorRefetchMock });
 
   fetchMock = vi.fn().mockResolvedValue({
     ok: true,
@@ -236,7 +249,7 @@ describe("ScheduledSends — pre-flight gates (§15.x)", () => {
     useAccountVersionMock.mockReturnValue({ status: "needs-upgrade" });
     const { container } = render(<ScheduledSends />);
     expect(container.textContent).toContain("Upgrade your account first");
-    expect(container.textContent).toContain("v0.4.1 BlankAccount implementation");
+    expect(container.textContent).toContain("current BlankAccount implementation");
   });
 
   it("CRITICAL needs-upgrade HIDES the Create button (defense-in-depth)", () => {
@@ -610,5 +623,97 @@ describe("ScheduledSends — handleCreate flow + stub-mode banner (§15.x)", () 
       "Transaction failed: KMS down",
       undefined,
     );
+  });
+});
+
+describe("ScheduledSends — security-v1 validator + scope gas fields", () => {
+  async function submitCreate(getByTestId: (id: string) => HTMLElement) {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ sessionKey: "0x9999999999999999999999999999999999999999", stub: false }),
+    });
+    fireEvent.click(getByTestId("scheduled-create-button"));
+    fireEvent.change(getByTestId("scheduled-recipient"), { target: { value: RECIPIENT } });
+    fireEvent.change(getByTestId("scheduled-amount"), { target: { value: "10" } });
+    await act(async () => {
+      fireEvent.click(getByTestId("scheduled-confirm"));
+      for (let i = 0; i < 8; i++) await Promise.resolve();
+    });
+  }
+
+  it("reads isValidatorEnabled (epoch-aware), not the raw enabledValidators flag", async () => {
+    const { getByTestId } = render(<ScheduledSends />);
+    await submitCreate(getByTestId);
+    await waitFor(() => expect(readContractMock).toHaveBeenCalled());
+    expect(readContractMock.mock.calls[0][0].functionName).toBe("isValidatorEnabled");
+    expect(readContractMock.mock.calls[0][0].args).toEqual([VALIDATOR]);
+  });
+
+  it("validator already enabled -> one sponsored setScope call on the validator with gas caps + paymaster", async () => {
+    readContractMock.mockResolvedValue(true);
+    const { getByTestId } = render(<ScheduledSends />);
+    await submitCreate(getByTestId);
+    await waitFor(() => expect(unifiedWriteMock).toHaveBeenCalledTimes(1));
+    const call = unifiedWriteMock.mock.calls[0][0];
+    expect(call.address).toBe(VALIDATOR);
+    expect(call.functionName).toBe("setScope");
+    const scope = call.args[1];
+    expect(scope.recipient).toBe(RECIPIENT);
+    expect(scope.spendToken).toBe(USDC);
+    expect(scope.maxAmountPerCall).toBe(10_000_000n);
+    expect(scope.paymaster).toBe(PAYMASTER);
+    expect(scope.maxFeePerGas).toBeGreaterThan(0n);
+    expect(scope.maxTotalGas).toBeGreaterThan(0n);
+  });
+
+  it("validator not enabled -> enable + setScope batched as a self-call", async () => {
+    const { getByTestId } = render(<ScheduledSends />);
+    await submitCreate(getByTestId);
+    await waitFor(() => expect(unifiedWriteMock).toHaveBeenCalledTimes(1));
+    const call = unifiedWriteMock.mock.calls[0][0];
+    expect(call.address).toBe(ME);
+    expect(call.functionName).toBe("executeBatch");
+    expect(call.args[0]).toEqual([ME, VALIDATOR]);
+  });
+
+  it("validator not enabled and no gas in the account -> honest error, nothing sent", async () => {
+    useAccountGasFundsMock.mockReturnValue({ totalWei: 0n });
+    const { getByTestId } = render(<ScheduledSends />);
+    await submitCreate(getByTestId);
+    await waitFor(() => expect(toastErrorMock).toHaveBeenCalled());
+    expect(unifiedWriteMock).not.toHaveBeenCalled();
+    expect(String(toastErrorMock.mock.calls[0][0])).toMatch(/pays its own gas/);
+  });
+
+  it("scopes exist but validator is off -> 'paused' banner; Enable again fires a self-paid enableValidator", async () => {
+    setFeed({ scopes: [buildScope()] });
+    const { getByTestId } = render(<ScheduledSends />);
+    expect(getByTestId("scheduled-reenable").textContent).toContain("Scheduled sends are paused");
+    await act(async () => {
+      fireEvent.click(getByTestId("scheduled-reenable-button"));
+      for (let i = 0; i < 4; i++) await Promise.resolve();
+    });
+    await waitFor(() => expect(unifiedWriteMock).toHaveBeenCalledTimes(1));
+    const call = unifiedWriteMock.mock.calls[0][0];
+    expect(call.address).toBe(ME);
+    expect(call.functionName).toBe("enableValidator");
+    expect(call.args).toEqual([VALIDATOR]);
+    expect(call.paymaster).toBe("self");
+    expect(validatorRefetchMock).toHaveBeenCalled();
+  });
+
+  it("Enable again is disabled without gas, and the banner says why", () => {
+    setFeed({ scopes: [buildScope()] });
+    useAccountGasFundsMock.mockReturnValue({ totalWei: 0n });
+    const { getByTestId } = render(<ScheduledSends />);
+    expect((getByTestId("scheduled-reenable-button") as HTMLButtonElement).disabled).toBe(true);
+    expect(getByTestId("scheduled-reenable").textContent).toContain("Add a little ETH");
+  });
+
+  it("validator enabled -> no paused banner", () => {
+    setFeed({ scopes: [buildScope()] });
+    useQueryMock.mockReturnValue({ data: true, isSuccess: true, refetch: validatorRefetchMock });
+    const { queryByTestId } = render(<ScheduledSends />);
+    expect(queryByTestId("scheduled-reenable")).toBeNull();
   });
 });
