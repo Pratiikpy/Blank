@@ -262,7 +262,7 @@ describe("browser redirect to SPA", () => {
     const res = makeRes();
     await handler(makeReq("?id=42&chain=11155111"), res);
     expect(res.body).toContain(
-      'window.location.replace("https://blank.example.dev/verify/42?chain=11155111")',
+      'window.location.replace("https://blank.example.dev/verify/42?chain=11155111" + window.location.hash)',
     );
   });
 

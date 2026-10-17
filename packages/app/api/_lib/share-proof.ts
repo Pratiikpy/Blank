@@ -124,11 +124,14 @@ export default async function proofHandler(req: any, res: any) {
 <meta name="twitter:description" content="${escapeHtml(description)}">
 <meta name="twitter:image" content="${escapeHtml(ogImageUrl)}">
 <link rel="canonical" href="${escapeHtml(verifyUrl)}">
-<meta http-equiv="refresh" content="0; url=${escapeHtml(verifyUrl)}">
+<!-- The redirect runs in script first so the URL fragment survives: claim
+     links carry their secret after #, and a meta refresh drops it. -->
+<script>window.location.replace(${JSON.stringify(verifyUrl)} + window.location.hash);</script>
+<noscript><meta http-equiv="refresh" content="0; url=${escapeHtml(verifyUrl)}"></noscript>
 </head>
 <body style="font-family:system-ui,sans-serif;background:#0F172A;color:#fff;padding:48px;">
 <p>Redirecting to <a style="color:#10B981" href="${escapeHtml(verifyUrl)}">${escapeHtml(verifyPath)}</a>…</p>
-<script>window.location.replace(${JSON.stringify(verifyUrl)});</script>
+
 </body>
 </html>`;
 

@@ -174,10 +174,22 @@ describe("browser bounce to SPA", () => {
     );
   });
 
+  it("keeps the URL fragment: claim links carry their secret after #", async () => {
+    const res = makeRes();
+    await handler(makeReq("?type=claim&chainId=421614&id=12"), res);
+    // The script redirect appends location.hash; the meta refresh, which would
+    // drop the fragment, only runs without JavaScript.
+    expect(res.body).toContain('window.location.replace("/claim/421614/12?app=1" + window.location.hash)');
+    expect(res.body).toMatch(/<noscript><meta http-equiv="refresh"[^>]*><\/noscript>/);
+    // The script must come before any refresh that could fire first.
+    const body = String(res.body);
+    expect(body.indexOf("window.location.replace")).toBeLessThan(body.indexOf("http-equiv"));
+  });
+
   it("emits an inline window.location.replace to ?app=1", async () => {
     const res = makeRes();
     await handler(makeReq("?type=fund&chainId=421614&id=9"), res);
-    expect(res.body).toContain('window.location.replace("/fund/421614/9?app=1")');
+    expect(res.body).toContain('window.location.replace("/fund/421614/9?app=1" + window.location.hash)');
   });
 
   it("pay route preserves the single-segment identifier path", async () => {
@@ -194,19 +206,19 @@ describe("input validation", () => {
     const res = makeRes();
     await handler(makeReq("?type=shop&chainId=84532"), res);
     expect(res.body).toContain("Blank | Private Amount Payments");
-    expect(res.body).toContain('window.location.replace("/")');
+    expect(res.body).toContain('window.location.replace("/" + window.location.hash)');
   });
 
   it("non-numeric chainId → generic copy, bounce to '/'", async () => {
     const res = makeRes();
     await handler(makeReq("?type=claim&chainId=abc&id=7"), res);
-    expect(res.body).toContain('window.location.replace("/")');
+    expect(res.body).toContain('window.location.replace("/" + window.location.hash)');
   });
 
   it("rejects a path-traversal id (slashes) → bounce to '/'", async () => {
     const res = makeRes();
     await handler(makeReq("?type=shop&chainId=84532&id=" + encodeURIComponent("../../etc")), res);
-    expect(res.body).toContain('window.location.replace("/")');
+    expect(res.body).toContain('window.location.replace("/" + window.location.hash)');
   });
 });
 
@@ -256,6 +268,6 @@ describe("HTML escaping", () => {
     await handler(makeReq("?type=pay&id=" + encodeURIComponent('"><script>alert(1)</script>')), res);
     expect(res.body).not.toContain("<script>alert(1)</script>");
     // The id fails the SEGMENT check, so it degrades to the generic bounce.
-    expect(res.body).toContain('window.location.replace("/")');
+    expect(res.body).toContain('window.location.replace("/" + window.location.hash)');
   });
 });

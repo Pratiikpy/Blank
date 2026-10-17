@@ -141,11 +141,14 @@ export default async function linkHandler(req: any, res: any) {
 <meta name="twitter:description" content="${escapeHtml(copy.description)}">
 <meta name="twitter:image" content="${escapeHtml(ogImageUrl)}">
 <link rel="canonical" href="${escapeHtml(canonicalUrl)}">
-<meta http-equiv="refresh" content="0; url=${escapeHtml(redirectPath)}">
+<!-- The redirect runs in script first so the URL fragment survives: claim
+     links carry their secret after #, and a meta refresh drops it. -->
+<script>window.location.replace(${JSON.stringify(redirectPath)} + window.location.hash);</script>
+<noscript><meta http-equiv="refresh" content="0; url=${escapeHtml(redirectPath)}"></noscript>
 </head>
 <body style="font-family:system-ui,sans-serif;background:#0F172A;color:#fff;padding:48px;">
 <p>Redirecting to <a style="color:#10B981" href="${escapeHtml(redirectPath)}">${escapeHtml(copy.title)}</a>…</p>
-<script>window.location.replace(${JSON.stringify(redirectPath)});</script>
+
 </body>
 </html>`;
 
