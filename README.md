@@ -43,8 +43,8 @@ Blank encrypts amounts in the browser and settles encrypted state through Fhenix
 | Payments | Encrypted sends, payment requests, invoices, conditional invoices and batch payments |
 | Shared money | Groups, gifts, claim links, inheritance planning |
 | Commerce | Storefront purchases, crowdfund campaigns, encrypted escrow |
-| Exchange | Private token exchange, cross-chain bridge interface, P2P offramp flow |
-| Identity and proofs | Payment handles, public payment pages, payment receipts, encrypted proofs, proof of balance |
+| Exchange | Token swaps, cross-chain bridge interface, P2P offramp flow (testnet only) |
+| Identity and proofs | Payment handles, public payment pages, payment receipts, encrypted income and balance proofs |
 | Account safety | Guardian recovery surfaces, privacy controls, activity history |
 
 ### Important Product Boundaries
@@ -74,7 +74,7 @@ Public surfaces:
 | Writing | [blog.myblank.app/blog](https://blog.myblank.app/blog) |
 | Network status | [www.myblank.app/status](https://www.myblank.app/status) |
 
-The current public testnet scope supports standard EVM wallets across all three Sepolia networks. Smart-account and sponsored transaction surfaces exist in the product, with operational readiness dependent on funded paymasters and dedicated qualification.
+The current public testnet scope supports standard EVM wallets and passkey smart accounts across all three Sepolia networks. Gas for smart accounts is sponsored by a verifying paymaster on each chain: the backend signs a sponsorship only after confirming the sender is a Blank account.
 
 Responsive screens are available. Full mobile transaction qualification remains separate from the desktop testnet scope.
 
@@ -114,26 +114,30 @@ For the public product documentation, start with the [docs index](docs/README.md
 
 ## Testnet Deployments
 
-The core contract set is deployed on all three supported testnets. The conditional-invoice resolver (`InvoiceApprovalResolver`) is on Arbitrum Sepolia only.
+The core contract set is deployed on all three supported testnets. The conditional-invoice resolver and the session-key validator are on Arbitrum Sepolia only. Every contract is owned by a 2-of-3 Safe multisig.
 
 | Contract | Base Sepolia | Ethereum Sepolia | Arbitrum Sepolia |
 | --- | --- | --- | --- |
 | `FHERC20Vault_USDC` | [`0x789f...ff23`](https://sepolia.basescan.org/address/0x789f0bC466E172eD737493e9796a6d0a3aB0ff23) | [`0x3a58...AB51`](https://sepolia.etherscan.io/address/0x3a587f224CC3e1745565cfca8500e5934485AB51) | [`0x22c5...569E`](https://sepolia.arbiscan.io/address/0x22c543F1303Ba25A52694C89D8d09D26FBb7569E) |
+| `TokenRegistry` | [`0x6889...Ec2E`](https://sepolia.basescan.org/address/0x68890C23C94e25706F064f8C1d07e04462B9Ec2E) | [`0xE233...888A`](https://sepolia.etherscan.io/address/0xE2333a6c58E21A8Cc45982612a31dB1440D9888A) | [`0x3032...F0D8`](https://sepolia.arbiscan.io/address/0x30329fAf6D44955D9Cd8074011D64174fF12F0D8) |
 | `PaymentHub` | [`0xF420...e831`](https://sepolia.basescan.org/address/0xF420102Dea1acf437bfc49ded5F4E2f5ed32e831) | [`0xB628...b5eB`](https://sepolia.etherscan.io/address/0xB628719994C21A5CcAb190019b42750f092Fb5eB) | [`0x899f...d6C5`](https://sepolia.arbiscan.io/address/0x899f22B60A856Ec6FCb7C888c43f1A9891E9d6C5) |
 | `BusinessHub` | [`0xEfD6...1EFD`](https://sepolia.basescan.org/address/0xEfD67E33f12a7b3A221d25f965f70d1BE6721EFD) | [`0x3048...5717`](https://sepolia.etherscan.io/address/0x3048Df6de18355EB6ce2eF0bB923B55E75FB5717) | [`0x79A5...53BF`](https://sepolia.arbiscan.io/address/0x79A544EfA82fc1567FfF008ACb8BD90FE6f853BF) |
 | `ClaimLinks` | [`0x2eD7...4665`](https://sepolia.basescan.org/address/0x2eD78815299C2B1F2cBd2313CF763B56A0654665) | [`0x9E21...12Be`](https://sepolia.etherscan.io/address/0x9E2189149deec5e78cB2976d8DF64CAec40B12Be) | [`0xdf69...c015`](https://sepolia.arbiscan.io/address/0xdf69Ba30369C0881fF5741Ffbf26138c1413c015) |
 | `Storefront` | [`0xeA8a...d419`](https://sepolia.basescan.org/address/0xeA8a38f25ECF9Cc8C9240aafb35b561D14Dfd419) | [`0x786C...695b`](https://sepolia.etherscan.io/address/0x786C85880e0FCF123D726600D9784ee88B84695b) | [`0x6548...d9c4`](https://sepolia.arbiscan.io/address/0x6548466E91547af9F6698a7AF236f9ef8548d9c4) |
 | `EncryptedCrowdfund` | [`0x0F21...183C`](https://sepolia.basescan.org/address/0x0F21705575e2CC83dC410AE2af6973B150a4183C) | [`0x383B...24e1`](https://sepolia.etherscan.io/address/0x383B58973f7e8DC3E47D1C2f55393E2ac48b24e1) | [`0x4Fac...e359`](https://sepolia.arbiscan.io/address/0x4Face583A92f27b36f5098561CB731Aa1DbEe359) |
 | `EncryptedEscrow` | [`0x6414...e421`](https://sepolia.basescan.org/address/0x6414742D2da28eCEf06D79b82F406B6b8ab3e421) | [`0x4253...0feC`](https://sepolia.etherscan.io/address/0x4253163CfCd0cf9885333E0a7B7476d61F010feC) | [`0xfDd7...db6d`](https://sepolia.arbiscan.io/address/0xfDd77d3b6489600466Da74f012bC7A7A342fdb6d) |
-| `P2PExchange` | [`0xDa60...f116`](https://sepolia.basescan.org/address/0xDa606096d5C2bdE73ccB418771e12630030Ff116) | [`0x5339...A054`](https://sepolia.etherscan.io/address/0x53392D0766964723649443c8bA36c4517A79A054) | [`0x6Acf...696E`](https://sepolia.arbiscan.io/address/0x6Acfb8bA3E73511dc4e7DE63d5514D3bf9b6696E) |
 | `P2POfframp` | [`0xd717...32f9`](https://sepolia.basescan.org/address/0xd717E7AFE5eB627c9913bc682003d6E83b9032f9) | [`0x5981...444a`](https://sepolia.etherscan.io/address/0x5981C437032Da38844AE9a3aa382F993b1B8444a) | [`0x653e...961f`](https://sepolia.arbiscan.io/address/0x653e71e5F02a0fEAAFfCab5391DF0AE99b89961f) |
-| `ProofOfBalance` | [`0x25e7...36Ff`](https://sepolia.basescan.org/address/0x25e7383Bd5602a07928629e9Ec6eaec9535536Ff) | [`0xff0F...1856`](https://sepolia.etherscan.io/address/0xff0Fa776116a17b6fbD62E48CA14F48b31E31856) | [`0x23f0...AD7c`](https://sepolia.arbiscan.io/address/0x23f0530e107cCF940093c238bbc97EbdAD6fAD7c) |
 | `GuardianModule` | [`0x4fa2...5B46`](https://sepolia.basescan.org/address/0x4fa2152A940651404F2722c0192624d0662e5B46) | [`0xdBE8...0c3E`](https://sepolia.etherscan.io/address/0xdBE8252D1e089759b56E742843303f0b18700c3E) | [`0x4e9d...C37A`](https://sepolia.arbiscan.io/address/0x4e9d93739b6F3543017C46d844F2021B6f5dC37A) |
-| `InvoiceApprovalResolver` | not deployed | not deployed | [`0x489D...5cc1`](https://sepolia.arbiscan.io/address/0x489D08059d578dF5f3A003B4A1acdF1243F55cc1) |
+| `BlankPaymaster` | [`0x0096...430A`](https://sepolia.basescan.org/address/0x009645a8Fe34796e2e18534441E906899c5F430A) | [`0x691a...Bf13`](https://sepolia.etherscan.io/address/0x691aae146A71A45A633d8b023A1c1B41f34dBf13) | [`0xdfc2...28a8`](https://sepolia.arbiscan.io/address/0xdfc2606B1Ba148CC35b93849ac888BD7DfFD28a8) |
+| `InvoiceApprovalResolver` | not deployed | not deployed | [`0xc68C...E78b`](https://sepolia.arbiscan.io/address/0xc68C56a8Ad23E515eD56F2B98FC93341D98cE78b) |
+| `SessionKeyValidator` | not deployed | not deployed | [`0xd679...7668`](https://sepolia.arbiscan.io/address/0xd679978e0334f0e8D4799d2E51755fEE8EE77668) |
+| Owner (2-of-3 Safe) | [`0x38e4...8D72`](https://sepolia.basescan.org/address/0x38e43E5255c86d5B2e93e6E0708406Ff03908D72) | [`0x38e4...8D72`](https://sepolia.etherscan.io/address/0x38e43E5255c86d5B2e93e6E0708406Ff03908D72) | [`0x38e4...8D72`](https://sepolia.arbiscan.io/address/0x38e43E5255c86d5B2e93e6E0708406Ff03908D72) |
 
 The encrypted-vault FHE path is proven on Arbitrum Sepolia by a real shield transaction: [`0xc623...9585`](https://sepolia.arbiscan.io/tx/0xc623277ed8a44895b149d7b29e8854da5a967e131f463c91e4dca5bb3aa09585). The feature set has since been driven through the UI on Arbitrum Sepolia with a real browser wallet, including multi-wallet send and consume flows, each with an on-chain transaction.
 
-All three testnets run `cofhe-contracts` 1.0.0 and `@cofhe/sdk` 0.8.0. The move was an in-place upgrade of 19 proxies per chain: no address changed and all state was kept. Two-wallet browser runs on 1.0.0, judged from chain state: gift claim, invoice pay, group settle, request pay, claim link and stealth claim on Base Sepolia; gift claim and stealth claim on Arbitrum Sepolia. The Ethereum Sepolia browser flows have not been re-run on 1.0.0. Its upgrade is proven by a live shield and unshield.
+All three testnets run `cofhe-contracts` 1.0.0 and `@cofhe/sdk` 0.8.0. The move was an in-place upgrade of 19 proxies per chain: no address changed and all state was kept. Two-wallet browser runs on 1.0.0, judged from chain state, passed on all three networks: gift claim, invoice pay, group, request pay, claim link and stealth claim. Each chain's upgrade was also proven by a live shield and unshield.
+
+On 17 October 2026 a security upgrade shipped to all three testnets after an internal review of every contract and a second independent pass on the fixes. Each hub now accepts only vaults listed in `TokenRegistry`, settles on the amount a vault actually moved, and limits who can read encrypted values. Disputes time out instead of locking funds. Proxies were upgraded in place with state kept, and ownership moved to the Safe. Two-wallet browser runs on www.myblank.app passed on all three networks afterwards: receive, invoice to paid, claim link, group settle, request to fulfilled and stealth claim. The standalone proof-of-balance contract and the token P2P exchange are retired: their old records stay readable, new entries are closed.
 
 Complete machine-readable deployment manifests:
 
@@ -209,6 +213,7 @@ Operational testnet verification scripts are maintained with the application in 
 - Blank protects amount confidentiality, not participant identity or transaction existence.
 - Ciphertext permissions and decryption rely on the CoFHE access model and its network assumptions.
 - Upgradeable contracts are guarded by storage layout checks in development and CI.
+- Upgrades and admin functions require 2 of 3 Safe signers. There is no timelock.
 - The storefront does not yet provide automatic digital file fulfillment.
 - The offramp is a testnet product surface; production-grade provider verification, dispute operations and governance controls remain release gates.
 - Mainnet use is not supported before an external audit, Fhenix production readiness, finalized operations and key-management controls.
