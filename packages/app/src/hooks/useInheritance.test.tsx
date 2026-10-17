@@ -831,3 +831,29 @@ describe("useInheritance — cross-op invariants (§15.x)", () => {
     }
   });
 });
+
+describe("useInheritance — claimRemaining (heir pulls again after finalize)", () => {
+  it("vaultCount=0 -> error toast + no write", async () => {
+    const { result } = renderHook(() => useInheritance());
+    await act(async () => {
+      await result.current.claimRemaining(OWNER, 0);
+    });
+    expect(toastErrorMock).toHaveBeenCalledWith("No vaults configured in the owner's inheritance plan");
+    expect(unifiedWriteMock).toHaveBeenCalledTimes(0);
+  });
+
+  it("encrypts MAX_UINT64 per vault under one proof and calls claimRemaining(owner, handles, proof)", async () => {
+    encryptInputsAsyncMock.mockResolvedValue(["0xh0", "0xh1", "0xbatchproof"]);
+    const { result } = renderHook(() => useInheritance());
+    await act(async () => {
+      await result.current.claimRemaining(OWNER, 2);
+    });
+    const items = encryptInputsAsyncMock.mock.calls[0][0] as Array<{ raw: bigint }>;
+    expect(items).toHaveLength(2);
+    expect(items.every((v) => v.raw === BigInt("18446744073709551615"))).toBe(true);
+    const call = unifiedWriteMock.mock.calls[0][0];
+    expect(call.functionName).toBe("claimRemaining");
+    expect(call.args).toEqual([OWNER, ["0xh0", "0xh1"], "0xbatchproof"]);
+    expect(call.gas).toBe(5_000_000n);
+  });
+});

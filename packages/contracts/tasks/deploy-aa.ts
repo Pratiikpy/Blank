@@ -3,106 +3,64 @@ import { HardhatRuntimeEnvironment } from "hardhat/types";
 import * as fs from "fs";
 import * as path from "path";
 
-// ─── deploy-aa — ERC-4337 foundation deploy ──────────────────────────────
+// ─── deploy-aa: ERC-4337 foundation deploy (FRESH chains only) ───────────
 //
-// Deploys the BlankAccount + BlankAccountFactory + BlankPaymaster trio to
-// the target chain. The EntryPoint v0.8 address is constant across all
-// EVM chains (CREATE2-deployed deterministically) — we don't deploy it.
+// Deploys BlankAccountFactory (which deploys the BlankAccount implementation
+// in its constructor), then the verifying BlankPaymaster through
+// deploy-paymaster-v2 so the paymaster is configured in the same run
+// (account code hash, gas caps).
 //
-// Output: appends the addresses to `deployments/<network>.json` so the
-// frontend / relayer can read them.
+// Never run this on a chain that already has users: every account address
+// is CREATE2-derived from the factory address, so a new factory gives every
+// passkey a different, empty account. To replace only the paymaster, run
+// deploy-paymaster-v2 on its own.
 //
-// Post-deploy required steps (handled by the relayer/UI later):
-//   - paymaster.setApprovedTarget(...) for every Blank hub
-//   - paymaster.deposit() with ETH for sponsoring
-//   - frontend computes counterfactual addresses via factory.getAddress()
+// After this: setup-aa (deposit), wire-paymaster-targets (allowlist), set
+// BLANK_PAYMASTER_SIGNER_PK on the backend, then point packages/app at the
+// new addresses.
 
 const ENTRYPOINT_V08 = "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108";
 
-
-function loadDeployment(network: string): Record<string, string> {
-  const filePath = path.join(__dirname, "..", "deployments", `${network}.json`);
-  if (!fs.existsSync(filePath)) throw new Error(`No deployment file for ${network}`);
-  return JSON.parse(fs.readFileSync(filePath, "utf8"));
+function deploymentPath(network: string): string {
+  return path.join(__dirname, "..", "deployments", `${network}.json`);
 }
 
-function saveDeployment(network: string, addresses: Record<string, string>) {
-  const dir = path.join(__dirname, "..", "deployments");
-  const filePath = path.join(dir, `${network}.json`);
-  fs.writeFileSync(filePath, JSON.stringify(addresses, null, 2));
-  console.log(`\nDeployment updated: ${filePath}`);
-}
-
-task("deploy-aa", "Deploy ERC-4337 BlankAccount + Factory + Paymaster")
+task("deploy-aa", "Deploy BlankAccountFactory + verifying BlankPaymaster on a fresh chain")
   .addParam("signer", "Address of the paymaster backend verifying signer")
-  .setAction(
-  async (args, hre: HardhatRuntimeEnvironment) => {
+  .addFlag("force", "Deploy even though a BlankAccountFactory is already recorded (strands existing accounts)")
+  .setAction(async (args, hre: HardhatRuntimeEnvironment) => {
     const [deployer] = await hre.ethers.getSigners();
-    const balance = await hre.ethers.provider.getBalance(deployer.address);
-    const addresses = loadDeployment(hre.network.name);
+    const filePath = deploymentPath(hre.network.name);
+    if (!fs.existsSync(filePath)) throw new Error(`No deployment file for ${hre.network.name}`);
+    const addresses: Record<string, string> = JSON.parse(fs.readFileSync(filePath, "utf8"));
 
-    console.log("═══════════════════════════════════════════");
-    console.log("  Blank — ERC-4337 Foundation Deploy");
-    console.log("═══════════════════════════════════════════");
-    console.log("  Deployer:  ", deployer.address);
-    console.log("  Network:   ", hre.network.name);
-    console.log("  Balance:   ", hre.ethers.formatEther(balance), "ETH");
-    console.log("  EntryPoint:", ENTRYPOINT_V08);
-    console.log("  TestUSDC:  ", addresses.TestUSDC);
-    console.log("═══════════════════════════════════════════\n");
-
-    if (!addresses.TestUSDC) {
-      throw new Error("TestUSDC address missing from deployment file — deploy-all first");
+    if (addresses.BlankAccountFactory && !args.force) {
+      throw new Error(
+        `BlankAccountFactory already deployed at ${addresses.BlankAccountFactory}. A new factory moves every ` +
+          `account address. Use deploy-paymaster-v2 to replace the paymaster, or pass --force on a chain with no users.`,
+      );
+    }
+    if (!addresses.TestUSDC) throw new Error("TestUSDC address missing from deployment file, deploy-all first");
+    if (!hre.ethers.isAddress(args.signer) || args.signer === hre.ethers.ZeroAddress) {
+      throw new Error("--signer must be a non-zero address");
     }
 
-    // 1. BlankAccountFactory (also deploys BlankAccount implementation in its constructor)
-    console.log("1/2  Deploying BlankAccountFactory...");
+    console.log(`network=${hre.network.name} deployer=${deployer.address}`);
+    console.log(`balance=${hre.ethers.formatEther(await hre.ethers.provider.getBalance(deployer.address))} ETH`);
+
     const Factory = await hre.ethers.getContractFactory("BlankAccountFactory");
     const factory = await Factory.deploy(ENTRYPOINT_V08);
     await factory.deploymentTransaction()?.wait(2);
     const factoryAddress = await factory.getAddress();
     const implAddress = await factory.accountImplementation();
-    console.log("     ✓ Factory:        ", factoryAddress);
-    console.log("     ✓ Account impl:   ", implAddress);
+    console.log(`BlankAccountFactory ${factoryAddress}`);
+    console.log(`BlankAccount impl    ${implAddress}`);
 
-    // 2. BlankPaymaster — fee token = TestUSDC, treasury = deployer (override later)
-    console.log("\n2/2  Deploying BlankPaymaster...");
-    const Paymaster = await hre.ethers.getContractFactory("BlankPaymaster");
-    const paymaster = await Paymaster.deploy(
-      ENTRYPOINT_V08,
-      addresses.TestUSDC,
-      deployer.address, // treasury, override post-deploy via setTreasury
-      factoryAddress,
-      args.signer,
-    );
-    await paymaster.deploymentTransaction()?.wait(2);
-    const paymasterAddress = await paymaster.getAddress();
-    console.log("     ✓ Paymaster:      ", paymasterAddress);
-    console.log("     signer:          ", args.signer);
-    console.log("     still needed:     setAccountCodeHash + setGasCaps (deploy-paymaster-v2 does both)");
-    console.log("     approved factory:", factoryAddress);
-    console.log("     treasury:        ", deployer.address, "(override via setTreasury)");
-
-    // Save addresses
     addresses.EntryPoint = ENTRYPOINT_V08;
     addresses.BlankAccountFactory = factoryAddress;
     addresses.BlankAccount_Impl = implAddress;
-    addresses.BlankPaymaster = paymasterAddress;
-    saveDeployment(hre.network.name, addresses);
+    fs.writeFileSync(filePath, JSON.stringify(addresses, null, 2) + "\n");
 
-    console.log("\n═══════════════════════════════════════════════════════════════");
-    console.log("  AA Foundation Deploy Complete");
-    console.log("═══════════════════════════════════════════════════════════════");
-    console.log("\n  Next steps (separate session — UI + relayer):");
-    console.log("    1. Build WebAuthn signup flow in /app");
-    console.log("    2. Add /api/relay endpoint for sponsoring UserOps");
-    console.log("    3. Approve targets:");
-    console.log("       paymaster.setApprovedTarget(PaymentHub, true)");
-    console.log("       paymaster.setApprovedTarget(FHERC20Vault_USDC, true)");
-    console.log("       (etc. for every hub Blank wants to sponsor)");
-    console.log("    4. Fund paymaster with ETH:");
-    console.log("       paymaster.deposit{value: 0.05 ether}() // testnet sponsorship");
-    console.log("    5. Wire useShield / useSendPayment / etc. to route through AA");
-    console.log("       when user is on a smart account vs an EOA.\n");
-  }
-);
+    // Paymaster deploy + configuration lives in one place.
+    await hre.run("deploy-paymaster-v2", { signer: args.signer });
+  });

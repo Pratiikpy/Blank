@@ -108,3 +108,34 @@ describe("usePaymasterHealth — status ladder (§15.x)", () => {
     expect(result.current.failThresholdWei).toBe(10_000_000_000_000_000n);
   });
 });
+
+describe("usePaymasterHealth — verifying-paymaster sponsor readiness", () => {
+  it("sponsor reports ready=false -> 'unavailable' even with a funded deposit", async () => {
+    readContractMock.mockResolvedValue(60_000_000_000_000_000n);
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ready: false }) });
+    vi.stubGlobal("fetch", fetchMock);
+    const { result } = renderHook(() => usePaymasterHealth(), { wrapper });
+    await waitFor(() => expect(result.current.sponsorReady).toBe(false));
+    expect(result.current.status).toBe("unavailable");
+    expect(fetchMock).toHaveBeenCalledWith("/api/paymaster/sponsor?chainId=11155111");
+    vi.unstubAllGlobals();
+  });
+
+  it("sponsor ready=true -> the deposit decides", async () => {
+    readContractMock.mockResolvedValue(60_000_000_000_000_000n);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ready: true }) }));
+    const { result } = renderHook(() => usePaymasterHealth(), { wrapper });
+    await waitFor(() => expect(result.current.sponsorReady).toBe(true));
+    expect(result.current.status).toBe("healthy");
+    vi.unstubAllGlobals();
+  });
+
+  it("sponsor endpoint unreachable (local dev) -> sponsorReady null, deposit decides", async () => {
+    readContractMock.mockResolvedValue(60_000_000_000_000_000n);
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
+    const { result } = renderHook(() => usePaymasterHealth(), { wrapper });
+    await waitFor(() => expect(result.current.status).toBe("healthy"));
+    expect(result.current.sponsorReady).toBeNull();
+    vi.unstubAllGlobals();
+  });
+});

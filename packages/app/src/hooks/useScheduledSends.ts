@@ -3,13 +3,12 @@
 // scanning (no on-chain enumeration), which works on a fresh device
 // without server state.
 //
-// Write path: setScope is called BY THE AA (msg.sender), so the
-// frontend wraps it in `BlankAccount.execute(validator, 0,
-// abi.encodeCall(setScope, [...]))` and signs via passkey (legacy P-256
-// path — still works post-Phase-4.1 upgrade).
+// Write path: setScope is called BY THE AA (msg.sender). unifiedWrite
+// wraps the call in `BlankAccount.execute(validator, 0, data)` and signs
+// via passkey.
 
 import { useCallback, useEffect, useState } from "react";
-import { type Address, encodeFunctionData, parseUnits } from "viem";
+import { type Address, parseUnits } from "viem";
 import { usePublicClient } from "wagmi";
 import { useChain } from "@/providers/ChainProvider";
 import { useEffectiveAddress } from "./useEffectiveAddress";
@@ -17,24 +16,11 @@ import { useUnifiedWrite } from "./useUnifiedWrite";
 import {
   fetchActiveScopes,
   SessionKeyValidatorAbi,
+  buildSessionScope,
   type ActiveScope,
 } from "@/lib/scheduled-sends";
 
 const ZERO_ADDR = "0x0000000000000000000000000000000000000000" as const;
-
-const BlankAccountExecAbi = [
-  {
-    type: "function",
-    name: "execute",
-    stateMutability: "nonpayable",
-    inputs: [
-      { name: "target", type: "address" },
-      { name: "value", type: "uint256" },
-      { name: "data", type: "bytes" },
-    ],
-    outputs: [],
-  },
-] as const;
 
 export interface CreateScopeArgs {
   /** The server-generated session key public address (returned from
@@ -54,6 +40,8 @@ export interface CreateScopeArgs {
   periodSeconds: number;
   /** Hard expiry of the entire authorization, Unix seconds. */
   validUntil: number;
+  /** Paymaster fires may name (BlankPaymaster). null/absent: account pays. */
+  paymaster?: Address | null;
 }
 
 export interface UseScheduledSendsReturn {
@@ -122,28 +110,25 @@ export function useScheduledSends(): UseScheduledSendsReturn {
       if (amountBase > (1n << 128n) - 1n) {
         throw new Error("Amount exceeds uint128 cap");
       }
-      const setScopeData = encodeFunctionData({
+      // unifiedWrite wraps this in BlankAccount.execute(validator, 0, data),
+      // so the account is msg.sender on the validator (account-associated
+      // storage) and the op is sponsorable (the validator is an approved
+      // paymaster target; a call into the account itself never is).
+      await unifiedWrite({
+        address: validatorAddr,
         abi: SessionKeyValidatorAbi,
         functionName: "setScope",
         args: [
           args.sessionKey,
-          {
+          buildSessionScope({
             recipient: args.recipient,
             spendToken: args.spendToken,
             maxAmountPerCall: amountBase,
             periodSeconds: args.periodSeconds,
             validUntil: args.validUntil,
-            lastFiredAt: 0, // ignored on write — contract anchors at block.timestamp - period
-          },
+            paymaster: args.paymaster ?? null,
+          }),
         ],
-      });
-      // Wrap in execute(validator, 0, setScopeData) so the AA itself is
-      // msg.sender on the validator (account-associated storage rule).
-      await unifiedWrite({
-        address: effectiveAddress as `0x${string}`,
-        abi: BlankAccountExecAbi,
-        functionName: "execute",
-        args: [validatorAddr, 0n, setScopeData],
         gas: 250_000n,
         paymaster: paymasterMode,
       });
@@ -156,16 +141,11 @@ export function useScheduledSends(): UseScheduledSendsReturn {
     async (sessionKey: Address, paymasterMode?: "sponsored" | "self") => {
       if (!effectiveAddress) throw new Error("No smart account ready");
       if (validatorAddr === ZERO_ADDR) throw new Error("SessionKeyValidator not deployed");
-      const revokeData = encodeFunctionData({
+      await unifiedWrite({
+        address: validatorAddr,
         abi: SessionKeyValidatorAbi,
         functionName: "revokeScope",
         args: [sessionKey],
-      });
-      await unifiedWrite({
-        address: effectiveAddress as `0x${string}`,
-        abi: BlankAccountExecAbi,
-        functionName: "execute",
-        args: [validatorAddr, 0n, revokeData],
         gas: 150_000n,
         paymaster: paymasterMode,
       });

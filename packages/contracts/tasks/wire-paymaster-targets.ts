@@ -1,30 +1,27 @@
 import { task } from "hardhat/config";
 import { readFileSync } from "fs";
 import { resolve } from "path";
+import { PAYMASTER_TARGETS, RETIRED_TARGETS } from "./lib/paymaster-targets";
 
 /**
- * wire-paymaster-targets — audit + fix BlankPaymaster.approvedTargets so
- * AA UserOps for all top-level Blank contracts (not just PaymentHub)
- * pass the paymaster's whitelist check.
+ * wire-paymaster-targets: audit and fix BlankPaymaster.approvedTargets.
  *
- * Identified during the Wave 4 audit run: P2 sendPayment (PaymentHub)
- * works through the AA-paymaster path, but P3 createInvoice
- * (BusinessHub), P4 createEscrow (BusinessHub), P19 setHeir
- * (InheritanceManager), P20 createGift (GiftMoney), and P8 upgrade
- * (BlankAccount self-call) all fail. Page snapshots confirm the on-
- * chain state never advances. Paymaster's `setApprovedTarget` is the
- * only allowlist gate that fits the symptom: PaymentHub is sponsored
- * but the newer hubs were never added.
+ * BlankPaymaster sponsors only execute / executeBatch calls whose every
+ * target is approved (once any target is approved). The sponsor backend
+ * (/api/paymaster/sponsor) reads the same on-chain allowlist, so a missing
+ * target shows up as "target ... is not on the paymaster allowlist".
  *
- * --dry-run  -> just print which targets are missing
- * (default)  -> submit one tx per missing target
+ * Approves every contract in tasks/lib/paymaster-targets.ts present in the
+ * deployment file, and un-approves retired ones (ProofOfBalance, the *_v0
+ * addresses left behind by fresh deploys).
  *
- * Usage:
- *   npx hardhat wire-paymaster-targets --network eth-sepolia --dry-run
- *   npx hardhat wire-paymaster-targets --network eth-sepolia
+ * --dry-run  -> print what would change
+ * (default)  -> submit one tx per change
+ *
+ *   npx hardhat wire-paymaster-targets --network base-sepolia --dry-run
  *   npx hardhat wire-paymaster-targets --network base-sepolia
  *
- * Caller MUST be the paymaster owner (typically the deployer).
+ * Caller MUST be the paymaster owner.
  */
 
 const PAYMASTER_ABI = [
@@ -34,143 +31,72 @@ const PAYMASTER_ABI = [
   "function approvedTargetsCount() external view returns (uint256)",
 ];
 
-// Contracts that frontend AA UserOps will target. Pulled from the
-// recordProof matrix in proof-gap-audit.ts so it stays in sync with
-// what wave4 tests exercise.
-const TARGETED_CONTRACTS = [
-  "PaymentHub",
-  "FHERC20Vault_USDC",
-  "BusinessHub",
-  "GroupManager",
-  "CreatorHub",
-  "P2PExchange",
-  "InheritanceManager",
-  "GiftMoney",
-  "PrivacyRouter",
-  "StealthPayments",
-  "EncryptedFlags",
-  "PaymentReceipts",
-  // Wave 4 additions: deep-link contracts the AA path targets.
-  "ClaimLinks",
-  "Storefront",
-  "EncryptedCrowdfund",
-  // Found by driving a second wallet through stealth on Base Sepolia: a
-  // recipient pressing "Publish meta-address" got "rejected on-chain with no
-  // reason returned". The UserOp targets the canonical ERC-6538 Registry,
-  // which was never on this list, so the paymaster reverted in validation and
-  // handleOps reverted with it. No passkey user could publish a meta-address
-  // on any chain, which means nobody could receive a stealth payment at all.
-  // The announcer is the send side of the same feature.
-  "ERC6538Registry",
-  "ERC5564Announcer",
-  // Same class: proof-of-balance writes are a sponsored UserOp and the
-  // contract was never approved on any chain.
-  "ProofOfBalance",
-];
-
-task(
-  "wire-paymaster-targets",
-  "Audit + fix BlankPaymaster.approvedTargets allowlist",
-)
-  .addFlag("dryRun", "Skip on-chain writes; just report missing approvals")
+task("wire-paymaster-targets", "Audit and fix the BlankPaymaster approvedTargets allowlist")
+  .addFlag("dryRun", "Skip on-chain writes; just report the changes")
   .setAction(async ({ dryRun }, hre) => {
     const networkName = hre.network.name;
     const deploymentFile =
-      networkName === "base-sepolia"
-        ? "base-sepolia.json"
-        : networkName === "eth-sepolia"
-        ? "eth-sepolia.json"
-        : networkName === "arb-sepolia"
-        ? "arb-sepolia.json"
-        : null;
+      networkName === "base-sepolia" ? "base-sepolia.json"
+      : networkName === "eth-sepolia" ? "eth-sepolia.json"
+      : networkName === "arb-sepolia" ? "arb-sepolia.json"
+      : null;
     if (!deploymentFile) {
-      throw new Error(
-        `Unknown network "${networkName}" — expected eth-sepolia, base-sepolia or arb-sepolia.`,
-      );
+      throw new Error(`Unknown network "${networkName}", expected eth-sepolia, base-sepolia or arb-sepolia.`);
     }
-
     const deployments = JSON.parse(
-      readFileSync(
-        resolve(__dirname, "..", "deployments", deploymentFile),
-        "utf8",
-      ),
+      readFileSync(resolve(__dirname, "..", "deployments", deploymentFile), "utf8"),
     ) as Record<string, string>;
 
     const paymasterAddr = deployments.BlankPaymaster;
-    if (!paymasterAddr) {
-      throw new Error(`BlankPaymaster not found in ${deploymentFile}`);
-    }
+    if (!paymasterAddr) throw new Error(`BlankPaymaster not found in ${deploymentFile}`);
 
     const [signer] = await hre.ethers.getSigners();
-    const paymaster = new hre.ethers.Contract(
-      paymasterAddr,
-      PAYMASTER_ABI,
-      signer,
-    );
+    const paymaster = new hre.ethers.Contract(paymasterAddr, PAYMASTER_ABI, signer);
+    const owner: string = await paymaster.owner();
+    console.log(`Network:         ${networkName}`);
+    console.log(`Paymaster:       ${paymasterAddr}`);
+    console.log(`Paymaster owner: ${owner}`);
+    console.log(`Signer:          ${signer.address}`);
+    console.log(`Approved count:  ${await paymaster.approvedTargetsCount()}\n`);
 
-    const owner = await paymaster.owner();
-    console.log(`Network:           ${networkName}`);
-    console.log(`Paymaster:         ${paymasterAddr}`);
-    console.log(`Paymaster owner:   ${owner}`);
-    console.log(`Signer:            ${signer.address}`);
-    console.log(
-      `Approved count:    ${await paymaster.approvedTargetsCount()}`,
-    );
-    console.log("");
-
-    // Audit phase — read current approval state.
-    const missing: { name: string; addr: string }[] = [];
-    const present: { name: string; addr: string }[] = [];
-    for (const name of TARGETED_CONTRACTS) {
-      const addr = deployments[name];
+    const changes: Array<{ name: string; addr: string; approve: boolean }> = [];
+    const live = new Set<string>();
+    for (const { key } of PAYMASTER_TARGETS) {
+      const addr = deployments[key];
       if (!addr) {
-        console.warn(
-          `  skip:    ${name} (not in deployments JSON for ${networkName})`,
-        );
+        console.log(`  skip:     ${key} (not deployed on ${networkName})`);
         continue;
       }
+      live.add(addr.toLowerCase());
       const approved: boolean = await paymaster.approvedTargets(addr);
-      if (approved) {
-        present.push({ name, addr });
-        console.log(`  ok:      ${name.padEnd(20)} ${addr}`);
-      } else {
-        missing.push({ name, addr });
-        console.log(`  missing: ${name.padEnd(20)} ${addr}`);
+      console.log(`  ${approved ? "ok:      " : "missing: "} ${key.padEnd(24)} ${addr}`);
+      if (!approved) changes.push({ name: key, addr, approve: true });
+    }
+    for (const key of RETIRED_TARGETS) {
+      const addr = deployments[key];
+      // A retired key can share an address with a live one (e.g. a fresh
+      // deploy that was skipped); never revoke a live target.
+      if (!addr || live.has(addr.toLowerCase())) continue;
+      if (await paymaster.approvedTargets(addr)) {
+        console.log(`  retired:  ${key.padEnd(24)} ${addr} (will un-approve)`);
+        changes.push({ name: key, addr, approve: false });
       }
     }
 
-    console.log("");
-    console.log(
-      `Summary: ${present.length} approved, ${missing.length} missing.`,
-    );
-
-    if (missing.length === 0) {
-      console.log("Nothing to do — all targeted contracts are approved.");
-      return;
-    }
-
+    console.log(`\n${changes.length} change(s).`);
+    if (changes.length === 0) return;
     if (dryRun) {
-      console.log("");
       console.log("--dry-run: no on-chain writes.");
-      console.log("Re-run without --dry-run to submit setApprovedTarget txs.");
       return;
     }
-
     if (owner.toLowerCase() !== signer.address.toLowerCase()) {
-      throw new Error(
-        `Signer ${signer.address} is not the paymaster owner ${owner}.`,
-      );
+      throw new Error(`Signer ${signer.address} is not the paymaster owner ${owner}.`);
     }
-
-    console.log("");
-    console.log(`Submitting ${missing.length} setApprovedTarget txs...`);
-    for (const { name, addr } of missing) {
-      const tx = await paymaster.setApprovedTarget(addr, true);
-      console.log(`  ${name.padEnd(20)} -> tx ${tx.hash}`);
-      await tx.wait();
+    for (const c of changes) {
+      const tx = await paymaster.setApprovedTarget(c.addr, c.approve);
+      console.log(`  ${c.approve ? "approve" : "revoke "} ${c.name.padEnd(24)} -> tx ${tx.hash}`);
+      const rcpt = await tx.wait(2);
+      if (rcpt?.status !== 1) throw new Error(`setApprovedTarget(${c.name}) reverted: ${tx.hash}`);
     }
-    console.log("Done.");
-    console.log(
-      `New approved count: ${await paymaster.approvedTargetsCount()}`,
-    );
+    console.log(`Done. Approved count: ${await paymaster.approvedTargetsCount()}`);
   });

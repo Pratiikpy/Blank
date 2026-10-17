@@ -20,6 +20,7 @@ import { type Address, getAddress, hexToBigInt, slice } from "viem";
 import { usePublicClient } from "wagmi";
 import { useChain } from "@/providers/ChainProvider";
 import { useEffectiveAddress } from "./useEffectiveAddress";
+import { latestAccountImpl } from "@/lib/account-impl";
 
 const EIP1967_IMPL_SLOT =
   "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc" as const;
@@ -51,7 +52,8 @@ export function useAccountVersion(): AccountVersion {
   const { effectiveAddress, isSmartAccount } = useEffectiveAddress();
   const { activeChainId, contracts } = useChain();
   const publicClient = usePublicClient({ chainId: activeChainId });
-  const canonicalImpl = (contracts.BlankAccount_Impl_v041 ?? ZERO_ADDR) as Address;
+  // Newest deployed implementation (security-v1, then gas-wallet, then v041).
+  const canonicalImpl = latestAccountImpl(contracts);
   const canonicalDeployed = canonicalImpl !== ZERO_ADDR;
 
   const query = useQuery({

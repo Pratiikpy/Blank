@@ -48,7 +48,8 @@ vi.mock("./useUnifiedWrite", () => ({ useUnifiedWrite: useUnifiedWriteMock }));
 // Minimal ABI with setScope + revokeScope so viem's encodeFunctionData
 // can locate the functions. The hook calls encodeFunctionData directly
 // (not a contract call), so a stub ABI is enough.
-vi.mock("@/lib/scheduled-sends", () => ({
+vi.mock("@/lib/scheduled-sends", async () => ({
+  buildSessionScope: (await vi.importActual<typeof import("@/lib/scheduled-sends")>("@/lib/scheduled-sends")).buildSessionScope,
   fetchActiveScopes: fetchActiveScopesMock,
   SessionKeyValidatorAbi: [
     {
@@ -323,18 +324,37 @@ describe("useScheduledSends — createScope validation (§15.x)", () => {
 // ----- createScope: call shape ----- //
 
 describe("useScheduledSends — createScope call shape (§15.x)", () => {
-  it("calls unifiedWrite with execute(validator, 0, encodedSetScope) on the AA itself", async () => {
+  it("calls setScope on the validator directly (unifiedWrite wraps it in execute(validator, ...)), 250k gas", async () => {
     const { result } = renderHook(() => useScheduledSends());
     await waitFor(() => expect(fetchActiveScopesMock).toHaveBeenCalled());
     await act(async () => result.current.createScope(baseArgs()));
     expect(unifiedWriteMock).toHaveBeenCalledTimes(1);
     const call = unifiedWriteMock.mock.calls[0][0];
-    expect(call.address).toBe(AA);
-    expect(call.functionName).toBe("execute");
-    expect(call.args[0]).toBe(VALIDATOR);
-    expect(call.args[1]).toBe(0n);
-    expect(call.args[2]).toMatch(/^0x/); // encoded calldata
+    // Targeting the validator, not the account: a call into the account
+    // itself is never sponsored by the verifying paymaster.
+    expect(call.address).toBe(VALIDATOR);
+    expect(call.functionName).toBe("setScope");
+    expect(call.args[0]).toBe(SESSION_KEY);
     expect(call.gas).toBe(250_000n);
+  });
+
+  it("scope carries the security-v1 gas fields; paymaster defaults to address(0) (account pays)", async () => {
+    const { result } = renderHook(() => useScheduledSends());
+    await waitFor(() => expect(fetchActiveScopesMock).toHaveBeenCalled());
+    await act(async () => result.current.createScope(baseArgs()));
+    const scope = unifiedWriteMock.mock.calls[0][0].args[1];
+    expect(scope.maxFeePerGas).toBe(50_000_000_000n);
+    expect(scope.maxTotalGas).toBe(((600_000n + 200_000n + 60_000n + 150_000n + 120_000n) * 5n) / 4n);
+    expect(scope.paymaster).toBe(ZERO);
+    expect(scope.lastFiredAt).toBe(0);
+  });
+
+  it("paymaster arg is written into the scope", async () => {
+    const PM = "0x9999999999999999999999999999999999999999" as const;
+    const { result } = renderHook(() => useScheduledSends());
+    await waitFor(() => expect(fetchActiveScopesMock).toHaveBeenCalled());
+    await act(async () => result.current.createScope({ ...baseArgs(), paymaster: PM }));
+    expect(unifiedWriteMock.mock.calls[0][0].args[1].paymaster).toBe(PM);
   });
 
   it("paymasterMode='sponsored' passes through to unifiedWrite", async () => {
@@ -358,15 +378,6 @@ describe("useScheduledSends — createScope call shape (§15.x)", () => {
     expect(unifiedWriteMock.mock.calls[0][0].paymaster).toBeUndefined();
   });
 
-  it("encoded calldata is non-empty hex bytes (encodeFunctionData wrapped setScope)", async () => {
-    const { result } = renderHook(() => useScheduledSends());
-    await waitFor(() => expect(fetchActiveScopesMock).toHaveBeenCalled());
-    await act(async () => result.current.createScope(baseArgs()));
-    const calldata = unifiedWriteMock.mock.calls[0][0].args[2] as string;
-    // 4-byte selector + ABI-encoded args = at least 10 hex chars after 0x
-    expect(calldata.length).toBeGreaterThan(10);
-  });
-
   it("createScope success -> refetch fires (scopes refresh after write)", async () => {
     const { result } = renderHook(() => useScheduledSends());
     await waitFor(() => expect(fetchActiveScopesMock).toHaveBeenCalled());
@@ -374,7 +385,6 @@ describe("useScheduledSends — createScope call shape (§15.x)", () => {
     await act(async () => result.current.createScope(baseArgs()));
     expect(fetchActiveScopesMock.mock.calls.length).toBe(before + 1);
   });
-
   it("createScope write rejection propagates (no refetch on failure)", async () => {
     unifiedWriteMock.mockRejectedValue(new Error("user rejected"));
     const { result } = renderHook(() => useScheduledSends());
@@ -413,16 +423,15 @@ describe("useScheduledSends — revokeScope (§15.x)", () => {
     ).rejects.toThrow("SessionKeyValidator not deployed");
   });
 
-  it("calls execute(validator, 0, revokeScope(sessionKey)) with gas=150_000", async () => {
+  it("calls revokeScope(sessionKey) on the validator directly with gas=150_000", async () => {
     const { result } = renderHook(() => useScheduledSends());
     await waitFor(() => expect(fetchActiveScopesMock).toHaveBeenCalled());
     await act(async () => result.current.revokeScope(SESSION_KEY));
     expect(unifiedWriteMock).toHaveBeenCalledTimes(1);
     const call = unifiedWriteMock.mock.calls[0][0];
-    expect(call.address).toBe(AA);
-    expect(call.functionName).toBe("execute");
-    expect(call.args[0]).toBe(VALIDATOR);
-    expect(call.args[1]).toBe(0n);
+    expect(call.address).toBe(VALIDATOR);
+    expect(call.functionName).toBe("revokeScope");
+    expect(call.args).toEqual([SESSION_KEY]);
     expect(call.gas).toBe(150_000n);
   });
 
@@ -450,17 +459,6 @@ describe("useScheduledSends — revokeScope (§15.x)", () => {
       act(async () => result.current.revokeScope(SESSION_KEY)),
     ).rejects.toThrow("user rejected");
     expect(fetchActiveScopesMock.mock.calls.length).toBe(before);
-  });
-
-  it("revoke calldata smaller than create calldata (one arg vs full struct)", async () => {
-    const { result } = renderHook(() => useScheduledSends());
-    await waitFor(() => expect(fetchActiveScopesMock).toHaveBeenCalled());
-    await act(async () => result.current.createScope(baseArgs()));
-    const createCalldata = unifiedWriteMock.mock.calls[0][0].args[2] as string;
-    unifiedWriteMock.mockClear();
-    await act(async () => result.current.revokeScope(SESSION_KEY));
-    const revokeCalldata = unifiedWriteMock.mock.calls[0][0].args[2] as string;
-    expect(revokeCalldata.length).toBeLessThan(createCalldata.length);
   });
 });
 

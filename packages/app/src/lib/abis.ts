@@ -96,6 +96,18 @@ export const BlankAccountAbi = [
   // withdrawGasDepositTo: owner-gated EntryPoint withdrawal.
   { type: "function", name: "topUpGas", inputs: [], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "withdrawGasDepositTo", inputs: [{ name: "to", type: "address" }, { name: "amount", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
+  // security-v1 implementation. isValidSignature verifies the passkey
+  // signature over replaySafeHash(hash), an EIP-712 wrap bound to this
+  // account and chain. isValidatorEnabled also checks the validator epoch,
+  // which owner rotation bumps; read it instead of enabledValidators.
+  { type: "function", name: "replaySafeHash", inputs: [{ name: "hash", type: "bytes32" }], outputs: [{ name: "", type: "bytes32" }], stateMutability: "view" },
+  { type: "function", name: "isValidatorEnabled", inputs: [{ name: "validator", type: "address" }], outputs: [{ name: "", type: "bool" }], stateMutability: "view" },
+  { type: "function", name: "enabledValidators", inputs: [{ name: "validator", type: "address" }], outputs: [{ name: "enabled", type: "bool" }], stateMutability: "view" },
+  { type: "function", name: "validatorEpoch", inputs: [], outputs: [{ name: "", type: "uint256" }], stateMutability: "view" },
+  { type: "function", name: "enableValidator", inputs: [{ name: "validator", type: "address" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "disableValidator", inputs: [{ name: "validator", type: "address" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "recoveryModule", inputs: [], outputs: [{ name: "", type: "address" }], stateMutability: "view" },
+  { type: "function", name: "setRecoveryModule", inputs: [{ name: "newModule", type: "address" }], outputs: [], stateMutability: "nonpayable" },
 ] as const;
 
 export const TokenRegistryAbi = [
@@ -251,6 +263,13 @@ export const InheritanceManagerAbi = [
   { type: "function", name: "finalizeClaim", inputs: [{ name: "owner_", type: "address" }, { name: "encAmounts", type: "bytes32[]", internalType: "externalEuint64[]" }, { name: "proof", type: "bytes" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "getPlan", inputs: [{ name: "owner_", type: "address" }], outputs: [{ name: "heir", type: "address" }, { name: "inactivityPeriod", type: "uint256" }, { name: "lastHeartbeat", type: "uint256" }, { name: "claimStartedAt", type: "uint256" }, { name: "active", type: "bool" }, { name: "vaults", type: "address[]" }], stateMutability: "view" },
   { type: "function", name: "isClaimable", inputs: [{ name: "owner_", type: "address" }], outputs: [{ name: "", type: "bool" }], stateMutability: "view" },
+  // After finalizeClaim the heir may pull again (amounts that moved 0, or
+  // funds that arrived later) until the principal calls setHeir/removeHeir.
+  { type: "function", name: "claimRemaining", inputs: [{ name: "owner_", type: "address" }, { name: "encAmounts", type: "bytes32[]", internalType: "externalEuint64[]" }, { name: "proof", type: "bytes" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "claimFinalized", inputs: [{ name: "", type: "address" }], outputs: [{ name: "", type: "bool" }], stateMutability: "view" },
+  { type: "event", name: "ClaimRetried", inputs: [{ name: "owner", type: "address", indexed: true }, { name: "heir", type: "address", indexed: true }, { name: "timestamp", type: "uint256", indexed: false }] },
+  { type: "event", name: "ClaimVaultTransferred", inputs: [{ name: "owner", type: "address", indexed: true }, { name: "heir", type: "address", indexed: true }, { name: "vault", type: "address", indexed: true }, { name: "moved", type: "bytes32", indexed: false }] },
+  { type: "event", name: "ClaimVaultSkipped", inputs: [{ name: "owner", type: "address", indexed: true }, { name: "heir", type: "address", indexed: true }, { name: "vault", type: "address", indexed: true }] },
   { type: "event", name: "VaultsUpdated", inputs: [{ name: "owner", type: "address", indexed: true }, { name: "vaults", type: "address[]", indexed: false }, { name: "timestamp", type: "uint256", indexed: false }] },
   { type: "event", name: "HeirSet", inputs: [{ name: "owner", type: "address", indexed: true }, { name: "heir", type: "address", indexed: true }, { name: "inactivityPeriod", type: "uint256", indexed: false }, { name: "timestamp", type: "uint256", indexed: false }] },
   { type: "event", name: "HeirRemoved", inputs: [{ name: "owner", type: "address", indexed: true }, { name: "timestamp", type: "uint256", indexed: false }] },
@@ -977,13 +996,19 @@ export const GuardianModuleAbi = [
   { type: "function", name: "addGuardian", inputs: [{ name: "guardian", type: "address" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "removeGuardian", inputs: [{ name: "guardian", type: "address" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "setThreshold", inputs: [{ name: "threshold", type: "uint8" }], outputs: [], stateMutability: "nonpayable" },
+  // The request commits keccak256(abi.encode(newOwnerX, newOwnerY)) of the
+  // recovering user's new passkey; finalize must present the same key.
   { type: "function", name: "requestRecovery", inputs: [
-    { name: "account", type: "address" }, { name: "newOwner", type: "address" },
+    { name: "account", type: "address" }, { name: "newOwnerX", type: "uint256" }, { name: "newOwnerY", type: "uint256" },
   ], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "approveRecovery", inputs: [{ name: "account", type: "address" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "vetoRecovery", inputs: [{ name: "account", type: "address" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "cancelRecovery", inputs: [], outputs: [], stateMutability: "nonpayable" },
-  { type: "function", name: "finalizeRecovery", inputs: [{ name: "account", type: "address" }], outputs: [], stateMutability: "nonpayable" },
+  // finalizeRecovery(address) is retired on-chain (reverts "retired"); kept
+  // out of the ABI so no UI can reach it.
+  { type: "function", name: "finalizeRecoveryAndRotate", inputs: [
+    { name: "account", type: "address" }, { name: "newOwnerX", type: "uint256" }, { name: "newOwnerY", type: "uint256" },
+  ], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "guardiansOf", inputs: [{ name: "account", type: "address" }], outputs: [{ name: "", type: "address[]" }], stateMutability: "view" },
   { type: "function", name: "thresholdOf", inputs: [{ name: "account", type: "address" }], outputs: [{ name: "", type: "uint8" }], stateMutability: "view" },
   { type: "function", name: "isGuardian", inputs: [{ name: "account", type: "address" }, { name: "who", type: "address" }], outputs: [{ name: "", type: "bool" }], stateMutability: "view" },
@@ -994,15 +1019,42 @@ export const GuardianModuleAbi = [
     { name: "vetoed", type: "bool" },
     { name: "finalized", type: "bool" },
   ], stateMutability: "view" },
+  { type: "function", name: "hasApproved", inputs: [{ name: "account", type: "address" }, { name: "guardian", type: "address" }], outputs: [{ name: "", type: "bool" }], stateMutability: "view" },
+  { type: "function", name: "hasVetoed", inputs: [{ name: "account", type: "address" }, { name: "guardian", type: "address" }], outputs: [{ name: "", type: "bool" }], stateMutability: "view" },
+  { type: "function", name: "recoveryKeyHash", inputs: [{ name: "account", type: "address" }], outputs: [{ name: "", type: "bytes32" }], stateMutability: "view" },
+  { type: "function", name: "recoveryNonce", inputs: [{ name: "account", type: "address" }], outputs: [{ name: "", type: "uint256" }], stateMutability: "view" },
+  { type: "function", name: "vetoQuorum", inputs: [{ name: "account", type: "address" }], outputs: [{ name: "", type: "uint256" }], stateMutability: "view" },
+  { type: "function", name: "effectiveRecoveryWindow", inputs: [], outputs: [{ name: "", type: "uint32" }], stateMutability: "view" },
   { type: "function", name: "RECOVERY_WINDOW_SECONDS", inputs: [], outputs: [{ name: "", type: "uint32" }], stateMutability: "view" },
+  { type: "function", name: "MIN_RECOVERY_WINDOW", inputs: [], outputs: [{ name: "", type: "uint32" }], stateMutability: "view" },
   { type: "event", name: "RecoveryRequested", inputs: [
     { name: "account", type: "address", indexed: true },
     { name: "newOwner", type: "address", indexed: true },
     { name: "by", type: "address", indexed: true },
   ] },
+  { type: "event", name: "RecoveryKeyCommitted", inputs: [
+    { name: "account", type: "address", indexed: true },
+    { name: "nonce", type: "uint256", indexed: true },
+    { name: "newKeyHash", type: "bytes32", indexed: false },
+  ] },
+  { type: "event", name: "RecoveryVetoVote", inputs: [
+    { name: "account", type: "address", indexed: true },
+    { name: "by", type: "address", indexed: true },
+    { name: "vetoes", type: "uint256", indexed: false },
+    { name: "quorum", type: "uint256", indexed: false },
+  ] },
+  { type: "event", name: "RecoveryVetoed", inputs: [
+    { name: "account", type: "address", indexed: true },
+    { name: "by", type: "address", indexed: true },
+  ] },
   { type: "event", name: "RecoveryFinalized", inputs: [
     { name: "account", type: "address", indexed: true },
     { name: "newOwner", type: "address", indexed: true },
+  ] },
+  { type: "event", name: "RecoveryRotated", inputs: [
+    { name: "account", type: "address", indexed: true },
+    { name: "newOwnerX", type: "uint256", indexed: false },
+    { name: "newOwnerY", type: "uint256", indexed: false },
   ] },
 ] as const;
 

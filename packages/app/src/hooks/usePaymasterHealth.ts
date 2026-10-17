@@ -59,6 +59,10 @@ export interface PaymasterHealth {
   failThresholdWei: bigint;
   /** True if BlankPaymaster is configured for the active chain. */
   configured: boolean;
+  /** Whether /api/paymaster/sponsor can sign for this chain (key present and
+   *  equal to the paymaster's verifyingSigner, caps and code hash set).
+   *  null when unknown (request failed). false forces "unavailable". */
+  sponsorReady: boolean | null;
   /** Last fetch error (if any). Surfaced for debugging; UI doesn't usually need it. */
   error: string | null;
   /** True while the underlying React Query is in flight. */
@@ -104,16 +108,43 @@ export function usePaymasterHealth(): PaymasterHealth {
     refetchOnWindowFocus: false,
   });
 
+  // BlankPaymaster is a verifying paymaster: a funded deposit is useless
+  // unless the backend sponsor holds the verifying key and the paymaster's
+  // caps and account code hash are set. /api/paymaster/sponsor reports that.
+  // A network failure here (local dev without the API) leaves it unknown and
+  // the verdict falls back to the deposit alone.
+  const sponsorQuery = useQuery({
+    queryKey: ["paymaster-sponsor-ready", activeChainId, paymaster ?? "none"],
+    enabled: configured && typeof fetch === "function",
+    queryFn: async (): Promise<boolean | null> => {
+      try {
+        const res = await fetch(`/api/paymaster/sponsor?chainId=${activeChainId}`);
+        if (!res.ok) return null;
+        const body = (await res.json()) as { ready?: unknown };
+        return typeof body.ready === "boolean" ? body.ready : null;
+      } catch {
+        return null;
+      }
+    },
+    refetchInterval: 120_000,
+    staleTime: 110_000,
+    retry: 0,
+    refetchOnWindowFocus: false,
+  });
+  const sponsorReady = sponsorQuery.data ?? null;
+
   const depositWei = query.data ?? null;
   const status: PaymasterHealthStatus = !configured
     ? "unavailable"
-    : depositWei === null
-      ? query.isError ? "unknown" : "unknown"
-      : depositWei < FAIL_DEPOSIT_WEI
-        ? "unavailable"
-        : depositWei < MIN_DEPOSIT_WEI
-          ? "degraded"
-          : "healthy";
+    : sponsorReady === false
+      ? "unavailable"
+      : depositWei === null
+        ? "unknown"
+        : depositWei < FAIL_DEPOSIT_WEI
+          ? "unavailable"
+          : depositWei < MIN_DEPOSIT_WEI
+            ? "degraded"
+            : "healthy";
 
   return {
     status,
@@ -121,6 +152,7 @@ export function usePaymasterHealth(): PaymasterHealth {
     warnThresholdWei: MIN_DEPOSIT_WEI,
     failThresholdWei: FAIL_DEPOSIT_WEI,
     configured,
+    sponsorReady,
     error: query.error instanceof Error ? query.error.message : null,
     isLoading: query.isLoading,
   };

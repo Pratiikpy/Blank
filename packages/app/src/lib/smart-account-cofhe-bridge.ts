@@ -14,8 +14,10 @@
 // The signature we return is `abi.encode(uint256 r, uint256 s)` — 64 bytes —
 // matching the shape BlankAccount.isValidSignature expects to decode. On-chain,
 // the Fhenix ACL contract calls `smartAccount.isValidSignature(digest, sig)`,
-// BlankAccount decodes (r, s), and P256.verify confirms the passkey signed the
-// EIP-712 digest. Same round-trip, different curve from ECDSA's secp256k1.
+// BlankAccount decodes (r, s), and P256.verify confirms the passkey signed
+// replaySafeHash(digest) (security-v1 implementation; older ones verify the
+// raw digest, see blank-account-1271.ts). Same round-trip, different curve
+// from ECDSA's secp256k1.
 //
 // Limitations (intentional for R5-B; R5-E can polish):
 //   - Every permit-sign prompts for the passphrase. An in-memory session
@@ -44,8 +46,11 @@ import {
   encodeP256Signature,
   getNextNonce,
   serializeUserOp,
+  requestSponsorship,
+  applySponsorship,
 } from "./userop";
 import { signHash } from "./passkey";
+import { erc1271DigestFor } from "./blank-account-1271";
 import { broadcastAction } from "./cross-tab";
 import {
   reserveNonce,
@@ -62,6 +67,9 @@ export interface BlankSmartAccountRef {
   pubY: Hex;
   /** Whether on-chain code exists at `address`. */
   isDeployed: boolean;
+  /** Creation keys when they differ from pubX/pubY (recovered account). */
+  initOwnerX?: Hex;
+  initOwnerY?: Hex;
 }
 
 export interface BlankSmartAccountClientDeps {
@@ -75,6 +83,10 @@ export interface BlankSmartAccountClientDeps {
   chain: Chain;
   /** Promise-returning prompt that yields the unlock passphrase (or null if cancelled). */
   requestPassphrase: (opts?: { title?: string; subtitle?: string }) => Promise<string | null>;
+  /** True when BlankPaymaster is deployed on this chain: UserOps from
+   *  sendTransaction are sponsored through /api/paymaster/sponsor.
+   *  False: the account pays its own gas. */
+  sponsored?: boolean;
 }
 
 // Matches the minimal shape cofhe-sdk's `smartWalletViemAdapter` expects:
@@ -228,6 +240,13 @@ export function buildBlankSmartAccountClient(
 ): CofheSmartAccountClient {
   const { account, chainId, publicClient, chain, requestPassphrase } = deps;
 
+  // ERC-1271 signatures (permits, messages) go through isValidSignature,
+  // which on the security-v1 implementation verifies replaySafeHash(digest).
+  async function signErc1271(digest: Hex, promptLabel: string): Promise<Hex> {
+    const toSign = await erc1271DigestFor(publicClient, account.address, chainId, digest);
+    return signDigestWithPasskey(toSign, promptLabel);
+  }
+
   async function signDigestWithPasskey(digest: Hex, promptLabel?: string): Promise<Hex> {
     const passphrase = await requestPassphrase({
       title: promptLabel ?? "Unlock smart wallet",
@@ -276,9 +295,27 @@ export function buildBlankSmartAccountClient(
         initCode,
         callData,
       });
-      const userOpHash = await computeUserOpHash(publicClient, userOp);
-
-      const sigHex = await signDigestWithPasskey(userOpHash, "Authorize transaction");
+      let userOpHash: Hex;
+      let sigHex: Hex;
+      try {
+        // Sponsorship before hashing: v0.8 hashes paymasterAndData.
+        if (deps.sponsored) {
+          const s = await requestSponsorship({
+            chainId,
+            userOp,
+            account: {
+              ownerX: account.initOwnerX ?? account.pubX,
+              ownerY: account.initOwnerY ?? account.pubY,
+            },
+          });
+          userOp = applySponsorship(userOp, s);
+        }
+        userOpHash = await computeUserOpHash(publicClient, userOp);
+        sigHex = await signDigestWithPasskey(userOpHash, "Authorize transaction");
+      } catch (err) {
+        rollbackReservation(account.address, chainId, onChainNonce);
+        throw err;
+      }
       // UserOp signatures encode as abi.encode(r, s) too — same shape the
       // ERC-1271 path uses. See useSmartAccount.submitCallData for reference.
       userOp = {
@@ -340,7 +377,7 @@ export function buildBlankSmartAccountClient(
         primaryType: args.primaryType,
         message: args.message,
       });
-      return signDigestWithPasskey(digest, "Authorize decryption");
+      return signErc1271(digest, "Authorize decryption");
     },
 
     // Optional — the cofhe-sdk falls back to viem's base.signMessage if
@@ -355,7 +392,7 @@ export function buildBlankSmartAccountClient(
       const digest = typeof message === "string"
         ? hashMessage(message)
         : hashMessage({ raw: message });
-      return signDigestWithPasskey(digest as Hex, "Authorize signing");
+      return signErc1271(digest as Hex, "Authorize signing");
     },
 
     // Note: no chain/chainId on the returned client — the SDK's adapter

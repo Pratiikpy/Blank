@@ -155,37 +155,137 @@ export function encodeFactoryInitCode(
 }
 
 /**
- * Encode paymasterAndData for BlankPaymaster (ERC-4337 v0.8).
- *
- * Format (per v0.8 PackedUserOperation spec):
- *   bytes  0-19 (20): paymaster address
- *   bytes 20-35 (16): paymasterVerificationGasLimit
- *   bytes 36-51 (16): paymasterPostOpGasLimit
- *   bytes 52-83 (32): transferAmount (read by BlankPaymaster._validatePaymasterUserOp
- *                     at PAYMASTER_DATA_OFFSET to compute fee = amount * feeRateBps / 10000)
- *
- * CoFHE precompile breaks gas estimation, so we use manual defaults
- * (200k verif, 100k postOp) that are generous enough for BlankPaymaster's
- * simple USDC-transferFrom postOp path.
- *
- * Passing `transferAmount=0` makes the fee zero — fine for testnet /
- * sponsored flows. Production can pass the actual send amount to fund
- * the paymaster treasury.
+ * BlankPaymaster is a verifying paymaster. paymasterAndData is
+ *   paymaster(20) | verificationGas(16) | postOpGas(16)
+ *   | validUntil(6) | validAfter(6) | signature(65)    = 129 bytes
+ * and the signature comes from the backend (/api/paymaster/sponsor), which
+ * also picks gasFees under the paymaster's caps. The passkey must sign the
+ * userOpHash only after both are in the op: v0.8 hashes paymasterAndData.
  */
-export function encodeBlankPaymasterData(
-  paymaster: Address,
-  transferAmount: bigint = 0n,
-  verificationGasLimit: bigint = 200_000n,
-  postOpGasLimit: bigint = 100_000n,
-): Hex {
-  // 20 bytes: paymaster address
-  const paymasterHex = paymaster.slice(2).padStart(40, "0");
-  // 16 bytes each: verif + postOp gas limits
-  const verifHex = verificationGasLimit.toString(16).padStart(32, "0");
-  const postOpHex = postOpGasLimit.toString(16).padStart(32, "0");
-  // 32 bytes: transferAmount
-  const amountHex = transferAmount.toString(16).padStart(64, "0");
-  return ("0x" + paymasterHex + verifHex + postOpHex + amountHex) as Hex;
+export const BLANK_PAYMASTER_DATA_LENGTH = 129;
+
+export interface SponsorAccountClaim {
+  /** Passkey pubkey the account was CREATED with (CREATE2 input). */
+  ownerX: Hex;
+  ownerY: Hex;
+  recoveryModule?: Address;
+  salt?: bigint;
+}
+
+export interface Sponsorship {
+  paymasterAndData: Hex;
+  maxFeePerGas: bigint;
+  maxPriorityFeePerGas: bigint;
+  validUntil: number;
+}
+
+/** Thrown when the sponsor refuses. `code` mirrors the server's SponsorErrorCode. */
+export class SponsorshipError extends Error {
+  constructor(message: string, public readonly code: string, public readonly status: number) {
+    super(message);
+    this.name = "SponsorshipError";
+  }
+}
+
+/** Decode the three fields a verifying paymasterAndData carries. */
+export function decodeBlankPaymasterData(pmd: Hex): {
+  paymaster: Address;
+  verificationGasLimit: bigint;
+  postOpGasLimit: bigint;
+  validUntil: number;
+  validAfter: number;
+  signature: Hex;
+} {
+  const hex = pmd.slice(2);
+  if (hex.length !== BLANK_PAYMASTER_DATA_LENGTH * 2) {
+    throw new Error(`paymasterAndData must be ${BLANK_PAYMASTER_DATA_LENGTH} bytes`);
+  }
+  return {
+    paymaster: ("0x" + hex.slice(0, 40)) as Address,
+    verificationGasLimit: BigInt("0x" + hex.slice(40, 72)),
+    postOpGasLimit: BigInt("0x" + hex.slice(72, 104)),
+    validUntil: Number(BigInt("0x" + hex.slice(104, 116))),
+    validAfter: Number(BigInt("0x" + hex.slice(116, 128))),
+    signature: ("0x" + hex.slice(128)) as Hex,
+  };
+}
+
+/**
+ * Ask the backend to sponsor `userOp`. The op's signature and
+ * paymasterAndData are ignored by the server; everything else is signed
+ * over, so build the op completely (nonce, initCode, callData, gas limits)
+ * before calling.
+ */
+export async function requestSponsorship(args: {
+  chainId: number;
+  userOp: PackedUserOperation;
+  account?: SponsorAccountClaim;
+  fetchImpl?: typeof fetch;
+}): Promise<Sponsorship> {
+  const f = args.fetchImpl ?? fetch;
+  const res = await f("/api/paymaster/sponsor", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      chainId: args.chainId,
+      userOp: serializeUserOp({ ...args.userOp, paymasterAndData: "0x", signature: "0x" }),
+      account: args.account
+        ? {
+            ownerX: BigInt(args.account.ownerX).toString(),
+            ownerY: BigInt(args.account.ownerY).toString(),
+            recoveryModule: args.account.recoveryModule,
+            salt: (args.account.salt ?? 0n).toString(),
+          }
+        : undefined,
+    }),
+  });
+  const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    throw new SponsorshipError(
+      typeof body.error === "string" ? `Gas sponsorship refused: ${body.error}` : `sponsor HTTP ${res.status}`,
+      typeof body.code === "string" ? body.code : "HTTP_ERROR",
+      res.status,
+    );
+  }
+  const pmd = body.paymasterAndData;
+  if (typeof pmd !== "string" || (pmd.length - 2) / 2 !== BLANK_PAYMASTER_DATA_LENGTH) {
+    throw new SponsorshipError("sponsor returned malformed paymasterAndData", "BAD_RESPONSE", 502);
+  }
+  return {
+    paymasterAndData: pmd as Hex,
+    maxFeePerGas: BigInt(body.maxFeePerGas as string),
+    maxPriorityFeePerGas: BigInt(body.maxPriorityFeePerGas as string),
+    validUntil: Number(body.validUntil),
+  };
+}
+
+/** Put a sponsorship into the op: paymasterAndData plus the fees it was signed with. */
+export function applySponsorship(userOp: PackedUserOperation, s: Sponsorship): PackedUserOperation {
+  return {
+    ...userOp,
+    gasFees: packUint128Pair(s.maxPriorityFeePerGas, s.maxFeePerGas),
+    paymasterAndData: s.paymasterAndData,
+  };
+}
+
+/** True when any call in this BlankAccount callData targets the account itself.
+ *  The paymaster never sponsors those (upgrade, enableValidator, recovery module). */
+export function callDataTargetsSelf(callData: Hex, account: Address): boolean {
+  const sel = callData.slice(0, 10).toLowerCase();
+  const self = account.toLowerCase();
+  if (sel === EXECUTE_SELECTOR) {
+    return ("0x" + callData.slice(10 + 24, 10 + 64)).toLowerCase() === self;
+  }
+  if (sel === EXECUTE_BATCH_SELECTOR) {
+    const body = callData.slice(10);
+    const word = (i: number) => body.slice(i * 64, i * 64 + 64);
+    const offset = Number(BigInt("0x" + word(0))) / 32;
+    const n = Number(BigInt("0x" + word(offset)));
+    for (let i = 0; i < n && i < 64; i++) {
+      if (("0x" + word(offset + 1 + i).slice(24)).toLowerCase() === self) return true;
+    }
+  }
+  return false;
 }
 
 /**

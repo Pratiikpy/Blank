@@ -27,6 +27,7 @@ task("deploy-paymaster-v2", "Deploy and configure the verifying BlankPaymaster")
   .addOptionalParam("maxPriorityGwei", "Cap on maxPriorityFeePerGas (gwei)", "5")
   .addOptionalParam("maxCostEth", "Cap on a single op's maxCost (ETH)", "0.02")
   .addOptionalParam("interval", "Minimum seconds between sponsored ops per sender", "0")
+  .addOptionalParam("sample", "An existing BlankAccount proxy to read the account code hash from")
   .setAction(async (args, hre: HardhatRuntimeEnvironment) => {
     const file = path.join(__dirname, "..", "deployments", `${hre.network.name}.json`);
     if (!fs.existsSync(file)) throw new Error(`No deployment file for ${hre.network.name}`);
@@ -51,12 +52,34 @@ task("deploy-paymaster-v2", "Deploy and configure the verifying BlankPaymaster")
     const pmAddress = await paymaster.getAddress();
     console.log(`BlankPaymaster v2: ${pmAddress}`);
 
+    // The code hash must be that of the proxies THIS factory deploys. The
+    // factory was compiled and deployed earlier, possibly with a different
+    // compiler build than today's artifacts, so read it from a real proxy
+    // instead of trusting the local artifact. --sample names an existing
+    // account; otherwise a throwaway probe account (fixed dummy key, unusable
+    // owner) is created once via the factory and reused on later runs.
+    const factory = await hre.ethers.getContractAt("BlankAccountFactory", addresses.BlankAccountFactory);
+    let sample: string = args.sample ?? "";
+    if (!sample) {
+      const PROBE_SALT = BigInt(hre.ethers.id("blank-paymaster-codehash-probe"));
+      sample = await factory["getAddress(uint256,uint256,address,uint256)"](1n, 1n, hre.ethers.ZeroAddress, PROBE_SALT);
+      if ((await hre.ethers.provider.getCode(sample)) === "0x") {
+        await (await factory.createAccount(1n, 1n, hre.ethers.ZeroAddress, PROBE_SALT)).wait(2);
+        console.log(`  created code-hash probe account ${sample}`);
+      }
+    }
+    const runtime = await hre.ethers.provider.getCode(sample);
+    if (runtime === "0x") throw new Error(`no code at sample account ${sample}`);
+    const codeHash = hre.ethers.keccak256(runtime);
     const proxyArtifact = await hre.artifacts.readArtifact(
       "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol:ERC1967Proxy",
     );
-    const codeHash = hre.ethers.keccak256(proxyArtifact.deployedBytecode);
+    const artifactHash = hre.ethers.keccak256(proxyArtifact.deployedBytecode);
+    if (artifactHash !== codeHash) {
+      console.log(`  note: live proxy code hash differs from the local artifact (${artifactHash}); using the live one`);
+    }
     await (await paymaster.setAccountCodeHash(codeHash)).wait();
-    console.log(`  accountCodeHash ${codeHash}`);
+    console.log(`  accountCodeHash ${codeHash} (from ${sample})`);
 
     const gwei = (v: string) => hre.ethers.parseUnits(v, "gwei");
     await (await paymaster.setGasCaps(
@@ -73,5 +96,10 @@ task("deploy-paymaster-v2", "Deploy and configure the verifying BlankPaymaster")
     if (addresses.BlankPaymaster) addresses.BlankPaymaster_v1 = addresses.BlankPaymaster;
     addresses.BlankPaymaster = pmAddress;
     fs.writeFileSync(file, JSON.stringify(addresses, null, 2) + "\n");
-    console.log(`Wrote ${file}. Next: setup-aa, then repoint packages/app to ${pmAddress}.`);
+    console.log(`Wrote ${file}.`);
+    console.log(`Next:`);
+    console.log(`  1. setup-aa (fund the deposit) and wire-paymaster-targets (allowlist)`);
+    console.log(`  2. set BLANK_PAYMASTER_SIGNER_PK on Vercel to the key for ${args.signer}`);
+    console.log(`  3. repoint BlankPaymaster in packages/app (constants.ts, api/_lib/addresses.ts) to ${pmAddress}`);
+    console.log(`  4. GET /api/paymaster/sponsor?chainId=${hre.network.config.chainId} must report ready: true`);
   });

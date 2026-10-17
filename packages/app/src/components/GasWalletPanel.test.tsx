@@ -310,6 +310,7 @@ describe("GasWalletPanel — §1.13 self-upgrade prompt", () => {
       contracts: { EntryPoint: ENTRY_POINT, BlankAccount_Impl_gasWallet: NEW_IMPL },
     });
     getStorageAtMock.mockResolvedValue(implAsSlot(OLD_IMPL));
+    readContractMock.mockResolvedValue(10n ** 16n); // gas credit covers the self-paid upgrade
     const { findByLabelText } = render(<GasWalletPanel />);
     expect(await findByLabelText("Account upgrade available")).toBeDefined();
   });
@@ -324,6 +325,7 @@ describe("GasWalletPanel — §1.13 self-upgrade prompt", () => {
       contracts: { EntryPoint: ENTRY_POINT, BlankAccount_Impl_gasWallet: NEW_IMPL },
     });
     getStorageAtMock.mockResolvedValue(implAsSlot(OLD_IMPL));
+    readContractMock.mockResolvedValue(10n ** 16n); // gas credit covers the self-paid upgrade
     const { findByLabelText } = render(<GasWalletPanel />);
     const btn = await findByLabelText("Upgrade smart account to gas-wallet implementation");
     await act(async () => {
@@ -337,6 +339,36 @@ describe("GasWalletPanel — §1.13 self-upgrade prompt", () => {
     expect(args.functionName).toBe("upgradeToAndCall");
     expect(args.args[0]).toBe(NEW_IMPL);
     expect(args.args[1]).toBe("0x");
+    // Calls into the account are never sponsored.
+    expect(args.paymaster).toBe("self");
+  });
+
+  it("no gas in the account -> upgrade button disabled (it pays its own gas)", async () => {
+    useChainMock.mockReturnValue({
+      activeChain: { id: 11155111, name: "Ethereum Sepolia", explorerUrl: "https://sepolia.etherscan.io" },
+      contracts: { EntryPoint: ENTRY_POINT, BlankAccount_Impl_gasWallet: NEW_IMPL },
+    });
+    getStorageAtMock.mockResolvedValue(implAsSlot(OLD_IMPL));
+    const { findByLabelText } = render(<GasWalletPanel />);
+    const btn = (await findByLabelText("Upgrade smart account to gas-wallet implementation")) as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+  });
+
+  it("security-v1 impl wins over the gas-wallet impl as the upgrade target", async () => {
+    const SEC = "0x5555555555555555555555555555555555555555";
+    useChainMock.mockReturnValue({
+      activeChain: { id: 11155111, name: "Ethereum Sepolia", explorerUrl: "https://sepolia.etherscan.io" },
+      contracts: { EntryPoint: ENTRY_POINT, BlankAccount_Impl_gasWallet: NEW_IMPL, BlankAccount_Impl_security_v1: SEC },
+    });
+    getStorageAtMock.mockResolvedValue(implAsSlot(NEW_IMPL));
+    readContractMock.mockResolvedValue(10n ** 16n);
+    const { findByLabelText } = render(<GasWalletPanel />);
+    const btn = await findByLabelText("Upgrade smart account to gas-wallet implementation");
+    await act(async () => {
+      fireEvent.click(btn);
+      await Promise.resolve();
+    });
+    expect(unifiedWriteMock.mock.calls[0][0].args[0].toLowerCase()).toBe(SEC);
   });
 
   it("upgrade success -> toast.success + refresh", async () => {
@@ -349,6 +381,7 @@ describe("GasWalletPanel — §1.13 self-upgrade prompt", () => {
       contracts: { EntryPoint: ENTRY_POINT, BlankAccount_Impl_gasWallet: NEW_IMPL },
     });
     getStorageAtMock.mockResolvedValue(implAsSlot(OLD_IMPL));
+    readContractMock.mockResolvedValue(10n ** 16n); // gas credit covers the self-paid upgrade
     const { findByLabelText } = render(<GasWalletPanel />);
     const btn = await findByLabelText("Upgrade smart account to gas-wallet implementation");
     await act(async () => {
@@ -371,6 +404,7 @@ describe("GasWalletPanel — §1.13 self-upgrade prompt", () => {
       contracts: { EntryPoint: ENTRY_POINT, BlankAccount_Impl_gasWallet: NEW_IMPL },
     });
     getStorageAtMock.mockResolvedValue(implAsSlot(OLD_IMPL));
+    readContractMock.mockResolvedValue(10n ** 16n);
     unifiedWriteMock.mockRejectedValue(new Error("user rejected"));
     const { findByLabelText } = render(<GasWalletPanel />);
     const btn = await findByLabelText("Upgrade smart account to gas-wallet implementation");

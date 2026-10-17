@@ -1,8 +1,14 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+import { encodeFunctionData } from "viem";
 import {
   computeNextFireSeconds,
   formatTimeUntil,
   PERIOD_PRESETS,
+  buildSessionScope,
+  fetchActiveScopes,
+  SessionKeyValidatorAbi,
+  SESSION_FIRE_GAS,
+  DEFAULT_SESSION_MAX_FEE_PER_GAS,
 } from "./scheduled-sends";
 
 // §15.x lib test for the scheduled-send timing helpers. Drives the
@@ -90,5 +96,67 @@ describe("formatTimeUntil", () => {
     expect(formatTimeUntil(61)).toBe("in 2m");
     expect(formatTimeUntil(3601)).toBe("in 2h");
     expect(formatTimeUntil(86_401)).toBe("in 2d");
+  });
+});
+
+describe("buildSessionScope (security-v1 Scope struct)", () => {
+  const base = {
+    recipient: "0x1111111111111111111111111111111111111111" as const,
+    spendToken: "0x2222222222222222222222222222222222222222" as const,
+    maxAmountPerCall: 5_000_000n,
+    periodSeconds: 86_400,
+    validUntil: 2_000_000_000,
+  };
+
+  it("defaults the gas caps to the cron's per-fire budget + 25% and 50 gwei", () => {
+    const s = buildSessionScope({ ...base, paymaster: null });
+    expect(s.maxFeePerGas).toBe(DEFAULT_SESSION_MAX_FEE_PER_GAS);
+    expect(s.maxTotalGas).toBe((SESSION_FIRE_GAS * 5n) / 4n);
+    expect(s.paymaster).toBe("0x0000000000000000000000000000000000000000");
+    expect(s.lastFiredAt).toBe(0);
+  });
+
+  it("names the paymaster and honours explicit caps", () => {
+    const pm = "0x3333333333333333333333333333333333333333" as const;
+    const s = buildSessionScope({ ...base, paymaster: pm, maxFeePerGas: 7n, maxTotalGas: 9n });
+    expect([s.paymaster, s.maxFeePerGas, s.maxTotalGas]).toEqual([pm, 7n, 9n]);
+  });
+
+  it("encodes against the validator ABI's 9-field tuple", () => {
+    const s = buildSessionScope({ ...base, paymaster: null });
+    const data = encodeFunctionData({
+      abi: SessionKeyValidatorAbi,
+      functionName: "setScope",
+      args: ["0x4444444444444444444444444444444444444444", s],
+    });
+    // selector + sessionKey + 9 static words
+    expect((data.length - 10) / 64).toBe(10);
+  });
+});
+
+describe("fetchActiveScopes merges ScopeGasSet into the live scope", () => {
+  it("attaches gas caps + paymaster from the same block's ScopeGasSet", async () => {
+    const KEY = "0x5555555555555555555555555555555555555555";
+    const getLogs = vi.fn(async ({ event }: { event: { name: string } }) => {
+      if (event.name === "ScopeSet") {
+        return [{
+          blockNumber: 10n, logIndex: 1,
+          args: { sessionKey: KEY, recipient: "0x1111111111111111111111111111111111111111", spendToken: "0x2222222222222222222222222222222222222222", maxAmountPerCall: 5n, periodSeconds: 60n, validUntil: 9_999_999_999n },
+        }];
+      }
+      if (event.name === "ScopeGasSet") {
+        return [{ blockNumber: 10n, logIndex: 2, args: { sessionKey: KEY, maxFeePerGas: 123n, maxTotalGas: 456n, paymaster: "0x3333333333333333333333333333333333333333" } }];
+      }
+      return [];
+    });
+    const out = await fetchActiveScopes({
+      publicClient: { getLogs } as never,
+      validatorAddress: "0x6666666666666666666666666666666666666666",
+      accountAddress: "0x7777777777777777777777777777777777777777",
+    });
+    expect(out).toHaveLength(1);
+    expect(out[0].maxFeePerGas).toBe(123n);
+    expect(out[0].maxTotalGas).toBe(456n);
+    expect(out[0].paymaster).toBe("0x3333333333333333333333333333333333333333");
   });
 });

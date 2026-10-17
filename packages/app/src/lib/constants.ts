@@ -185,6 +185,12 @@ export type ContractMap = {
    *  to address(0) until the `deploy-upgrade-blankaccount-gas-wallet`
    *  hardhat task runs; the prompt is dormant while this is zero. */
   BlankAccount_Impl_gasWallet: `0x${string}`;
+  /** security-v1 BlankAccount implementation (replay-safe ERC-1271,
+   *  validator epochs). Factory-deployed proxies still start on the factory's
+   *  immutable implementation, so every account self-upgrades to this one.
+   *  address(0) until deploy-upgrade-security-v1 runs on the chain; the
+   *  upgrade prompt then falls back to the newest older implementation. */
+  BlankAccount_Impl_security_v1: `0x${string}`;
   /** Phase 4.1 — SessionKeyValidator address. The user authorizes this
    *  via `BlankAccount.enableValidator(SessionKeyValidator)` and then
    *  uses `setScope` / `revokeScope` to manage server-held session
@@ -284,6 +290,7 @@ export const CONTRACTS_BY_CHAIN: Record<SupportedChainId, ContractMap> = {
     // pre-gas-wallet impl. Once a user upgrades, their receive()
     // auto-deposits ETH from any source (CEX, hardware, EOA).
     BlankAccount_Impl_gasWallet: "0x1A4C16230D8D113A146914Ce00Da7AD20B007743",
+    BlankAccount_Impl_security_v1: "0x0000000000000000000000000000000000000000",
     // Address(0) until operator runs `pnpm hardhat deploy-session-key-validator
     // --network eth-sepolia`. ScheduledSends gracefully hides when unset.
     SessionKeyValidator: "0x0000000000000000000000000000000000000000",
@@ -348,6 +355,7 @@ export const CONTRACTS_BY_CHAIN: Record<SupportedChainId, ContractMap> = {
     BlankAccount_Impl_v041: "0x0000000000000000000000000000000000000000",
     // §1.13 deployed 2026-05-17. Same shape as Eth Sepolia.
     BlankAccount_Impl_gasWallet: "0x02FDeFB3331c4907501260DF8a4584Bd6D920ADd",
+    BlankAccount_Impl_security_v1: "0x0000000000000000000000000000000000000000",
     SessionKeyValidator: "0x0000000000000000000000000000000000000000",
     // Canonical EIP-5564 singleton. Same on every chain.
     ERC5564Announcer: "0x55649E01B5Df198D18D95b5cc5051630cfD45564",
@@ -410,6 +418,7 @@ export const CONTRACTS_BY_CHAIN: Record<SupportedChainId, ContractMap> = {
     // Fresh Arb factory deploys the current (gas-wallet + validator) impl, so
     // the GasWalletPanel upgrade prompt matches and stays dormant.
     BlankAccount_Impl_gasWallet: "0x95119073430E55F1993bfc1Bf980d0f91Db92058",
+    BlankAccount_Impl_security_v1: "0x0000000000000000000000000000000000000000",
     SessionKeyValidator: "0x75FF37Bda28EC6A0D39db7E8Ea5CC6527febDA75",
     // Canonical EIP-5564 singleton. Same on every chain.
     ERC5564Announcer: "0x55649E01B5Df198D18D95b5cc5051630cfD45564",

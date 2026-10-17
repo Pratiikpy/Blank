@@ -14,10 +14,11 @@
  *
  *   • Passkey-AA path — `BlankAccount.isValidSignature(hash, sig)`
  *     decodes `sig` as `abi.encode(uint256 r, uint256 s)` (64 bytes,
- *     NOT 65 — no v byte) and runs P256.verify(hash, r, s, ownerX,
- *     ownerY). We compute the EIP-191 prefixed hash ourselves, prompt
- *     for the passphrase, sign via `signHash`, and encode (r, s) as
- *     a 64-byte blob.
+ *     NOT 65, no v byte) and runs P256.verify(replaySafeHash(hash), r, s,
+ *     ownerX, ownerY) on the security-v1 implementation (raw hash on older
+ *     ones). We compute the EIP-191 prefixed hash ourselves, wrap it the
+ *     way the deployed implementation expects, prompt for the passphrase,
+ *     sign via `signHash`, and encode (r, s) as a 64-byte blob.
  *
  * Tip for new readers: viem's verifyMessage HAS a quirk — for ERC-1271
  * sigs it computes the EIP-191 prefixed hash from the message string
@@ -27,7 +28,8 @@
  * hash, and we sign that exact hash — no double-hashing pitfalls.
  */
 import { useCallback } from "react";
-import { useAccount, useSignMessage } from "wagmi";
+import { useAccount, usePublicClient, useSignMessage } from "wagmi";
+import { erc1271DigestFor } from "@/lib/blank-account-1271";
 import {
   type Hex,
   hashMessage,
@@ -67,6 +69,7 @@ export function useEmailAuthSigner(): UseEmailAuthSignerResult {
   const { signMessageAsync } = useSignMessage();
   const smartAccount = useSmartAccount();
   const passphrasePrompt = usePassphrasePrompt();
+  const publicClient = usePublicClient({ chainId: activeChainId });
 
   const isSmartAccount =
     smartAccount.status === "ready" && smartAccount.account !== null;
@@ -102,8 +105,18 @@ export function useEmailAuthSigner(): UseEmailAuthSignerResult {
         });
         if (!passphrase) return null;
 
+        // viem's verifyMessage calls isValidSignature(eip191Hash, sig). The
+        // security-v1 BlankAccount checks the passkey signed
+        // replaySafeHash(eip191Hash); older implementations the raw hash.
         const eip191Hash = hashMessage(message);
-        const { r, s } = await signHash(activeChainId, passphrase, eip191Hash);
+        if (!publicClient) throw new Error("Network not ready, try again in a moment");
+        const digest = await erc1271DigestFor(
+          publicClient,
+          effectiveAddress as `0x${string}`,
+          activeChainId,
+          eip191Hash,
+        );
+        const { r, s } = await signHash(activeChainId, passphrase, digest);
         const signature = encodeAbiParameters(
           [{ type: "uint256" }, { type: "uint256" }],
           [BigInt(r), BigInt(s)],
@@ -135,6 +148,7 @@ export function useEmailAuthSigner(): UseEmailAuthSignerResult {
       wagmiAccount.address,
       signMessageAsync,
       passphrasePrompt,
+      publicClient,
     ],
   );
 

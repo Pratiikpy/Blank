@@ -42,8 +42,10 @@ import { renderHook, act, waitFor } from "@testing-library/react";
 //     is too tight); subsequent ops have initCode="0x" + default
 //     verifGas. status flips to "deploying" on first, "submitting" on
 //     subsequent.
-//   - Paymaster mode dispatch: "sponsored" (default) -> encodeBlankPaymasterData
-//     when BlankPaymaster configured; "self" -> paymasterAndData="0x"
+//   - Paymaster mode dispatch: "sponsored" (default) -> requestSponsorship
+//     (/api/paymaster/sponsor) then applySponsorship, BEFORE the userOpHash
+//     is computed and signed; "self" or a call into the account itself
+//     -> no paymaster
 //     (AA pays from its own ETH via BaseAccount._payPrefund). No
 //     BlankPaymaster configured -> "0x" regardless of mode.
 //   - callGasLimit override: passed through to buildUserOp; useful for
@@ -60,7 +62,10 @@ const signHashMock = vi.hoisted(() => vi.fn());
 const deletePasskeyMock = vi.hoisted(() => vi.fn());
 const buildUserOpMock = vi.hoisted(() => vi.fn());
 const computeUserOpHashMock = vi.hoisted(() => vi.fn());
-const encodeBlankPaymasterDataMock = vi.hoisted(() => vi.fn());
+const requestSponsorshipMock = vi.hoisted(() => vi.fn());
+const applySponsorshipMock = vi.hoisted(() => vi.fn());
+const callDataTargetsSelfMock = vi.hoisted(() => vi.fn());
+const getRecoveredAccountMock = vi.hoisted(() => vi.fn());
 const encodeExecuteCallMock = vi.hoisted(() => vi.fn());
 const encodeExecuteBatchCallMock = vi.hoisted(() => vi.fn());
 const encodeP256SignatureMock = vi.hoisted(() => vi.fn());
@@ -72,19 +77,22 @@ const onCrossTabActionMock = vi.hoisted(() => vi.fn());
 
 vi.mock("wagmi", () => ({ usePublicClient: usePublicClientMock }));
 vi.mock("@/providers/ChainProvider", () => ({ useChain: useChainMock }));
-vi.mock("@/lib/abis", () => ({ BlankAccountFactoryAbi: [] }));
+vi.mock("@/lib/abis", () => ({ BlankAccountFactoryAbi: [], BlankAccountAbi: [] }));
 vi.mock("@/lib/passkey", () => ({
   hasPasskey: hasPasskeyMock,
   getPasskeyPubkey: getPasskeyPubkeyMock,
   createPasskey: createPasskeyMock,
   signHash: signHashMock,
   deletePasskey: deletePasskeyMock,
+  getRecoveredAccount: getRecoveredAccountMock,
 }));
 vi.mock("@/lib/userop", () => ({
   ENTRYPOINT_V08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
   buildUserOp: buildUserOpMock,
   computeUserOpHash: computeUserOpHashMock,
-  encodeBlankPaymasterData: encodeBlankPaymasterDataMock,
+  requestSponsorship: requestSponsorshipMock,
+  applySponsorship: applySponsorshipMock,
+  callDataTargetsSelf: callDataTargetsSelfMock,
   encodeExecuteCall: encodeExecuteCallMock,
   encodeExecuteBatchCall: encodeExecuteBatchCallMock,
   encodeP256Signature: encodeP256SignatureMock,
@@ -125,7 +133,10 @@ beforeEach(() => {
   deletePasskeyMock.mockReset();
   buildUserOpMock.mockReset();
   computeUserOpHashMock.mockReset();
-  encodeBlankPaymasterDataMock.mockReset();
+  requestSponsorshipMock.mockReset();
+  applySponsorshipMock.mockReset();
+  callDataTargetsSelfMock.mockReset();
+  getRecoveredAccountMock.mockReset();
   encodeExecuteCallMock.mockReset();
   encodeExecuteBatchCallMock.mockReset();
   encodeP256SignatureMock.mockReset();
@@ -163,7 +174,10 @@ beforeEach(() => {
   computeUserOpHashMock.mockResolvedValue("0xuserophash");
   signHashMock.mockResolvedValue({ r: "0xr", s: "0xs" });
   encodeP256SignatureMock.mockReturnValue("0xsig");
-  encodeBlankPaymasterDataMock.mockReturnValue("0xpaymasterdata");
+  getRecoveredAccountMock.mockResolvedValue(null);
+  callDataTargetsSelfMock.mockReturnValue(false);
+  requestSponsorshipMock.mockResolvedValue({ paymasterAndData: "0xpaymasterdata", maxFeePerGas: 2n, maxPriorityFeePerGas: 1n, validUntil: 1 });
+  applySponsorshipMock.mockImplementation((op: Record<string, unknown>, s: { paymasterAndData: string }) => ({ ...op, paymasterAndData: s.paymasterAndData, gasFees: "0xsponsoredfees" }));
   encodeExecuteCallMock.mockReturnValue("0xexecutecalldata");
   encodeExecuteBatchCallMock.mockReturnValue("0xbatchcalldata");
   encodeFactoryInitCodeMock.mockReturnValue("0xinitcode");
@@ -425,12 +439,14 @@ describe("useSmartAccount — submitCallData happy path (§15.x)", () => {
     // encodeFactoryInitCode NOT called for deployed accounts
     expect(encodeFactoryInitCodeMock).toHaveBeenCalledTimes(0);
     // Paymaster mode: sponsored (default)
-    expect(encodeBlankPaymasterDataMock).toHaveBeenCalledWith(PAYMASTER, 0n);
-    // buildUserOp received paymasterAndData="0xpaymasterdata" + no verifGasLimit
+    expect(requestSponsorshipMock).toHaveBeenCalledTimes(1);
+    // buildUserOp builds the unsponsored op (no paymaster, default verifGas);
+    // the sponsorship is applied on top before hashing.
     const buildArgs = buildUserOpMock.mock.calls[0][0];
     expect(buildArgs.initCode).toBe("0x");
-    expect(buildArgs.paymasterAndData).toBe("0xpaymasterdata");
+    expect(buildArgs.paymasterAndData).toBeUndefined();
     expect(buildArgs.verificationGasLimit).toBeUndefined();
+    expect(computeUserOpHashMock.mock.calls[0][1].paymasterAndData).toBe("0xpaymasterdata");
   });
 
   it("first UserOp (isDeployed=false): initCode set + verifGas=5_000_000", async () => {
@@ -530,29 +546,111 @@ describe("useSmartAccount — paymaster mode (§15.x)", () => {
     return result;
   }
 
-  it("paymaster='sponsored' (default) -> encodeBlankPaymasterData", async () => {
+  it("paymaster='sponsored' (default) -> backend sponsorship applied BEFORE the userOpHash is computed and signed", async () => {
     const result = await setupReady();
+    const order: string[] = [];
+    requestSponsorshipMock.mockImplementation(async () => {
+      order.push("sponsor");
+      return { paymasterAndData: "0xpaymasterdata", maxFeePerGas: 2n, maxPriorityFeePerGas: 1n, validUntil: 1 };
+    });
+    computeUserOpHashMock.mockImplementation(async () => { order.push("hash"); return "0xuserophash"; });
+    signHashMock.mockImplementation(async () => { order.push("sign"); return { r: "0xr", s: "0xs" }; });
     await act(async () => {
       await result.current.sendUserOp(TARGET, 0n, "0xdata", "pass");
     });
-    expect(encodeBlankPaymasterDataMock).toHaveBeenCalledTimes(1);
-    expect(buildUserOpMock.mock.calls[0][0].paymasterAndData).toBe(
-      "0xpaymasterdata",
-    );
+    expect(order).toEqual(["sponsor", "hash", "sign"]);
+    expect(requestSponsorshipMock).toHaveBeenCalledWith({
+      chainId: 11155111,
+      userOp: expect.objectContaining({ sender: PREDICTED }),
+      account: {
+        ownerX: PUB_X,
+        ownerY: PUB_Y,
+        recoveryModule: "0x0000000000000000000000000000000000000000",
+        salt: 0n,
+      },
+    });
+    // The hashed (and signed) op is the sponsored one.
+    const hashed = computeUserOpHashMock.mock.calls[0][1];
+    expect(hashed.paymasterAndData).toBe("0xpaymasterdata");
+    expect(hashed.gasFees).toBe("0xsponsoredfees");
   });
 
-  it("paymaster='self' -> paymasterAndData='0x' (AA pays own gas)", async () => {
+  it("paymaster='self' -> no sponsorship request (AA pays own gas)", async () => {
     const result = await setupReady();
     await act(async () => {
       await result.current.sendUserOp(TARGET, 0n, "0xdata", "pass", {
         paymaster: "self",
       });
     });
-    expect(encodeBlankPaymasterDataMock).toHaveBeenCalledTimes(0);
-    expect(buildUserOpMock.mock.calls[0][0].paymasterAndData).toBe("0x");
+    expect(requestSponsorshipMock).toHaveBeenCalledTimes(0);
+    expect(buildUserOpMock.mock.calls[0][0].paymasterAndData).toBeUndefined();
   });
 
-  it("no BlankPaymaster in contracts -> paymasterAndData='0x' even with sponsored mode", async () => {
+  it("call into the account itself -> never sponsored, even in sponsored mode", async () => {
+    callDataTargetsSelfMock.mockReturnValue(true);
+    const result = await setupReady();
+    await act(async () => {
+      await result.current.sendUserOp(PREDICTED, 0n, "0xdata", "pass");
+    });
+    expect(callDataTargetsSelfMock).toHaveBeenCalledWith("0xexecutecalldata", PREDICTED);
+    expect(requestSponsorshipMock).toHaveBeenCalledTimes(0);
+  });
+
+  it("sponsor refusal -> throws its reason, no relay call, nonce slot released", async () => {
+    requestSponsorshipMock.mockRejectedValue(new Error("Gas sponsorship refused: target 0x9 is not on the paymaster allowlist"));
+    const result = await setupReady();
+    let err: Error | null = null;
+    await act(async () => {
+      try { await result.current.sendUserOp(TARGET, 0n, "0xdata", "pass"); } catch (e) { err = e as Error; }
+    });
+    expect(err!.message).toMatch(/not on the paymaster allowlist/);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(signHashMock).not.toHaveBeenCalled();
+    // Retry reuses the same nonce (5), it was not skipped.
+    requestSponsorshipMock.mockResolvedValue({ paymasterAndData: "0xpaymasterdata", maxFeePerGas: 2n, maxPriorityFeePerGas: 1n, validUntil: 1 });
+    await act(async () => {
+      await result.current.sendUserOp(TARGET, 0n, "0xdata2", "pass");
+    });
+    expect(buildUserOpMock.mock.calls[1][0].nonce).toBe(5n);
+  });
+
+  it("recovered account binding: sponsorship claims the creation keys, not the new passkey", async () => {
+    const BOUND = "0x5555555555555555555555555555555555555555" as const;
+    const INIT_X = ("0x" + "11".repeat(32)) as `0x${string}`;
+    const INIT_Y = ("0x" + "22".repeat(32)) as `0x${string}`;
+    getRecoveredAccountMock.mockResolvedValue({ address: BOUND, initOwnerX: INIT_X, initOwnerY: INIT_Y });
+    getCodeMock.mockResolvedValue("0xabcd");
+    readContractMock.mockImplementation(async ({ functionName }: { functionName: string }) =>
+      functionName === "ownerX" ? BigInt(PUB_X) : BigInt(PUB_Y),
+    );
+    const { result } = renderHook(() => useSmartAccount());
+    await waitFor(() => expect(result.current.account?.address).toBe(BOUND));
+    expect(result.current.account?.recoveryPending).toBe(false);
+    await act(async () => {
+      await result.current.sendUserOp(TARGET, 0n, "0xdata", "pass");
+    });
+    expect(requestSponsorshipMock.mock.calls[0][0].account).toMatchObject({ ownerX: INIT_X, ownerY: INIT_Y });
+  });
+
+  it("recovered account not rotated yet -> recoveryPending, sending refuses before any request", async () => {
+    getRecoveredAccountMock.mockResolvedValue({
+      address: "0x5555555555555555555555555555555555555555",
+      initOwnerX: PUB_X,
+      initOwnerY: PUB_Y,
+    });
+    getCodeMock.mockResolvedValue("0xabcd");
+    readContractMock.mockResolvedValue(1n); // on-chain owner is still the old key
+    const { result } = renderHook(() => useSmartAccount());
+    await waitFor(() => expect(result.current.account?.recoveryPending).toBe(true));
+    let err: Error | null = null;
+    await act(async () => {
+      try { await result.current.sendUserOp(TARGET, 0n, "0xdata", "pass"); } catch (e) { err = e as Error; }
+    });
+    expect(err!.message).toMatch(/Recovery is not finalized/);
+    expect(getNextNonceMock).not.toHaveBeenCalled();
+  });
+
+  it("no BlankPaymaster in contracts -> no sponsorship even with sponsored mode", async () => {
     useChainMock.mockReturnValue({
       activeChainId: 11155111,
       contracts: { BlankAccountFactory: FACTORY }, // no BlankPaymaster
@@ -561,10 +659,8 @@ describe("useSmartAccount — paymaster mode (§15.x)", () => {
     await act(async () => {
       await result.current.sendUserOp(TARGET, 0n, "0xdata", "pass");
     });
-    expect(encodeBlankPaymasterDataMock).toHaveBeenCalledTimes(0);
-    expect(buildUserOpMock.mock.calls[0][0].paymasterAndData).toBe("0x");
+    expect(requestSponsorshipMock).toHaveBeenCalledTimes(0);
   });
-
   it("callGasLimit override passes through to buildUserOp", async () => {
     const result = await setupReady();
     await act(async () => {
@@ -876,7 +972,7 @@ describe("useSmartAccount — sendBatchUserOp (§15.x)", () => {
         { paymaster: "self", callGasLimit: 10_000_000n },
       );
     });
-    expect(buildUserOpMock.mock.calls[0][0].paymasterAndData).toBe("0x");
+    expect(requestSponsorshipMock).toHaveBeenCalledTimes(0);
     expect(buildUserOpMock.mock.calls[0][0].callGasLimit).toBe(10_000_000n);
   });
 });

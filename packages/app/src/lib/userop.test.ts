@@ -1,11 +1,16 @@
 import { describe, it, expect, vi } from "vitest";
-import { toFunctionSelector } from "viem";
+import { getAddress, toFunctionSelector } from "viem";
 import type { Address, Hex, PublicClient } from "viem";
 import {
   buildUserOp,
   encodeExecuteCall,
   encodeExecuteBatchCall,
-  encodeBlankPaymasterData,
+  decodeBlankPaymasterData,
+  applySponsorship,
+  requestSponsorship,
+  callDataTargetsSelf,
+  SponsorshipError,
+  BLANK_PAYMASTER_DATA_LENGTH,
   encodeFactoryInitCode,
   encodeP256Signature,
   serializeUserOp,
@@ -112,34 +117,120 @@ describe("encodeExecuteBatchCall", () => {
   });
 });
 
-describe("encodeBlankPaymasterData", () => {
-  it("layout: 0x + 20-byte addr + 16-byte verif + 16-byte postOp + 32-byte amount", () => {
-    // Total: 2 + (20 + 16 + 16 + 32) * 2 = 2 + 168 = 170 chars.
-    const out = encodeBlankPaymasterData(PAYMASTER, 0n);
-    expect(out.length).toBe(170);
-    expect(out.startsWith("0x")).toBe(true);
+// A real 129-byte verifying-paymaster blob: paymaster | 150k | 120k |
+// validUntil 0x65f0_0000 | validAfter 0 | 65-byte signature.
+const PMD = ("0x" +
+  PAYMASTER.slice(2) +
+  (150_000n).toString(16).padStart(32, "0") +
+  (120_000n).toString(16).padStart(32, "0") +
+  (0x65f00000).toString(16).padStart(12, "0") +
+  "0".repeat(12) +
+  "ab".repeat(65)) as Hex;
+
+describe("decodeBlankPaymasterData (verifying paymaster layout)", () => {
+  it("is exactly 129 bytes", () => {
+    expect(BLANK_PAYMASTER_DATA_LENGTH).toBe(129);
+    expect((PMD.length - 2) / 2).toBe(129);
   });
 
-  it("embeds the paymaster address verbatim in the first 20 bytes", () => {
-    const out = encodeBlankPaymasterData(PAYMASTER, 0n);
-    expect(out.slice(2, 42).toLowerCase()).toBe(
-      PAYMASTER.slice(2).toLowerCase(),
+  it("reads paymaster, gas limits, validity window and signature at fixed offsets", () => {
+    const d = decodeBlankPaymasterData(PMD);
+    expect(d.paymaster.toLowerCase()).toBe(PAYMASTER.toLowerCase());
+    expect(d.verificationGasLimit).toBe(150_000n);
+    expect(d.postOpGasLimit).toBe(120_000n);
+    expect(d.validUntil).toBe(0x65f00000);
+    expect(d.validAfter).toBe(0);
+    expect(d.signature).toBe("0x" + "ab".repeat(65));
+  });
+
+  it("rejects the retired 84-byte transferAmount layout", () => {
+    const legacy = ("0x" + PAYMASTER.slice(2) + "00".repeat(64)) as Hex;
+    expect(() => decodeBlankPaymasterData(legacy)).toThrow(/129 bytes/);
+  });
+});
+
+describe("applySponsorship", () => {
+  it("sets paymasterAndData and repacks gasFees as (priority << 128) | maxFee", () => {
+    const op = buildUserOp({ sender: SENDER, nonce: 3n, callData: "0xdeadbeef" as Hex });
+    const out = applySponsorship(op, {
+      paymasterAndData: PMD,
+      maxFeePerGas: 2_000_000_000n,
+      maxPriorityFeePerGas: 100_000_000n,
+      validUntil: 1,
+    });
+    expect(out.paymasterAndData).toBe(PMD);
+    const packed = BigInt(out.gasFees);
+    expect(packed >> 128n).toBe(100_000_000n);
+    expect(packed & ((1n << 128n) - 1n)).toBe(2_000_000_000n);
+    // Nothing else changes, so the server's signature still covers the op.
+    expect(out.callData).toBe(op.callData);
+    expect(out.accountGasLimits).toBe(op.accountGasLimits);
+    expect(out.nonce).toBe(3n);
+  });
+});
+
+describe("requestSponsorship", () => {
+  const op = buildUserOp({ sender: SENDER, nonce: 0n, callData: "0xdeadbeef" as Hex });
+
+  it("posts the op without signature/paymasterAndData plus the account claim as decimal strings", async () => {
+    const fetchImpl = vi.fn(async () =>
+      new Response(JSON.stringify({ paymasterAndData: PMD, maxFeePerGas: "5", maxPriorityFeePerGas: "1", validUntil: 9 }), { status: 200 }),
     );
+    const s = await requestSponsorship({
+      chainId: 84532,
+      userOp: { ...op, signature: "0x1234" as Hex, paymasterAndData: "0xff" as Hex },
+      account: { ownerX: "0x10" as Hex, ownerY: "0x20" as Hex },
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    expect(s).toEqual({ paymasterAndData: PMD, maxFeePerGas: 5n, maxPriorityFeePerGas: 1n, validUntil: 9 });
+    const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("/api/paymaster/sponsor");
+    const body = JSON.parse(init.body as string);
+    expect(body.chainId).toBe(84532);
+    expect(body.userOp.signature).toBe("0x");
+    expect(body.userOp.paymasterAndData).toBe("0x");
+    expect(body.account).toEqual({ ownerX: "16", ownerY: "32", salt: "0" });
   });
 
-  it("encodes verif + postOp + amount at fixed offsets", () => {
-    const out = encodeBlankPaymasterData(PAYMASTER, 1234n, 200_000n, 100_000n);
-    // offsets in chars (after "0x"):
-    //   0..40   : address
-    //   40..72  : verif (32 chars = 16 bytes)
-    //   72..104 : postOp (32 chars = 16 bytes)
-    //   104..168: amount (64 chars = 32 bytes)
-    const verif = BigInt("0x" + out.slice(2 + 40, 2 + 72));
-    const postOp = BigInt("0x" + out.slice(2 + 72, 2 + 104));
-    const amount = BigInt("0x" + out.slice(2 + 104, 2 + 168));
-    expect(verif).toBe(200_000n);
-    expect(postOp).toBe(100_000n);
-    expect(amount).toBe(1234n);
+  it("throws SponsorshipError carrying the server's code and reason", async () => {
+    const fetchImpl = vi.fn(async () =>
+      new Response(JSON.stringify({ error: "target 0xabc is not on the paymaster allowlist", code: "TARGET_NOT_APPROVED" }), { status: 403 }),
+    );
+    const err = await requestSponsorship({ chainId: 1, userOp: op, fetchImpl: fetchImpl as unknown as typeof fetch }).catch((e) => e);
+    expect(err).toBeInstanceOf(SponsorshipError);
+    expect(err.code).toBe("TARGET_NOT_APPROVED");
+    expect(err.status).toBe(403);
+    expect(err.message).toMatch(/^Gas sponsorship refused: target 0xabc/);
+  });
+
+  it("rejects a 200 whose paymasterAndData is not 129 bytes", async () => {
+    const fetchImpl = vi.fn(async () =>
+      new Response(JSON.stringify({ paymasterAndData: "0x1234", maxFeePerGas: "1", maxPriorityFeePerGas: "1", validUntil: 1 }), { status: 200 }),
+    );
+    await expect(
+      requestSponsorship({ chainId: 1, userOp: op, fetchImpl: fetchImpl as unknown as typeof fetch }),
+    ).rejects.toThrow(/malformed paymasterAndData/);
+  });
+});
+
+describe("callDataTargetsSelf", () => {
+  it("detects execute(self, ...)", () => {
+    expect(callDataTargetsSelf(encodeExecuteCall(SENDER, 0n, "0x" as Hex), SENDER)).toBe(true);
+    expect(callDataTargetsSelf(encodeExecuteCall(TARGET, 0n, "0x" as Hex), SENDER)).toBe(false);
+  });
+
+  it("detects self anywhere in an executeBatch target list", () => {
+    expect(
+      callDataTargetsSelf(encodeExecuteBatchCall([TARGET, SENDER], [0n, 0n], ["0x" as Hex, "0x" as Hex]), SENDER),
+    ).toBe(true);
+    expect(
+      callDataTargetsSelf(encodeExecuteBatchCall([TARGET, PAYMASTER], [0n, 0n], ["0x" as Hex, "0x" as Hex]), SENDER),
+    ).toBe(false);
+  });
+
+  it("is case-insensitive on the account address", () => {
+    const mixed = getAddress("0xabcdef0000000000000000000000000000000001");
+    expect(callDataTargetsSelf(encodeExecuteCall(mixed, 0n, "0x" as Hex), mixed.toLowerCase() as Address)).toBe(true);
   });
 });
 

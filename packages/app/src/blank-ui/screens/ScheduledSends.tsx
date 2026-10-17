@@ -39,9 +39,12 @@ import { useChain } from "@/providers/ChainProvider";
 import { useUnifiedWrite } from "@/hooks/useUnifiedWrite";
 import { usePaymasterHealth } from "@/hooks/usePaymasterHealth";
 import { useBalance } from "wagmi";
+import { useQuery } from "@tanstack/react-query";
+import { useAccountGasFunds, SELF_PAID_SETTINGS_OP_WEI } from "@/hooks/useAccountGasFunds";
 import {
   PERIOD_PRESETS,
   SessionKeyValidatorAbi,
+  buildSessionScope,
   computeNextFireSeconds,
   formatTimeUntil,
 } from "@/lib/scheduled-sends";
@@ -81,10 +84,11 @@ const BlankAccountAbi = [
     outputs: [],
   },
   {
+    // security-v1: true only when enabled since the last owner rotation.
     type: "function",
-    name: "enabledValidators",
+    name: "isValidatorEnabled",
     stateMutability: "view",
-    inputs: [{ name: "", type: "address" }],
+    inputs: [{ name: "validator", type: "address" }],
     outputs: [{ name: "", type: "bool" }],
   },
 ] as const;
@@ -119,6 +123,59 @@ export default function ScheduledSends() {
   const validatorAddr = (contracts.SessionKeyValidator ?? ZERO_ADDR) as Address;
   const validatorDeployed = validatorAddr !== ZERO_ADDR;
   const accountReady = accountStatus === "current";
+  const paymasterAddr =
+    contracts.BlankPaymaster && contracts.BlankPaymaster !== ZERO_ADDR
+      ? (contracts.BlankPaymaster as Address)
+      : null;
+  const gasFunds = useAccountGasFunds(effectiveAddress as Address | undefined);
+  const hasSelfPayGas =
+    gasFunds.totalWei !== null && gasFunds.totalWei >= SELF_PAID_SETTINGS_OP_WEI;
+
+  // Enabled in the current owner epoch. An account upgrade to the new
+  // validator, or a guardian recovery (which bumps the epoch), leaves
+  // existing scopes inert until the owner enables the validator again.
+  const readValidatorEnabled = async (): Promise<boolean> => {
+    if (!publicClient || !effectiveAddress || !validatorDeployed) return false;
+    try {
+      return (await publicClient.readContract({
+        address: effectiveAddress as `0x${string}`,
+        abi: BlankAccountAbi,
+        functionName: "isValidatorEnabled",
+        args: [validatorAddr],
+      })) as boolean;
+    } catch {
+      return false; // older implementation: not upgraded, not enabled
+    }
+  };
+  const validatorQuery = useQuery({
+    queryKey: ["session-validator-enabled", activeChainId, effectiveAddress ?? "none", validatorAddr],
+    enabled: !!publicClient && !!effectiveAddress && validatorDeployed && accountReady,
+    queryFn: readValidatorEnabled,
+    staleTime: 20_000,
+  });
+  const validatorEnabled = validatorQuery.data === true;
+  const [reenabling, setReenabling] = useState(false);
+
+  const handleReenable = async () => {
+    if (!effectiveAddress) return;
+    setReenabling(true);
+    try {
+      await unifiedWrite({
+        address: effectiveAddress as `0x${string}`,
+        abi: BlankAccountAbi,
+        functionName: "enableValidator",
+        args: [validatorAddr],
+        gas: 150_000n,
+        paymaster: "self",
+      });
+      await validatorQuery.refetch();
+      toast.success("Scheduled sends enabled again");
+    } catch (err) {
+      toastMappedError(err);
+    } finally {
+      setReenabling(false);
+    }
+  };
 
   const [createOpen, setCreateOpen] = useState(false);
   const [recipient, setRecipient] = useState("");
@@ -161,15 +218,12 @@ export default function ScheduledSends() {
     }
     setCreating(true);
     try {
-      // Step 1: read enabledValidators from chain.
-      let enabled = false;
-      if (publicClient) {
-        enabled = (await publicClient.readContract({
-          address: effectiveAddress as `0x${string}`,
-          abi: BlankAccountAbi,
-          functionName: "enabledValidators",
-          args: [validatorAddr],
-        })) as boolean;
+      // Step 1: is the validator enabled in the current owner epoch?
+      const enabled = await readValidatorEnabled();
+      if (!enabled && !hasSelfPayGas) {
+        throw new Error(
+          "First-time setup enables the session-key validator on your account, which pays its own gas. Add a little ETH on the Smart wallet screen first.",
+        );
       }
 
       // Step 2: sign the scope-creation request so the backend can prove
@@ -234,26 +288,28 @@ export default function ScheduledSends() {
         throw new Error("Amount exceeds uint128 cap");
       }
       const validUntil = Math.floor(Date.now() / 1000) + validUntilDays * 86400;
+      // Gas caps bound what one fire may spend; naming the paymaster lets
+      // the cron get fires sponsored (it falls back to the account's own
+      // deposit when sponsorship is refused).
+      const scopeArg = buildSessionScope({
+        recipient: recipient as Address,
+        spendToken: contracts.TestUSDC as Address,
+        maxAmountPerCall: amountBase,
+        periodSeconds: period,
+        validUntil,
+        paymaster: paymasterAddr,
+      });
       const setScopeData = encodeFunctionData({
         abi: SessionKeyValidatorAbi,
         functionName: "setScope",
-        args: [
-          json.sessionKey as Address,
-          {
-            recipient: recipient as Address,
-            spendToken: contracts.TestUSDC as Address,
-            maxAmountPerCall: amountBase,
-            periodSeconds: period,
-            validUntil,
-            lastFiredAt: 0, // contract overrides with block.timestamp - period
-          },
-        ],
+        args: [json.sessionKey as Address, scopeArg],
       });
 
       // Step 4: fire the on-chain authorization. When the validator
       // isn't yet enabled, batch enable+setScope into a single
-      // executeBatch UserOp — one passkey prompt, atomic, paymaster
-      // sponsors both. Otherwise fire a single execute.
+      // executeBatch UserOp: one passkey prompt, atomic. enableValidator
+      // is a call into the account, so that op pays its own gas.
+      // Otherwise a single sponsored execute(validator, setScope).
       if (!enabled) {
         toast("First-time setup: enabling validator + scope in one tx…", {
           icon: "🔧",
@@ -276,16 +332,19 @@ export default function ScheduledSends() {
           paymaster: paymasterMode,
         });
       } else {
+        // unifiedWrite wraps this as execute(validator, 0, setScope): the
+        // account is msg.sender and the op is sponsorable.
         await unifiedWrite({
-          address: effectiveAddress as `0x${string}`,
-          abi: BlankAccountAbi,
-          functionName: "execute",
-          args: [validatorAddr, 0n, setScopeData],
+          address: validatorAddr,
+          abi: SessionKeyValidatorAbi,
+          functionName: "setScope",
+          args: [json.sessionKey as Address, scopeArg],
           gas: 250_000n,
           paymaster: paymasterMode,
         });
       }
       await refetch();
+      await validatorQuery.refetch();
       toast.success("Scheduled send authorized on chain");
       resetForm();
     } catch (err) {
@@ -360,12 +419,44 @@ export default function ScheduledSends() {
                 Upgrade your account first
               </p>
               <p className="text-sm text-amber-700 dark:text-amber-300/80 leading-snug">
-                Scheduled sends need the v0.4.1 BlankAccount implementation
-                with validator dispatch. Tap "Upgrade" on the Dashboard
-                banner to enable it (one-time UUPS upgrade, your address +
-                balances are preserved).
+                Scheduled sends need the current BlankAccount implementation.
+                Tap "Upgrade" on the Dashboard banner (one-time upgrade,
+                your address and balances stay the same).
               </p>
             </div>
+          </div>
+        )}
+
+        {/* Validator off in the current owner epoch while scopes exist:
+            after the security upgrade or a guardian recovery every
+            session key is inert until the owner enables it again. */}
+        {accountReady && validatorDeployed && validatorQuery.isSuccess && !validatorEnabled && scopes.length > 0 && (
+          <div
+            data-testid="scheduled-reenable"
+            className="rounded-2xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 p-4 flex flex-col sm:flex-row gap-3"
+          >
+            <AlertTriangle size={20} className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-amber-900 dark:text-amber-200 mb-0.5">
+                Scheduled sends are paused
+              </p>
+              <p className="text-sm text-amber-700 dark:text-amber-300/80 leading-snug">
+                Your account does not have the session-key validator enabled,
+                so none of the schedules below can fire. This happens after
+                an account upgrade or a recovery. Enabling it pays its own
+                gas (account changes are not sponsored).
+                {!hasSelfPayGas && " Add a little ETH on the Smart wallet screen first."}
+              </p>
+            </div>
+            <button
+              onClick={() => void handleReenable()}
+              disabled={reenabling || !hasSelfPayGas}
+              data-testid="scheduled-reenable-button"
+              className="h-11 px-4 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-sm font-medium flex items-center justify-center gap-1.5 disabled:opacity-60 shrink-0 self-start"
+            >
+              {reenabling ? <Loader2 size={14} className="animate-spin" /> : null}
+              {reenabling ? "Enabling…" : "Enable again"}
+            </button>
           </div>
         )}
 

@@ -43,6 +43,15 @@ export interface PasskeyRecord {
   /** Optional human label */
   label?: string;
   createdAt: number;
+  /** Set when this key was created to take over an existing account through
+   *  guardian recovery. The account address no longer follows from pubX/pubY,
+   *  so it is stored here, with the keys the account was created with (the
+   *  paymaster sponsor needs those to re-derive the CREATE2 address). */
+  recoveredAccount?: {
+    address: `0x${string}`;
+    initOwnerX: `0x${string}`;
+    initOwnerY: `0x${string}`;
+  };
 }
 
 // ─── IndexedDB helpers ──────────────────────────────────────────────
@@ -264,6 +273,30 @@ export async function signHash(
     r: ("0x" + bytesToHex(r)) as `0x${string}`,
     s: ("0x" + bytesToHex(s)) as `0x${string}`,
   };
+}
+
+/** The recovered-account binding stored with this chain's key, if any. */
+export async function getRecoveredAccount(
+  chainId: number,
+): Promise<PasskeyRecord["recoveredAccount"] | null> {
+  const rec = await dbGet(chainId);
+  return rec?.recoveredAccount ?? null;
+}
+
+/**
+ * Point this chain's key at an account it is taking over by guardian
+ * recovery. Pass null to clear. The key itself is unchanged.
+ */
+export async function setRecoveredAccount(
+  chainId: number,
+  binding: PasskeyRecord["recoveredAccount"] | null,
+): Promise<void> {
+  const rec = await dbGet(chainId);
+  if (!rec) throw new Error("no passkey for this chain");
+  const next: PasskeyRecord = { ...rec };
+  if (binding) next.recoveredAccount = binding;
+  else delete next.recoveredAccount;
+  await dbPut(next);
 }
 
 /** Delete the passkey for this chain. Irreversible — the user loses access. */
