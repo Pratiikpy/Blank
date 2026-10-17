@@ -818,10 +818,11 @@ describe("PrivacyRouter — slippage floor and deadline (M3)", () => {
   it("executeSwap after the user deadline reverts; the user can still cancel", async () => {
     const ctx = await loadFixture(deployFixture);
     const now = BigInt(await time.latest());
-    await initSwap(ctx, usdc(10), { deadline: now + 60n });
-    expect(await ctx.router.swapDeadline(0)).to.equal(now + 60n);
+    // 300s margin: block time tracks the wall clock while inputs encrypt.
+    await initSwap(ctx, usdc(10), { deadline: now + 300n });
+    expect(await ctx.router.swapDeadline(0)).to.equal(now + 300n);
     const proof = await decryptAmountIn(ctx.router, ctx.client, ctx.alice, 0);
-    await time.increase(120);
+    await time.increaseTo(now + 360n);
     await expect(ctx.router.executeSwap(0, proof.plaintext, proof.signature))
       .to.be.revertedWith("PrivacyRouter: deadline passed");
     await ctx.router.connect(ctx.alice).cancelSwap(0);
