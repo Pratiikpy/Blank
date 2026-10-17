@@ -1,124 +1,92 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, fireEvent, act } from "@testing-library/react";
+import { render, fireEvent, act, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 
-// Wave 5 Block 10 smoke test for BalanceProof screen.
-//
+// ProofOfBalance is retired on-chain (createProof / revealProof revert).
 // Pins:
-//   - "Not deployed" banner shows when contracts.ProofOfBalance is 0x0,
-//     not a broken form (which would silently submit to address(0)).
-//   - Form renders when contract is deployed; create button is disabled
-//     until both balance + threshold are filled. A regression that
-//     forgets to gate would let a user submit an empty proof.
-//   - createProof receives the numeric values from the form, not the
-//     raw string values.
+//   - No create form or reveal button: they could only revert.
+//   - The screen links to /app/proofs?kind=balance, the live balance proof.
+//   - Old records stay readable, labelled as self-reported.
 
 const useProofOfBalanceMock = vi.hoisted(() => vi.fn());
-const useChainMock = vi.hoisted(() => vi.fn());
-
-vi.mock("@/hooks/useProofOfBalance", () => ({
-  useProofOfBalance: useProofOfBalanceMock,
-}));
-vi.mock("@/providers/ChainProvider", () => ({ useChain: useChainMock }));
+vi.mock("@/hooks/useProofOfBalance", () => ({ useProofOfBalance: useProofOfBalanceMock }));
 
 import BalanceProof from "./BalanceProof";
 
-const DEPLOYED = "0xff0Fa776116a17b6fbD62E48CA14F48b31E31856";
-const ZERO = "0x0000000000000000000000000000000000000000";
+const PROVER = "0xff0Fa776116a17b6fbD62E48CA14F48b31E31856";
+
+function renderScreen() {
+  return render(
+    <MemoryRouter>
+      <BalanceProof />
+    </MemoryRouter>,
+  );
+}
 
 beforeEach(() => {
   useProofOfBalanceMock.mockReset();
-  useChainMock.mockReset();
 });
 
-describe("BalanceProof screen", () => {
-  it("renders 'Not deployed' banner when ProofOfBalance is address(0)", () => {
-    useChainMock.mockReturnValue({
-      contracts: { ProofOfBalance: ZERO },
-    });
-    useProofOfBalanceMock.mockReturnValue({
-      step: "idle",
-      error: null,
-      createProof: vi.fn(),
-      revealProof: vi.fn(),
-      fetchProof: vi.fn(),
-      reset: vi.fn(),
-    });
-
-    const { queryByTestId, container } = render(<BalanceProof />);
-    expect(queryByTestId("balance-proof-screen")).toBeNull();
-    expect(container.textContent).toContain("Not deployed");
+describe("BalanceProof screen (retired contract)", () => {
+  it("has no create or reveal controls and links to the live balance proof", () => {
+    useProofOfBalanceMock.mockReturnValue({ deployed: true, fetchProof: vi.fn() });
+    const { queryByTestId, getByTestId } = renderScreen();
+    expect(queryByTestId("create-proof-button")).toBeNull();
+    expect(queryByTestId("reveal-proof-button")).toBeNull();
+    expect(queryByTestId("balance-input")).toBeNull();
+    expect(getByTestId("go-to-proofs").getAttribute("href")).toBe("/app/proofs?kind=balance");
   });
 
-  it("renders the form when contract is deployed", () => {
-    useChainMock.mockReturnValue({
-      contracts: { ProofOfBalance: DEPLOYED },
-    });
-    useProofOfBalanceMock.mockReturnValue({
-      step: "idle",
-      error: null,
-      createProof: vi.fn(),
-      revealProof: vi.fn(),
-      fetchProof: vi.fn(),
-      reset: vi.fn(),
-    });
-
-    const { getByTestId } = render(<BalanceProof />);
-    expect(getByTestId("balance-proof-screen")).toBeDefined();
-    expect(getByTestId("balance-input")).toBeDefined();
-    expect(getByTestId("threshold-input")).toBeDefined();
-    expect(getByTestId("create-proof-button")).toBeDefined();
+  it("hides the legacy lookup when the contract is not on this chain", () => {
+    useProofOfBalanceMock.mockReturnValue({ deployed: false, fetchProof: vi.fn() });
+    const { queryByTestId, getByTestId } = renderScreen();
+    expect(getByTestId("go-to-proofs")).toBeDefined();
+    expect(queryByTestId("lookup-input")).toBeNull();
   });
 
-  it("disables create button until both inputs are filled", () => {
-    useChainMock.mockReturnValue({
-      contracts: { ProofOfBalance: DEPLOYED },
+  it("looks up an old proof and labels it self-reported", async () => {
+    const fetchProof = vi.fn().mockResolvedValue({
+      id: 3n,
+      prover: PROVER,
+      thresholdMicroUSD: 1_000_000_000n,
+      createdAt: 1_700_000_000n,
+      revealed: true,
+      revealedValue: true,
     });
-    useProofOfBalanceMock.mockReturnValue({
-      step: "idle",
-      error: null,
-      createProof: vi.fn(),
-      revealProof: vi.fn(),
-      fetchProof: vi.fn(),
-      reset: vi.fn(),
-    });
-
-    const { getByTestId } = render(<BalanceProof />);
-    const button = getByTestId("create-proof-button") as HTMLButtonElement;
-    expect(button.disabled).toBe(true);
-
+    useProofOfBalanceMock.mockReturnValue({ deployed: true, fetchProof });
+    const { getByTestId, findByTestId } = renderScreen();
     act(() => {
-      fireEvent.change(getByTestId("balance-input"), { target: { value: "5000" } });
+      fireEvent.change(getByTestId("lookup-input"), { target: { value: "3" } });
     });
-    expect(button.disabled).toBe(true);
-
     act(() => {
-      fireEvent.change(getByTestId("threshold-input"), { target: { value: "1000" } });
+      fireEvent.click(getByTestId("lookup-button"));
     });
-    expect(button.disabled).toBe(false);
+    const result = await findByTestId("lookup-result");
+    expect(fetchProof).toHaveBeenCalledWith(3n);
+    expect(result.textContent).toContain("self-reported");
+    expect(result.textContent).toContain("1,000");
   });
 
-  it("calls createProof with parsed numeric values", () => {
-    const createProof = vi.fn().mockResolvedValue(BigInt(42));
-    useChainMock.mockReturnValue({
-      contracts: { ProofOfBalance: DEPLOYED },
+  it("shows a miss for an unknown or non-numeric id without calling the chain", async () => {
+    const fetchProof = vi.fn().mockResolvedValue(null);
+    useProofOfBalanceMock.mockReturnValue({ deployed: true, fetchProof });
+    const { getByTestId, findByTestId } = renderScreen();
+    act(() => {
+      fireEvent.change(getByTestId("lookup-input"), { target: { value: "abc" } });
     });
-    useProofOfBalanceMock.mockReturnValue({
-      step: "idle",
-      error: null,
-      createProof,
-      revealProof: vi.fn(),
-      fetchProof: vi.fn(),
-      reset: vi.fn(),
+    act(() => {
+      fireEvent.click(getByTestId("lookup-button"));
     });
+    await findByTestId("lookup-miss");
+    expect(fetchProof).not.toHaveBeenCalled();
 
-    const { getByTestId } = render(<BalanceProof />);
     act(() => {
-      fireEvent.change(getByTestId("balance-input"), { target: { value: "5000" } });
-      fireEvent.change(getByTestId("threshold-input"), { target: { value: "1000" } });
+      fireEvent.change(getByTestId("lookup-input"), { target: { value: "99" } });
     });
     act(() => {
-      fireEvent.click(getByTestId("create-proof-button"));
+      fireEvent.click(getByTestId("lookup-button"));
     });
-    expect(createProof).toHaveBeenCalledWith(5000, 1000);
+    await waitFor(() => expect(fetchProof).toHaveBeenCalledWith(99n));
+    expect(getByTestId("lookup-miss")).toBeDefined();
   });
 });

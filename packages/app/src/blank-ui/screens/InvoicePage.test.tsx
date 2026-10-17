@@ -38,6 +38,8 @@ const useInvoiceEscrowMock = vi.hoisted(() => vi.fn());
 const fetchInvoiceActivitiesMock = vi.hoisted(() => vi.fn());
 const getExplorerTxUrlMock = vi.hoisted(() => vi.fn());
 const toastSuccessMock = vi.hoisted(() => vi.fn());
+const refundDisputedInvoiceMock = vi.hoisted(() => vi.fn());
+const readInvoiceSettlementMock = vi.hoisted(() => vi.fn());
 
 vi.mock("react-router-dom", () => ({
   useParams: useParamsMock,
@@ -50,6 +52,13 @@ vi.mock("@/hooks/useEffectiveAddress", () => ({
 vi.mock("@/providers/ChainProvider", () => ({ useChain: useChainMock }));
 vi.mock("@/hooks/useInvoiceEscrow", () => ({
   useInvoiceEscrow: useInvoiceEscrowMock,
+}));
+vi.mock("@/hooks/useBusinessHub", () => ({
+  useBusinessHub: () => ({ refundDisputedInvoice: refundDisputedInvoiceMock, step: "idle" }),
+}));
+vi.mock("@/lib/invoice-settlement", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/invoice-settlement")>()),
+  readInvoiceSettlement: readInvoiceSettlementMock,
 }));
 vi.mock("@/lib/abis", () => ({ BusinessHubAbi: [] }));
 vi.mock("@/lib/constants", () => ({
@@ -133,6 +142,15 @@ beforeEach(() => {
   fetchInvoiceActivitiesMock.mockReset();
   getExplorerTxUrlMock.mockReset();
   toastSuccessMock.mockReset();
+  refundDisputedInvoiceMock.mockReset();
+  readInvoiceSettlementMock.mockReset();
+  // Escrow-mode payment funded 1 day ago.
+  readInvoiceSettlementMock.mockResolvedValue({
+    mode: 2,
+    paidAt: Math.floor(Date.now() / 1000) - 86_400,
+    refundPending: false,
+  });
+  refundDisputedInvoiceMock.mockResolvedValue(undefined);
 
   useParamsMock.mockReturnValue({ chainId: String(ETH_SEPOLIA), invoiceId: "7" });
   setActiveChainMock = vi.fn();
@@ -407,38 +425,54 @@ describe("InvoicePage — role × status: PAYMENT-PENDING (status=3) (§15.x)", 
     expect(releaseEscrowMock).toHaveBeenCalledWith(7);
   });
 
-  it("releaseEscrow returns {matched: true} -> 'Vendor paid' toast", async () => {
-    useEffectiveAddressMock.mockReturnValue({ effectiveAddress: CLIENT });
-    releaseEscrowMock.mockResolvedValueOnce({ matched: true });
-    const { findByText } = render(<InvoicePage />);
-    const btn = await findByText("Finalize");
-    await act(async () => {
-      fireEvent.click(btn);
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-    expect(toastSuccessMock).toHaveBeenCalledWith("Vendor paid");
-  });
-
-  it("releaseEscrow returns {matched: false} -> 'Refunded to you' toast", async () => {
-    useEffectiveAddressMock.mockReturnValue({ effectiveAddress: CLIENT });
-    releaseEscrowMock.mockResolvedValueOnce({ matched: false });
-    const { findByText } = render(<InvoicePage />);
-    const btn = await findByText("Finalize");
-    await act(async () => {
-      fireEvent.click(btn);
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-    expect(toastSuccessMock).toHaveBeenCalledWith("Refunded to you");
-  });
-
   it("PaymentPending + vendor -> 'Funds are in escrow' message (NOT finalize button)", async () => {
     useEffectiveAddressMock.mockReturnValue({ effectiveAddress: VENDOR });
     const { findByText, queryByText, container } = render(<InvoicePage />);
     await findByText("Web design Q3");
     expect(container.textContent).toContain("Funds are in escrow");
     expect(queryByText("Finalize")).toBeNull();
+    await waitFor(() => expect(container.textContent).toContain("you can release them in 6d"));
+  });
+
+  it("client Finalize calls releaseEscrow(id) and re-reads the invoice", async () => {
+    useEffectiveAddressMock.mockReturnValue({ effectiveAddress: CLIENT });
+    releaseEscrowMock.mockResolvedValueOnce({ hash: "0x1", matched: true, viaEscrow: true });
+    const { findByText } = render(<InvoicePage />);
+    const btn = await findByText("Finalize");
+    const readsBefore = readContractMock.mock.calls.length;
+    await act(async () => {
+      fireEvent.click(btn);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(releaseEscrowMock).toHaveBeenCalledWith(7);
+    await waitFor(() => expect(readContractMock.mock.calls.length).toBeGreaterThan(readsBefore));
+  });
+
+  it("PaymentPending + vendor 7 days after funding -> Release payment button", async () => {
+    readInvoiceSettlementMock.mockResolvedValue({
+      mode: 2,
+      paidAt: Math.floor(Date.now() / 1000) - 8 * 86_400,
+      refundPending: false,
+    });
+    useEffectiveAddressMock.mockReturnValue({ effectiveAddress: VENDOR });
+    const { findByTestId } = render(<InvoicePage />);
+    const btn = await findByTestId("vendor-release");
+    expect(btn.textContent).toContain("Release payment");
+    await act(async () => {
+      fireEvent.click(btn);
+      await Promise.resolve();
+    });
+    expect(releaseEscrowMock).toHaveBeenCalledWith(7);
+  });
+
+  it("Direct-mode payment: client copy says direct, vendor gets no release button", async () => {
+    readInvoiceSettlementMock.mockResolvedValue({ mode: 1, paidAt: 1, refundPending: false });
+    useEffectiveAddressMock.mockReturnValue({ effectiveAddress: VENDOR });
+    const { findByTestId, queryByTestId } = render(<InvoicePage />);
+    const panel = await findByTestId("vendor-pending");
+    await waitFor(() => expect(panel.textContent).toContain("paid you directly"));
+    expect(queryByTestId("vendor-release")).toBeNull();
   });
 });
 
@@ -533,16 +567,42 @@ describe("InvoicePage — terminal statuses (Cancelled / Disputed) (§15.x)", ()
     expect(queryByText("Pay this invoice")).toBeNull();
     expect(queryByText("Finalize")).toBeNull();
   });
+});
 
-  it("status=4 (Disputed) -> 'legacy direct-transfer path with a mismatched amount' + Business Tools link", async () => {
+describe("InvoicePage — Disputed (status=4) two-step refund", () => {
+  beforeEach(() => {
     readContractMock = vi.fn().mockResolvedValue(buildInvoice({ status: 4 }));
     usePublicClientMock.mockReturnValue({ readContract: readContractMock });
-    const { findByText, container } = render(<InvoicePage />);
-    await findByText("Web design Q3");
-    expect(container.textContent).toContain("legacy direct-transfer path");
-    expect(container.textContent).toContain("mismatched amount");
-    const link = (await findByText("Open Business Tools")) as HTMLAnchorElement;
-    expect(link.getAttribute("href")).toBe("/app/business");
+    readInvoiceSettlementMock.mockResolvedValue({ mode: 1, paidAt: 1, refundPending: false });
+  });
+
+  it("vendor sees Refund client and it calls refundDisputedInvoice(id)", async () => {
+    useEffectiveAddressMock.mockReturnValue({ effectiveAddress: VENDOR });
+    const { findByTestId } = render(<InvoicePage />);
+    const btn = await findByTestId("vendor-refund");
+    await waitFor(() => expect(btn.textContent).toContain("Refund client"));
+    await act(async () => {
+      fireEvent.click(btn);
+      await Promise.resolve();
+    });
+    expect(refundDisputedInvoiceMock).toHaveBeenCalledWith(7);
+  });
+
+  it("refund already sent -> Confirm refund + explanation", async () => {
+    readInvoiceSettlementMock.mockResolvedValue({ mode: 1, paidAt: 1, refundPending: true });
+    useEffectiveAddressMock.mockReturnValue({ effectiveAddress: VENDOR });
+    const { findByTestId, findByText } = render(<InvoicePage />);
+    const btn = await findByTestId("vendor-refund");
+    await waitFor(() => expect(btn.textContent).toContain("Confirm refund"));
+    await findByText(/not confirmed yet/);
+  });
+
+  it("client sees the explanation but no refund button", async () => {
+    useEffectiveAddressMock.mockReturnValue({ effectiveAddress: CLIENT });
+    const { findByTestId, queryByTestId } = render(<InvoicePage />);
+    const panel = await findByTestId("disputed-panel");
+    expect(panel.textContent).toContain("didn't match");
+    expect(queryByTestId("vendor-refund")).toBeNull();
   });
 });
 

@@ -13,11 +13,18 @@ import { useUnifiedWrite } from "./useUnifiedWrite";
 import { useFhePipeline } from "./useFhePipeline";
 import { useChain } from "@/providers/ChainProvider";
 import { useCofheEncrypt, useCofheConnection, Encryptable } from "@/lib/cofhe-shim";
-import { EncryptedEscrowAbi, FHERC20VaultAbi, InvoiceApprovalResolverAbi } from "@/lib/abis";
+import type { PublicClient } from "viem";
+import {
+  EncryptedEscrowAbi,
+  FHERC20VaultAbi,
+  InvoiceApprovalResolverAbi,
+  InvoiceApprovalResolverLegacyAbi,
+} from "@/lib/abis";
 import { MAX_UINT64, getExplorerTxUrl } from "@/lib/constants";
 import { isVaultApproved, markVaultApproved } from "@/lib/approval";
 import { extractEventId } from "@/lib/event-parser";
 import { invalidateBalanceQueries } from "@/lib/query-invalidation";
+import { escrowArbiterError } from "@/lib/escrow-rules";
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000" as `0x${string}`;
 
@@ -29,7 +36,78 @@ export const ESCROW_STATUS = {
 } as const;
 export type EscrowStatus = typeof ESCROW_STATUS[keyof typeof ESCROW_STATUS];
 
-export type EscrowStep = "idle" | "approving" | "encrypting" | "sending" | "success" | "error";
+export interface ConditionalInvoiceCondition {
+  buyer: `0x${string}`;
+  autoReleaseDeadline: bigint;
+  isApproved: boolean;
+  deadlinePassed: boolean;
+  set: boolean;
+  /** The resolver this escrow was created with. Approvals go there. */
+  resolver: `0x${string}`;
+  /** True when that resolver is the pre-upgrade one (approve(uint256)). */
+  legacy: boolean;
+}
+
+/**
+ * Read a conditional invoice's release rule from the resolver it was created
+ * with. EncryptedEscrow keeps each escrow's resolver private but emits
+ * EscrowResolverSet, so the log names it. Escrows on the current resolver
+ * use the (escrow, id) keyed reads; escrows on an older resolver use its
+ * id-keyed reads. If the log lookup fails, the current resolver is assumed.
+ */
+export async function readConditionalInvoice(
+  client: Pick<PublicClient, "readContract" | "getLogs">,
+  params: { escrow: `0x${string}`; currentResolver: `0x${string}`; escrowId: number },
+): Promise<ConditionalInvoiceCondition | null> {
+  const { escrow, currentResolver, escrowId } = params;
+  let resolver = currentResolver;
+  try {
+    const logs = await client.getLogs({
+      address: escrow,
+      event: {
+        type: "event",
+        name: "EscrowResolverSet",
+        inputs: [
+          { name: "escrowId", type: "uint256", indexed: true },
+          { name: "resolver", type: "address", indexed: true },
+        ],
+      },
+      args: { escrowId: BigInt(escrowId) },
+      fromBlock: "earliest",
+      toBlock: "latest",
+    });
+    const found = logs[logs.length - 1]?.args?.resolver as `0x${string}` | undefined;
+    if (found) resolver = found;
+  } catch {
+    resolver = currentResolver;
+  }
+  if (!resolver || resolver === ZERO_ADDRESS) return null;
+  const legacy = resolver.toLowerCase() !== (currentResolver ?? "").toLowerCase();
+  const c = legacy
+    ? ((await client.readContract({
+        address: resolver,
+        abi: InvoiceApprovalResolverLegacyAbi,
+        functionName: "getCondition",
+        args: [BigInt(escrowId)],
+      })) as readonly [`0x${string}`, bigint, boolean, boolean, boolean])
+    : ((await client.readContract({
+        address: resolver,
+        abi: InvoiceApprovalResolverAbi,
+        functionName: "getCondition",
+        args: [escrow, BigInt(escrowId)],
+      })) as readonly [`0x${string}`, bigint, boolean, boolean, boolean]);
+  return {
+    buyer: c[0],
+    autoReleaseDeadline: c[1],
+    isApproved: c[2],
+    deadlinePassed: c[3],
+    set: c[4],
+    resolver,
+    legacy,
+  };
+}
+
+export type EscrowStep ="idle" | "approving" | "encrypting" | "sending" | "success" | "error";
 export interface EscrowState {
   step: EscrowStep;
   isProcessing: boolean;
@@ -46,6 +124,7 @@ const FRIENDLY_LABEL: Record<string, string> = {
   disputeEscrow: "Dispute opened",
   claimExpiredEscrow: "Escrow refunded after deadline",
   arbiterDecide: "Arbiter decision recorded",
+  claimDisputeTimeout: "Dispute timed out. Funds returned to you",
   releaseIfConditionMet: "Funds released",
 };
 
@@ -130,6 +209,11 @@ export function useEncryptedEscrow() {
       }
       if (params.vault === ZERO) {
         toast.error("Vault address required.");
+        return null;
+      }
+      const arbiterErr = escrowArbiterError(params.arbiter, address ?? "", params.beneficiary);
+      if (arbiterErr) {
+        toast.error(arbiterErr);
         return null;
       }
       const minDeadline = Math.floor(Date.now() / 1000) + 86400;
@@ -309,6 +393,7 @@ export function useEncryptedEscrow() {
         | "disputeEscrow"
         | "claimExpiredEscrow"
         | "arbiterDecide"
+        | "claimDisputeTimeout"
         | "releaseIfConditionMet",
       args: readonly unknown[],
       gasLimit = 5_000_000,
@@ -354,26 +439,63 @@ export function useEncryptedEscrow() {
     [callSimple],
   );
 
-  // Conditional-invoice actions. approveInvoice writes to the resolver; the
+  // A dispute the arbiter never decides: the depositor takes the funds back
+  // DISPUTE_TIMEOUT (30 days) after it opened.
+  const claimDisputeTimeout = useCallback((id: number) => callSimple("claimDisputeTimeout", [BigInt(id)]), [callSimple]);
+
+  /** Seconds since epoch the dispute opened, 0 if never or opened before the
+   *  timestamp existed (those count from the deadline). Null on read failure. */
+  const getDisputedAt = useCallback(
+    async (id: number): Promise<number | null> => {
+      const ee = contracts.EncryptedEscrow as `0x${string}`;
+      if (!publicClient || !ee || ee === ZERO_ADDRESS) return null;
+      try {
+        const at = (await publicClient.readContract({
+          address: ee,
+          abi: EncryptedEscrowAbi,
+          functionName: "getDisputedAt",
+          args: [BigInt(id)],
+        })) as bigint;
+        return Number(at);
+      } catch {
+        return null;
+      }
+    },
+    [publicClient, contracts.EncryptedEscrow],
+  );
+
+  // Conditional-invoice actions. approveInvoice writes to the escrow's own
+  // resolver (conditions are keyed by escrow contract + id); the
   // permissionless triggerRelease pokes the escrow once the rule is met.
   const approveInvoice = useCallback(
-    async (escrowId: number) => {
+    async (escrowId: number, target?: { resolver: `0x${string}`; legacy: boolean }) => {
       const ready = guardWalletReady();
       if (!ready) return false;
-      const resolver = contracts.InvoiceApprovalResolver as `0x${string}`;
+      const { ee } = ready;
+      const resolver = target?.resolver ?? (contracts.InvoiceApprovalResolver as `0x${string}`);
       if (!resolver || resolver === ZERO_ADDRESS) {
         toast.error("Conditional invoices are only available on Arbitrum Sepolia.");
         return false;
       }
       try {
         setState((prev) => ({ ...prev, step: "sending", isProcessing: true, error: null }));
-        await unifiedWriteAndWait({
-          address: resolver,
-          abi: InvoiceApprovalResolverAbi,
-          functionName: "approve",
-          args: [BigInt(escrowId)],
-          gas: BigInt(300_000),
-        });
+        if (target?.legacy) {
+          await unifiedWriteAndWait({
+            address: resolver,
+            abi: InvoiceApprovalResolverLegacyAbi,
+            functionName: "approve",
+            args: [BigInt(escrowId)],
+            gas: BigInt(300_000),
+          });
+        } else {
+          await unifiedWriteAndWait({
+            address: resolver,
+            abi: InvoiceApprovalResolverAbi,
+            functionName: "approve",
+            args: [ee, BigInt(escrowId)],
+            gas: BigInt(300_000),
+          });
+        }
         setState((prev) => ({ ...prev, step: "success", isProcessing: false }));
         invalidateBalanceQueries();
         toast.success("Release approved");
@@ -386,6 +508,19 @@ export function useEncryptedEscrow() {
       }
     },
     [guardWalletReady, contracts.InvoiceApprovalResolver, unifiedWriteAndWait],
+  );
+
+  /** Reads the release condition of one conditional invoice. */
+  const getConditionalInvoice = useCallback(
+    (escrowId: number) => {
+      if (!publicClient) return Promise.resolve(null);
+      return readConditionalInvoice(publicClient, {
+        escrow: contracts.EncryptedEscrow as `0x${string}`,
+        currentResolver: contracts.InvoiceApprovalResolver as `0x${string}`,
+        escrowId,
+      });
+    },
+    [publicClient, contracts.EncryptedEscrow, contracts.InvoiceApprovalResolver],
   );
 
   const triggerRelease = useCallback((id: number) => callSimple("releaseIfConditionMet", [BigInt(id)]), [callSimple]);
@@ -402,10 +537,13 @@ export function useEncryptedEscrow() {
     createEscrow,
     createConditionalInvoice,
     approveInvoice,
+    getConditionalInvoice,
     triggerRelease,
     markDelivered,
     approveRelease,
     disputeEscrow,
+    claimDisputeTimeout,
+    getDisputedAt,
     claimExpiredEscrow,
     arbiterDecide,
     reset,

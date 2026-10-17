@@ -20,10 +20,17 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { usePublicClient } from "wagmi";
 import { ArrowLeft, ExternalLink, Calendar, FileText, Loader2, ShieldCheck, Wallet } from "lucide-react";
-import toast from "react-hot-toast";
 import { useEffectiveAddress } from "@/hooks/useEffectiveAddress";
 import { useChain } from "@/providers/ChainProvider";
 import { useInvoiceEscrow } from "@/hooks/useInvoiceEscrow";
+import { useBusinessHub } from "@/hooks/useBusinessHub";
+import {
+  PAYMENT_MODE,
+  formatWait,
+  readInvoiceSettlement,
+  secondsUntilOpenRelease,
+  type InvoiceSettlementState,
+} from "@/lib/invoice-settlement";
 import { BusinessHubAbi } from "@/lib/abis";
 import {
   CONTRACTS_BY_CHAIN,
@@ -76,6 +83,33 @@ export default function InvoicePage() {
   const [payAmount, setPayAmount] = useState("");
 
   const { payEscrow, releaseEscrow, isPaying, isReleasing } = useInvoiceEscrow();
+  const { refundDisputedInvoice, step: hubStep } = useBusinessHub();
+  const hubBusy =
+    hubStep === "approving" || hubStep === "sending" || hubStep === "decrypting" || hubStep === "encrypting";
+
+  // Payment mode + paid-at decide who may finalize and when.
+  const [settlement, setSettlement] = useState<InvoiceSettlementState | null>(null);
+  const [nowSeconds, setNowSeconds] = useState(() => Math.floor(Date.now() / 1000));
+  const invoiceStatus = invoice?.status;
+  useEffect(() => {
+    if (!publicClient || !isLinkChainSupported || (invoiceStatus !== 3 && invoiceStatus !== 4)) return;
+    const contracts = CONTRACTS_BY_CHAIN[linkChainId as SupportedChainId];
+    if (!contracts) return;
+    let cancelled = false;
+    readInvoiceSettlement(publicClient, contracts.BusinessHub as `0x${string}`, invoiceId)
+      .then((s) => { if (!cancelled) setSettlement(s); })
+      .catch(() => { if (!cancelled) setSettlement(null); });
+    setNowSeconds(Math.floor(Date.now() / 1000));
+    return () => { cancelled = true; };
+  }, [publicClient, isLinkChainSupported, linkChainId, invoiceId, invoiceStatus, tick]);
+  const vendorReleaseWait: number | null =
+    !settlement
+      ? null
+      : settlement.mode === PAYMENT_MODE.Escrow
+        ? secondsUntilOpenRelease(settlement.paidAt, nowSeconds)
+        : settlement.mode === PAYMENT_MODE.Legacy
+          ? 0
+          : null;
 
   // Read the invoice on mount + every poll tick (so status updates after
   // pay/finalize without a page reload).
@@ -339,18 +373,15 @@ export default function InvoicePage() {
             Finalize the payment
           </h3>
           <p className="text-sm text-[var(--text-primary)]/60 mb-4">
-            Funds are in escrow. Finalizing decrypts the match check
-            off-chain and releases to the vendor (or refunds you if the
-            amount didn't match).
+            {settlement?.mode === PAYMENT_MODE.Direct
+              ? "You paid the vendor directly. Finalizing decrypts the match check and marks the invoice paid, or disputed if the amount didn't match."
+              : "Funds are in escrow. Finalizing decrypts the match check off-chain and releases to the vendor (or refunds you if the amount didn't match)."}
           </p>
           <button
             disabled={isReleasing}
             onClick={async () => {
               const r = await releaseEscrow(invoiceId);
-              if (r) {
-                toast.success(r.matched ? "Vendor paid" : "Refunded to you");
-                setTick((t) => t + 1);
-              }
+              if (r) setTick((t) => t + 1);
             }}
             className="h-12 px-5 rounded-xl bg-emerald-600 text-white font-medium disabled:opacity-50 flex items-center gap-2"
           >
@@ -360,13 +391,45 @@ export default function InvoicePage() {
         </div>
       )}
 
-      {/* PaymentPending — vendor view */}
+      {/* PaymentPending, vendor view. An escrowed payment opens to anyone
+          7 days after funding, so a silent client cannot strand the vendor. */}
       {invoice.status === 3 && isVendor && (
-        <div className="rounded-2xl glass-card p-6">
-          <p className="text-sm text-[var(--text-primary)]/60">
-            Funds are in escrow. The client will finalize to release them
-            to your wallet.
-          </p>
+        <div className="rounded-2xl glass-card p-6" data-testid="vendor-pending">
+          {settlement?.mode === PAYMENT_MODE.Direct ? (
+            <p className="text-sm text-[var(--text-primary)]/60">
+              The client paid you directly. They finalize to confirm the amount matched.
+            </p>
+          ) : vendorReleaseWait === 0 ? (
+            <>
+              <h3 className="text-lg font-heading font-medium text-[var(--text-primary)] mb-2">
+                Release the payment
+              </h3>
+              <p className="text-sm text-[var(--text-primary)]/60 mb-4">
+                {settlement?.mode === PAYMENT_MODE.Escrow
+                  ? "The client has not finalized for 7 days, so you can. The decrypted match check decides: you get paid on a match, the client is refunded otherwise."
+                  : "This payment predates payment modes, so you finalize it. The decrypted match check decides the outcome."}
+              </p>
+              {onActiveChain && (
+                <button
+                  disabled={isReleasing}
+                  data-testid="vendor-release"
+                  onClick={async () => {
+                    const r = await releaseEscrow(invoiceId);
+                    if (r) setTick((t) => t + 1);
+                  }}
+                  className="h-12 px-5 rounded-xl bg-emerald-600 text-white font-medium disabled:opacity-50 flex items-center gap-2"
+                >
+                  {isReleasing ? <Loader2 size={16} className="animate-spin" /> : null}
+                  {isReleasing ? "Finalizing…" : settlement?.mode === PAYMENT_MODE.Escrow ? "Release payment" : "Finalize"}
+                </button>
+              )}
+            </>
+          ) : (
+            <p className="text-sm text-[var(--text-primary)]/60">
+              Funds are in escrow. The client finalizes to release them to you.
+              {vendorReleaseWait !== null && ` If they don't, you can release them in ${formatWait(vendorReleaseWait)}.`}
+            </p>
+          )}
         </div>
       )}
 
@@ -454,18 +517,38 @@ export default function InvoicePage() {
 
       {/* Disputed */}
       {invoice.status === 4 && (
-        <div className="rounded-2xl glass-card p-6">
-          <p className="text-sm text-[var(--text-primary)]/60 mb-2">
-            This invoice was paid via the legacy direct-transfer path with
-            a mismatched amount. The vendor must call <code>refundDisputedInvoice</code> to
-            return the funds. The option is available in their Business Tools.
+        <div className="rounded-2xl glass-card p-6" data-testid="disputed-panel">
+          <p className="text-sm text-[var(--text-primary)]/60 mb-4">
+            This invoice was paid directly with an amount that didn't match.
+            The vendor received it and must refund what they received to the
+            client.
           </p>
-          <a
-            href="/app/business"
-            className="inline-flex items-center gap-1.5 text-sm text-[var(--text-primary)]/70 hover:text-[var(--text-primary)]"
-          >
-            Open Business Tools <ExternalLink size={12} />
-          </a>
+          {isVendor && onActiveChain && (
+            <button
+              disabled={hubBusy}
+              data-testid="vendor-refund"
+              onClick={async () => {
+                await refundDisputedInvoice(invoiceId);
+                setTick((t) => t + 1);
+              }}
+              className="h-12 px-5 rounded-xl bg-orange-500 text-white font-medium disabled:opacity-50 flex items-center gap-2"
+            >
+              {hubBusy ? <Loader2 size={16} className="animate-spin" /> : null}
+              {hubBusy
+                ? hubStep === "decrypting"
+                  ? "Checking the refund…"
+                  : "Refunding…"
+                : settlement?.refundPending
+                  ? "Confirm refund"
+                  : "Refund client"}
+            </button>
+          )}
+          {isVendor && settlement?.refundPending && !hubBusy && (
+            <p className="text-xs text-[var(--text-primary)]/50 mt-3">
+              A refund was sent but not confirmed yet. Confirm publishes the
+              decrypted check that the full amount went back.
+            </p>
+          )}
         </div>
       )}
 

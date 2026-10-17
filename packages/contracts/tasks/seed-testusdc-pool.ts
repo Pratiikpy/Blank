@@ -1,12 +1,13 @@
 import { task } from "hardhat/config";
 
 /**
- * seed-testusdc-pool — Phase 5.6 testnet operability.
+ * seed-testusdc-pool — testnet Uniswap liquidity for TestUSDC.
  *
- * Phase 5.6 (`payInvoiceWithSwap`) routes through Uniswap v3 to swap a
- * payer's token (USDT/WETH/etc.) into the invoice's underlying USDC.
- * Our app's `TestUSDC` is permissionless-mint and has no Uniswap
- * liquidity by default — every swap quote reverts with "no pool".
+ * This pool was seeded for BusinessHub.payInvoiceWithSwap, which is now
+ * retired and reverts. No app flow needs it; the task stays for testnet
+ * Uniswap experiments against TestUSDC. `TestUSDC` is permissionless-mint
+ * and has no Uniswap liquidity by default, so every quote reverts with
+ * "no pool" until this runs.
  *
  * This task closes that gap: it creates + initializes a TestUSDC/WETH
  * v3 pool at the 0.3% fee tier (default), then mints liquidity from the

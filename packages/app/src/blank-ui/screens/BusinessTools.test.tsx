@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { act, render, fireEvent } from "@testing-library/react";
+import { act, render, fireEvent, waitFor } from "@testing-library/react";
 
 // §15.x test for BusinessTools screen — vendor/client invoice flow, encrypted
 // payroll (≤30 employees), and 3-role escrow (depositor + beneficiary +
@@ -48,12 +48,12 @@ import { act, render, fireEvent } from "@testing-library/react";
 //     header-detection heuristic is load-bearing: pasting a real CSV with
 //     "address,amount" header line would otherwise drop the first
 //     employee.
-//   - Pay-invoice 3-mode flow (#payMode standard / swap / oracle). Standard
-//     uses FHE-encrypted vault path; swap uses Uniswap router (gated on
-//     publicClient + payAltToken + payInvoiceAmount, debounced 500ms);
-//     oracle uses backend-signed price quote bound to (payer + invoiceId +
-//     payToken + amount + chainId + businessHub) so substitution attacks
-//     fail.
+//   - Pay-invoice is the direct FHE vault path only. The swap and oracle
+//     pay modes are retired on-chain and must not render.
+//   - Row actions follow the chain's payment mode: client Finalize;
+//     vendor Release only for an escrowed payment 7 days after funding;
+//     vendor Refund client on Disputed. Dispute needs an arbiter, and a
+//     dispute past 30 days offers the timeout refund.
 
 const useEffectiveAddressMock = vi.hoisted(() => vi.fn());
 const useChainMock = vi.hoisted(() => vi.fn());
@@ -169,8 +169,10 @@ const markDeliveredMock = vi.fn();
 const approveReleaseMock = vi.fn();
 const disputeEscrowMock = vi.fn();
 const payInvoiceMock = vi.fn();
-const payInvoiceWithSwapMock = vi.fn();
-const payInvoiceWithOracleQuoteMock = vi.fn();
+const refundDisputedInvoiceMock = vi.fn();
+const getInvoiceSettlementMock = vi.fn();
+const getEscrowDisputedAtMock = vi.fn();
+const claimDisputeTimeoutMock = vi.fn();
 const cancelInvoiceMock = vi.fn();
 const arbiterDecideMock = vi.fn();
 const claimExpiredEscrowMock = vi.fn();
@@ -187,8 +189,10 @@ function setHub(over: Record<string, unknown> = {}) {
     approveRelease: approveReleaseMock,
     disputeEscrow: disputeEscrowMock,
     payInvoice: payInvoiceMock,
-    payInvoiceWithSwap: payInvoiceWithSwapMock,
-    payInvoiceWithOracleQuote: payInvoiceWithOracleQuoteMock,
+    refundDisputedInvoice: refundDisputedInvoiceMock,
+    getInvoiceSettlement: getInvoiceSettlementMock,
+    getEscrowDisputedAt: getEscrowDisputedAtMock,
+    claimDisputeTimeout: claimDisputeTimeoutMock,
     cancelInvoice: cancelInvoiceMock,
     arbiterDecide: arbiterDecideMock,
     claimExpiredEscrow: claimExpiredEscrowMock,
@@ -222,8 +226,12 @@ beforeEach(() => {
   approveReleaseMock.mockReset();
   disputeEscrowMock.mockReset();
   payInvoiceMock.mockReset();
-  payInvoiceWithSwapMock.mockReset();
-  payInvoiceWithOracleQuoteMock.mockReset();
+  refundDisputedInvoiceMock.mockReset();
+  getInvoiceSettlementMock.mockReset();
+  getInvoiceSettlementMock.mockResolvedValue(null);
+  getEscrowDisputedAtMock.mockReset();
+  getEscrowDisputedAtMock.mockResolvedValue(null);
+  claimDisputeTimeoutMock.mockReset();
   cancelInvoiceMock.mockReset();
   arbiterDecideMock.mockReset();
   claimExpiredEscrowMock.mockReset();
@@ -930,13 +938,46 @@ describe("BusinessTools — Escrow filter (§15.x)", () => {
     expect(container.textContent).toContain("You are arbiter");
   });
 
-  it("active escrow renders Release Funds + Dispute buttons", async () => {
+  it("active escrow with an arbiter renders Release Funds + Dispute buttons", async () => {
     fetchUserEscrowsMock.mockResolvedValue([
-      escrowRow({ depositor_address: ME, status: "active" }),
+      escrowRow({ depositor_address: ME, arbiter_address: CAROL, status: "active" }),
     ]);
     const { container } = await openEscrowTab();
     expect(container.textContent).toContain("Release Funds");
     expect(container.textContent).toContain("Dispute");
+  });
+
+  it("active escrow without an arbiter hides Dispute (contract requires one)", async () => {
+    fetchUserEscrowsMock.mockResolvedValue([
+      escrowRow({ depositor_address: ME, arbiter_address: "", status: "active" }),
+    ]);
+    const { container } = await openEscrowTab();
+    expect(container.textContent).toContain("Release Funds");
+    expect(Array.from(container.querySelectorAll("button")).some((b) => b.textContent?.trim() === "Dispute")).toBe(false);
+  });
+
+  it("disputed escrow past the 30-day timeout offers the return to depositor", async () => {
+    const longAgo = Math.floor(Date.now() / 1000) - 31 * 86400;
+    getEscrowDisputedAtMock.mockResolvedValue(longAgo);
+    claimDisputeTimeoutMock.mockResolvedValue(undefined);
+    fetchUserEscrowsMock.mockResolvedValue([
+      escrowRow({ escrow_id: 5, depositor_address: ME, arbiter_address: CAROL, status: "disputed" }),
+    ]);
+    const { findByTestId } = await openEscrowTab();
+    const btn = await findByTestId("escrow-dispute-timeout-5");
+    fireEvent.click(btn);
+    await flush();
+    expect(claimDisputeTimeoutMock).toHaveBeenCalledWith(5);
+  });
+
+  it("disputed escrow inside the timeout shows the wait, no button", async () => {
+    getEscrowDisputedAtMock.mockResolvedValue(Math.floor(Date.now() / 1000) - 86400);
+    fetchUserEscrowsMock.mockResolvedValue([
+      escrowRow({ escrow_id: 6, depositor_address: ME, arbiter_address: CAROL, status: "disputed" }),
+    ]);
+    const { container, queryByTestId } = await openEscrowTab();
+    await waitFor(() => expect(container.textContent).toContain("returns to the depositor in 29d"));
+    expect(queryByTestId("escrow-dispute-timeout-6")).toBeNull();
   });
 
   it("released escrow renders green Released checkmark (no actions)", async () => {
@@ -1060,6 +1101,7 @@ describe("BusinessTools — handleReleaseFunds role routing (§15.x)", () => {
         escrow_id: 11,
         depositor_address: ME,
         beneficiary_address: ALICE,
+        arbiter_address: CAROL,
         status: "active",
       }),
     ]);
@@ -1277,5 +1319,90 @@ describe("BusinessTools — invoice row identity (§15.x)", () => {
     await flush();
     expect(container.textContent).toContain("Due");
     expect(container.textContent).not.toContain("No date");
+  });
+});
+
+// ----- payment-mode aware invoice actions ----- //
+
+describe("BusinessTools — invoice settlement actions", () => {
+  it("pay dialog has no swap or oracle mode", async () => {
+    fetchClientInvoicesMock.mockResolvedValue([
+      invoiceRow({ invoice_id: 3, vendor_address: ALICE, client_address: ME, status: "pending" }),
+    ]);
+    const { container, findByText } = render(<BusinessTools />);
+    fireEvent.click(await findByText("Pay"));
+    await flush();
+    expect(container.querySelector('[data-testid="pay-mode-swap"]')).toBeNull();
+    expect(container.querySelector('[data-testid="pay-mode-oracle"]')).toBeNull();
+    expect(container.querySelector('[data-testid="pay-direct-note"]')).not.toBeNull();
+  });
+
+  it("vendor of a disputed invoice gets Refund client -> refundDisputedInvoice(id)", async () => {
+    getInvoiceSettlementMock.mockResolvedValue({ mode: 1, paidAt: 1, refundPending: false });
+    refundDisputedInvoiceMock.mockResolvedValue(undefined);
+    fetchVendorInvoicesMock.mockResolvedValue([
+      invoiceRow({ invoice_id: 8, vendor_address: ME, client_address: ALICE, status: "disputed" }),
+    ]);
+    const { findByTestId } = render(<BusinessTools />);
+    const btn = await findByTestId("invoice-refund-8");
+    expect(btn.textContent).toContain("Refund client");
+    fireEvent.click(btn);
+    await flush();
+    expect(refundDisputedInvoiceMock).toHaveBeenCalledWith(8);
+  });
+
+  it("refund already pending -> button reads Confirm refund", async () => {
+    getInvoiceSettlementMock.mockResolvedValue({ mode: 1, paidAt: 1, refundPending: true });
+    fetchVendorInvoicesMock.mockResolvedValue([
+      invoiceRow({ invoice_id: 8, vendor_address: ME, client_address: ALICE, status: "disputed" }),
+    ]);
+    const { findByTestId } = render(<BusinessTools />);
+    const btn = await findByTestId("invoice-refund-8");
+    await waitFor(() => expect(btn.textContent).toContain("Confirm refund"));
+  });
+
+  it("vendor of an escrowed invoice: wait message first, Release payment after 7 days", async () => {
+    const now = Math.floor(Date.now() / 1000);
+    getInvoiceSettlementMock.mockResolvedValue({ mode: 2, paidAt: now - 86400, refundPending: false });
+    fetchVendorInvoicesMock.mockResolvedValue([
+      invoiceRow({ invoice_id: 9, vendor_address: ME, client_address: ALICE, status: "payment_pending" }),
+    ]);
+    const first = render(<BusinessTools />);
+    const wait = await first.findByTestId("invoice-wait-9");
+    expect(wait.textContent).toContain("6d");
+    expect(first.queryByTestId("invoice-vendor-release-9")).toBeNull();
+    first.unmount();
+
+    getInvoiceSettlementMock.mockResolvedValue({ mode: 2, paidAt: now - 8 * 86400, refundPending: false });
+    const second = render(<BusinessTools />);
+    const btn = await second.findByTestId("invoice-vendor-release-9");
+    fireEvent.click(btn);
+    await flush();
+    expect(finalizeInvoiceMock).toHaveBeenCalledWith(9);
+  });
+
+  it("vendor of a direct payment: no release button, waits for the client", async () => {
+    getInvoiceSettlementMock.mockResolvedValue({ mode: 1, paidAt: 1, refundPending: false });
+    fetchVendorInvoicesMock.mockResolvedValue([
+      invoiceRow({ invoice_id: 10, vendor_address: ME, client_address: ALICE, status: "payment_pending" }),
+    ]);
+    const { findByTestId, queryByTestId } = render(<BusinessTools />);
+    const wait = await findByTestId("invoice-wait-10");
+    expect(wait.textContent).toContain("Waiting for the client");
+    expect(queryByTestId("invoice-vendor-release-10")).toBeNull();
+  });
+
+  it("chain status wins over a stale Supabase row", async () => {
+    fetchVendorInvoicesMock.mockResolvedValue([
+      invoiceRow({ invoice_id: 12, vendor_address: ME, client_address: ALICE, status: "payment_pending" }),
+    ]);
+    useOnChainBusinessRecordsMock.mockReturnValue({
+      invoices: [invoiceRow({ invoice_id: 12, vendor_address: ME, client_address: ALICE, status: "paid" })],
+      escrows: [],
+      refresh: vi.fn(),
+    });
+    const { findByText, queryByTestId } = render(<BusinessTools />);
+    await findByText("paid");
+    expect(queryByTestId("invoice-wait-12")).toBeNull();
   });
 });

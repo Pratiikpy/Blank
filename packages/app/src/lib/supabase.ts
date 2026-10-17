@@ -1017,7 +1017,7 @@ export async function fetchClientInvoices(address: string): Promise<InvoiceRow[]
 
 export async function updateInvoiceStatus(
   invoiceId: number,
-  status: "paid" | "cancelled" | "payment_pending" | "refunded",
+  status: "paid" | "cancelled" | "payment_pending" | "disputed" | "refunded",
 ) {
   if (!supabase) return;
   // Match by invoice_id (stable key), not tx_hash. Callers used to pass the

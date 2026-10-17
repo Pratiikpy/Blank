@@ -9,17 +9,21 @@ import {
   X,
   Loader2,
   AlertTriangle,
-  Info,
-  Repeat,
   ExternalLink,
 } from "lucide-react";
 import { formatDistanceToNowStrict } from "date-fns";
 import { cn } from "@/lib/cn";
 import { truncateAddress } from "@/lib/address";
 import toast from "react-hot-toast";
-import { isAddress, parseUnits, formatUnits } from "viem";
-import { usePublicClient } from "wagmi";
+import { isAddress } from "viem";
 import { useBusinessHub } from "@/hooks/useBusinessHub";
+import {
+  PAYMENT_MODE,
+  formatWait,
+  secondsUntilOpenRelease,
+  type InvoiceSettlementState,
+} from "@/lib/invoice-settlement";
+import { disputeTimeoutAt, escrowArbiterError, hasArbiter } from "@/lib/escrow-rules";
 import { useOnChainBusinessRecords } from "@/hooks/useOnChainBusinessRecords";
 import { toastMappedError } from "@/lib/error-messages";
 import { EmptyState } from "@/components/common/EmptyState";
@@ -27,15 +31,6 @@ import { MILESTONE_TEMPLATES } from "@/lib/escrow-templates";
 import { useEffectiveAddress } from "@/hooks/useEffectiveAddress";
 import { useChain } from "@/providers/ChainProvider";
 import { CopyInvoiceLink } from "@/blank-ui/components/CopyInvoiceLink";
-import {
-  KNOWN_TOKENS,
-  POOL_FEE,
-  QuoterV2Abi,
-  UNISWAP_QUOTER_V2,
-  UNISWAP_SWAP_ROUTER_02,
-  applySlippage,
-  type TokenInfo,
-} from "@/lib/uniswap";
 import {
   fetchVendorInvoices,
   fetchClientInvoices,
@@ -76,9 +71,25 @@ const getStatusBadge = (status: string) => {
 
 export default function BusinessTools() {
   const { effectiveAddress: address } = useEffectiveAddress();
-  const { activeChainId, contracts } = useChain();
-  const publicClient = usePublicClient({ chainId: activeChainId });
-  const { step, createInvoice, runPayroll, createEscrow, finalizeInvoice, markDelivered, approveRelease, disputeEscrow, payInvoice, payInvoiceWithSwap, payInvoiceWithOracleQuote, cancelInvoice, arbiterDecide, claimExpiredEscrow } = useBusinessHub();
+  const { activeChainId } = useChain();
+  const {
+    step,
+    createInvoice,
+    runPayroll,
+    createEscrow,
+    finalizeInvoice,
+    refundDisputedInvoice,
+    getInvoiceSettlement,
+    getEscrowDisputedAt,
+    markDelivered,
+    approveRelease,
+    disputeEscrow,
+    claimDisputeTimeout,
+    payInvoice,
+    cancelInvoice,
+    arbiterDecide,
+    claimExpiredEscrow,
+  } = useBusinessHub();
   const { activities } = useActivityFeed();
   const {
     invoices: onChainInvoices,
@@ -106,40 +117,6 @@ export default function BusinessTools() {
   const [confirmDisputeId, setConfirmDisputeId] = useState<number | null>(null);
   const [payInvoiceId, setPayInvoiceId] = useState<number | null>(null);
   const [payInvoiceAmount, setPayInvoiceAmount] = useState("");
-  // Phase 5.6 / 5.7 — three-mode pay flow:
-  //   "standard" → existing FHE-encrypted-vault path (default).
-  //   "swap"     → Uniswap-routed swap-then-pay (Phase 5.6).
-  //   "oracle"   → Backend-signed price quote (Phase 5.7) for tokens
-  //                Uniswap doesn't have a pool for. Each mode shows its
-  //                own panel + has its own CTA + handler.
-  type PayMode = "standard" | "swap" | "oracle";
-  const [payMode, setPayMode] = useState<PayMode>("standard");
-  const [payAltToken, setPayAltToken] = useState<TokenInfo | null>(null);
-  const [payAltSlippageBps, setPayAltSlippageBps] = useState(50); // 0.5%
-  const [payAltQuoteIn, setPayAltQuoteIn] = useState<bigint | null>(null);
-  const [payAltQuoteLoading, setPayAltQuoteLoading] = useState(false);
-  const [payAltQuoteError, setPayAltQuoteError] = useState<string | null>(null);
-  // Phase 5.7 — oracle-quote state. Distinct from the swap-quote state
-  // because the oracle path's quote is server-signed (not derived
-  // client-side from a Uniswap simulation).
-  interface OracleQuote {
-    expectedUsdcOut: string;
-    ratePpm: string;
-    expiresAt: number;
-    nonce: `0x${string}`;
-    signature: `0x${string}`;
-    payToken: `0x${string}`;
-    payAmountIn: string;
-  }
-  const [oracleQuote, setOracleQuote] = useState<OracleQuote | null>(null);
-  const [oracleFetching, setOracleFetching] = useState(false);
-  const [oracleError, setOracleError] = useState<string | null>(null);
-  // Backwards-compat shim — keep legacy `payAltMode` boolean alive for
-  // any downstream code paths that haven't been migrated yet.
-  const payAltMode = payMode === "swap";
-  // Swap-pay needs a Uniswap quoter on this chain. Networks without one
-  // (e.g. Arbitrum Sepolia) hide the swap option entirely.
-  const swapPaySupported = UNISWAP_QUOTER_V2[activeChainId] !== undefined;
   const [confirmCancelInvoiceId, setConfirmCancelInvoiceId] = useState<number | null>(null);
   const [confirmArbiterEscrow, setConfirmArbiterEscrow] = useState<{ id: number; release: boolean } | null>(null);
   const [confirmClaimExpiredId, setConfirmClaimExpiredId] = useState<number | null>(null);
@@ -164,7 +141,8 @@ export default function BusinessTools() {
   const [escrowTemplateId, setEscrowTemplateId] = useState("single");
   const [escrowFile, setEscrowFile] = useState<File | null>(null);
 
-  const isProcessing = step === "approving" || step === "encrypting" || step === "sending";
+  const isProcessing =
+    step === "approving" || step === "encrypting" || step === "sending" || step === "decrypting";
 
   // Load real data
   const loadData = useCallback(async () => {
@@ -206,15 +184,82 @@ export default function BusinessTools() {
   // escrow actionable when the indexer is behind or unreachable. Without
   // this, a client named on a real on-chain invoice saw "No invoices yet"
   // and had no Pay button at all.
+  // Status is the exception: the chain is the truth, so a Supabase row that
+  // missed an update (a finalize from another device, a timed-out dispute)
+  // still shows the right actions.
   const invoices = useMemo(() => {
+    const chainById = new Map(onChainInvoices.map((i) => [i.invoice_id, i]));
     const known = new Set(dbInvoices.map((i) => i.invoice_id));
-    return [...dbInvoices, ...onChainInvoices.filter((i) => !known.has(i.invoice_id))];
+    const merged = dbInvoices.map((row) => {
+      const chain = chainById.get(row.invoice_id);
+      return chain && chain.status !== row.status && row.status !== "refunded"
+        ? { ...row, status: chain.status }
+        : row;
+    });
+    return [...merged, ...onChainInvoices.filter((i) => !known.has(i.invoice_id))];
   }, [dbInvoices, onChainInvoices]);
 
   const escrows = useMemo(() => {
+    const chainById = new Map(onChainEscrows.map((e) => [e.escrow_id, e]));
     const known = new Set(dbEscrows.map((e) => e.escrow_id));
-    return [...dbEscrows, ...onChainEscrows.filter((e) => !known.has(e.escrow_id))];
+    const merged = dbEscrows.map((row) => {
+      const chain = chainById.get(row.escrow_id);
+      return chain && chain.status !== row.status ? { ...row, status: chain.status } : row;
+    });
+    return [...merged, ...onChainEscrows.filter((e) => !known.has(e.escrow_id))];
   }, [dbEscrows, onChainEscrows]);
+
+  // Per-invoice payment mode for funded / disputed invoices, and the dispute
+  // start for disputed escrows, so each row offers only the call the contract
+  // accepts from this wallet right now.
+  const [settlements, setSettlements] = useState<Record<number, InvoiceSettlementState>>({});
+  const [disputedAt, setDisputedAt] = useState<Record<number, number>>({});
+  const [nowSeconds, setNowSeconds] = useState(() => Math.floor(Date.now() / 1000));
+  useEffect(() => {
+    const t = setInterval(() => setNowSeconds(Math.floor(Date.now() / 1000)), 60_000);
+    return () => clearInterval(t);
+  }, []);
+
+  const settlementKey = invoices
+    .filter((i) => i.status === "payment_pending" || i.status === "disputed")
+    .map((i) => `${i.invoice_id}:${i.status}`)
+    .join(",");
+  useEffect(() => {
+    if (!settlementKey) return;
+    let cancelled = false;
+    const ids = settlementKey.split(",").map((k) => Number(k.split(":")[0]));
+    void Promise.all(ids.map(async (id) => [id, await getInvoiceSettlement(id)] as const)).then((rows) => {
+      if (cancelled) return;
+      setSettlements((prev) => {
+        const next = { ...prev };
+        for (const [id, s] of rows) if (s) next[id] = s;
+        return next;
+      });
+    });
+    return () => { cancelled = true; };
+    // getInvoiceSettlement is stable per chain; the key captures the inputs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settlementKey, step === "success"]);
+
+  const disputedKey = escrows
+    .filter((e) => e.status === "disputed")
+    .map((e) => e.escrow_id)
+    .join(",");
+  useEffect(() => {
+    if (!disputedKey) return;
+    let cancelled = false;
+    const ids = disputedKey.split(",").map(Number);
+    void Promise.all(ids.map(async (id) => [id, await getEscrowDisputedAt(id)] as const)).then((rows) => {
+      if (cancelled) return;
+      setDisputedAt((prev) => {
+        const next = { ...prev };
+        for (const [id, at] of rows) if (at !== null) next[id] = at;
+        return next;
+      });
+    });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [disputedKey]);
 
   // Reload data after successful operations. Re-read the chain too, so a
   // freshly created invoice or a payment that just mined shows its new status
@@ -333,6 +378,11 @@ export default function BusinessTools() {
       toast.error("Invalid arbiter address");
       return;
     }
+    const arbiterErr = escrowArbiterError(escrowArbiter, address ?? "", escrowBeneficiary);
+    if (arbiterErr) {
+      toast.error(arbiterErr);
+      return;
+    }
     try {
       const deadline = Math.floor(Date.now() / 1000) + parseInt(escrowDeadlineDays) * 86400;
       await createEscrow(
@@ -354,195 +404,25 @@ export default function BusinessTools() {
     await finalizeInvoice(invoiceId);
   };
 
+  const handleRefundDisputed = async (invoiceId: number) => {
+    await refundDisputedInvoice(invoiceId);
+  };
+
+  const handleClaimDisputeTimeout = async (escrowId: number) => {
+    await claimDisputeTimeout(escrowId);
+    loadData();
+  };
+
   const handlePayInvoice = async () => {
     if (payInvoiceId === null || !payInvoiceAmount) return;
     try {
       await payInvoice(payInvoiceId, payInvoiceAmount);
       setPayInvoiceId(null);
       setPayInvoiceAmount("");
-      setPayMode("standard");
     } catch (err) {
       toastMappedError(err);
     }
   };
-
-  // Phase 5.7 — fetch a backend-signed price quote. Caller must have
-  // already entered a recipient amount (mirrors invoice amount). The
-  // quote is bound to (account, invoiceId, payToken, payAmountIn,
-  // contractAddr, chainId, msg.sender) so substitution attacks fail.
-  const handleFetchOracleQuote = async () => {
-    if (payInvoiceId === null || !payInvoiceAmount || !payAltToken || !address) {
-      toast.error("Pick a token + enter the invoice amount first");
-      return;
-    }
-    setOracleFetching(true);
-    setOracleError(null);
-    try {
-      // For MVP the oracle path expects 1:1 stable — payAmountIn equals
-      // the invoice amount in the same decimals. Future allowlist entries
-      // could change the rate; this endpoint handles that server-side.
-      const payAmountIn = parseUnits(payInvoiceAmount, payAltToken.decimals);
-      const res = await fetch("/api/oracle/quote", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          payer: address,
-          invoiceId: String(payInvoiceId),
-          payToken: payAltToken.address,
-          payAmountIn: payAmountIn.toString(),
-          chainId: activeChainId,
-          businessHub: contracts.BusinessHub,
-        }),
-      });
-      if (!res.ok) {
-        const errJson = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-        throw new Error(errJson.error ?? `Backend rejected: ${res.status}`);
-      }
-      const json = (await res.json()) as {
-        expectedUsdcOut: string;
-        ratePpm: string;
-        expiresAt: number;
-        nonce: `0x${string}`;
-        signature: `0x${string}`;
-      };
-      setOracleQuote({
-        ...json,
-        payToken: payAltToken.address,
-        payAmountIn: payAmountIn.toString(),
-      });
-    } catch (err) {
-      setOracleError(err instanceof Error ? err.message : String(err));
-      setOracleQuote(null);
-    } finally {
-      setOracleFetching(false);
-    }
-  };
-
-  // Phase 5.7 — submit the signed oracle quote on chain. Must be
-  // preceded by a successful handleFetchOracleQuote.
-  const handlePayInvoiceWithOracleQuote = async () => {
-    if (payInvoiceId === null || !payInvoiceAmount || !oracleQuote) return;
-    try {
-      await payInvoiceWithOracleQuote({
-        invoiceId: payInvoiceId,
-        payToken: oracleQuote.payToken,
-        payAmountIn: BigInt(oracleQuote.payAmountIn),
-        expectedUsdcOut: BigInt(oracleQuote.expectedUsdcOut),
-        ratePpm: BigInt(oracleQuote.ratePpm),
-        expiresAt: oracleQuote.expiresAt,
-        nonce: oracleQuote.nonce,
-        signature: oracleQuote.signature,
-        amount: payInvoiceAmount,
-      });
-      // Clean up modal state on success.
-      setPayInvoiceId(null);
-      setPayInvoiceAmount("");
-      setPayMode("standard");
-      setPayAltToken(null);
-      setOracleQuote(null);
-      setOracleError(null);
-    } catch (err) {
-      toastMappedError(err);
-    }
-  };
-
-  // Phase 5.6 — pay invoice with a different token. Mirrors the legacy
-  // payInvoice handler; routes through the new contract entrypoint.
-  const handlePayInvoiceWithSwap = async () => {
-    if (payInvoiceId === null || !payInvoiceAmount || !payAltToken) return;
-    if (payAltQuoteIn === null) {
-      toast.error("Wait for the quote to load");
-      return;
-    }
-    const swapRouter = UNISWAP_SWAP_ROUTER_02[activeChainId];
-    if (!swapRouter) {
-      toastMappedError(new Error("Token swap is not available on this network"));
-      return;
-    }
-    try {
-      // Apply slippage budget to the quote so the contract has room to
-      // succeed under thin testnet pool depth. The contract refunds any
-      // unused payToken.
-      const slippageBuffered = payAltQuoteIn + (payAltQuoteIn * BigInt(payAltSlippageBps)) / 10_000n;
-      await payInvoiceWithSwap({
-        invoiceId: payInvoiceId,
-        payToken: payAltToken.address,
-        payAmountInMax: slippageBuffered,
-        amount: payInvoiceAmount,
-        fee: POOL_FEE.MEDIUM,
-        swapRouter,
-      });
-      setPayInvoiceId(null);
-      setPayInvoiceAmount("");
-      setPayMode("standard");
-      setPayAltToken(null);
-      setPayAltQuoteIn(null);
-      setPayAltQuoteError(null);
-    } catch (err) {
-      toastMappedError(err);
-    }
-  };
-
-  // Quote fetch: when the modal is open in alt-token mode AND we have
-  // both an amount and a payToken, hit QuoterV2.quoteExactOutputSingle to
-  // tell the user how much payToken they'll spend. Debounced 500ms so
-  // typing in the amount field doesn't fire an RPC every keystroke.
-  useEffect(() => {
-    if (!payAltMode || payInvoiceId === null || !payAltToken || !payInvoiceAmount) {
-      setPayAltQuoteIn(null);
-      setPayAltQuoteError(null);
-      return;
-    }
-    if (!publicClient) return;
-    const quoter = UNISWAP_QUOTER_V2[activeChainId];
-    if (!quoter) return;
-    // The on-chain swap targets `vault.underlyingToken()` which is
-    // `contracts.TestUSDC` on testnet. NB: TestUSDC has NO Uniswap v3
-    // liquidity on testnet — every quote will revert with "no pool" and
-    // the user will see the "No X/USDC pool" error. Fix at the operational
-    // level: seed a TestUSDC/WETH v3 pool via an LP-add hardhat task before
-    // running the demo. The contract code itself is mainnet-ready (Circle
-    // USDC.e has plenty of liquidity).
-    let cancelled = false;
-    setPayAltQuoteError(null);
-    const timer = setTimeout(async () => {
-      try {
-        setPayAltQuoteLoading(true);
-        const amountOut = parseUnits(payInvoiceAmount, 6);
-        const result = (await publicClient.simulateContract({
-          address: quoter,
-          abi: QuoterV2Abi,
-          functionName: "quoteExactOutputSingle",
-          args: [
-            {
-              tokenIn: payAltToken.address,
-              tokenOut: contracts.TestUSDC,
-              amount: amountOut,
-              fee: POOL_FEE.MEDIUM,
-              sqrtPriceLimitX96: 0n,
-            },
-          ],
-        })).result as readonly [bigint, bigint, number, bigint];
-        if (cancelled) return;
-        setPayAltQuoteIn(result[0]);
-      } catch (err) {
-        if (cancelled) return;
-        const msg = err instanceof Error ? err.message : String(err);
-        setPayAltQuoteError(
-          /execution reverted|VM Exception/.test(msg)
-            ? `No ${payAltToken.symbol}/USDC pool at 0.30% fee. Try a different token.`
-            : msg.slice(0, 200),
-        );
-        setPayAltQuoteIn(null);
-      } finally {
-        if (!cancelled) setPayAltQuoteLoading(false);
-      }
-    }, 500);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [payAltMode, payInvoiceId, payAltToken, payInvoiceAmount, publicClient, activeChainId, contracts.TestUSDC, contracts.FHERC20Vault_USDC]);
 
   const handleCancelInvoice = async (invoiceId: number) => {
     try {
@@ -695,6 +575,7 @@ export default function BusinessTools() {
               {step === "approving" && "Approving vault access..."}
               {step === "encrypting" && "Encrypting amounts with FHE..."}
               {step === "sending" && "Submitting transaction..."}
+              {step === "decrypting" && "Waiting for the decrypted check from the threshold network..."}
             </p>
           </div>
         )}
@@ -844,16 +725,77 @@ export default function BusinessTools() {
                             </button>
                           </>
                         )}
-                        {invoice.status === "payment_pending" && invoice.client_address?.toLowerCase() === address?.toLowerCase() && (
-                          <button
-                            onClick={() => handleFinalizeInvoice(invoice.invoice_id)}
-                            disabled={isProcessing}
-                            className="h-10 px-4 rounded-xl bg-blue-500 text-white text-sm font-medium hover:bg-blue-600 transition-all active:scale-95 disabled:opacity-50 flex items-center gap-1"
-                          >
-                            {isProcessing && <Loader2 size={14} className="animate-spin" />}
-                            Finalize
-                          </button>
-                        )}
+                        {(() => {
+                          const me = address?.toLowerCase();
+                          const isClientRow = invoice.client_address?.toLowerCase() === me;
+                          const isVendorRow = invoice.vendor_address?.toLowerCase() === me;
+                          const s = settlements[invoice.invoice_id];
+                          if (invoice.status === "payment_pending") {
+                            if (isClientRow) {
+                              return (
+                                <button
+                                  onClick={() => handleFinalizeInvoice(invoice.invoice_id)}
+                                  disabled={isProcessing}
+                                  data-testid={`invoice-finalize-${invoice.invoice_id}`}
+                                  className="h-10 px-4 rounded-xl bg-blue-500 text-white text-sm font-medium hover:bg-blue-600 transition-all active:scale-95 disabled:opacity-50 flex items-center gap-1"
+                                >
+                                  {isProcessing && <Loader2 size={14} className="animate-spin" />}
+                                  Finalize
+                                </button>
+                              );
+                            }
+                            if (!isVendorRow || !s) return null;
+                            // Escrowed (or a pre-mode payment the vendor
+                            // settles): the vendor may finalize once allowed.
+                            const vendorCan =
+                              s.mode === PAYMENT_MODE.Escrow
+                                ? secondsUntilOpenRelease(s.paidAt, nowSeconds) === 0
+                                : s.mode === PAYMENT_MODE.Legacy;
+                            if (vendorCan) {
+                              return (
+                                <button
+                                  onClick={() => handleFinalizeInvoice(invoice.invoice_id)}
+                                  disabled={isProcessing}
+                                  data-testid={`invoice-vendor-release-${invoice.invoice_id}`}
+                                  className="h-10 px-4 rounded-xl bg-blue-500 text-white text-sm font-medium hover:bg-blue-600 transition-all active:scale-95 disabled:opacity-50 flex items-center gap-1"
+                                >
+                                  {isProcessing && <Loader2 size={14} className="animate-spin" />}
+                                  {s.mode === PAYMENT_MODE.Escrow ? "Release payment" : "Finalize"}
+                                </button>
+                              );
+                            }
+                            return (
+                              <span className="text-xs text-[var(--text-primary)]/50 max-w-[12rem] text-right" data-testid={`invoice-wait-${invoice.invoice_id}`}>
+                                {s.mode === PAYMENT_MODE.Escrow
+                                  ? `Client finalizes. You can release in ${formatWait(secondsUntilOpenRelease(s.paidAt, nowSeconds))}.`
+                                  : "Waiting for the client to finalize."}
+                              </span>
+                            );
+                          }
+                          if (invoice.status === "disputed") {
+                            if (isVendorRow) {
+                              return (
+                                <button
+                                  onClick={() => handleRefundDisputed(invoice.invoice_id)}
+                                  disabled={isProcessing}
+                                  data-testid={`invoice-refund-${invoice.invoice_id}`}
+                                  className="h-10 px-4 rounded-xl bg-orange-500 text-white text-sm font-medium hover:bg-orange-600 transition-all active:scale-95 disabled:opacity-50 flex items-center gap-1"
+                                >
+                                  {isProcessing && <Loader2 size={14} className="animate-spin" />}
+                                  {s?.refundPending ? "Confirm refund" : "Refund client"}
+                                </button>
+                              );
+                            }
+                            if (isClientRow) {
+                              return (
+                                <span className="text-xs text-[var(--text-primary)]/50 max-w-[12rem] text-right">
+                                  Amount did not match. The vendor refunds what they received.
+                                </span>
+                              );
+                            }
+                          }
+                          return null;
+                        })()}
                       </div>
                     </div>
                   ))}
@@ -924,26 +866,25 @@ export default function BusinessTools() {
         {/* Escrow Tab */}
         {activeTab === "escrow" && (
           <div className="space-y-6">
-            {/* #342 honesty banner: BusinessHub escrow rows store amounts
-                in plaintext on chain. The fully-encrypted alternative
-                lives at EncryptedEscrow.sol and is wired through the new
-                /app/escrow surface. Wave 5 migration in progress; this
-                tab will route to the encrypted path before Wave 5 ships. */}
+            {/* #342 honesty banner: BusinessHub escrow deposits are plain
+                ERC20 transfers. The encrypted path in the app is the
+                conditional invoice on EncryptedEscrow. */}
             <div
               role="note"
               className="rounded-2xl border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm"
             >
               <div className="font-medium text-amber-700">
-                Heads up: legacy escrows store amounts in plaintext.
+                Heads up: escrow amounts here are public on chain.
               </div>
               <div className="mt-1 text-[var(--text-primary)]/70">
-                The encrypted alternative is shipping in Wave 5. Use
+                The deposit is a plain token transfer anyone can read. For an
+                encrypted amount, use a
                 {" "}
-                <a href="/app/escrow" className="underline decoration-amber-500/40 underline-offset-2 hover:decoration-amber-500">
-                  /app/escrow
+                <a href="/app/conditional-invoices" className="underline decoration-amber-500/40 underline-offset-2 hover:decoration-amber-500">
+                  conditional invoice
                 </a>
                 {" "}
-                for end-to-end encrypted escrows in the meantime.
+                (Arbitrum Sepolia).
               </div>
             </div>
             <div className="flex flex-wrap gap-3 items-center justify-between">
@@ -1071,15 +1012,45 @@ export default function BusinessTools() {
                           {isProcessing && <Loader2 size={14} className="animate-spin" />}
                           Release Funds
                         </button>
-                        <button
-                          onClick={() => setConfirmDisputeId(escrow.escrow_id)}
-                          disabled={isProcessing}
-                          className="h-10 px-4 rounded-xl bg-red-50 text-red-600 text-sm font-medium hover:bg-red-100 transition-all active:scale-95 disabled:opacity-50"
-                        >
-                          Dispute
-                        </button>
+                        {/* A dispute needs an arbiter to decide it. Without
+                            one the deadline refund is the exit. */}
+                        {hasArbiter(escrow.arbiter_address) && (
+                          <button
+                            onClick={() => setConfirmDisputeId(escrow.escrow_id)}
+                            disabled={isProcessing}
+                            className="h-10 px-4 rounded-xl bg-red-50 text-red-600 text-sm font-medium hover:bg-red-100 transition-all active:scale-95 disabled:opacity-50"
+                          >
+                            Dispute
+                          </button>
+                        )}
                       </div>
                     )}
+
+                    {escrow.status === "disputed" && (() => {
+                      const at = disputedAt[escrow.escrow_id];
+                      const deadlineSec = escrow.deadline ? Math.floor(new Date(escrow.deadline).getTime() / 1000) : 0;
+                      if (at === undefined || (!at && !deadlineSec)) return null;
+                      const opensAt = disputeTimeoutAt(at, deadlineSec);
+                      if (nowSeconds >= opensAt) {
+                        return (
+                          <button
+                            onClick={() => handleClaimDisputeTimeout(escrow.escrow_id)}
+                            disabled={isProcessing}
+                            data-testid={`escrow-dispute-timeout-${escrow.escrow_id}`}
+                            className="h-10 px-4 rounded-xl bg-amber-50 text-amber-700 text-sm font-medium hover:bg-amber-100 transition-all active:scale-95 disabled:opacity-50 mt-4 flex items-center gap-1"
+                          >
+                            {isProcessing && <Loader2 size={14} className="animate-spin" />}
+                            Return to depositor (dispute timed out)
+                          </button>
+                        );
+                      }
+                      return (
+                        <p className="text-xs text-[var(--text-primary)]/50 mt-4">
+                          If the arbiter does not decide, the deposit returns to the depositor in{" "}
+                          {formatWait(opensAt - nowSeconds)}.
+                        </p>
+                      );
+                    })()}
 
                     {escrow.status === "released" && (
                       <div className="mt-4 flex items-center justify-center gap-2 text-emerald-600">
@@ -1088,7 +1059,7 @@ export default function BusinessTools() {
                       </div>
                     )}
 
-                    {escrow.status === "disputed" && escrow.arbiter_address === address?.toLowerCase() && (
+                    {escrow.status === "disputed" && !!address && escrow.arbiter_address?.toLowerCase() === address.toLowerCase() && (
                       <div className="flex gap-2 mt-4">
                         <button
                           onClick={() => setConfirmArbiterEscrow({ id: escrow.escrow_id, release: true })}
@@ -1107,7 +1078,7 @@ export default function BusinessTools() {
                       </div>
                     )}
 
-                    {escrow.status === "active" && escrow.depositor_address === address?.toLowerCase() && escrow.deadline && new Date(escrow.deadline).getTime() < Date.now() && (
+                    {escrow.status === "active" && !!address && escrow.depositor_address?.toLowerCase() === address.toLowerCase() && escrow.deadline && new Date(escrow.deadline).getTime() < Date.now() && (
                       <button
                         onClick={() => setConfirmClaimExpiredId(escrow.escrow_id)}
                         disabled={isProcessing}
@@ -1347,6 +1318,18 @@ export default function BusinessTools() {
                 <div>
                   <label className="text-xs text-[var(--text-primary)]/50 font-medium uppercase mb-2 block">Arbiter Address (optional)</label>
                   <input type="text" value={escrowArbiter} onChange={(e) => setEscrowArbiter(e.target.value)} placeholder="0x... (leave empty for no arbiter)" className="h-14 w-full px-5 rounded-2xl bg-white/60 dark:bg-white/10 border border-black/10 dark:border-white/10 focus:border-black/20 dark:focus:border-white/20 focus:ring-4 focus:ring-black/5 dark:focus:ring-white/5 dark:text-white outline-none font-mono text-sm" />
+                  {(() => {
+                    const err = isAddress(escrowArbiter.trim())
+                      ? escrowArbiterError(escrowArbiter, address ?? "", escrowBeneficiary)
+                      : null;
+                    return err ? (
+                      <p className="text-xs text-red-600 mt-2" data-testid="escrow-arbiter-error">{err}</p>
+                    ) : (
+                      <p className="text-xs text-[var(--text-primary)]/40 mt-2">
+                        A third party who decides disputes. Without one, disputes are off and the deadline refund is the exit.
+                      </p>
+                    );
+                  })()}
                 </div>
                 <div>
                   <label className="text-xs text-[var(--text-primary)]/50 font-medium uppercase mb-2 block">Deadline (days from now)</label>
@@ -1397,7 +1380,7 @@ export default function BusinessTools() {
               </div>
               <h3 className="text-xl font-heading font-medium text-[var(--text-primary)]">Dispute Escrow?</h3>
               <p className="text-sm text-[var(--text-primary)]/60">
-                This action cannot be undone. The escrow will be flagged as disputed and may require arbiter resolution.
+                This cannot be undone. The arbiter decides who gets the funds. If they do not decide within 30 days, the deposit returns to the depositor.
               </p>
               <div className="flex gap-3 w-full pt-2">
                 <button
@@ -1440,345 +1423,30 @@ export default function BusinessTools() {
                 </div>
               </div>
 
-              {/* Phase 5.6 / 5.7 — three-mode pay selector. Default
-                  "standard" preserves the existing FHE-encrypted-vault
-                  flow; "swap" routes through Uniswap (5.6); "oracle"
-                  uses a backend-signed price quote (5.7) for tokens
-                  that don't have a Uniswap pool. */}
-              <div
-                role="tablist"
-                aria-label="Pay method"
-                className={cn(
-                  "grid gap-1 p-1 rounded-2xl bg-black/5 dark:bg-white/5",
-                  swapPaySupported ? "grid-cols-3" : "grid-cols-2",
-                )}
-              >
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={payMode === "standard"}
-                  data-testid="pay-mode-standard"
-                  onClick={() => setPayMode("standard")}
-                  className={cn(
-                    "h-10 rounded-xl text-xs font-medium transition-all",
-                    payMode === "standard"
-                      ? "bg-white dark:bg-white/10 text-[var(--text-primary)] shadow-sm"
-                      : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]",
-                  )}
-                >
-                  Standard
-                </button>
-                {swapPaySupported && (
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={payMode === "swap"}
-                    data-testid="pay-mode-swap"
-                    onClick={() => setPayMode("swap")}
-                    className={cn(
-                      "h-10 rounded-xl text-xs font-medium transition-all flex items-center justify-center gap-1.5",
-                      payMode === "swap"
-                        ? "bg-white dark:bg-white/10 text-[var(--text-primary)] shadow-sm"
-                        : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]",
-                    )}
-                  >
-                    <Repeat size={12} />
-                    Swap
-                  </button>
-                )}
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={payMode === "oracle"}
-                  data-testid="pay-mode-oracle"
-                  onClick={() => setPayMode("oracle")}
-                  className={cn(
-                    "h-10 rounded-xl text-xs font-medium transition-all",
-                    payMode === "oracle"
-                      ? "bg-white dark:bg-white/10 text-[var(--text-primary)] shadow-sm"
-                      : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]",
-                  )}
-                >
-                  Oracle
-                </button>
-              </div>
-
-              {payAltMode && (
-                <div className="space-y-3 pt-2 border-t border-black/5 dark:border-white/5">
-                  <div className="rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 p-3 flex gap-2">
-                    <Info size={14} className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-                    <div className="text-xs text-amber-900 dark:text-amber-200 leading-snug space-y-1">
-                      <p>
-                        Amount briefly visible during the Uniswap transit. Vendor
-                        receives plaintext USDC (they can shield it after).
-                      </p>
-                      <p className="text-amber-800/80 dark:text-amber-300/80">
-                        Testnet caveat: TestUSDC has no Uniswap pool depth by
-                        default. If quotes keep failing, the operator needs to
-                        seed a TestUSDC/WETH v3 pool first.
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Token picker — pulls from KNOWN_TOKENS, excludes USDC
-                      (the invoice's underlying token; same-token defeats
-                      the purpose of this mode). */}
-                  <div>
-                    <label className="text-xs text-[var(--text-primary)]/50 font-medium uppercase mb-1.5 block">
-                      Pay with
-                    </label>
-                    <div className="grid grid-cols-2 gap-2">
-                      {(KNOWN_TOKENS[activeChainId] ?? [])
-                        // Address-based filter (NOT symbol) so a future
-                        // chain with multiple USDC variants doesn't slip
-                        // through. The contract's same-token check uses
-                        // payToken == vault.underlyingToken() which is
-                        // contracts.TestUSDC on testnet.
-                        .filter(
-                          (t) =>
-                            t.address.toLowerCase() !==
-                            contracts.TestUSDC.toLowerCase(),
-                        )
-                        .map((t) => (
-                          <button
-                            key={t.address}
-                            data-testid={`pay-alt-token-${t.symbol}`}
-                            onClick={() => setPayAltToken(t)}
-                            className={cn(
-                              "h-12 rounded-xl border text-sm font-medium transition-all",
-                              payAltToken?.address === t.address
-                                ? "bg-violet-50 border-violet-300 text-violet-900 dark:bg-violet-500/10 dark:border-violet-500/30 dark:text-violet-200"
-                                : "bg-white border-black/10 text-[var(--text-primary)] hover:bg-black/[0.02] dark:bg-white/5 dark:border-white/10",
-                            )}
-                          >
-                            {t.symbol}
-                          </button>
-                        ))}
-                    </div>
-                  </div>
-
-                  {/* Slippage */}
-                  <div>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <label className="text-xs text-[var(--text-primary)]/50 font-medium uppercase">
-                        Slippage
-                      </label>
-                      <span className="text-xs font-mono tabular-nums text-[var(--text-primary)]">
-                        {(payAltSlippageBps / 100).toFixed(2)}%
-                      </span>
-                    </div>
-                    <div className="flex gap-1.5">
-                      {[10, 50, 100, 300].map((bps) => (
-                        <button
-                          key={bps}
-                          data-testid={`pay-alt-slippage-${bps}`}
-                          onClick={() => setPayAltSlippageBps(bps)}
-                          className={cn(
-                            "flex-1 h-8 rounded-lg text-xs font-medium transition-all",
-                            payAltSlippageBps === bps
-                              ? "bg-[#1D1D1F] dark:bg-white text-white dark:text-[#0A0A0A]"
-                              : "bg-black/5 dark:bg-white/5 text-[var(--text-secondary)] hover:bg-black/10",
-                          )}
-                        >
-                          {(bps / 100).toFixed(2)}%
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Quote display */}
-                  {payAltToken && payInvoiceAmount && (
-                    <div className="rounded-xl bg-black/[0.03] dark:bg-white/[0.03] p-3 text-sm">
-                      {payAltQuoteLoading ? (
-                        <div className="flex items-center gap-2 text-[var(--text-tertiary)]">
-                          <Loader2 size={14} className="animate-spin" />
-                          <span className="text-xs">Loading quote…</span>
-                        </div>
-                      ) : payAltQuoteError ? (
-                        <p className="text-xs text-rose-600 dark:text-rose-400 leading-snug">
-                          {payAltQuoteError}
-                        </p>
-                      ) : payAltQuoteIn !== null ? (
-                        <div className="flex items-center justify-between">
-                          <span className="text-[var(--text-secondary)] text-xs">You pay (max)</span>
-                          <span className="font-mono tabular-nums text-[var(--text-primary)]">
-                            {Number(
-                              formatUnits(
-                                applySlippage(
-                                  // Quote is the EXACT amount needed; we add
-                                  // the slippage buffer on top so the swap has
-                                  // headroom under thin testnet pool depth.
-                                  payAltQuoteIn + (payAltQuoteIn * BigInt(payAltSlippageBps)) / 10_000n,
-                                  0,
-                                ),
-                                payAltToken.decimals,
-                              ),
-                            ).toLocaleString(undefined, { maximumFractionDigits: 6 })}{" "}
-                            {payAltToken.symbol}
-                          </span>
-                        </div>
-                      ) : null}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Phase 5.7 — Oracle quote panel. Active when payMode === "oracle".
-                  Lets the caller pick a payToken from KNOWN_TOKENS, fetches a
-                  signed quote from /api/oracle/quote, displays the quote, and
-                  the parent CTA submits via payInvoiceWithOracleQuote. */}
-              {payMode === "oracle" && (
-                <div className="space-y-3 pt-2 border-t border-black/5 dark:border-white/5">
-                  <div className="rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 p-3 flex gap-2">
-                    <Info size={14} className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-                    <div className="text-xs text-amber-900 dark:text-amber-200 leading-snug space-y-1">
-                      <p>
-                        For tokens Uniswap doesn't have a pool for. The backend
-                        signs a price quote that the contract verifies on chain.
-                      </p>
-                      <p className="text-amber-800/80 dark:text-amber-300/80">
-                        Allowlist + rate set by operator. The contract enforces
-                        ratePpm ∈ [1, 1e8] as a sanity bound on top of the
-                        signature check.
-                      </p>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="text-xs text-[var(--text-primary)]/50 font-medium uppercase mb-1.5 block">
-                      Pay with
-                    </label>
-                    <div className="grid grid-cols-2 gap-2">
-                      {(KNOWN_TOKENS[activeChainId] ?? [])
-                        .filter(
-                          (t) =>
-                            t.address.toLowerCase() !== contracts.TestUSDC.toLowerCase(),
-                        )
-                        .map((t) => (
-                          <button
-                            key={t.address}
-                            data-testid={`pay-oracle-token-${t.symbol}`}
-                            onClick={() => {
-                              setPayAltToken(t);
-                              setOracleQuote(null);
-                              setOracleError(null);
-                            }}
-                            className={cn(
-                              "h-12 rounded-xl border text-sm font-medium transition-all",
-                              payAltToken?.address === t.address
-                                ? "bg-violet-50 border-violet-300 text-violet-900 dark:bg-violet-500/10 dark:border-violet-500/30 dark:text-violet-200"
-                                : "bg-white border-black/10 text-[var(--text-primary)] hover:bg-black/[0.02] dark:bg-white/5 dark:border-white/10",
-                            )}
-                          >
-                            {t.symbol}
-                          </button>
-                        ))}
-                    </div>
-                  </div>
-
-                  {payAltToken && payInvoiceAmount && (
-                    <button
-                      onClick={() => void handleFetchOracleQuote()}
-                      disabled={oracleFetching}
-                      data-testid="fetch-oracle-quote"
-                      className="w-full h-10 rounded-xl bg-black/5 dark:bg-white/5 text-[var(--text-primary)] text-sm font-medium hover:bg-black/10 dark:hover:bg-white/10 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
-                    >
-                      {oracleFetching ? (
-                        <Loader2 size={14} className="animate-spin" />
-                      ) : null}
-                      <span>
-                        {oracleQuote ? "Refresh quote" : "Fetch signed quote"}
-                      </span>
-                    </button>
-                  )}
-
-                  {oracleError && (
-                    <p className="text-xs text-rose-600 dark:text-rose-400 leading-snug">
-                      {oracleError}
-                    </p>
-                  )}
-
-                  {oracleQuote && payAltToken && (
-                    <div className="rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-100 dark:border-emerald-500/20 p-3 text-sm space-y-1">
-                      <div className="flex justify-between">
-                        <span className="text-[var(--text-secondary)] text-xs">You pay</span>
-                        <span className="font-mono tabular-nums">
-                          {Number(
-                            formatUnits(
-                              BigInt(oracleQuote.payAmountIn),
-                              payAltToken.decimals,
-                            ),
-                          ).toLocaleString(undefined, {
-                            maximumFractionDigits: 6,
-                          })}{" "}
-                          {payAltToken.symbol}
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-[var(--text-secondary)] text-xs">
-                          Rate (ppm)
-                        </span>
-                        <span className="font-mono tabular-nums">
-                          {oracleQuote.ratePpm}
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-[var(--text-secondary)] text-xs">
-                          Quote valid until
-                        </span>
-                        <span className="font-mono tabular-nums">
-                          {new Date(oracleQuote.expiresAt * 1000).toLocaleTimeString()}
-                        </span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
+              <p className="text-xs text-[var(--text-primary)]/50 leading-snug" data-testid="pay-direct-note">
+                Pays the vendor directly from your private balance. Finalize after it
+                lands. If the amount does not match the invoice, it is marked disputed
+                and the vendor refunds you. To hold funds until the match is checked,
+                pay from the invoice link instead.
+              </p>
 
               <div className="flex gap-3 pt-2">
                 <button
                   onClick={() => {
                     setPayInvoiceId(null);
                     setPayInvoiceAmount("");
-                    setPayMode("standard");
-                    setPayAltToken(null);
-                    setPayAltQuoteIn(null);
-                    setPayAltQuoteError(null);
-                    setOracleQuote(null);
-                    setOracleError(null);
                   }}
                   className="flex-1 h-12 rounded-2xl bg-black/5 text-[var(--text-primary)] font-medium"
                 >
                   Cancel
                 </button>
                 <button
-                  onClick={
-                    payMode === "swap"
-                      ? handlePayInvoiceWithSwap
-                      : payMode === "oracle"
-                        ? handlePayInvoiceWithOracleQuote
-                        : handlePayInvoice
-                  }
-                  disabled={
-                    !payInvoiceAmount ||
-                    isProcessing ||
-                    (payMode === "swap" &&
-                      (!payAltToken || payAltQuoteIn === null || payAltQuoteLoading)) ||
-                    (payMode === "oracle" && !oracleQuote)
-                  }
-                  className={cn(
-                    "flex-1 h-12 rounded-2xl text-white font-medium flex items-center justify-center gap-2 disabled:opacity-50",
-                    payMode === "swap" || payMode === "oracle"
-                      ? "bg-violet-600 hover:bg-violet-700"
-                      : "bg-emerald-500",
-                  )}
+                  onClick={handlePayInvoice}
+                  disabled={!payInvoiceAmount || isProcessing}
+                  className="flex-1 h-12 rounded-2xl bg-emerald-500 text-white font-medium flex items-center justify-center gap-2 disabled:opacity-50"
                 >
                   {isProcessing && <Loader2 size={16} className="animate-spin" />}
-                  {payMode === "swap" && payAltToken
-                    ? `Swap & Pay ${payAltToken.symbol}`
-                    : payMode === "oracle" && payAltToken
-                      ? `Pay with ${payAltToken.symbol}`
-                      : "Pay"}
+                  Pay
                 </button>
               </div>
             </div>

@@ -30,8 +30,13 @@ import toast from "react-hot-toast";
 
 import { useEffectiveAddress } from "@/hooks/useEffectiveAddress";
 import { useChain } from "@/providers/ChainProvider";
-import { useEncryptedEscrow, ESCROW_STATUS } from "@/hooks/useEncryptedEscrow";
-import { EncryptedEscrowAbi, InvoiceApprovalResolverAbi } from "@/lib/abis";
+import {
+  useEncryptedEscrow,
+  ESCROW_STATUS,
+  readConditionalInvoice,
+  type ConditionalInvoiceCondition,
+} from "@/hooks/useEncryptedEscrow";
+import { EncryptedEscrowAbi } from "@/lib/abis";
 import {
   CONTRACTS_BY_CHAIN,
   ARB_SEPOLIA_ID,
@@ -86,13 +91,7 @@ interface OnChainEscrow {
   status: number;
   description: string;
 }
-interface Condition {
-  buyer: `0x${string}`;
-  autoReleaseDeadline: bigint;
-  isApproved: boolean;
-  deadlinePassed: boolean;
-  set: boolean;
-}
+type Condition = ConditionalInvoiceCondition;
 
 // ─── Public link view ──────────────────────────────────────────────────────
 
@@ -141,15 +140,17 @@ export default function ConditionalInvoicePage() {
           `0x${string}`, `0x${string}`, `0x${string}`, `0x${string}`,
           bigint, boolean, boolean, number, string, bigint,
         ];
-        const c = (await publicClient.readContract({
-          address: resolver,
-          abi: InvoiceApprovalResolverAbi,
-          functionName: "getCondition",
-          args: [BigInt(escrowId)],
-        })) as readonly [`0x${string}`, bigint, boolean, boolean, boolean];
+        // Conditions are keyed by (escrow, id) on the escrow's own resolver,
+        // which may predate the current one.
+        const c = await readConditionalInvoice(publicClient, {
+          escrow: contracts.EncryptedEscrow as `0x${string}`,
+          currentResolver: resolver,
+          escrowId,
+        });
         if (cancelled) return;
+        if (!c || !c.set) throw new Error("Couldn't find a release rule for this invoice id.");
         setEscrow({ depositor: e[0], beneficiary: e[1], deadline: e[4], status: e[7], description: e[8] });
-        setCondition({ buyer: c[0], autoReleaseDeadline: c[1], isApproved: c[2], deadlinePassed: c[3], set: c[4] });
+        setCondition(c);
         setLoadError(null);
       } catch (err) {
         if (cancelled) return;
@@ -176,9 +177,10 @@ export default function ConditionalInvoicePage() {
 
   const onApprove = useCallback(async () => {
     if (!onLinkChain) { toast.error(`Switch to ${CHAIN_NAME[linkChainId]} first`); return; }
-    const ok = await approveInvoice(escrowId);
+    if (!condition) return;
+    const ok = await approveInvoice(escrowId, { resolver: condition.resolver, legacy: condition.legacy });
     if (ok) setTick((n) => n + 1);
-  }, [onLinkChain, linkChainId, approveInvoice, escrowId]);
+  }, [onLinkChain, linkChainId, approveInvoice, escrowId, condition]);
 
   const onRelease = useCallback(async () => {
     if (!onLinkChain) { toast.error(`Switch to ${CHAIN_NAME[linkChainId]} first`); return; }
@@ -344,6 +346,11 @@ export default function ConditionalInvoicePage() {
               {escrow.status === ESCROW_STATUS.Released && (
                 <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 px-4 py-3 text-sm text-emerald-800 inline-flex items-center gap-2">
                   <CheckCircle2 size={15} /> Released to the recipient.
+                </div>
+              )}
+              {escrow.status === ESCROW_STATUS.Refunded && (
+                <div className="rounded-xl border border-slate-500/30 bg-slate-500/5 px-4 py-3 text-sm text-slate-700">
+                  Refunded to the payer.
                 </div>
               )}
 

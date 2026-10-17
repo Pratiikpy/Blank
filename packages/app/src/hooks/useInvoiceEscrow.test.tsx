@@ -112,6 +112,11 @@ const unifiedWriteMock = vi.fn();
 const unifiedWriteAndWaitMock = vi.fn();
 const waitForTransactionReceiptMock = vi.fn();
 const readContractMock = vi.fn();
+const getBlockMock = vi.fn();
+const simulateContractMock = vi.fn();
+const VENDOR = "0x9999999999999999999999999999999999999999";
+let handleValue: bigint | null = 123n;
+let invoiceMode = 2;
 
 beforeEach(() => {
   useEffectiveAddressMock.mockReset();
@@ -135,6 +140,8 @@ beforeEach(() => {
   unifiedWriteAndWaitMock.mockReset();
   waitForTransactionReceiptMock.mockReset();
   readContractMock.mockReset();
+  getBlockMock.mockReset();
+  simulateContractMock.mockReset();
 
   useEffectiveAddressMock.mockReturnValue({ effectiveAddress: ME });
   useChainMock.mockReturnValue({
@@ -144,6 +151,8 @@ beforeEach(() => {
   usePublicClientMock.mockReturnValue({
     waitForTransactionReceipt: waitForTransactionReceiptMock,
     readContract: readContractMock,
+    getBlock: getBlockMock,
+    simulateContract: simulateContractMock,
   });
   useUnifiedWriteMock.mockReturnValue({
     unifiedWrite: unifiedWriteMock,
@@ -164,8 +173,28 @@ beforeEach(() => {
     hash: "0xtxhash",
     receipt: { status: "success", blockNumber: 1n },
   });
-  // Default release path: handle exists, decrypt returns matched=true
-  readContractMock.mockResolvedValue(123n);
+  // Default release path: escrow-mode invoice, caller is the client,
+  // handle exists, decrypt returns matched=true.
+  handleValue = 123n;
+  invoiceMode = 2;
+  readContractMock.mockImplementation(async ({ functionName }: { functionName: string }) => {
+    switch (functionName) {
+      case "getInvoice":
+        return [VENDOR, ME, VAULT, 0x5n, "desc", 0n, 3];
+      case "invoicePaymentMode":
+        return invoiceMode;
+      case "invoicePaidAt":
+        return 1_799_999_000n;
+      case "invoiceRefundPending":
+        return false;
+      case "getInvoiceValidationHandle":
+        return handleValue;
+      default:
+        throw new Error(`unexpected read ${functionName}`);
+    }
+  });
+  getBlockMock.mockResolvedValue({ timestamp: 1_800_000_000n });
+  simulateContractMock.mockRejectedValue(new Error("not a legacy escrow payment"));
   decryptForTxMock.mockResolvedValue({
     decryptedValue: true,
     signature: SIGNATURE,
@@ -502,26 +531,26 @@ describe("useInvoiceEscrow — releaseEscrow guards (§15.x)", () => {
   });
 
   it("validation handle === 0n -> 'Invoice not funded yet' + no decrypt + no write", async () => {
-    readContractMock.mockResolvedValue(0n);
+    handleValue = 0n;
     const { result } = renderHook(() => useInvoiceEscrow());
     await act(async () => {
       await result.current.releaseEscrow(42);
     });
     expect(toastErrorMock).toHaveBeenCalledWith(
-      "Invoice not funded yet — nothing to finalize",
+      "Invoice not funded yet. Nothing to finalize.",
     );
     expect(decryptForTxMock).toHaveBeenCalledTimes(0);
     expect(unifiedWriteAndWaitMock).toHaveBeenCalledTimes(0);
   });
 
   it("validation handle null/undefined -> same 'not funded yet' error", async () => {
-    readContractMock.mockResolvedValue(null);
+    handleValue = null;
     const { result } = renderHook(() => useInvoiceEscrow());
     await act(async () => {
       await result.current.releaseEscrow(42);
     });
     expect(toastErrorMock).toHaveBeenCalledWith(
-      "Invoice not funded yet — nothing to finalize",
+      "Invoice not funded yet. Nothing to finalize.",
     );
   });
 });
@@ -575,7 +604,7 @@ describe("useInvoiceEscrow — releaseEscrow matched=true path (§15.x)", () => 
     expect(row.note).toBe("Released escrow #42 to vendor");
   });
 
-  it("success toast: 'Vendor paid — escrow released' on match", async () => {
+  it("success toast: 'Vendor paid.' on match", async () => {
     decryptForTxMock.mockResolvedValue({
       decryptedValue: true,
       signature: SIGNATURE,
@@ -585,7 +614,7 @@ describe("useInvoiceEscrow — releaseEscrow matched=true path (§15.x)", () => 
       await result.current.releaseEscrow(42);
     });
     expect(toastSuccessMock).toHaveBeenCalledWith(
-      "Vendor paid — escrow released",
+      "Vendor paid.",
     );
   });
 });
@@ -631,7 +660,7 @@ describe("useInvoiceEscrow — releaseEscrow matched=false path (§15.x)", () =>
     expect(row.note).toBe("Refunded escrow #42 (amount mismatch)");
   });
 
-  it("toast: 'Refunded — amount didn't match' on mismatch", async () => {
+  it("toast: payment went back to the payer on mismatch", async () => {
     decryptForTxMock.mockResolvedValue({
       decryptedValue: false,
       signature: SIGNATURE,
@@ -641,7 +670,7 @@ describe("useInvoiceEscrow — releaseEscrow matched=false path (§15.x)", () =>
       await result.current.releaseEscrow(42);
     });
     expect(toastSuccessMock).toHaveBeenCalledWith(
-      "Refunded — amount didn't match",
+      "Amount did not match. The payment went back to the payer.",
     );
   });
 });
@@ -732,7 +761,7 @@ describe("useInvoiceEscrow — threshold decrypt poll (§15.x)", () => {
       await p;
     });
     expect(toastErrorMock).toHaveBeenCalledWith(
-      "Decryption timed out — try again in a moment",
+      "Decryption timed out. Try again in a moment.",
     );
     expect(unifiedWriteAndWaitMock).toHaveBeenCalledTimes(0);
   });
@@ -887,5 +916,77 @@ describe("useInvoiceEscrow — finishTransiently auto-reset (§15.x)", () => {
     unmount();
     // Advance past the 5s reset — should NOT throw or leak
     await vi.advanceTimersByTimeAsync(10_000);
+  });
+});
+
+// ───────────────────────────────────────────────────────────
+//  releaseEscrow routes by payment mode and role
+// ───────────────────────────────────────────────────────────
+
+describe("useInvoiceEscrow — payment-mode routing", () => {
+  function asVendor(paidAt: bigint) {
+    readContractMock.mockImplementation(async ({ functionName }: { functionName: string }) => {
+      switch (functionName) {
+        case "getInvoice":
+          return [ME, VENDOR, VAULT, 0x5n, "desc", 0n, 3];
+        case "invoicePaymentMode":
+          return 2;
+        case "invoicePaidAt":
+          return paidAt;
+        case "invoiceRefundPending":
+          return false;
+        case "getInvoiceValidationHandle":
+          return 123n;
+        default:
+          throw new Error(`unexpected read ${functionName}`);
+      }
+    });
+  }
+
+  it("Direct mode: client finalizes with payInvoiceFinalize; mismatch -> 'disputed'", async () => {
+    invoiceMode = 1;
+    decryptForTxMock.mockResolvedValue({ decryptedValue: false, signature: SIGNATURE });
+    const { result } = renderHook(() => useInvoiceEscrow());
+    let r: unknown = null;
+    await act(async () => {
+      r = await result.current.releaseEscrow(42);
+    });
+    expect(unifiedWriteAndWaitMock.mock.calls[0][0].functionName).toBe("payInvoiceFinalize");
+    expect(updateInvoiceStatusMock).toHaveBeenCalledWith(42, "disputed");
+    expect(r).toEqual({ hash: "0xtxhash", matched: false, viaEscrow: false });
+  });
+
+  it("vendor 1 day after funding -> blocked with the wait, no decrypt or write", async () => {
+    asVendor(1_800_000_000n - 86_400n);
+    const { result } = renderHook(() => useInvoiceEscrow());
+    await act(async () => {
+      await result.current.releaseEscrow(42);
+    });
+    expect(decryptForTxMock).not.toHaveBeenCalled();
+    expect(unifiedWriteAndWaitMock).not.toHaveBeenCalled();
+    expect(toastErrorMock).toHaveBeenCalledWith(expect.stringContaining("Anyone can release in 6d"));
+  });
+
+  it("vendor 7 days after funding -> releaseInvoiceEscrow", async () => {
+    asVendor(1_800_000_000n - 7n * 86_400n);
+    const { result } = renderHook(() => useInvoiceEscrow());
+    await act(async () => {
+      await result.current.releaseEscrow(42);
+    });
+    expect(unifiedWriteAndWaitMock.mock.calls[0][0].functionName).toBe("releaseInvoiceEscrow");
+    expect(updateInvoiceStatusMock).toHaveBeenCalledWith(42, "paid");
+  });
+
+  it("legacy escrow record: revalidates, then releases", async () => {
+    invoiceMode = 0;
+    simulateContractMock.mockResolvedValue({ request: {} });
+    const { result } = renderHook(() => useInvoiceEscrow());
+    await act(async () => {
+      await result.current.releaseEscrow(42);
+    });
+    expect(unifiedWriteAndWaitMock.mock.calls.map((c) => c[0].functionName)).toEqual([
+      "revalidateLegacyInvoiceEscrow",
+      "releaseInvoiceEscrow",
+    ]);
   });
 });

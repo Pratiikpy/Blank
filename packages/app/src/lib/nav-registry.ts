@@ -11,7 +11,6 @@ import {
   Gift,
   Timer,
   ShieldCheck,
-  BadgeCheck,
   Sparkles,
   Fingerprint,
   Settings as SettingsIcon,
@@ -194,16 +193,8 @@ export const NAV_REGISTRY: NavItem[] = [
     modes: ["privacy", "full"],
     desktopPrimary: true,
   },
-  // Wave 5 Block 10 — balance threshold proof. Sibling to /app/proofs
-  // (income proofs); same "privacy/proof" surface family.
-  {
-    path: "/app/proof-of-balance",
-    label: "Balance Proof",
-    icon: BadgeCheck,
-    category: "privacy",
-    modes: ["privacy", "full"],
-    desktopPrimary: false,
-  },
+  // Balance proofs are created on /app/proofs. /app/proof-of-balance stays
+  // routed for old links (retired ProofOfBalance lookups) but is not in nav.
   {
     path: "/app/privacy",
     label: "Privacy Settings",

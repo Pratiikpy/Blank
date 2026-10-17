@@ -123,7 +123,7 @@ describe("Features — 21-feature catalog (§15.x)", () => {
     expect(routes).toContain("https://www.myblank.app/u/alice");
     expect(routes).toContain("https://www.myblank.app/recover/alice");
     expect(routes).toContain("https://app.myblank.app/insights");
-    expect(routes).toContain("https://app.myblank.app/proof-of-balance");
+    expect(routes).toContain("https://app.myblank.app/proofs?kind=balance");
   });
 });
 

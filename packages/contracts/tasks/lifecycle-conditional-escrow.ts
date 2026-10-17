@@ -98,8 +98,8 @@ task("lifecycle-conditional-escrow", "Real Arb Sepolia: create conditional escro
       "event EscrowResolverSet(uint256 indexed escrowId, address indexed resolver)",
     ], signer);
     const resolver = new hre.ethers.Contract(resolverAddr, [
-      "function approve(uint256 escrowId)",
-      "function getCondition(uint256 escrowId) view returns (address,uint64,bool,bool,bool)",
+      "function approve(address escrow, uint256 escrowId)",
+      "function getCondition(address escrow, uint256 escrowId) view returns (address,uint64,bool,bool,bool)",
     ], signer);
 
     console.log(`\ncreateConditionalEscrow...`);
@@ -119,8 +119,9 @@ task("lifecycle-conditional-escrow", "Real Arb Sepolia: create conditional escro
     console.log(`  escrowId:  ${escrowId}`);
 
     console.log(`\nresolver.approve (payer approves early release)...`);
-    const approveTx = await resolver.approve(escrowId); await approveTx.wait();
-    const cond = await resolver.getCondition(escrowId);
+    // Conditions are keyed by (escrow contract, escrowId).
+    const approveTx = await resolver.approve(escrowAddr, escrowId); await approveTx.wait();
+    const cond = await resolver.getCondition(escrowAddr, escrowId);
     console.log(`  approve tx: ${approveTx.hash}`);
     console.log(`  condition: approved=${cond[2]} deadlinePassed=${cond[3]}`);
 

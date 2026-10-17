@@ -71,7 +71,12 @@ vi.mock("@/lib/cofhe-shim", () => ({
   useCofheEncrypt: useCofheEncryptMock,
   Encryptable: new Proxy({}, { get: () => (v: unknown) => ({ raw: v }) }),
 }));
-vi.mock("@/lib/abis", () => ({ EncryptedEscrowAbi: [], FHERC20VaultAbi: [] }));
+vi.mock("@/lib/abis", () => ({
+  EncryptedEscrowAbi: [],
+  FHERC20VaultAbi: [],
+  InvoiceApprovalResolverAbi: ["current"],
+  InvoiceApprovalResolverLegacyAbi: ["legacy"],
+}));
 vi.mock("@/lib/approval", () => ({
   isVaultApproved: isVaultApprovedMock,
   markVaultApproved: markVaultApprovedMock,
@@ -88,7 +93,7 @@ vi.mock("react-hot-toast", () => ({
   },
 }));
 
-import { useEncryptedEscrow } from "./useEncryptedEscrow";
+import { useEncryptedEscrow, readConditionalInvoice } from "./useEncryptedEscrow";
 
 const ME = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" as const;
 const ALICE = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" as const;
@@ -833,5 +838,125 @@ describe("useEncryptedEscrow — concurrent-invocation guard (§15.x)", () => {
     await act(async () => {
       await p1;
     });
+  });
+});
+
+// ───────────────────────────────────────────────────────────
+//  Audit fixes: arbiter rule, dispute timeout, (escrow, id) resolver
+// ───────────────────────────────────────────────────────────
+
+describe("useEncryptedEscrow — arbiter must be a third party", () => {
+  it("arbiter === beneficiary -> rejected before approve or encrypt", async () => {
+    const { result } = renderHook(() => useEncryptedEscrow());
+    await act(async () => {
+      await result.current.createEscrow(defaultParams({ arbiter: ALICE }));
+    });
+    expect(encryptInputsAsyncMock).not.toHaveBeenCalled();
+    expect(unifiedWriteAndWaitMock).not.toHaveBeenCalled();
+    expect(toastErrorMock).toHaveBeenCalledWith(expect.stringContaining("cannot be the beneficiary"));
+  });
+
+  it("arbiter === depositor -> rejected", async () => {
+    const { result } = renderHook(() => useEncryptedEscrow());
+    await act(async () => {
+      await result.current.createEscrow(defaultParams({ arbiter: ME }));
+    });
+    expect(unifiedWriteAndWaitMock).not.toHaveBeenCalled();
+    expect(toastErrorMock).toHaveBeenCalledWith(expect.stringContaining("cannot be you"));
+  });
+});
+
+describe("useEncryptedEscrow — claimDisputeTimeout + getDisputedAt", () => {
+  it("claimDisputeTimeout writes claimDisputeTimeout(id) and toasts the refund", async () => {
+    const { result } = renderHook(() => useEncryptedEscrow());
+    await act(async () => {
+      await result.current.claimDisputeTimeout(9);
+    });
+    const call = unifiedWriteAndWaitMock.mock.calls[0][0];
+    expect(call.functionName).toBe("claimDisputeTimeout");
+    expect(call.args).toEqual([9n]);
+    expect(toastSuccessMock).toHaveBeenCalledWith(expect.stringContaining("Dispute timed out"));
+  });
+
+  it("getDisputedAt reads getDisputedAt(id)", async () => {
+    const readContract = vi.fn().mockResolvedValue(1_700_000_000n);
+    usePublicClientMock.mockReturnValue({ waitForTransactionReceipt: waitForTransactionReceiptMock, readContract });
+    const { result } = renderHook(() => useEncryptedEscrow());
+    let at: number | null = null;
+    await act(async () => {
+      at = await result.current.getDisputedAt(9);
+    });
+    expect(readContract.mock.calls[0][0].functionName).toBe("getDisputedAt");
+    expect(at).toBe(1_700_000_000);
+  });
+});
+
+describe("useEncryptedEscrow — conditional invoice resolver keyed by (escrow, id)", () => {
+  const RESOLVER = "0x4444444444444444444444444444444444444444" as const;
+  const OLD_RESOLVER = "0x5555555555555555555555555555555555555555" as const;
+
+  beforeEach(() => {
+    useChainMock.mockReturnValue({
+      activeChainId: 421614,
+      contracts: { EncryptedEscrow: EE_ADDR, InvoiceApprovalResolver: RESOLVER },
+    });
+  });
+
+  it("approveInvoice on the current resolver passes (escrow, id)", async () => {
+    const { result } = renderHook(() => useEncryptedEscrow());
+    await act(async () => {
+      await result.current.approveInvoice(3);
+    });
+    const call = unifiedWriteAndWaitMock.mock.calls[0][0];
+    expect(call.address).toBe(RESOLVER);
+    expect(call.functionName).toBe("approve");
+    expect(call.args).toEqual([EE_ADDR, 3n]);
+    expect(call.abi).toEqual(["current"]);
+  });
+
+  it("approveInvoice on a pre-upgrade resolver uses approve(id) on that resolver", async () => {
+    const { result } = renderHook(() => useEncryptedEscrow());
+    await act(async () => {
+      await result.current.approveInvoice(3, { resolver: OLD_RESOLVER, legacy: true });
+    });
+    const call = unifiedWriteAndWaitMock.mock.calls[0][0];
+    expect(call.address).toBe(OLD_RESOLVER);
+    expect(call.args).toEqual([3n]);
+    expect(call.abi).toEqual(["legacy"]);
+  });
+
+  it("readConditionalInvoice: resolver from EscrowResolverSet log; current -> getCondition(escrow, id)", async () => {
+    const getLogs = vi.fn().mockResolvedValue([{ args: { escrowId: 3n, resolver: RESOLVER } }]);
+    const readContract = vi.fn().mockResolvedValue([ME, 1_900_000_000n, false, false, true]);
+    const c = await readConditionalInvoice(
+      { getLogs, readContract } as never,
+      { escrow: EE_ADDR, currentResolver: RESOLVER, escrowId: 3 },
+    );
+    expect(getLogs.mock.calls[0][0].args).toEqual({ escrowId: 3n });
+    expect(readContract.mock.calls[0][0].args).toEqual([EE_ADDR, 3n]);
+    expect(c).toMatchObject({ buyer: ME, set: true, legacy: false, resolver: RESOLVER });
+  });
+
+  it("readConditionalInvoice: older resolver -> legacy getCondition(id)", async () => {
+    const getLogs = vi.fn().mockResolvedValue([{ args: { escrowId: 3n, resolver: OLD_RESOLVER } }]);
+    const readContract = vi.fn().mockResolvedValue([ME, 1_900_000_000n, true, false, true]);
+    const c = await readConditionalInvoice(
+      { getLogs, readContract } as never,
+      { escrow: EE_ADDR, currentResolver: RESOLVER, escrowId: 3 },
+    );
+    expect(readContract.mock.calls[0][0].address).toBe(OLD_RESOLVER);
+    expect(readContract.mock.calls[0][0].args).toEqual([3n]);
+    expect(c).toMatchObject({ isApproved: true, legacy: true, resolver: OLD_RESOLVER });
+  });
+
+  it("readConditionalInvoice: log lookup fails -> falls back to the current resolver", async () => {
+    const getLogs = vi.fn().mockRejectedValue(new Error("range too large"));
+    const readContract = vi.fn().mockResolvedValue([ME, 1_900_000_000n, false, true, true]);
+    const c = await readConditionalInvoice(
+      { getLogs, readContract } as never,
+      { escrow: EE_ADDR, currentResolver: RESOLVER, escrowId: 3 },
+    );
+    expect(readContract.mock.calls[0][0].address).toBe(RESOLVER);
+    expect(c).toMatchObject({ deadlinePassed: true, legacy: false });
   });
 });

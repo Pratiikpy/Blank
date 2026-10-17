@@ -166,34 +166,6 @@ export const QuoterV2Abi = [
       { name: "gasEstimate", type: "uint256" },
     ],
   },
-  // Phase 5.6 — `payInvoiceWithSwap` uses `exactOutputSingle` on-chain so
-  // the contract can swap for an EXACT amount of USDC. To preview that
-  // swap in the UI we need the matching read-only quoter — same shape but
-  // amountOut is the input and amountIn is what we get back.
-  {
-    type: "function",
-    name: "quoteExactOutputSingle",
-    stateMutability: "nonpayable",
-    inputs: [
-      {
-        name: "params",
-        type: "tuple",
-        components: [
-          { name: "tokenIn", type: "address" },
-          { name: "tokenOut", type: "address" },
-          { name: "amount", type: "uint256" },
-          { name: "fee", type: "uint24" },
-          { name: "sqrtPriceLimitX96", type: "uint160" },
-        ],
-      },
-    ],
-    outputs: [
-      { name: "amountIn", type: "uint256" },
-      { name: "sqrtPriceX96After", type: "uint160" },
-      { name: "initializedTicksCrossed", type: "uint32" },
-      { name: "gasEstimate", type: "uint256" },
-    ],
-  },
 ] as const;
 
 export const SwapRouter02Abi = [

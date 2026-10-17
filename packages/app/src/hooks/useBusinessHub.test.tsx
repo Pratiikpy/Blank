@@ -2,8 +2,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 
 // §15.x test for useBusinessHub. The B2B contract hook: invoices
-// (create + pay + payInvoiceWithSwap multi-token + payInvoiceWith
-// OracleQuote backend-signed + finalize + cancel) + escrows (create
+// (create + pay + mode-aware finalize + two-step disputed refund +
+// cancel; swap and oracle pay are retired on-chain) + escrows (create
 // with optional IPFS attachment + markDelivered + approveRelease +
 // disputeEscrow + arbiterDecide + claimExpiredEscrow) + payroll
 // (runPayroll batch with per-recipient fanout). Largest hook in
@@ -45,30 +45,19 @@ import { renderHook, act } from "@testing-library/react";
 //     arbiter notification row uses `${hash}:arbiter` tx_hash suffix
 //     for dedup uniqueness ONLY when arbiter is set, non-zero,
 //     case-INsensitive distinct from depositor + beneficiary.
-//   - finalizeInvoice 60s decrypt poll budget with 5s intervals;
-//     validation handle === 0n -> 'Invoice not paid yet' error;
-//     matchPlaintext boolean drives status update (paid vs refunded)
-//     + note text (Finalized vs 'refunded — amount mismatch');
-//     decryptedValue normalization handles both boolean and bigint
-//     (bigint !== 0n -> true; boolean passed through).
+//   - finalizeInvoice routes by invoicePaymentMode: Direct ->
+//     payInvoiceFinalize (client), Escrow -> releaseInvoiceEscrow
+//     (client, or anyone after 7 days), Legacy escrow -> revalidate
+//     first, other Legacy -> vendor. Direct mismatch is 'disputed',
+//     escrow mismatch is 'refunded'.
+//   - refundDisputedInvoice is two writes (refund, then publish the
+//     decrypted refunded == paid check) and resumes at step two.
 //   - arbiterDecide multi-row activity insert: arbiter base row +
 //     depositor row with `:depositor` suffix (case-INsensitive
 //     skip when arbiter === depositor) + beneficiary row with
 //     `:beneficiary` suffix (case-INsensitive skip when arbiter ===
 //     beneficiary OR beneficiary === depositor); test pins all 3
 //     scenarios (3 distinct addresses / arbiter == depositor / etc).
-//   - payInvoiceWithSwap higher gas budget 8M (Uniswap call +
-//     safeTransfer + FHE verify); payInvoiceWithOracleQuote ALSO
-//     8M (ECDSA recover ~3k + FHE encrypt ~3M + 2x safeTransfer);
-//     oracle path amount mismatch pre-check: parseUnits(amount, 6)
-//     !== params.expectedUsdcOut throws BEFORE any write so the
-//     user catches the bad quote without paying gas.
-//   - Status string updates: payInvoice / payInvoiceWithSwap /
-//     payInvoiceWithOracleQuote all set status='payment_pending'
-//     (NOT 'paid' — finalizeInvoice is the one that flips paid
-//     vs refunded based on the FHE.eq match verdict); the
-//     payment_pending state is what surfaces the Finalize button
-//     in the UI.
 
 const useEffectiveAddressMock = vi.hoisted(() => vi.fn());
 const useChainMock = vi.hoisted(() => vi.fn());
@@ -289,7 +278,7 @@ beforeEach(() => {
 // ───────────────────────────────────────────────────────────
 
 describe("useBusinessHub — initial state (§15.x)", () => {
-  it("returns step='idle' + 14 callables", () => {
+  it("returns step='idle' + the callables; retired swap/oracle pay are gone", () => {
     const { result } = renderHook(() => useBusinessHub());
     expect(result.current.step).toBe("idle");
     expect(typeof result.current.createInvoice).toBe("function");
@@ -300,8 +289,12 @@ describe("useBusinessHub — initial state (§15.x)", () => {
     expect(typeof result.current.approveRelease).toBe("function");
     expect(typeof result.current.disputeEscrow).toBe("function");
     expect(typeof result.current.payInvoice).toBe("function");
-    expect(typeof result.current.payInvoiceWithSwap).toBe("function");
-    expect(typeof result.current.payInvoiceWithOracleQuote).toBe("function");
+    expect(typeof result.current.refundDisputedInvoice).toBe("function");
+    expect(typeof result.current.claimDisputeTimeout).toBe("function");
+    expect(typeof result.current.getInvoiceSettlement).toBe("function");
+    expect(typeof result.current.getEscrowDisputedAt).toBe("function");
+    expect("payInvoiceWithSwap" in result.current).toBe(false);
+    expect("payInvoiceWithOracleQuote" in result.current).toBe(false);
     expect(typeof result.current.cancelInvoice).toBe("function");
     expect(typeof result.current.arbiterDecide).toBe("function");
     expect(typeof result.current.claimExpiredEscrow).toBe("function");
@@ -665,7 +658,7 @@ describe("useBusinessHub — createEscrow (§15.x)", () => {
     expect(arbiterRow.activity_type).toBe("escrow_arbiter_named");
   });
 
-  it("arbiter === depositor -> skip arbiter notification row", async () => {
+  it("arbiter === depositor -> rejected before approve (contract: third party only)", async () => {
     extractEventIdMock.mockReturnValue(7);
     const { result } = renderHook(() => useBusinessHub());
     await act(async () => {
@@ -677,7 +670,8 @@ describe("useBusinessHub — createEscrow (§15.x)", () => {
         1735689600,
       );
     });
-    expect(insertActivityMock).toHaveBeenCalledTimes(1); // only beneficiary row
+    expect(unifiedWriteAndWaitMock).not.toHaveBeenCalled();
+    expect(insertActivityMock).not.toHaveBeenCalled();
   });
 
   it("arbiter === 0x0 -> skip arbiter notification row", async () => {
@@ -707,119 +701,6 @@ describe("useBusinessHub — createEscrow (§15.x)", () => {
 //  finalizeInvoice (60s decrypt poll)
 // ───────────────────────────────────────────────────────────
 
-describe("useBusinessHub — finalizeInvoice (§15.x)", () => {
-  it("validationHandle === 0n -> 'Invoice not paid yet' error", async () => {
-    readContractMock.mockResolvedValue(0n);
-    const { result } = renderHook(() => useBusinessHub());
-    await act(async () => {
-      await result.current.finalizeInvoice(42);
-    });
-    expect(toastErrorMock).toHaveBeenCalledWith(
-      expect.stringContaining("Invoice not paid yet"),
-      undefined,
-    );
-    expect(unifiedWriteAndWaitMock).toHaveBeenCalledTimes(0);
-  });
-
-  it("matchPlaintext=true -> 'Invoice finalized!' + status='paid' + INVOICE_FINALIZED activity", async () => {
-    readContractMock.mockResolvedValue(0x999n);
-    decryptForTxMock.mockResolvedValue({
-      decryptedValue: true,
-      signature: ("0x" + "01".repeat(65)) as `0x${string}`,
-    });
-    const { result } = renderHook(() => useBusinessHub());
-    await act(async () => {
-      await result.current.finalizeInvoice(42);
-    });
-    const call = unifiedWriteAndWaitMock.mock.calls[0][0];
-    expect(call.functionName).toBe("payInvoiceFinalize");
-    expect(call.args[0]).toBe(42n);
-    expect(call.args[1]).toBe(true);
-    expect(updateInvoiceStatusMock).toHaveBeenCalledWith(42, "paid");
-    expect(toastSuccessMock).toHaveBeenCalledWith("Invoice finalized!");
-    const row = insertActivityMock.mock.calls[0][0];
-    expect(row.activity_type).toBe("invoice_finalized");
-    expect(row.note).toBe("Finalized invoice #42");
-  });
-
-  it("matchPlaintext=false -> 'Invoice refunded — amount mismatch' + status='refunded'", async () => {
-    readContractMock.mockResolvedValue(0x999n);
-    decryptForTxMock.mockResolvedValue({
-      decryptedValue: false,
-      signature: ("0x" + "01".repeat(65)) as `0x${string}`,
-    });
-    const { result } = renderHook(() => useBusinessHub());
-    await act(async () => {
-      await result.current.finalizeInvoice(42);
-    });
-    expect(updateInvoiceStatusMock).toHaveBeenCalledWith(42, "refunded");
-    expect(toastSuccessMock).toHaveBeenCalledWith(
-      expect.stringContaining("refunded"),
-    );
-    const row = insertActivityMock.mock.calls[0][0];
-    expect(row.note).toContain("refunded — amount mismatch");
-  });
-
-  it("decryptedValue as bigint 1n -> matchPlaintext=true", async () => {
-    readContractMock.mockResolvedValue(0x999n);
-    decryptForTxMock.mockResolvedValue({
-      decryptedValue: 1n,
-      signature: ("0x" + "01".repeat(65)) as `0x${string}`,
-    });
-    const { result } = renderHook(() => useBusinessHub());
-    await act(async () => {
-      await result.current.finalizeInvoice(42);
-    });
-    expect(unifiedWriteAndWaitMock.mock.calls[0][0].args[1]).toBe(true);
-  });
-
-  it("decryptedValue as bigint 0n -> matchPlaintext=false", async () => {
-    readContractMock.mockResolvedValue(0x999n);
-    decryptForTxMock.mockResolvedValue({
-      decryptedValue: 0n,
-      signature: ("0x" + "01".repeat(65)) as `0x${string}`,
-    });
-    const { result } = renderHook(() => useBusinessHub());
-    await act(async () => {
-      await result.current.finalizeInvoice(42);
-    });
-    expect(unifiedWriteAndWaitMock.mock.calls[0][0].args[1]).toBe(false);
-  });
-
-  it("decrypt timeout (60s budget) -> 'Decryption timed out' error", async () => {
-    vi.useFakeTimers();
-    readContractMock.mockResolvedValue(0x999n);
-    decryptForTxMock.mockResolvedValue(null); // never resolves
-    const { result } = renderHook(() => useBusinessHub());
-    let p!: Promise<unknown>;
-    act(() => {
-      p = result.current.finalizeInvoice(42);
-    });
-    await vi.advanceTimersByTimeAsync(70_000);
-    await act(async () => {
-      await p;
-    });
-    expect(toastErrorMock).toHaveBeenCalledWith(
-      // mapError catches /timeout|timed out/i and returns the
-      // "Timeout — ..." humanized message, which no longer contains
-      // the literal "Decryption timed out" substring. Assert the
-      // user-visible title instead.
-      expect.stringContaining("Timeout"),
-      undefined,
-    );
-    vi.useRealTimers();
-  });
-
-  it("no address -> 'Connection lost'", async () => {
-    useEffectiveAddressMock.mockReturnValue({ effectiveAddress: null });
-    const { result } = renderHook(() => useBusinessHub());
-    await act(async () => {
-      await result.current.finalizeInvoice(42);
-    });
-    expect(toastErrorMock).toHaveBeenCalledWith("Connection lost");
-  });
-});
-
 // ───────────────────────────────────────────────────────────
 //  Plaintext write ops (markDelivered / approveRelease / dispute
 //  / cancelInvoice / claimExpiredEscrow)
@@ -842,6 +723,8 @@ describe("useBusinessHub — plaintext escrow ops (§15.x)", () => {
   });
 
   it("approveRelease: status='released' + ESCROW_RELEASED activity + balance broadcast", async () => {
+    // Chain reports Released (beneficiary had already marked delivery).
+    readContractMock.mockResolvedValue([ME, BOB, ZERO_ADDR, VAULT, 0x1n, "d", 0n, 1]);
     const { result } = renderHook(() => useBusinessHub());
     await act(async () => {
       await result.current.approveRelease(7);
@@ -1048,200 +931,340 @@ describe("useBusinessHub — payInvoice (§15.x)", () => {
 });
 
 // ───────────────────────────────────────────────────────────
-//  payInvoiceWithSwap
+//  finalizeInvoice: payment-mode aware
 // ───────────────────────────────────────────────────────────
 
-describe("useBusinessHub — payInvoiceWithSwap (§15.x)", () => {
-  const USDT = "0x4444444444444444444444444444444444444444" as `0x${string}`;
-  const ROUTER = "0x5555555555555555555555555555555555555555" as `0x${string}`;
+const SIG = ("0x" + "01".repeat(65)) as `0x${string}`;
+const NOW = 1_800_000_000n;
+const simulateContractMock = vi.fn();
+const getBlockMock = vi.fn();
 
-  it("uses 8M gas budget (vs 5M for plain payInvoice)", async () => {
-    const { result } = renderHook(() => useBusinessHub());
-    await act(async () => {
-      await result.current.payInvoiceWithSwap({
-        invoiceId: 42,
-        payToken: USDT,
-        payAmountInMax: 110_000_000n,
-        amount: "100",
-        fee: 3000,
-        swapRouter: ROUTER,
-      });
+/** Route publicClient.readContract by functionName. */
+function mockHub(opts: {
+  status?: number;
+  vendor?: string;
+  client?: string;
+  mode?: number;
+  paidAt?: bigint;
+  refundPending?: boolean;
+  validationHandle?: bigint;
+  refundHandle?: bigint;
+  escrowStatus?: number;
+}) {
+  readContractMock.mockImplementation(async ({ functionName }: { functionName: string }) => {
+    switch (functionName) {
+      case "getInvoice":
+        return [opts.vendor ?? ALICE, opts.client ?? ME, VAULT, 0x5n, "desc", 0n, opts.status ?? 3];
+      case "invoicePaymentMode":
+        return opts.mode ?? 1;
+      case "invoicePaidAt":
+        return opts.paidAt ?? NOW - 60n;
+      case "invoiceRefundPending":
+        return opts.refundPending ?? false;
+      case "getInvoiceValidationHandle":
+        return opts.validationHandle ?? 0x999n;
+      case "getInvoiceRefundCheckHandle":
+        return opts.refundHandle ?? 0x777n;
+      case "getEscrow":
+        return [ME, BOB, ZERO_ADDR, VAULT, 0x1n, "d", 0n, opts.escrowStatus ?? 0];
+      case "escrowDisputedAt":
+        return 123n;
+      default:
+        throw new Error(`unexpected read ${functionName}`);
+    }
+  });
+}
+
+function writtenFunctions(): string[] {
+  return unifiedWriteAndWaitMock.mock.calls.map((c) => c[0].functionName as string);
+}
+
+describe("useBusinessHub — finalizeInvoice by payment mode", () => {
+  beforeEach(() => {
+    simulateContractMock.mockReset();
+    getBlockMock.mockReset();
+    getBlockMock.mockResolvedValue({ timestamp: NOW });
+    usePublicClientMock.mockReturnValue({
+      waitForTransactionReceipt: waitForTransactionReceiptMock,
+      readContract: readContractMock,
+      simulateContract: simulateContractMock,
+      getBlock: getBlockMock,
     });
-    const call = unifiedWriteAndWaitMock.mock.calls.find(
-      (c) => c[0].functionName === "payInvoiceWithSwap",
-    );
-    expect(call).toBeDefined();
-    expect(call![0].gas).toBe(8_000_000n);
   });
 
-  it("approves payToken (NOT vault, NOT TestUSDC) with exact payAmountInMax", async () => {
+  it("Direct + client + match -> payInvoiceFinalize, status 'paid'", async () => {
+    mockHub({ mode: 1 });
     const { result } = renderHook(() => useBusinessHub());
     await act(async () => {
-      await result.current.payInvoiceWithSwap({
-        invoiceId: 42,
-        payToken: USDT,
-        payAmountInMax: 110_000_000n,
-        amount: "100",
-        fee: 3000,
-        swapRouter: ROUTER,
-      });
+      await result.current.finalizeInvoice(42);
     });
-    const approveCall = unifiedWriteMock.mock.calls.find(
-      (c) => c[0].functionName === "approve",
-    );
-    expect(approveCall).toBeDefined();
-    expect(approveCall![0].address).toBe(USDT);
-    expect(approveCall![0].args[0]).toBe(HUB);
-    expect(approveCall![0].args[1]).toBe(110_000_000n);
+    const call = unifiedWriteAndWaitMock.mock.calls[0][0];
+    expect(call.functionName).toBe("payInvoiceFinalize");
+    expect(call.args).toEqual([42n, true, SIG]);
+    expect(updateInvoiceStatusMock).toHaveBeenCalledWith(42, "paid");
+    expect(insertActivityMock.mock.calls[0][0].note).toBe("Finalized invoice #42");
   });
 
-  it("payInvoiceWithSwap args: [id, payToken, payAmountInMax, expectedUsdcOut, fee, router, encAmount]", async () => {
+  it("Direct + mismatch -> status 'disputed' (funds stay with vendor), not 'refunded'", async () => {
+    mockHub({ mode: 1 });
+    decryptForTxMock.mockResolvedValue({ decryptedValue: 0n, signature: SIG });
     const { result } = renderHook(() => useBusinessHub());
     await act(async () => {
-      await result.current.payInvoiceWithSwap({
-        invoiceId: 42,
-        payToken: USDT,
-        payAmountInMax: 110_000_000n,
-        amount: "100",
-        fee: 3000,
-        swapRouter: ROUTER,
-      });
+      await result.current.finalizeInvoice(42);
     });
-    const call = unifiedWriteAndWaitMock.mock.calls.find(
-      (c) => c[0].functionName === "payInvoiceWithSwap",
-    );
-    expect(call![0].args[0]).toBe(42n);
-    expect(call![0].args[1]).toBe(USDT);
-    expect(call![0].args[2]).toBe(110_000_000n);
-    expect(call![0].args[3]).toBe(100_000_000n);
-    expect(call![0].args[4]).toBe(3000);
-    expect(call![0].args[5]).toBe(ROUTER);
+    expect(unifiedWriteAndWaitMock.mock.calls[0][0].args[1]).toBe(false);
+    expect(updateInvoiceStatusMock).toHaveBeenCalledWith(42, "disputed");
+    expect(toastErrorMock).toHaveBeenCalledWith(expect.stringContaining("disputed"));
   });
 
-  it("activity note 'via swap' suffix", async () => {
+  it("Direct + vendor -> blocked before any decrypt or write", async () => {
+    mockHub({ mode: 1, vendor: ME, client: BOB });
     const { result } = renderHook(() => useBusinessHub());
     await act(async () => {
-      await result.current.payInvoiceWithSwap({
-        invoiceId: 42,
-        payToken: USDT,
-        payAmountInMax: 110_000_000n,
-        amount: "100",
-        fee: 3000,
-        swapRouter: ROUTER,
-      });
+      await result.current.finalizeInvoice(42);
     });
-    expect(insertActivityMock.mock.calls[0][0].note).toContain("via swap");
-    expect(insertActivityMock.mock.calls[0][0].token_address).toBe(USDT);
+    expect(unifiedWriteAndWaitMock).not.toHaveBeenCalled();
+    expect(decryptForTxMock).not.toHaveBeenCalled();
+    expect(toastErrorMock).toHaveBeenCalledWith(expect.stringContaining("Only the client"), undefined);
+  });
+
+  it("Escrow + client -> releaseInvoiceEscrow; mismatch -> 'refunded'", async () => {
+    mockHub({ mode: 2 });
+    decryptForTxMock.mockResolvedValue({ decryptedValue: false, signature: SIG });
+    const { result } = renderHook(() => useBusinessHub());
+    await act(async () => {
+      await result.current.finalizeInvoice(42);
+    });
+    expect(writtenFunctions()).toEqual(["releaseInvoiceEscrow"]);
+    expect(updateInvoiceStatusMock).toHaveBeenCalledWith(42, "refunded");
+  });
+
+  it("Escrow + vendor before 7 days -> blocked with the remaining wait", async () => {
+    mockHub({ mode: 2, vendor: ME, client: BOB, paidAt: NOW - 86_400n });
+    const { result } = renderHook(() => useBusinessHub());
+    await act(async () => {
+      await result.current.finalizeInvoice(42);
+    });
+    expect(unifiedWriteAndWaitMock).not.toHaveBeenCalled();
+    expect(toastErrorMock).toHaveBeenCalledWith(expect.stringContaining("6d"), undefined);
+  });
+
+  it("Escrow + vendor after 7 days -> releaseInvoiceEscrow, match pays vendor", async () => {
+    mockHub({ mode: 2, vendor: ME, client: BOB, paidAt: NOW - 7n * 86_400n });
+    const { result } = renderHook(() => useBusinessHub());
+    await act(async () => {
+      await result.current.finalizeInvoice(42);
+    });
+    expect(writtenFunctions()).toEqual(["releaseInvoiceEscrow"]);
+    expect(updateInvoiceStatusMock).toHaveBeenCalledWith(42, "paid");
+  });
+
+  it("Legacy escrow + client -> revalidateLegacyInvoiceEscrow then releaseInvoiceEscrow", async () => {
+    mockHub({ mode: 0, paidAt: 0n });
+    simulateContractMock.mockResolvedValue({ request: {} });
+    const { result } = renderHook(() => useBusinessHub());
+    await act(async () => {
+      await result.current.finalizeInvoice(42);
+    });
+    expect(simulateContractMock.mock.calls[0][0].functionName).toBe("revalidateLegacyInvoiceEscrow");
+    expect(writtenFunctions()).toEqual(["revalidateLegacyInvoiceEscrow", "releaseInvoiceEscrow"]);
+  });
+
+  it("Legacy direct + vendor -> payInvoiceFinalize; Legacy direct + client -> blocked", async () => {
+    mockHub({ mode: 0, vendor: ME, client: BOB });
+    simulateContractMock.mockRejectedValue(new Error("BusinessHub: not a legacy escrow payment"));
+    const { result } = renderHook(() => useBusinessHub());
+    await act(async () => {
+      await result.current.finalizeInvoice(42);
+    });
+    expect(writtenFunctions()).toEqual(["payInvoiceFinalize"]);
+
+    unifiedWriteAndWaitMock.mockClear();
+    mockHub({ mode: 0 });
+    const second = renderHook(() => useBusinessHub());
+    await act(async () => {
+      await second.result.current.finalizeInvoice(43);
+    });
+    expect(unifiedWriteAndWaitMock).not.toHaveBeenCalled();
+    expect(toastErrorMock).toHaveBeenCalledWith(expect.stringContaining("Only the vendor"), undefined);
+  });
+
+  it("not PaymentPending -> error, no write", async () => {
+    mockHub({ status: 1 });
+    const { result } = renderHook(() => useBusinessHub());
+    await act(async () => {
+      await result.current.finalizeInvoice(42);
+    });
+    expect(unifiedWriteAndWaitMock).not.toHaveBeenCalled();
+    expect(toastErrorMock).toHaveBeenCalledWith(expect.stringContaining("not waiting"), undefined);
+  });
+
+  it("validation handle 0 -> 'Invoice not paid yet', no write", async () => {
+    mockHub({ mode: 1, validationHandle: 0n });
+    const { result } = renderHook(() => useBusinessHub());
+    await act(async () => {
+      await result.current.finalizeInvoice(42);
+    });
+    expect(unifiedWriteAndWaitMock).not.toHaveBeenCalled();
+    expect(toastErrorMock).toHaveBeenCalledWith(expect.stringContaining("Invoice not paid yet"), undefined);
+  });
+
+  it("decrypt never signs -> timed out, no write", async () => {
+    vi.useFakeTimers();
+    mockHub({ mode: 1 });
+    decryptForTxMock.mockResolvedValue(null);
+    const { result } = renderHook(() => useBusinessHub());
+    let p!: Promise<unknown>;
+    act(() => {
+      p = result.current.finalizeInvoice(42);
+    });
+    await vi.advanceTimersByTimeAsync(200_000);
+    await act(async () => {
+      await p;
+    });
+    expect(unifiedWriteAndWaitMock).not.toHaveBeenCalled();
+    expect(toastErrorMock).toHaveBeenCalledWith(expect.stringContaining("Timeout"), undefined);
+    vi.useRealTimers();
+  });
+
+  it("no address -> 'Connection lost'", async () => {
+    useEffectiveAddressMock.mockReturnValue({ effectiveAddress: null });
+    const { result } = renderHook(() => useBusinessHub());
+    await act(async () => {
+      await result.current.finalizeInvoice(42);
+    });
+    expect(toastErrorMock).toHaveBeenCalledWith("Connection lost");
   });
 });
 
 // ───────────────────────────────────────────────────────────
-//  payInvoiceWithOracleQuote
+//  refundDisputedInvoice: refund, then publish the refund check
 // ───────────────────────────────────────────────────────────
 
-describe("useBusinessHub — payInvoiceWithOracleQuote (§15.x)", () => {
-  const USDT = "0x4444444444444444444444444444444444444444" as `0x${string}`;
-  const NONCE = ("0x" + "ab".repeat(32)) as `0x${string}`;
-  const SIG = ("0x" + "01".repeat(65)) as `0x${string}`;
-
-  it("amount mismatch (parseUnits(amount) !== expectedUsdcOut) -> throws BEFORE write", async () => {
+describe("useBusinessHub — refundDisputedInvoice (two-step)", () => {
+  it("fresh: refundDisputedInvoice -> decrypt check -> finalizeDisputedRefund(ok) -> 'refunded'", async () => {
+    mockHub({ status: 4, vendor: ME, client: BOB });
     const { result } = renderHook(() => useBusinessHub());
     await act(async () => {
-      await result.current.payInvoiceWithOracleQuote({
-        invoiceId: 42,
-        payToken: USDT,
-        payAmountIn: 105_000_000n,
-        expectedUsdcOut: 50_000_000n, // 50 USDC
-        amount: "100", // 100 USDC - mismatch
-        ratePpm: 1_050_000n,
-        expiresAt: 1735689600,
-        nonce: NONCE,
-        signature: SIG,
-      });
+      await result.current.refundDisputedInvoice(42);
     });
-    expect(toastErrorMock).toHaveBeenCalledWith(
-      expect.stringContaining("amount mismatch"),
-    );
-    // payInvoiceWithOracleQuote write should NOT fire
-    const oracleCall = unifiedWriteAndWaitMock.mock.calls.find(
-      (c) => c[0].functionName === "payInvoiceWithOracleQuote",
-    );
-    expect(oracleCall).toBeUndefined();
+    expect(writtenFunctions()).toEqual(["refundDisputedInvoice", "finalizeDisputedRefund"]);
+    expect(decryptForTxMock).toHaveBeenCalledWith(0x777n, "ebool");
+    expect(unifiedWriteAndWaitMock.mock.calls[1][0].args).toEqual([42n, true, SIG]);
+    expect(updateInvoiceStatusMock).toHaveBeenCalledWith(42, "refunded");
+    expect(insertActivityMock.mock.calls[0][0].user_to).toBe(BOB.toLowerCase());
   });
 
-  it("uses 8M gas budget", async () => {
+  it("refund already pending -> skips step one, only finalizes", async () => {
+    mockHub({ status: 4, vendor: ME, client: BOB, refundPending: true });
     const { result } = renderHook(() => useBusinessHub());
     await act(async () => {
-      await result.current.payInvoiceWithOracleQuote({
-        invoiceId: 42,
-        payToken: USDT,
-        payAmountIn: 105_000_000n,
-        expectedUsdcOut: 100_000_000n,
-        amount: "100",
-        ratePpm: 1_050_000n,
-        expiresAt: 1735689600,
-        nonce: NONCE,
-        signature: SIG,
-      });
+      await result.current.refundDisputedInvoice(42);
     });
-    const call = unifiedWriteAndWaitMock.mock.calls.find(
-      (c) => c[0].functionName === "payInvoiceWithOracleQuote",
-    );
-    expect(call![0].gas).toBe(8_000_000n);
+    expect(writtenFunctions()).toEqual(["finalizeDisputedRefund"]);
   });
 
-  it("payInvoiceWithOracleQuote args: full 9-tuple (id, payToken, payAmountIn, expectedUsdcOut, ratePpm, BigInt(expiresAt), nonce, sig, encAmount)", async () => {
+  it("check false (vendor short) -> stays disputed, approval cache cleared, no status write", async () => {
+    mockHub({ status: 4, vendor: ME, client: BOB });
+    decryptForTxMock.mockResolvedValue({ decryptedValue: false, signature: SIG });
     const { result } = renderHook(() => useBusinessHub());
     await act(async () => {
-      await result.current.payInvoiceWithOracleQuote({
-        invoiceId: 42,
-        payToken: USDT,
-        payAmountIn: 105_000_000n,
-        expectedUsdcOut: 100_000_000n,
-        amount: "100",
-        ratePpm: 1_050_000n,
-        expiresAt: 1735689600,
-        nonce: NONCE,
-        signature: SIG,
-      });
+      await result.current.refundDisputedInvoice(42);
     });
-    const call = unifiedWriteAndWaitMock.mock.calls.find(
-      (c) => c[0].functionName === "payInvoiceWithOracleQuote",
-    );
-    expect(call![0].args[0]).toBe(42n);
-    expect(call![0].args[1]).toBe(USDT);
-    expect(call![0].args[2]).toBe(105_000_000n);
-    expect(call![0].args[3]).toBe(100_000_000n);
-    expect(call![0].args[4]).toBe(1_050_000n);
-    expect(call![0].args[5]).toBe(1735689600n);
-    expect(call![0].args[6]).toBe(NONCE);
-    expect(call![0].args[7]).toBe(SIG);
+    expect(writtenFunctions()).toEqual(["refundDisputedInvoice", "finalizeDisputedRefund"]);
+    expect(updateInvoiceStatusMock).not.toHaveBeenCalled();
+    expect(clearVaultApprovalMock).toHaveBeenCalledWith(HUB);
+    expect(toastErrorMock).toHaveBeenCalledWith(expect.stringContaining("did not go through"));
   });
 
-  it("activity note 'via oracle-signed quote' suffix", async () => {
+  it("first refund approves BusinessHub on the invoice's vault", async () => {
+    isVaultApprovedMock.mockReturnValue(false);
+    mockHub({ status: 4, vendor: ME, client: BOB });
     const { result } = renderHook(() => useBusinessHub());
     await act(async () => {
-      await result.current.payInvoiceWithOracleQuote({
-        invoiceId: 42,
-        payToken: USDT,
-        payAmountIn: 105_000_000n,
-        expectedUsdcOut: 100_000_000n,
-        amount: "100",
-        ratePpm: 1_050_000n,
-        expiresAt: 1735689600,
-        nonce: NONCE,
-        signature: SIG,
-      });
+      await result.current.refundDisputedInvoice(42);
     });
-    expect(insertActivityMock.mock.calls[0][0].note).toContain(
-      "via oracle-signed quote",
-    );
+    const approve = unifiedWriteMock.mock.calls[0][0];
+    expect(approve.functionName).toBe("approvePlaintext");
+    expect(approve.address).toBe(VAULT);
+    expect(approve.args[0]).toBe(HUB);
+    expect(markVaultApprovedMock).toHaveBeenCalledWith(HUB);
+  });
+
+  it("not the vendor, or not disputed -> no write", async () => {
+    mockHub({ status: 4, vendor: ALICE, client: ME });
+    const { result } = renderHook(() => useBusinessHub());
+    await act(async () => {
+      await result.current.refundDisputedInvoice(42);
+    });
+    mockHub({ status: 3, vendor: ME, client: BOB });
+    const second = renderHook(() => useBusinessHub());
+    await act(async () => {
+      await second.result.current.refundDisputedInvoice(43);
+    });
+    expect(unifiedWriteAndWaitMock).not.toHaveBeenCalled();
   });
 });
 
 // ───────────────────────────────────────────────────────────
-//  reset
+//  Escrow dispute timeout + arbiter rule + release status sync
 // ───────────────────────────────────────────────────────────
+
+describe("useBusinessHub — escrow dispute timeout and arbiter rule", () => {
+  it("claimDisputeTimeout: args [id], status 'expired', balance broadcast", async () => {
+    const { result } = renderHook(() => useBusinessHub());
+    await act(async () => {
+      await result.current.claimDisputeTimeout(7);
+    });
+    const call = unifiedWriteAndWaitMock.mock.calls[0][0];
+    expect(call.functionName).toBe("claimDisputeTimeout");
+    expect(call.args).toEqual([7n]);
+    expect(updateEscrowStatusMock).toHaveBeenCalledWith(7, "expired");
+    expect(broadcastActionMock).toHaveBeenCalledWith("balance_changed");
+  });
+
+  it("getEscrowDisputedAt reads escrowDisputedAt", async () => {
+    mockHub({});
+    const { result } = renderHook(() => useBusinessHub());
+    let at: number | null = null;
+    await act(async () => {
+      at = await result.current.getEscrowDisputedAt(7);
+    });
+    expect(at).toBe(123);
+  });
+
+  it("createEscrow rejects an arbiter equal to the depositor or beneficiary before any write", async () => {
+    const { result } = renderHook(() => useBusinessHub());
+    await act(async () => {
+      await result.current.createEscrow(BOB, "10", "d", ME, Math.floor(Date.now() / 1000) + 3 * 86400);
+    });
+    await act(async () => {
+      await result.current.createEscrow(BOB, "10", "d", BOB.toUpperCase().replace("0X", "0x"), Math.floor(Date.now() / 1000) + 3 * 86400);
+    });
+    expect(unifiedWriteAndWaitMock).not.toHaveBeenCalled();
+    expect(toastErrorMock).toHaveBeenCalledWith(expect.stringContaining("cannot be you"));
+    expect(toastErrorMock).toHaveBeenCalledWith(expect.stringContaining("cannot be the beneficiary"));
+  });
+
+  it("approveRelease before delivery -> no 'released' status, honest toast", async () => {
+    mockHub({ escrowStatus: 0 });
+    const { result } = renderHook(() => useBusinessHub());
+    await act(async () => {
+      await result.current.approveRelease(7);
+    });
+    expect(updateEscrowStatusMock).not.toHaveBeenCalled();
+    expect(toastSuccessMock).toHaveBeenCalledWith(expect.stringContaining("beneficiary marks delivery"));
+  });
+
+  it("markDelivered after approval -> chain says Released -> status 'released'", async () => {
+    mockHub({ escrowStatus: 1 });
+    const { result } = renderHook(() => useBusinessHub());
+    await act(async () => {
+      await result.current.markDelivered(7);
+    });
+    expect(updateEscrowStatusMock).toHaveBeenCalledWith(7, "released");
+  });
+});
 
 describe("useBusinessHub — reset (§15.x)", () => {
   it("reset clears step to idle", async () => {

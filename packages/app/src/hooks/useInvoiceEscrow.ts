@@ -15,6 +15,15 @@ import { insertActivity, updateInvoiceStatus } from "@/lib/supabase";
 import { ACTIVITY_TYPES } from "@/lib/activity-types";
 import { broadcastAction } from "@/lib/cross-tab";
 import { invalidateBalanceQueries } from "@/lib/query-invalidation";
+import {
+  INVOICE_STATUS,
+  PAYMENT_MODE,
+  chooseFinalizeAction,
+  formatWait,
+  pollDecryptBool,
+  readInvoiceSettlement,
+  secondsUntilOpenRelease,
+} from "@/lib/invoice-settlement";
 
 // Hook for the trustless invoice escrow flow added in PR-C steps 1+2.
 //
@@ -22,13 +31,14 @@ import { invalidateBalanceQueries } from "@/lib/query-invalidation";
 //   payEscrow(invoiceId, amount)        — encrypt the amount, ensure vault
 //                                         allowance, call payInvoiceEscrow.
 //                                         Funds sit in BusinessHub.
-//   releaseEscrow(invoiceId)            — read the on-chain validation
-//                                         handle, decrypt off-chain via
-//                                         cofhe Threshold Network, call
-//                                         releaseInvoiceEscrow with the
-//                                         signed plaintext. The contract
-//                                         routes funds: vendor on match,
-//                                         client refund on mismatch.
+//   releaseEscrow(invoiceId)            — read the payment mode, decrypt
+//                                         the validation handle via the
+//                                         Threshold Network, then call the
+//                                         finalize that mode accepts
+//                                         (releaseInvoiceEscrow for escrow:
+//                                         vendor on match, payer refund on
+//                                         mismatch; the vendor may do it 7
+//                                         days after funding).
 //
 // Both ops:
 //   - hold a single in-flight Step state (the existing useBusinessHub
@@ -188,9 +198,15 @@ export function useInvoiceEscrow() {
     ],
   );
 
-  // ── releaseEscrow — finalize: vendor receives or client refunds ──
+  // ── releaseEscrow — settle a funded invoice with its mode's finalize ──
+  //
+  // Escrow mode: releaseInvoiceEscrow, by the client or by anyone (the
+  // vendor in practice) 7 days after funding. Match pays the vendor,
+  // mismatch refunds the payer. Direct mode (paid from Business Tools):
+  // payInvoiceFinalize by the client. Legacy records route as described in
+  // lib/invoice-settlement.ts.
   const releaseEscrow = useCallback(
-    async (invoiceId: number): Promise<{ hash: string; matched: boolean } | null> => {
+    async (invoiceId: number): Promise<{ hash: string; matched: boolean; viaEscrow: boolean } | null> => {
       if (!address) {
         toast.error("Connect a wallet first");
         return null;
@@ -201,49 +217,86 @@ export function useInvoiceEscrow() {
       }
       if (step !== "idle") return null;
 
+      const hub = contracts.BusinessHub as `0x${string}`;
       try {
         clearTimeout(resetTimer.current);
-
         setStep("decrypting");
-        // Read the validation ebool handle the contract stored at
-        // payInvoiceEscrow time.
+
+        const inv = (await publicClient.readContract({
+          address: hub,
+          abi: BusinessHubAbi,
+          functionName: "getInvoice",
+          args: [BigInt(invoiceId)],
+        })) as readonly [string, string, string, bigint, string, bigint, number];
+        if (Number(inv[6]) !== INVOICE_STATUS.PaymentPending) {
+          throw new Error("This invoice is not waiting to be finalized.");
+        }
+        const me = address.toLowerCase();
+        const settlement = await readInvoiceSettlement(publicClient, hub, invoiceId);
+        let isLegacyEscrow = false;
+        if (settlement.mode === PAYMENT_MODE.Legacy) {
+          try {
+            await publicClient.simulateContract({
+              account: address as `0x${string}`,
+              address: hub,
+              abi: BusinessHubAbi,
+              functionName: "revalidateLegacyInvoiceEscrow",
+              args: [BigInt(invoiceId)],
+            });
+            isLegacyEscrow = true;
+          } catch {
+            isLegacyEscrow = false;
+          }
+        }
+        const block = await publicClient.getBlock();
+        const now = Number(block.timestamp);
+        const isClient = inv[1].toLowerCase() === me;
+        const action = chooseFinalizeAction({
+          mode: settlement.mode,
+          paidAt: settlement.paidAt,
+          nowSeconds: now,
+          isClient,
+          isVendor: inv[0].toLowerCase() === me,
+          isLegacyEscrow,
+        });
+        if (action.kind === "blocked") throw new Error(action.reason);
+
+        if (action.kind === "revalidateThenRelease") {
+          setStep("finalizing");
+          await unifiedWriteAndWait({
+            address: hub,
+            abi: BusinessHubAbi,
+            functionName: "revalidateLegacyInvoiceEscrow",
+            args: [BigInt(invoiceId)],
+            gas: BigInt(3_000_000),
+          });
+          if (!isClient) {
+            const after = await readInvoiceSettlement(publicClient, hub, invoiceId);
+            const wait = secondsUntilOpenRelease(after.paidAt, now);
+            if (wait > 0) throw new Error(`Payment check refreshed. Anyone can release it in ${formatWait(wait)}.`);
+          }
+          setStep("decrypting");
+        }
+        const viaEscrow = action.kind !== "payInvoiceFinalize";
+
         const handle = (await publicClient.readContract({
-          address: contracts.BusinessHub as `0x${string}`,
+          address: hub,
           abi: BusinessHubAbi,
           functionName: "getInvoiceValidationHandle",
           args: [BigInt(invoiceId)],
         })) as bigint;
         if (!handle || handle === 0n) {
-          throw new Error("Invoice not funded yet — nothing to finalize");
+          throw new Error("Invoice not funded yet. Nothing to finalize.");
         }
-
-        // Threshold-decrypt the validation flag. Identical pattern to
-        // useBusinessHub.finalizeInvoice — poll until the network has the
-        // result. 180s budget matches the legacy finalizeInvoice path —
-        // Sepolia threshold network can take 90+ seconds under load and
-        // 60s isn't enough to hit the happy path consistently.
-        const TIMEOUT_MS = 180_000;
-        const startedAt = Date.now();
-        let result: { decryptedValue: bigint | boolean; signature: `0x${string}` } | null = null;
-        while (Date.now() - startedAt < TIMEOUT_MS) {
-          result = await decryptForTx(handle, "ebool");
-          if (result) break;
-          await new Promise((r) => setTimeout(r, 5000));
-        }
-        if (!result) {
-          throw new Error("Decryption timed out — try again in a moment");
-        }
-        const matched =
-          typeof result.decryptedValue === "boolean"
-            ? result.decryptedValue
-            : result.decryptedValue !== 0n;
+        // Sepolia threshold network can take 90+ seconds under load.
+        const { value: matched, signature } = await pollDecryptBool(decryptForTx, handle);
 
         setStep("finalizing");
         const submit = await unifiedWriteAndWait({
-          address: contracts.BusinessHub as `0x${string}`,
+          address: hub,
           abi: BusinessHubAbi,
-          functionName: "releaseInvoiceEscrow",
-          args: [BigInt(invoiceId), matched, result.signature],
+          functionName: viaEscrow ? "releaseInvoiceEscrow" : "payInvoiceFinalize",
+          args: [BigInt(invoiceId), matched, signature],
           gas: BigInt(5_000_000),
         });
         const hash = submit.hash;
@@ -258,7 +311,7 @@ export function useInvoiceEscrow() {
           throw new Error("Finalize reverted on-chain");
         }
 
-        await updateInvoiceStatus(invoiceId, matched ? "paid" : "refunded");
+        await updateInvoiceStatus(invoiceId, matched ? "paid" : viaEscrow ? "refunded" : "disputed");
         await insertActivity({
           tx_hash: hash,
           user_from: address.toLowerCase(),
@@ -266,8 +319,12 @@ export function useInvoiceEscrow() {
           activity_type: ACTIVITY_TYPES.INVOICE_FINALIZED,
           contract_address: contracts.BusinessHub,
           note: matched
-            ? `Released escrow #${invoiceId} to vendor`
-            : `Refunded escrow #${invoiceId} (amount mismatch)`,
+            ? viaEscrow
+              ? `Released escrow #${invoiceId} to vendor`
+              : `Finalized invoice #${invoiceId}`
+            : viaEscrow
+              ? `Refunded escrow #${invoiceId} (amount mismatch)`
+              : `Finalized invoice #${invoiceId} (disputed, amount mismatch)`,
           token_address: contracts.FHERC20Vault_USDC,
           block_number: Number(receipt.blockNumber),
         });
@@ -276,11 +333,11 @@ export function useInvoiceEscrow() {
         broadcastAction("activity_added");
         invalidateBalanceQueries();
 
-        toast.success(
-          matched ? "Vendor paid — escrow released" : "Refunded — amount didn't match",
-        );
+        if (matched) toast.success("Vendor paid.");
+        else if (viaEscrow) toast.success("Amount did not match. The payment went back to the payer.");
+        else toast.error("Amount did not match. The invoice is disputed and the vendor must refund it.");
         finishTransiently("success", 6000);
-        return { hash, matched };
+        return { hash, matched, viaEscrow };
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Finalize failed";
         toast.error(msg);
