@@ -5,6 +5,7 @@ import "@fhenixprotocol/cofhe-contracts/FHE.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "./utils/ReentrancyGuard.sol";
+import "./interfaces/ITokenRegistry.sol";
 
 interface IFHERC20Vault {
     function transferFrom(address from, address to, externalEuint64 encAmount, bytes calldata proof) external returns (euint64);
@@ -64,6 +65,12 @@ contract InheritanceManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
     /// The rest of the claim continues so one bad vault can't brick the whole
     /// plan. Off-chain monitors should watch for this + alert the heir.
     event ClaimVaultSkipped(address indexed owner, address indexed heir, address indexed vault);
+    /// @notice `moved` is the handle of the amount that actually moved (0
+    ///         when the request exceeded balance or allowance). The heir is
+    ///         allowed on it.
+    event ClaimVaultTransferred(address indexed owner, address indexed heir, address indexed vault, bytes32 moved);
+    event ClaimRetried(address indexed owner, address indexed heir, uint256 timestamp);
+    event TokenRegistrySet(address registry);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() { _disableInitializers(); }
@@ -102,10 +109,15 @@ contract InheritanceManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
         try eventHub.emitActivity(msg.sender, heir, "heir_set", "", 0) {} catch {}
     }
 
-    /// @notice Remove your inheritance plan
+    /// @notice Remove your inheritance plan. Also ends a finalized claim, so
+    ///         a returning owner can stop further claimRemaining pulls.
     function removeHeir() external nonReentrant {
-        require(plans[msg.sender].active, "InheritanceManager: no plan");
+        require(
+            plans[msg.sender].active || claimFinalized[msg.sender],
+            "InheritanceManager: no plan"
+        );
         plans[msg.sender].active = false;
+        claimFinalized[msg.sender] = false;
         emit HeirRemoved(msg.sender, block.timestamp);
     }
 
@@ -130,6 +142,7 @@ contract InheritanceManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
         // becomes broken AFTER setVaults (e.g. paused or upgraded badly).
         for (uint256 i = 0; i < _vaults.length; i++) {
             require(_vaults[i] != address(0), "InheritanceManager: zero vault in list");
+            _requireAllowedVault(_vaults[i]);
         }
         plan.vaults = _vaults;
         emit VaultsUpdated(msg.sender, _vaults, block.timestamp);
@@ -181,8 +194,10 @@ contract InheritanceManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
     ///         balance is always < max. Heirs must either obtain the principal's
     ///         encrypted balance off-chain (and decrypt it via their own allow) or
     ///         coordinate the amount with the principal in advance. The #185 mutex
-    ///         allows finalizeClaim only ONCE per plan; a wrong amount cannot be
-    ///         retried without setHeir being called again by the principal.
+    ///         allows finalizeClaim only ONCE per plan. A wrong amount is retried
+    ///         with claimRemaining. Each moved amount is emitted as a handle in
+    ///         ClaimVaultTransferred and allowed to the heir, so the heir can
+    ///         decrypt what actually moved.
     ///
     ///         PREREQUISITE: The owner MUST have approved this contract on each vault
     ///         via vault.approvePlaintext(inheritanceManager, type(uint64).max).
@@ -224,36 +239,75 @@ contract InheritanceManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
         plan.active = false;
         claimFinalized[owner_] = true;
 
-        // Transfer all vault balances from owner to heir. Each transfer is
-        // wrapped in try/catch so a single bad vault (paused, upgraded to
-        // a broken impl, etc.) can't brick the whole claim — the heir
-        // would otherwise be stuck since the owner is presumed inactive
-        // and can't call setVaults to remove the bad entry. Emits
-        // ClaimVaultSkipped per failure so off-chain monitors can alert.
-        // One batch signature covers every per-vault amount in the claim.
-        euint64[] memory verifiedAmounts = FHE.asEuint64s(encAmounts, proof);
-
-        for (uint256 i = 0; i < plan.vaults.length; i++) {
-            IFHERC20Vault vault = IFHERC20Vault(plan.vaults[i]);
-            // vault.transferFromVerified checks both balance AND allowance via FHE.select
-            // Returns the actual encrypted amount transferred (zero if insufficient)
-            try vault.transferFromVerified(
-                owner_,
-                plan.heir,
-                FHE.shareEuint64(verifiedAmounts[i], plan.vaults[i])
-            ) returns (sharedEuint64 shared) {
-                // try/catch is the same call edge, so the callee named here is
-                // the vault we just called.
-                euint64 transferred = FHE.receiveEuint64FromCall(shared, plan.vaults[i]);
-                // Grant the heir permission to read the transferred amount handle
-                FHE.allowTransient(transferred, plan.heir);
-            } catch {
-                emit ClaimVaultSkipped(owner_, plan.heir, plan.vaults[i]);
-            }
-        }
+        _transferAll(owner_, plan, encAmounts, proof);
 
         emit ClaimFinalized(owner_, plan.heir, block.timestamp);
         try eventHub.emitActivity(msg.sender, owner_, "claim_finalized", "", 0) {} catch {}
+    }
+
+    /// @notice After finalizeClaim, the heir may pull again (for example
+    ///         when a requested amount exceeded the balance and moved 0, or
+    ///         when the principal's vaults received funds later). Ends when
+    ///         the principal calls setHeir or removeHeir.
+    function claimRemaining(
+        address owner_,
+        externalEuint64[] calldata encAmounts,
+        bytes calldata proof
+    ) external nonReentrant {
+        require(claimFinalized[owner_], "InheritanceManager: claim not finalized");
+        InheritancePlan storage plan = plans[owner_];
+        require(msg.sender == plan.heir, "InheritanceManager: not heir");
+        require(
+            encAmounts.length == plan.vaults.length,
+            "InheritanceManager: amounts/vaults length mismatch"
+        );
+        _transferAll(owner_, plan, encAmounts, proof);
+        emit ClaimRetried(owner_, plan.heir, block.timestamp);
+    }
+
+    /// @dev Moves each vault's requested amount from owner to heir. Each
+    ///      transfer is wrapped in try/catch so one bad vault cannot brick
+    ///      the claim (the owner is presumed inactive and cannot fix the
+    ///      list). The vault returns the amount that actually moved, which
+    ///      is the handle the heir is allowed on and the one emitted.
+    function _transferAll(
+        address owner_,
+        InheritancePlan storage plan,
+        externalEuint64[] calldata encAmounts,
+        bytes calldata proof
+    ) internal {
+        euint64[] memory verifiedAmounts = FHE.asEuint64s(encAmounts, proof);
+        address heir = plan.heir;
+
+        for (uint256 i = 0; i < plan.vaults.length; i++) {
+            address vaultAddr = plan.vaults[i];
+            try IFHERC20Vault(vaultAddr).transferFromVerified(
+                owner_,
+                heir,
+                FHE.shareEuint64(verifiedAmounts[i], vaultAddr)
+            ) returns (sharedEuint64 shared) {
+                euint64 moved = FHE.receiveEuint64FromCall(shared, vaultAddr);
+                // Persistent: the heir decrypts after this tx.
+                FHE.allow(moved, heir);
+                emit ClaimVaultTransferred(owner_, heir, vaultAddr, euint64.unwrap(moved));
+            } catch {
+                emit ClaimVaultSkipped(owner_, heir, vaultAddr);
+            }
+        }
+    }
+
+    function setTokenRegistry(address r) external onlyOwner {
+        require(r.code.length > 0, "InheritanceManager: bad registry");
+        tokenRegistry = ITokenRegistry(r);
+        emit TokenRegistrySet(r);
+    }
+
+    /// @dev Fails closed when the registry is unset.
+    function _requireAllowedVault(address vault) internal view {
+        require(
+            address(tokenRegistry) != address(0) && tokenRegistry.isActiveVault(vault),
+            "InheritanceManager: vault not allowed"
+        );
     }
 
     // ─── View Functions ─────────────────────────────────────────────────
@@ -275,8 +329,10 @@ contract InheritanceManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
     /// @dev Reserved storage to avoid collisions on future upgrades.
     ///      Append-only: when adding a new state variable in a later upgrade,
     ///      decrement the gap size so total storage is unchanged.
-    /// @dev Used: 4. Gap: 50.
-    uint256[50] private __gap;
+    ITokenRegistry public tokenRegistry;
+
+    /// @dev Used: 5. Gap: 49.
+    uint256[49] private __gap;
 
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 }

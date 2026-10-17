@@ -83,14 +83,17 @@ function encodeErc20Transfer(to: string, amount: bigint): string {
 async function buildSig(
   sessionKey: hre.ethers.HDNodeWallet | hre.ethers.Wallet,
   userOpHash: string,
+  notBefore: bigint = 0n,
 ): Promise<string> {
-  // Sign the userOpHash directly (no EIP-191 prefix) — mirrors what the
-  // BlankAccount upgrade will pass to validateUserOp via its mode-prefix
-  // dispatch. ECDSA.recover(userOpHash, sig) on the validator side.
-  const sig = sessionKey.signingKey.sign(userOpHash).serialized;
+  // The session key signs keccak256(abi.encode(userOpHash, notBefore)) raw
+  // (no EIP-191 prefix), matching SessionKeyValidator.sessionDigest.
+  const digest = hre.ethers.keccak256(
+    hre.ethers.AbiCoder.defaultAbiCoder().encode(["bytes32", "uint48"], [userOpHash, notBefore]),
+  );
+  const sig = sessionKey.signingKey.sign(digest).serialized;
   return hre.ethers.AbiCoder.defaultAbiCoder().encode(
-    ["address", "bytes"],
-    [sessionKey.address, sig],
+    ["address", "uint48", "bytes"],
+    [sessionKey.address, notBefore, sig],
   );
 }
 
@@ -114,6 +117,7 @@ async function fixture() {
 }
 
 const FAR_FUTURE: bigint = 4_000_000_000n; // year 2096-ish
+const GAS = { maxFeePerGas: 100n * 10n ** 9n, maxTotalGas: 5_000_000n, paymaster: hre.ethers.ZeroAddress };
 
 describe("SessionKeyValidator — setScope", () => {
   it("stores scope and emits ScopeSet", async () => {
@@ -127,6 +131,7 @@ describe("SessionKeyValidator — setScope", () => {
       periodSeconds: 86400n,
       validUntil: FAR_FUTURE,
       lastFiredAt: 0n,
+      ...GAS,
     });
     await expect(tx)
       .to.emit(validator, "ScopeSet")
@@ -165,6 +170,7 @@ describe("SessionKeyValidator — setScope", () => {
         periodSeconds: 1n,
         validUntil: FAR_FUTURE,
         lastFiredAt: 0n,
+        ...GAS,
       }),
     ).to.be.revertedWithCustomError(validator, "ZeroSessionKey");
   });
@@ -179,6 +185,7 @@ describe("SessionKeyValidator — setScope", () => {
       periodSeconds: 1n,
       validUntil: FAR_FUTURE,
       lastFiredAt: 0n,
+      ...GAS,
     };
     await expect(
       validator.connect(account).setScope(sk, { ...base, recipient: hre.ethers.ZeroAddress }),
@@ -204,6 +211,7 @@ describe("SessionKeyValidator — setScope", () => {
       periodSeconds: 1n,
       validUntil: FAR_FUTURE,
       lastFiredAt: 0n,
+      ...GAS,
     };
     await validator.connect(account).setScope(sk, scope);
     expect((await validator.getScope(account.address, sk)).recipient).to.equal(recipient.address);
@@ -222,6 +230,7 @@ describe("SessionKeyValidator — revokeScope", () => {
       periodSeconds: 1n,
       validUntil: FAR_FUTURE,
       lastFiredAt: 0n,
+      ...GAS,
     });
     await expect(validator.connect(account).revokeScope(sk))
       .to.emit(validator, "ScopeRevoked")
@@ -249,6 +258,7 @@ describe("SessionKeyValidator — validateUserOp signature checks", () => {
       periodSeconds: 1n,
       validUntil: FAR_FUTURE,
       lastFiredAt: 0n,
+      ...GAS,
     });
 
     const userOp = emptyUserOp(account.address);
@@ -262,8 +272,8 @@ describe("SessionKeyValidator — validateUserOp signature checks", () => {
     const thief = hre.ethers.Wallet.createRandom();
     const thiefSig = thief.signingKey.sign(userOpHash).serialized;
     userOp.signature = hre.ethers.AbiCoder.defaultAbiCoder().encode(
-      ["address", "bytes"],
-      [sessionKey.address, thiefSig],
+      ["address", "uint48", "bytes"],
+      [sessionKey.address, 0n, thiefSig],
     );
 
     const result = await validator.connect(account).validateUserOp.staticCall(userOp, userOpHash);
@@ -279,6 +289,7 @@ describe("SessionKeyValidator — validateUserOp signature checks", () => {
       periodSeconds: 1n,
       validUntil: FAR_FUTURE,
       lastFiredAt: 0n,
+      ...GAS,
     });
     const userOp = emptyUserOp(account.address);
     userOp.callData = encodeExecuteCallData(recipient.address, 50n, "0x");
@@ -311,6 +322,7 @@ describe("SessionKeyValidator — validateUserOp callData parsing (ETH path)", (
       periodSeconds: 86400n,
       validUntil: FAR_FUTURE,
       lastFiredAt: 0n,
+      ...GAS,
     });
     return f;
   }
@@ -389,7 +401,8 @@ describe("SessionKeyValidator — validateUserOp callData parsing (ETH path)", (
     const validUntil = (result >> 160n) & 0xffffffffffffn;
     const validAfter = (result >> 208n) & 0xffffffffffffn;
     expect(sigFailed).to.equal(0n);
-    expect(validUntil).to.equal(FAR_FUTURE);
+    // validUntil = slot + grace (15 min for a 1-day period).
+    expect(validUntil).to.equal(validAfter + 900n);
     // validAfter must be a current wall-clock-ish value (≥ 2024 epoch start
     // = 1704067200), proving the anchor fix took effect.
     expect(validAfter).to.be.greaterThan(1_700_000_000n);
@@ -439,6 +452,7 @@ describe("SessionKeyValidator — validateUserOp callData parsing (ERC-20 path)"
       periodSeconds: 86400n,
       validUntil: FAR_FUTURE,
       lastFiredAt: 0n,
+      ...GAS,
     });
     return { ...f, usdcAddr };
   }
@@ -536,5 +550,131 @@ describe("SessionKeyValidator — validateUserOp callData parsing (ERC-20 path)"
     expect(parsed.args.amount).to.equal(100_000_000n);
     // firedAt is now a real wall-clock value (audit fix), not the old `1` sentinel.
     expect(parsed.args.firedAt).to.be.greaterThan(1_700_000_000n);
+  });
+});
+
+describe("SessionKeyValidator: backlog (M1) and gas scope (M2)", () => {
+  async function setup(extra: Record<string, unknown> = {}) {
+    const f = await loadFixture(fixture);
+    await f.validator.connect(f.account).setScope(f.sessionKey.address, {
+      recipient: f.recipient.address,
+      spendToken: hre.ethers.ZeroAddress,
+      maxAmountPerCall: hre.ethers.parseEther("0.1"),
+      periodSeconds: 86400n,
+      validUntil: FAR_FUTURE,
+      lastFiredAt: 0n,
+      ...GAS,
+      ...extra,
+    });
+    const op = emptyUserOp(f.account.address);
+    op.callData = encodeExecuteCallData(f.recipient.address, hre.ethers.parseEther("0.05"), "0x");
+    return { ...f, op };
+  }
+
+  function unpack(v: bigint) {
+    return { validUntil: (v >> 160n) & 0xffffffffffffn, validAfter: (v >> 208n) & 0xffffffffffffn };
+  }
+
+  it("M1 exploit: missed periods cannot be fired back-to-back", async () => {
+    const f = await setup();
+    await hre.network.provider.send("evm_increaseTime", [10 * 86400]);
+    await hre.network.provider.send("evm_mine");
+    const now = BigInt((await hre.ethers.provider.getBlock("latest"))!.timestamp);
+
+    // Fire 1 anchored at now.
+    const h1 = hre.ethers.keccak256("0xc1");
+    f.op.signature = await buildSig(f.sessionKey, h1, now);
+    const r1 = unpack(await f.validator.connect(f.account).validateUserOp.staticCall(f.op, h1));
+    expect(r1.validAfter).to.equal(now);
+    await f.validator.connect(f.account).validateUserOp(f.op, h1);
+
+    // Fire 2 right after: slot is a full period ahead, so not due.
+    const h2 = hre.ethers.keccak256("0xc2");
+    f.op.signature = await buildSig(f.sessionKey, h2, now);
+    const r2 = unpack(await f.validator.connect(f.account).validateUserOp.staticCall(f.op, h2));
+    expect(r2.validAfter).to.equal(now + 86400n);
+  });
+
+  it("M1: a fire that skips notBefore after a backlog is already expired", async () => {
+    const f = await setup();
+    await hre.network.provider.send("evm_increaseTime", [10 * 86400]);
+    await hre.network.provider.send("evm_mine");
+    const now = BigInt((await hre.ethers.provider.getBlock("latest"))!.timestamp);
+    const h = hre.ethers.keccak256("0xc3");
+    f.op.signature = await buildSig(f.sessionKey, h, 0n);
+    const r = unpack(await f.validator.connect(f.account).validateUserOp.staticCall(f.op, h));
+    // EntryPoint rejects because validUntil < now.
+    expect(r.validUntil).to.be.lessThan(now);
+  });
+
+  it("notBefore is covered by the session key signature", async () => {
+    const f = await setup();
+    const h = hre.ethers.keccak256("0xc4");
+    const signed = await buildSig(f.sessionKey, h, 1000n);
+    const [key, , sig] = hre.ethers.AbiCoder.defaultAbiCoder().decode(["address", "uint48", "bytes"], signed);
+    f.op.signature = hre.ethers.AbiCoder.defaultAbiCoder().encode(["address", "uint48", "bytes"], [key, 2000n, sig]);
+    expect(await f.validator.connect(f.account).validateUserOp.staticCall(f.op, h)).to.equal(SIG_VALIDATION_FAILED);
+  });
+
+  it("M2 exploit: an inflated maxFeePerGas is rejected", async () => {
+    const f = await setup();
+    f.op.gasFees = hre.ethers.solidityPacked(["uint128", "uint128"], [1n, GAS.maxFeePerGas + 1n]);
+    const h = hre.ethers.keccak256("0xc5");
+    f.op.signature = await buildSig(f.sessionKey, h);
+    await expect(f.validator.connect(f.account).validateUserOp.staticCall(f.op, h))
+      .to.be.revertedWithCustomError(f.validator, "GasFeeOverCap");
+  });
+
+  it("M2 exploit: gas limits above maxTotalGas are rejected", async () => {
+    const f = await setup();
+    f.op.accountGasLimits = hre.ethers.solidityPacked(["uint128", "uint128"], [4_000_000n, 1_000_000n]);
+    f.op.preVerificationGas = 1n;
+    const h = hre.ethers.keccak256("0xc6");
+    f.op.signature = await buildSig(f.sessionKey, h);
+    await expect(f.validator.connect(f.account).validateUserOp.staticCall(f.op, h))
+      .to.be.revertedWithCustomError(f.validator, "GasLimitOverCap");
+  });
+
+  it("M2 exploit: a paymaster not in the scope is rejected", async () => {
+    const f = await setup();
+    f.op.paymasterAndData = hre.ethers.solidityPacked(
+      ["address", "uint128", "uint128"], [f.attacker.address, 100_000n, 100_000n],
+    );
+    const h = hre.ethers.keccak256("0xc7");
+    f.op.signature = await buildSig(f.sessionKey, h);
+    await expect(f.validator.connect(f.account).validateUserOp.staticCall(f.op, h))
+      .to.be.revertedWithCustomError(f.validator, "PaymasterNotAllowed");
+  });
+
+  it("the scoped paymaster is accepted and its gas limits count toward the cap", async () => {
+    const pm = "0x000000000000000000000000000000000000bEEF";
+    const f = await setup({ paymaster: pm });
+    f.op.paymasterAndData = hre.ethers.solidityPacked(["address", "uint128", "uint128"], [pm, 100_000n, 100_000n]);
+    const h = hre.ethers.keccak256("0xc8");
+    f.op.signature = await buildSig(f.sessionKey, h);
+    const r = await f.validator.connect(f.account).validateUserOp.staticCall(f.op, h);
+    expect(r & 1n).to.equal(0n);
+
+    f.op.paymasterAndData = hre.ethers.solidityPacked(["address", "uint128", "uint128"], [pm, 5_000_000n, 1n]);
+    await expect(f.validator.connect(f.account).validateUserOp.staticCall(f.op, h))
+      .to.be.revertedWithCustomError(f.validator, "GasLimitOverCap");
+  });
+
+  it("setScope rejects zero gas caps", async () => {
+    const { account, recipient, validator } = await loadFixture(fixture);
+    const sk = hre.ethers.Wallet.createRandom().address;
+    const base = {
+      recipient: recipient.address,
+      spendToken: hre.ethers.ZeroAddress,
+      maxAmountPerCall: 100n,
+      periodSeconds: 60n,
+      validUntil: FAR_FUTURE,
+      lastFiredAt: 0n,
+      ...GAS,
+    };
+    await expect(validator.connect(account).setScope(sk, { ...base, maxFeePerGas: 0n }))
+      .to.be.revertedWithCustomError(validator, "ZeroGasCap");
+    await expect(validator.connect(account).setScope(sk, { ...base, maxTotalGas: 0n }))
+      .to.be.revertedWithCustomError(validator, "ZeroGasCap");
   });
 });

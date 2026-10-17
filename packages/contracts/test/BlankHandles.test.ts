@@ -174,31 +174,54 @@ describe("BlankHandles", () => {
     expect(await ctx.handles.reverseLookup(ctx.alice.address)).to.equal("0x" + "00".repeat(32));
   });
 
-  it("reclaimInactive frees a handle after 30 days of no activity", async () => {
+  it("H4 exploit: a stranger cannot reclaim an idle handle after 30 days", async () => {
     const ctx = await loadFixture(deployFixture);
     await ctx.handles.connect(ctx.alice).reserve("alice123", "0x" + "00".repeat(32));
-    // Too early
-    await expect(ctx.handles.connect(ctx.carol).reclaimInactive("alice123"))
-      .to.be.revertedWith("BlankHandles: not inactive");
-    // Skip past 30 days.
-    await hre.network.provider.send("evm_increaseTime", [30 * 24 * 3600 + 1]);
+    await hre.network.provider.send("evm_increaseTime", [31 * 24 * 3600]);
     await hre.network.provider.send("evm_mine");
     await expect(ctx.handles.connect(ctx.carol).reclaimInactive("alice123"))
+      .to.be.revertedWith("BlankHandles: retired");
+    expect((await ctx.handles.lookup("alice123")).owner).to.equal(ctx.alice.address);
+  });
+
+  it("adminReclaim is owner-only and frees the handle", async () => {
+    const ctx = await loadFixture(deployFixture);
+    await ctx.handles.connect(ctx.alice).reserve("alice123", "0x" + "00".repeat(32));
+    await expect(ctx.handles.connect(ctx.carol).adminReclaim("alice123")).to.be.reverted;
+    await expect(ctx.handles.connect(ctx.owner).adminReclaim("alice123"))
       .to.emit(ctx.handles, "HandleOwnerTransferred");
-    const after = await ctx.handles.lookup("alice123");
-    expect(after.owner).to.equal(ZeroAddress);
-    // Bob can now reserve it.
+    expect((await ctx.handles.lookup("alice123")).owner).to.equal(ZeroAddress);
+    expect(await ctx.handles.reverseLookup(ctx.alice.address)).to.equal("0x" + "00".repeat(32));
     await ctx.handles.connect(ctx.bob).reserve("alice123", "0x" + "00".repeat(32));
-    expect((await ctx.handles.lookup("alice123")).owner).to.equal(ctx.bob.address);
+  });
+
+  it("L4 exploit: transferOwner cannot orphan the new owner's existing handle", async () => {
+    const ctx = await loadFixture(deployFixture);
+    await ctx.handles.connect(ctx.alice).reserve("alice123", "0x" + "00".repeat(32));
+    await ctx.handles.connect(ctx.bob).reserve("bob12345", "0x" + "00".repeat(32));
+    await ctx.handles.connect(ctx.owner).setRecoveryHook(ctx.recoveryHook.address);
+    await expect(ctx.handles.connect(ctx.recoveryHook).transferOwner(normHash("alice123"), ctx.bob.address))
+      .to.be.revertedWith("BlankHandles: already have handle");
+  });
+
+  it("L4 exploit: adminMintShort enforces charset, reserved list and one-per-address", async () => {
+    const ctx = await loadFixture(deployFixture);
+    await expect(ctx.handles.connect(ctx.owner).adminMintShort("a b", ctx.alice.address))
+      .to.be.revertedWith("BlankHandles: bad chars");
+    await ctx.handles.connect(ctx.owner).setReservedList([normHash("blk")], true);
+    await expect(ctx.handles.connect(ctx.owner).adminMintShort("blk", ctx.alice.address))
+      .to.be.revertedWith("BlankHandles: reserved");
+    await ctx.handles.connect(ctx.alice).reserve("alice123", "0x" + "00".repeat(32));
+    await expect(ctx.handles.connect(ctx.owner).adminMintShort("abc", ctx.alice.address))
+      .to.be.revertedWith("BlankHandles: already have handle");
   });
 
   it("pingActivity bumps lastActivityAt", async () => {
     const ctx = await loadFixture(deployFixture);
     await ctx.handles.connect(ctx.alice).reserve("alice123", "0x" + "00".repeat(32));
+    const before = (await ctx.handles.lookup("alice123")).lastActivityAt;
     await hre.network.provider.send("evm_increaseTime", [5 * 24 * 3600]);
     await ctx.handles.connect(ctx.bob).pingActivity("alice123");
-    // Now 30 days from THIS ping; cannot reclaim immediately.
-    await expect(ctx.handles.connect(ctx.carol).reclaimInactive("alice123"))
-      .to.be.revertedWith("BlankHandles: not inactive");
+    expect((await ctx.handles.lookup("alice123")).lastActivityAt).to.be.greaterThan(before);
   });
 });

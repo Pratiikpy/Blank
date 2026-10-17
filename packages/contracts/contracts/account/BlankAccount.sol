@@ -41,6 +41,8 @@ contract BlankAccount is BaseAccount, Initializable, UUPSUpgradeable {
     // slot 1: ownerY
     // slot 2: recoveryModule
     // slot 3: enabledValidators                       ← Phase 4.1 append
+    // slot 4: validatorEpoch                          ← audit L2 append
+    // slot 5: validatorEpochOf                        ← audit L2 append
     //
     // Append-only storage layout per UUPS upgrade rules. The
     // `check-storage-layout` hardhat task verifies this on every CI run.
@@ -63,7 +65,17 @@ contract BlankAccount is BaseAccount, Initializable, UUPSUpgradeable {
     ///         `disableValidator`, both `onlySelfOrEntryPoint` so only the
     ///         account itself can authorize validators (no external EOA
     ///         can sneak in a malicious one).
+    /// @dev Raw flag. Use isValidatorEnabled(), which also checks the epoch.
     mapping(address validator => bool enabled) public enabledValidators;
+
+    /// @notice Bumped on every owner rotation. A validator counts as enabled
+    ///         only if it was enabled in the current epoch.
+    uint256 public validatorEpoch;
+    mapping(address validator => uint256 epoch) public validatorEpochOf;
+
+    bytes32 private constant _DOMAIN_TYPEHASH =
+        keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
+    bytes32 private constant _MESSAGE_TYPEHASH = keccak256("BlankAccountMessage(bytes32 hash)");
 
     event Initialized(uint256 ownerX, uint256 ownerY, address recoveryModule);
     event OwnerChanged(uint256 newX, uint256 newY);
@@ -71,6 +83,7 @@ contract BlankAccount is BaseAccount, Initializable, UUPSUpgradeable {
     event ValidatorEnabled(address indexed validator);
     event ValidatorDisabled(address indexed validator);
     event RecoveryModuleChanged(address indexed newModule);
+    event ValidatorsReset(uint256 epoch);
 
     modifier onlySelfOrEntryPoint() {
         require(
@@ -137,15 +150,15 @@ contract BlankAccount is BaseAccount, Initializable, UUPSUpgradeable {
         }
 
         // Validator-dispatch path. We decode the outer wrapper and forward
-        // the inner-sig-bearing userOp to the validator. Decode reverts on
-        // malformed input — that lands in BaseAccount.validateUserOp's outer
-        // try/catch as SIG_VALIDATION_FAILED, which is the right behavior:
-        // a malformed sig should never authorize anything.
+        // the inner-sig-bearing userOp to the validator. abi.decode reverts
+        // on malformed input. BaseAccount.validateUserOp has no try/catch,
+        // so that revert fails validation outright (EntryPoint AA23), which
+        // is the right outcome: a malformed sig never authorizes anything.
         (address validator, bytes memory innerSig) = abi.decode(
             userOp.signature,
             (address, bytes)
         );
-        if (validator == address(0) || !enabledValidators[validator]) {
+        if (validator == address(0) || !isValidatorEnabled(validator)) {
             return 1; // SIG_VALIDATION_FAILED — validator not authorized
         }
 
@@ -176,7 +189,15 @@ contract BlankAccount is BaseAccount, Initializable, UUPSUpgradeable {
     function enableValidator(address validator) external onlySelfOrEntryPoint {
         require(validator != address(0), "BlankAccount: zero validator");
         enabledValidators[validator] = true;
+        validatorEpochOf[validator] = validatorEpoch;
         emit ValidatorEnabled(validator);
+    }
+
+    /// @notice True when `validator` was enabled after the last owner
+    ///         rotation. Owner rotation bumps `validatorEpoch`, which
+    ///         revokes every validator enabled by the previous owner.
+    function isValidatorEnabled(address validator) public view returns (bool) {
+        return enabledValidators[validator] && validatorEpochOf[validator] == validatorEpoch;
     }
 
     /// @notice Phase 4.1 — revoke a previously-authorized validator. After
@@ -234,9 +255,29 @@ contract BlankAccount is BaseAccount, Initializable, UUPSUpgradeable {
         }
     }
 
+    /// @notice EIP-712 wrapper of `hash` bound to this account and chain.
+    ///         The passkey signs this value, not the raw hash, so a signature
+    ///         made for one account or chain is not valid on another account
+    ///         with the same passkey or on another chain.
+    function replaySafeHash(bytes32 hash) public view returns (bytes32) {
+        bytes32 domainSeparator = keccak256(
+            abi.encode(
+                _DOMAIN_TYPEHASH,
+                keccak256("BlankAccount"),
+                keccak256("1"),
+                block.chainid,
+                address(this)
+            )
+        );
+        return keccak256(
+            abi.encodePacked("\x19\x01", domainSeparator, keccak256(abi.encode(_MESSAGE_TYPEHASH, hash)))
+        );
+    }
+
     /// @notice ERC-1271 signature verification hook.
     ///         The cofhe Threshold Network uses this to verify decrypt requests
     ///         when a smart account is the signer (instead of an EOA).
+    ///         The signature must be over replaySafeHash(hash).
     /// @return magicValue 0x1626ba7e if valid, 0xffffffff otherwise.
     ///         Never reverts — ERC-1271 requires consumers to be able to
     ///         distinguish "invalid" from "errored" by inspecting the
@@ -258,18 +299,22 @@ contract BlankAccount is BaseAccount, Initializable, UUPSUpgradeable {
             r := calldataload(signature.offset)
             s := calldataload(add(signature.offset, 32))
         }
-        if (P256.verify(hash, r, s, ownerX, ownerY)) {
+        if (P256.verify(replaySafeHash(hash), r, s, ownerX, ownerY)) {
             return 0x1626ba7e; // EIP-1271 magic value
         }
         return 0xffffffff;
     }
 
     /// @notice Replace the owner pubkey. Callable only by the recovery module
-    ///         after a successful guardian-attested recovery flow.
+    ///         after a successful guardian-attested recovery flow. Also
+    ///         revokes every enabled validator: session keys installed by
+    ///         the old (possibly compromised) owner must not survive.
     function setOwner(uint256 newX, uint256 newY) external onlyRecoveryModule {
         ownerX = newX;
         ownerY = newY;
+        validatorEpoch += 1;
         emit OwnerChanged(newX, newY);
+        emit ValidatorsReset(validatorEpoch);
     }
 
     /// @notice Wave 5.5 — point this account at a (new) recovery module. The

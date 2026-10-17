@@ -54,8 +54,8 @@ async function deployAAFixture() {
     entryPointAddress,
     await testUSDC.getAddress(),
     treasury.address,
-    1_000_000n, // 1 USDC max fee cap (6 decimals)
     await factory.getAddress(),
+    owner.address, // verifying signer
   );
   await paymaster.waitForDeployment();
 
@@ -295,24 +295,23 @@ describe("BlankPaymaster admin", () => {
     expect(await paymaster.approvedTargetsCount()).to.equal(1);
   });
 
-  it("setFeeConfig rejects fee rates > 10%", async () => {
+  it("setFeeConfig caps the markup at 50%", async () => {
     const { paymaster, owner } = await loadFixture(deployAAFixture);
 
-    // 10% (1000 bps) is the max — should succeed
-    await paymaster.connect(owner).setFeeConfig(1000, 5_000_000n);
-    expect(await paymaster.feeRateBps()).to.equal(1000);
+    await paymaster.connect(owner).setFeeConfig(3_000_000_000n, 5000, 5_000_000n);
+    expect(await paymaster.feeMarkupBps()).to.equal(5000);
+    expect(await paymaster.feeTokenPerEth()).to.equal(3_000_000_000n);
 
-    // 10.01% (1001 bps) should revert
     await expect(
-      paymaster.connect(owner).setFeeConfig(1001, 5_000_000n),
-    ).to.be.revertedWith("BlankPaymaster: fee rate too high");
+      paymaster.connect(owner).setFeeConfig(3_000_000_000n, 5001, 5_000_000n),
+    ).to.be.revertedWith("BlankPaymaster: markup too high");
   });
 
   it("non-owner cannot change paymaster config", async () => {
     const { paymaster, user } = await loadFixture(deployAAFixture);
 
     await expect(
-      paymaster.connect(user).setFeeConfig(50, 0),
+      paymaster.connect(user).setFeeConfig(50, 0, 0),
     ).to.be.reverted;
 
     await expect(

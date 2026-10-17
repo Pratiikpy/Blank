@@ -19,10 +19,6 @@ import * as path from "path";
 
 const ENTRYPOINT_V08 = "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108";
 
-// Default paymaster config — these are reasonable defaults for testnet.
-// In production: set per-chain fee caps based on actual gas economics.
-const DEFAULT_FEE_RATE_BPS = 100;        // 1% of transferred value
-const DEFAULT_MAX_FEE_CAP_USDC = 1n * 10n ** 6n; // 1 USDC max per tx
 
 function loadDeployment(network: string): Record<string, string> {
   const filePath = path.join(__dirname, "..", "deployments", `${network}.json`);
@@ -37,8 +33,10 @@ function saveDeployment(network: string, addresses: Record<string, string>) {
   console.log(`\nDeployment updated: ${filePath}`);
 }
 
-task("deploy-aa", "Deploy ERC-4337 BlankAccount + Factory + Paymaster").setAction(
-  async (_, hre: HardhatRuntimeEnvironment) => {
+task("deploy-aa", "Deploy ERC-4337 BlankAccount + Factory + Paymaster")
+  .addParam("signer", "Address of the paymaster backend verifying signer")
+  .setAction(
+  async (args, hre: HardhatRuntimeEnvironment) => {
     const [deployer] = await hre.ethers.getSigners();
     const balance = await hre.ethers.provider.getBalance(deployer.address);
     const addresses = loadDeployment(hre.network.name);
@@ -73,15 +71,15 @@ task("deploy-aa", "Deploy ERC-4337 BlankAccount + Factory + Paymaster").setActio
     const paymaster = await Paymaster.deploy(
       ENTRYPOINT_V08,
       addresses.TestUSDC,
-      deployer.address, // treasury — override post-deploy via setTreasury
-      DEFAULT_MAX_FEE_CAP_USDC,
+      deployer.address, // treasury, override post-deploy via setTreasury
       factoryAddress,
+      args.signer,
     );
     await paymaster.deploymentTransaction()?.wait(2);
     const paymasterAddress = await paymaster.getAddress();
     console.log("     ✓ Paymaster:      ", paymasterAddress);
-    console.log("     fee rate:        ", DEFAULT_FEE_RATE_BPS, "bps (1%)");
-    console.log("     max fee cap:     ", DEFAULT_MAX_FEE_CAP_USDC.toString(), "USDC units");
+    console.log("     signer:          ", args.signer);
+    console.log("     still needed:     setAccountCodeHash + setGasCaps (deploy-paymaster-v2 does both)");
     console.log("     approved factory:", factoryAddress);
     console.log("     treasury:        ", deployer.address, "(override via setTreasury)");
 

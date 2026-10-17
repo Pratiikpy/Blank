@@ -95,6 +95,14 @@ contract SessionKeyValidator {
         /// @dev Last successful fire timestamp. Updated during validation
         ///      phase (account-associated storage, ERC-7562-legal).
         uint48 lastFiredAt;
+        /// @dev Cap on userOp maxFeePerGas. Stops a session key from burning
+        ///      the account's gas deposit with an inflated fee.
+        uint128 maxFeePerGas;
+        /// @dev Cap on the sum of every gas limit in the userOp.
+        uint64 maxTotalGas;
+        /// @dev The only paymaster the session key may name. address(0)
+        ///      means paymasterAndData must be empty (account pays gas).
+        address paymaster;
     }
 
     // ─── Storage ──────────────────────────────────────────────────────────
@@ -114,6 +122,14 @@ contract SessionKeyValidator {
         uint128 maxAmountPerCall,
         uint48 periodSeconds,
         uint48 validUntil
+    );
+
+    event ScopeGasSet(
+        address indexed account,
+        address indexed sessionKey,
+        uint128 maxFeePerGas,
+        uint64 maxTotalGas,
+        address paymaster
     );
 
     event ScopeRevoked(address indexed account, address indexed sessionKey);
@@ -144,6 +160,10 @@ contract SessionKeyValidator {
     error UnsupportedInnerSelector();
     error InvalidInnerCalldata();
     error InvalidEthCalldata();
+    error ZeroGasCap();
+    error GasFeeOverCap();
+    error GasLimitOverCap();
+    error PaymasterNotAllowed();
 
     // ─── Scope management ────────────────────────────────────────────────
 
@@ -159,6 +179,7 @@ contract SessionKeyValidator {
         if (scope.periodSeconds == 0) revert ZeroPeriod();
         if (scope.maxAmountPerCall == 0) revert ZeroMaxAmount();
         if (scope.validUntil == 0) revert InvalidValidUntil();
+        if (scope.maxFeePerGas == 0 || scope.maxTotalGas == 0) revert ZeroGasCap();
         // Note: we deliberately don't check `validUntil > block.timestamp` here
         // because `setScope` is NOT in the bundler-rules-restricted validation
         // phase (it's a regular tx call), but we keep the check off anyway so
@@ -182,7 +203,10 @@ contract SessionKeyValidator {
             maxAmountPerCall: scope.maxAmountPerCall,
             periodSeconds: scope.periodSeconds,
             validUntil: scope.validUntil,
-            lastFiredAt: anchor
+            lastFiredAt: anchor,
+            maxFeePerGas: scope.maxFeePerGas,
+            maxTotalGas: scope.maxTotalGas,
+            paymaster: scope.paymaster
         });
 
         emit ScopeSet(
@@ -194,6 +218,7 @@ contract SessionKeyValidator {
             scope.periodSeconds,
             scope.validUntil
         );
+        emit ScopeGasSet(msg.sender, sessionKey, scope.maxFeePerGas, scope.maxTotalGas, scope.paymaster);
     }
 
     /// @notice Revoke a session key's authorization. Called by the account.
@@ -236,27 +261,30 @@ contract SessionKeyValidator {
         returns (uint256 validationData)
     {
         // ── 1. Decode the inner signature blob ──────────────────────────
-        // Format: abi.encode(address sessionKey, bytes ecdsaSig)
-        if (userOp.signature.length < 96) {
-            // Minimum ABI-encoded length for (address, bytes) with empty
-            // bytes is 96 (32 + 32 offset + 32 length). Reject early.
+        // Format: abi.encode(address sessionKey, uint48 notBefore, bytes ecdsaSig)
+        // where ecdsaSig signs sessionDigest(userOpHash, notBefore).
+        if (userOp.signature.length < 128) {
+            // Minimum ABI-encoded length for (address, uint48, bytes) with
+            // empty bytes. Reject early.
             return SIG_VALIDATION_FAILED;
         }
-        (address sessionKey, bytes memory innerSig) = abi.decode(
+        (address sessionKey, uint48 notBefore, bytes memory innerSig) = abi.decode(
             userOp.signature,
-            (address, bytes)
+            (address, uint48, bytes)
         );
         if (sessionKey == address(0)) return SIG_VALIDATION_FAILED;
         if (innerSig.length != 65) revert InvalidSignatureLength();
 
         // ── 2. Recover signer & match ───────────────────────────────────
         // OZ's ECDSA.recover rejects high-s and zero-r/zero-s; no malleability.
-        address recovered = userOpHash.recover(innerSig);
+        address recovered = sessionDigest(userOpHash, notBefore).recover(innerSig);
         if (recovered != sessionKey) return SIG_VALIDATION_FAILED;
 
         // ── 3. Look up scope ────────────────────────────────────────────
         Scope storage scope = scopes[msg.sender][sessionKey];
         if (scope.recipient == address(0)) revert ScopeNotFound();
+
+        _checkGas(userOp, scope);
 
         // ── 4. Parse the AA's callData strictly ─────────────────────────
         bytes calldata cd = userOp.callData;
@@ -303,32 +331,60 @@ contract SessionKeyValidator {
         }
         if (spent > scope.maxAmountPerCall) revert AmountOverCap();
 
-        // ── 6. Compute validAfter from stored lastFiredAt ───────────────
-        // `lastFiredAt` is anchored to a real wall-clock value at setScope
-        // (= setupTime - period), so `lastFiredAt + period` is always a
-        // meaningful Unix timestamp. EntryPoint enforces it pre-execution.
-        // Use uint256 math to detect uint48 overflow before assigning.
-        uint256 candidateNext = uint256(scope.lastFiredAt) + uint256(scope.periodSeconds);
-        // Cap at validUntil so a long-lived authorization doesn't overflow
-        // uint48 (~year 8.9M); also gives EntryPoint a clean "expired"
-        // signal when the next fire would land past authorization end.
-        uint48 nextAllowedAt = candidateNext > uint256(scope.validUntil)
-            ? scope.validUntil
-            : uint48(candidateNext);
+        // ── 6. Compute the fire slot ────────────────────────────────────
+        // slot = max(lastFiredAt + period, notBefore), returned as validAfter
+        // with validUntil = slot + grace. The EntryPoint only accepts the op
+        // while slot <= now <= slot + grace, so slot is pinned to real time
+        // without this contract reading block.timestamp (ERC-7562). Missed
+        // periods therefore cannot be fired back-to-back: each fire moves
+        // lastFiredAt to at least now - grace.
+        uint256 slot = uint256(scope.lastFiredAt) + uint256(scope.periodSeconds);
+        if (notBefore > slot) slot = notBefore;
+        if (slot > uint256(scope.validUntil)) slot = scope.validUntil;
+        uint256 until = slot + uint256(fireGrace(scope.periodSeconds));
+        if (until > uint256(scope.validUntil)) until = scope.validUntil;
 
-        // Bump `lastFiredAt` to the new boundary. ERC-7562-legal because
-        // the slot is account-associated (keyed by msg.sender). Trade-off:
-        // if execution phase reverts, the period is "burned" — same as
-        // ZeroDev's WeightedECDSAValidator pattern.
-        scope.lastFiredAt = nextAllowedAt;
+        // Burn-on-revert trade-off: the bump persists if execution reverts.
+        scope.lastFiredAt = uint48(slot);
 
-        emit SessionFired(msg.sender, sessionKey, scope.recipient, scope.spendToken, spent, nextAllowedAt);
+        emit SessionFired(msg.sender, sessionKey, scope.recipient, scope.spendToken, spent, uint48(slot));
 
-        // ── 7. Pack and return ──────────────────────────────────────────
-        // sigFailed = false (we got here ⇒ sig matched session key);
-        // validUntil = scope.validUntil (hard expiry of authorization);
-        // validAfter = nextAllowedAt (frequency cap, EntryPoint enforces).
-        return _packValidationData(false, scope.validUntil, nextAllowedAt);
+        return _packValidationData(false, uint48(until), uint48(slot));
+    }
+
+    /// @notice Digest the session key signs: binds notBefore to the userOp.
+    function sessionDigest(bytes32 userOpHash, uint48 notBefore) public pure returns (bytes32) {
+        return keccak256(abi.encode(userOpHash, notBefore));
+    }
+
+    /// @notice How long after its slot a fire stays valid: half the period,
+    ///         at most 15 minutes. Consecutive fires are therefore at least
+    ///         period - grace apart.
+    function fireGrace(uint48 periodSeconds) public pure returns (uint48) {
+        uint48 half = periodSeconds / 2;
+        if (half == 0) return 1;
+        return half < 15 minutes ? half : 15 minutes;
+    }
+
+    function _checkGas(PackedUserOperation calldata userOp, Scope storage scope) private view {
+        uint256 maxFeePerGas = uint128(uint256(userOp.gasFees));
+        uint256 maxPriorityFeePerGas = uint256(userOp.gasFees) >> 128;
+        if (maxFeePerGas > scope.maxFeePerGas || maxPriorityFeePerGas > scope.maxFeePerGas) {
+            revert GasFeeOverCap();
+        }
+
+        uint256 totalGas = (uint256(userOp.accountGasLimits) >> 128)
+            + uint128(uint256(userOp.accountGasLimits))
+            + userOp.preVerificationGas;
+
+        bytes calldata pmd = userOp.paymasterAndData;
+        if (pmd.length > 0) {
+            if (scope.paymaster == address(0) || pmd.length < 52 || address(bytes20(pmd[:20])) != scope.paymaster) {
+                revert PaymasterNotAllowed();
+            }
+            totalGas += uint128(bytes16(pmd[20:36])) + uint128(bytes16(pmd[36:52]));
+        }
+        if (totalGas > scope.maxTotalGas) revert GasLimitOverCap();
     }
 
     // ─── Helpers ──────────────────────────────────────────────────────────

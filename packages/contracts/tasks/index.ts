@@ -12,6 +12,7 @@ import "./deploy-upgrade-v018";
 import "./deploy-upgrade-creator-p2p";
 import "./deploy-upgrade-businesshub";
 import "./deploy-aa";
+import "./deploy-paymaster-v2";
 import "./deploy-second-vault";
 import "./setup-aa";
 import "./fund-paymaster";
