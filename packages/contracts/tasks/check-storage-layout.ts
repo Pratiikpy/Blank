@@ -101,7 +101,8 @@ async function collectLayouts(
 ): Promise<Map<string, StorageLayout>> {
   // Force solc to emit storageLayout for this run. This mutates the in-memory
   // config only — it does not touch hardhat.config.ts on disk.
-  for (const compiler of hre.config.solidity.compilers) {
+  const overrides = Object.values(hre.config.solidity.overrides ?? {});
+  for (const compiler of [...hre.config.solidity.compilers, ...overrides]) {
     const out = (compiler.settings.outputSelection ??= {});
     const star = (out["*"] ??= {});
     const contractLevel = (star["*"] ??= []);

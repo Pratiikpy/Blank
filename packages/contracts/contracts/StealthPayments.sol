@@ -255,6 +255,9 @@ contract StealthPayments is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
 
         StealthTransfer storage st = _transfers[transferId];
         require(!st.claimed, "StealthPayments: already claimed");
+        // A refunded transfer must not get a claim (it would look like a
+        // voided legacy claim to recoverLegacyVoidedClaim).
+        require(!st.finalized, "StealthPayments: already finalized");
 
         // Verify claim code hash bound to msg.sender's address (prevents front-running).
         // The sender computed claimCodeHash = keccak256(abi.encodePacked(claimCode, recipientAddress))
@@ -514,7 +517,9 @@ contract StealthPayments is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
     ITokenRegistry public tokenRegistry;
     /// @dev transferId => claim finalized to 0 (recipient mismatch); escrow refundable.
     mapping(uint256 => bool) public claimVoided;
-    uint256[48] private __gap;
+    /// @dev transferId => escrow returned via recoverLegacyVoidedClaim.
+    mapping(uint256 => bool) public legacyRecovered;
+    uint256[47] private __gap;
 
     event TokenRegistrySet(address indexed registry);
     event StealthClaimVoided(uint256 indexed transferId, address indexed claimer, uint256 timestamp);
@@ -533,6 +538,35 @@ contract StealthPayments is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
         if (!pc.pending) return false;
         (uint64 amount, bool ready) = FHE.getDecryptResultSafe(pc.conditionalAmount);
         return ready && amount == 0;
+    }
+
+    event LegacyClaimRecovered(uint256 indexed transferId, address indexed sender, uint256 timestamp);
+
+    /// @notice One-time sender refund for transfers whose claim finalized to
+    ///         0 before the upgrade. The old finalizeClaim set finalized even
+    ///         when nothing was paid, so refund() rejects them.
+    /// @dev    Allowed only when the claim was finalized (pending cleared),
+    ///         its conditional amount is published as 0 (so no payout), and
+    ///         the record was never voided under the new code (those use
+    ///         refund()). A refunded transfer cannot be claimed afterwards, and
+    ///         a refund leaves pending unset, so neither path matches here.
+    function recoverLegacyVoidedClaim(uint256 transferId) external nonReentrant {
+        require(transferId < nextTransferId, "StealthPayments: invalid transfer ID");
+        StealthTransfer storage st = _transfers[transferId];
+        require(msg.sender == st.sender, "StealthPayments: not the sender");
+        require(st.claimed && st.finalized, "StealthPayments: not a finalized claim");
+        require(!legacyRecovered[transferId] && !claimVoided[transferId], "StealthPayments: not recoverable");
+        PendingClaim storage pc = _pendingClaims[transferId];
+        require(pc.claimer != address(0) && !pc.pending, "StealthPayments: claim not finalized");
+        (uint64 amount, bool ready) = FHE.getDecryptResultSafe(pc.conditionalAmount);
+        require(ready && amount == 0, "StealthPayments: claim was paid");
+
+        legacyRecovered[transferId] = true;
+        IERC20(st.underlyingToken).safeTransfer(msg.sender, st.plaintextAmount);
+        _decrementGlobal(st.encryptedAmount);
+
+        emit LegacyClaimRecovered(transferId, msg.sender, block.timestamp);
+        try eventHub.emitActivity(msg.sender, address(0), "stealth_refunded", st.note, transferId) {} catch {}
     }
 
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}

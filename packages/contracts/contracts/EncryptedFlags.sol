@@ -122,8 +122,9 @@ contract EncryptedFlags is UUPSUpgradeable, OwnableUpgradeable {
     }
 
     /// @notice Check if a user can send payments
-    ///         Must be: verified AND active AND NOT frozen
-    ///         Uses: FHE.and(), FHE.not() on encrypted booleans
+    ///         Must be: verified AND active. There is no separate frozen
+    ///         flag: suspending an account means setActive(user, false).
+    ///         Uses: FHE.and() on encrypted booleans
     function canSend(address user) external onlyUserOrAuthorized(user) returns (ebool) {
         ebool verified = _isVerified[user];
         ebool active = _isActive[user];

@@ -544,17 +544,35 @@ contract PaymentReceipts is UUPSUpgradeable, OwnableUpgradeable {
     // bumped handle let anyone diff two consecutive totals and read each
     // individual payment. Instead a public snapshot is cut at most once per
     // SNAPSHOT_INTERVAL, so a diff only reveals the sum of a whole period.
+    //
+    // A period with a single payment would still reveal that payment, so the
+    // snapshot only advances once the encrypted tx count has grown by at
+    // least MIN_SNAPSHOT_TXS since the last one. The choice is made under
+    // FHE.select, so no plaintext count is ever exposed; observers only learn
+    // whether the published values changed. Limits that remain:
+    // - A party that sends MIN_SNAPSHOT_TXS - 1 payments of known size itself
+    //   can still isolate one other payment in a diff.
+    // - Live handles that were allowGlobal'd before this upgrade stay
+    //   publicly decryptable forever, so totals and diffs up to the upgrade
+    //   remain public.
 
     /// @notice Copy the live totals into the public snapshot. Anyone may
-    ///         call, at most once per SNAPSHOT_INTERVAL.
+    ///         call, at most once per SNAPSHOT_INTERVAL. The values only move
+    ///         forward when at least MIN_SNAPSHOT_TXS new payments landed.
     function publishGlobalSnapshot() external {
         require(
             lastSnapshotAt == 0 || block.timestamp >= lastSnapshotAt + SNAPSHOT_INTERVAL,
             "PaymentReceipts: snapshot too soon"
         );
         _ensureGlobalStatsInit();
-        _snapshotVolume = _globalVolume;
-        _snapshotTxCount = _globalTxCount;
+        ebool enough = FHE.gte(
+            _globalTxCount,
+            FHE.add(_snapshotTxCount, FHE.asEuint64(MIN_SNAPSHOT_TXS))
+        );
+        _snapshotVolume = FHE.select(enough, _globalVolume, _snapshotVolume);
+        _snapshotTxCount = FHE.select(enough, _globalTxCount, _snapshotTxCount);
+        FHE.allowThis(_snapshotVolume);
+        FHE.allowThis(_snapshotTxCount);
         FHE.allowGlobal(_snapshotVolume);
         FHE.allowGlobal(_snapshotTxCount);
         lastSnapshotAt = block.timestamp;
@@ -593,6 +611,7 @@ contract PaymentReceipts is UUPSUpgradeable, OwnableUpgradeable {
     }
 
     uint256 public constant SNAPSHOT_INTERVAL = 1 days;
+    uint64 public constant MIN_SNAPSHOT_TXS = 5;
 
     event GlobalSnapshotPublished(euint64 volume, euint64 txCount, uint256 timestamp);
 

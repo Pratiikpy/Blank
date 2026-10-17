@@ -1,7 +1,7 @@
 {
   "storage": [
     {
-      "astId": 80820,
+      "astId": 81130,
       "contract": "contracts/PaymentHub.sol:PaymentHub",
       "label": "_status",
       "offset": 0,
@@ -9,15 +9,15 @@
       "type": "t_uint256"
     },
     {
-      "astId": 68058,
+      "astId": 66202,
       "contract": "contracts/PaymentHub.sol:PaymentHub",
       "label": "eventHub",
       "offset": 0,
       "slot": "1",
-      "type": "t_contract(IEventHub)68010"
+      "type": "t_contract(IEventHub)66154"
     },
     {
-      "astId": 68060,
+      "astId": 66204,
       "contract": "contracts/PaymentHub.sol:PaymentHub",
       "label": "nextRequestId",
       "offset": 0,
@@ -25,15 +25,15 @@
       "type": "t_uint256"
     },
     {
-      "astId": 68065,
+      "astId": 66209,
       "contract": "contracts/PaymentHub.sol:PaymentHub",
       "label": "_requests",
       "offset": 0,
       "slot": "3",
-      "type": "t_mapping(t_uint256,t_struct(PaymentRequest)68055_storage)"
+      "type": "t_mapping(t_uint256,t_struct(PaymentRequest)66199_storage)"
     },
     {
-      "astId": 68071,
+      "astId": 66215,
       "contract": "contracts/PaymentHub.sol:PaymentHub",
       "label": "_incomingRequests",
       "offset": 0,
@@ -41,7 +41,7 @@
       "type": "t_mapping(t_address,t_array(t_uint256)dyn_storage)"
     },
     {
-      "astId": 68076,
+      "astId": 66220,
       "contract": "contracts/PaymentHub.sol:PaymentHub",
       "label": "_outgoingRequests",
       "offset": 0,
@@ -49,7 +49,7 @@
       "type": "t_mapping(t_address,t_array(t_uint256)dyn_storage)"
     },
     {
-      "astId": 68083,
+      "astId": 66227,
       "contract": "contracts/PaymentHub.sol:PaymentHub",
       "label": "_usedAgentNonces",
       "offset": 0,
@@ -57,7 +57,7 @@
       "type": "t_mapping(t_bytes32,t_bool)"
     },
     {
-      "astId": 68085,
+      "astId": 66229,
       "contract": "contracts/PaymentHub.sol:PaymentHub",
       "label": "paymentReceipts",
       "offset": 0,
@@ -65,15 +65,15 @@
       "type": "t_address"
     },
     {
-      "astId": 69534,
+      "astId": 67696,
       "contract": "contracts/PaymentHub.sol:PaymentHub",
       "label": "tokenRegistry",
       "offset": 0,
       "slot": "8",
-      "type": "t_contract(ITokenRegistry)78838"
+      "type": "t_contract(ITokenRegistry)78478"
     },
     {
-      "astId": 69540,
+      "astId": 67702,
       "contract": "contracts/PaymentHub.sol:PaymentHub",
       "label": "_fulfillCheck",
       "offset": 0,
@@ -81,12 +81,20 @@
       "type": "t_mapping(t_uint256,t_userDefinedValueType(ebool)13128)"
     },
     {
-      "astId": 69545,
+      "astId": 67708,
+      "contract": "contracts/PaymentHub.sol:PaymentHub",
+      "label": "_fulfillMoved",
+      "offset": 0,
+      "slot": "10",
+      "type": "t_mapping(t_uint256,t_userDefinedValueType(euint64)13136)"
+    },
+    {
+      "astId": 67713,
       "contract": "contracts/PaymentHub.sol:PaymentHub",
       "label": "__gap",
       "offset": 0,
-      "slot": "10",
-      "type": "t_array(t_uint256)48_storage"
+      "slot": "11",
+      "type": "t_array(t_uint256)47_storage"
     }
   ],
   "types": {
@@ -95,11 +103,11 @@
       "label": "address",
       "numberOfBytes": "20"
     },
-    "t_array(t_uint256)48_storage": {
+    "t_array(t_uint256)47_storage": {
       "base": "t_uint256",
       "encoding": "inplace",
-      "label": "uint256[48]",
-      "numberOfBytes": "1536"
+      "label": "uint256[47]",
+      "numberOfBytes": "1504"
     },
     "t_array(t_uint256)dyn_storage": {
       "base": "t_uint256",
@@ -117,17 +125,17 @@
       "label": "bytes32",
       "numberOfBytes": "32"
     },
-    "t_contract(IEventHub)68010": {
+    "t_contract(IEventHub)66154": {
       "encoding": "inplace",
       "label": "contract IEventHub",
       "numberOfBytes": "20"
     },
-    "t_contract(ITokenRegistry)78838": {
+    "t_contract(ITokenRegistry)78478": {
       "encoding": "inplace",
       "label": "contract ITokenRegistry",
       "numberOfBytes": "20"
     },
-    "t_enum(RequestStatus)68038": {
+    "t_enum(RequestStatus)66182": {
       "encoding": "inplace",
       "label": "enum PaymentHub.RequestStatus",
       "numberOfBytes": "1"
@@ -146,12 +154,12 @@
       "numberOfBytes": "32",
       "value": "t_bool"
     },
-    "t_mapping(t_uint256,t_struct(PaymentRequest)68055_storage)": {
+    "t_mapping(t_uint256,t_struct(PaymentRequest)66199_storage)": {
       "encoding": "mapping",
       "key": "t_uint256",
       "label": "mapping(uint256 => struct PaymentHub.PaymentRequest)",
       "numberOfBytes": "32",
-      "value": "t_struct(PaymentRequest)68055_storage"
+      "value": "t_struct(PaymentRequest)66199_storage"
     },
     "t_mapping(t_uint256,t_userDefinedValueType(ebool)13128)": {
       "encoding": "mapping",
@@ -160,17 +168,24 @@
       "numberOfBytes": "32",
       "value": "t_userDefinedValueType(ebool)13128"
     },
+    "t_mapping(t_uint256,t_userDefinedValueType(euint64)13136)": {
+      "encoding": "mapping",
+      "key": "t_uint256",
+      "label": "mapping(uint256 => euint64)",
+      "numberOfBytes": "32",
+      "value": "t_userDefinedValueType(euint64)13136"
+    },
     "t_string_storage": {
       "encoding": "bytes",
       "label": "string",
       "numberOfBytes": "32"
     },
-    "t_struct(PaymentRequest)68055_storage": {
+    "t_struct(PaymentRequest)66199_storage": {
       "encoding": "inplace",
       "label": "struct PaymentHub.PaymentRequest",
       "members": [
         {
-          "astId": 68040,
+          "astId": 66184,
           "contract": "contracts/PaymentHub.sol:PaymentHub",
           "label": "from",
           "offset": 0,
@@ -178,7 +193,7 @@
           "type": "t_address"
         },
         {
-          "astId": 68042,
+          "astId": 66186,
           "contract": "contracts/PaymentHub.sol:PaymentHub",
           "label": "to",
           "offset": 0,
@@ -186,7 +201,7 @@
           "type": "t_address"
         },
         {
-          "astId": 68044,
+          "astId": 66188,
           "contract": "contracts/PaymentHub.sol:PaymentHub",
           "label": "vault",
           "offset": 0,
@@ -194,7 +209,7 @@
           "type": "t_address"
         },
         {
-          "astId": 68047,
+          "astId": 66191,
           "contract": "contracts/PaymentHub.sol:PaymentHub",
           "label": "amount",
           "offset": 0,
@@ -202,7 +217,7 @@
           "type": "t_userDefinedValueType(euint64)13136"
         },
         {
-          "astId": 68049,
+          "astId": 66193,
           "contract": "contracts/PaymentHub.sol:PaymentHub",
           "label": "note",
           "offset": 0,
@@ -210,15 +225,15 @@
           "type": "t_string_storage"
         },
         {
-          "astId": 68052,
+          "astId": 66196,
           "contract": "contracts/PaymentHub.sol:PaymentHub",
           "label": "status",
           "offset": 0,
           "slot": "5",
-          "type": "t_enum(RequestStatus)68038"
+          "type": "t_enum(RequestStatus)66182"
         },
         {
-          "astId": 68054,
+          "astId": 66198,
           "contract": "contracts/PaymentHub.sol:PaymentHub",
           "label": "createdAt",
           "offset": 0,
