@@ -68,6 +68,14 @@ const FLAGS_BASE_FEE = 100; // 1.00% in basis points, the value deploy-fhe-extra
 const FLAGS_MERCHANT_DISCOUNT = 5000; // 50%
 
 function deploymentsPath(networkName: string): string {
+  // Fork rehearsal: `DEPLOYMENTS_FILE=<scratch copy> FORK_SIGNER=<owner> --network fork`
+  // against `hardhat node --fork <rpc>`, so the real file is never written.
+  if (process.env.DEPLOYMENTS_FILE) {
+    if (networkName !== "fork" && networkName !== "localhost") {
+      throw new Error("DEPLOYMENTS_FILE is only for fork rehearsals on localhost");
+    }
+    return resolve(process.env.DEPLOYMENTS_FILE);
+  }
   const file =
     networkName === "arb-sepolia" ? "arb-sepolia.json" :
     networkName === "base-sepolia" ? "base-sepolia.json" :
@@ -124,7 +132,12 @@ task("deploy-upgrade-security-v1", "Ship the pre-mainnet audit fixes to a testne
     const want = args.only ? new Set(args.only.split(",").map((s) => s.trim())) : null;
     const run = (step: string) => (want ? want.has(step) : true);
 
-    const [deployer] = await hre.ethers.getSigners();
+    let [deployer] = await hre.ethers.getSigners();
+    if (process.env.DEPLOYMENTS_FILE && process.env.FORK_SIGNER) {
+      // Fork rehearsal: act as the real owner on the forked state.
+      await hre.network.provider.send("hardhat_setBalance", [process.env.FORK_SIGNER, "0x56BC75E2D63100000"]);
+      deployer = await hre.ethers.getImpersonatedSigner(process.env.FORK_SIGNER);
+    }
     if (!deployer) throw new Error("deploy-upgrade-security-v1: no signer, set PRIVATE_KEY");
     const wait = async (tx: { hash: string; wait: (n?: number) => Promise<unknown> }, label: string) => {
       const rcpt = (await tx.wait(2)) as { status?: number } | null;
@@ -160,7 +173,10 @@ task("deploy-upgrade-security-v1", "Ship the pre-mainnet audit fixes to a testne
           "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol:IERC20Metadata",
           underlying,
         );
-        const [sym, dec] = await Promise.all([erc.symbol(), erc.decimals()]);
+        // Display symbol from the deployment key: TestUSDT is a TestUSDC
+        // deployment and reports "USDC" on chain.
+        const sym = key.slice("FHERC20Vault_".length);
+        const dec = await erc.decimals();
         await wait(
           await registry.registerToken(vault, underlying, `Encrypted ${sym}`, `e${sym}`, dec),
           `registerToken ${key} (${sym}, ${dec} dec)`,

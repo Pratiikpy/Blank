@@ -45,6 +45,11 @@ const config: HardhatUserConfig = {
   },
   defaultNetwork: "hardhat",
   networks: {
+    // Local fork for upgrade rehearsals: `hardhat node --fork <rpc> --port 8547`.
+    fork: {
+      url: process.env.FORK_URL || "http://127.0.0.1:8547",
+      timeout: 600_000,
+    },
     "base-sepolia": {
       url: process.env.BASE_SEPOLIA_RPC_URL || "https://sepolia.base.org",
       accounts,
