@@ -140,6 +140,19 @@ describe("GuardianModule", () => {
     await expect(deployProxy("GuardianModule", [600])).to.be.revertedWith("GuardianModule: window too short");
   });
 
+  it("M5 exploit: adding guardians raises the threshold to a strict majority", async () => {
+    const ctx = await loadFixture(deployFixture);
+    await seedGuardians(ctx); // 2 of 3
+    await ctx.module.connect(ctx.account).addGuardian(ctx.g4.address);
+    expect(await ctx.module.thresholdOf(ctx.account.address)).to.equal(3);
+    for (let i = 0; i < 6; i++) {
+      await ctx.module.connect(ctx.account).addGuardian(hre.ethers.Wallet.createRandom().address);
+    }
+    // 10 guardians: 2 colluders can no longer rotate the key.
+    expect(await ctx.module.thresholdOf(ctx.account.address)).to.equal(6);
+    expect(await ctx.module.vetoQuorum(ctx.account.address)).to.equal(5);
+  });
+
   it("too many guardians are rejected", async () => {
     const ctx = await loadFixture(deployFixture);
     for (let i = 0; i < 10; i++) {
@@ -385,23 +398,85 @@ describe("GuardianModule — Wave 5.5 finalizeRecoveryAndRotate", () => {
     expect(await ctx.account.setOwnerCallCount()).to.equal(2n);
   });
 
-  it("L3 exploit: approvals from removed guardians do not count", async () => {
+  async function asAccount(ctx: any, fn: (acct: any) => Promise<unknown>) {
+    await hre.network.provider.send("hardhat_impersonateAccount", [ctx.accountAddr]);
+    const acct = await hre.ethers.getSigner(ctx.accountAddr);
+    try { return await fn(acct); } finally {
+      await hre.network.provider.send("hardhat_stopImpersonatingAccount", [ctx.accountAddr]);
+    }
+  }
+
+  it("L7 exploit: the account cannot reshape the guardian set while a request is live", async () => {
     const ctx = await deployRotateFixture();
     await ctx.module.connect(ctx.g1).requestRecovery(ctx.accountAddr, PUBKEY_X, PUBKEY_Y);
     await ctx.module.connect(ctx.g2).approveRecovery(ctx.accountAddr);
+    await asAccount(ctx, async (acct) => {
+      await expect(ctx.module.connect(acct).addGuardian(ctx.g4.address)).to.be.revertedWith("GuardianModule: recovery live");
+      await expect(ctx.module.connect(acct).removeGuardian(ctx.g2.address)).to.be.revertedWith("GuardianModule: recovery live");
+      await expect(ctx.module.connect(acct).setThreshold(3)).to.be.revertedWith("GuardianModule: recovery live");
+    });
+    await hre.network.provider.send("evm_increaseTime", [TESTNET_WINDOW + 1]);
+    await hre.network.provider.send("evm_mine");
+    await ctx.module.connect(ctx.g1).finalizeRecoveryAndRotate(ctx.accountAddr, PUBKEY_X, PUBKEY_Y);
+    expect(await ctx.account.ownerX()).to.equal(PUBKEY_X);
+  });
 
-    await hre.network.provider.send("hardhat_impersonateAccount", [ctx.accountAddr]);
-    const acct = await hre.ethers.getSigner(ctx.accountAddr);
-    await ctx.module.connect(acct).addGuardian(ctx.g4.address);
-    await ctx.module.connect(acct).removeGuardian(ctx.g2.address);
-    await hre.network.provider.send("hardhat_stopImpersonatingAccount", [ctx.accountAddr]);
+  it("L7 exploit: a stolen passkey gets one cancel, then recovery runs to finalize", async () => {
+    const ctx = await deployRotateFixture();
+    await ctx.module.connect(ctx.g1).requestRecovery(ctx.accountAddr, PUBKEY_X, PUBKEY_Y);
+    await asAccount(ctx, (acct) => ctx.module.connect(acct).cancelRecovery());
+    // Thief tries to strip the guardians right after cancelling.
+    await asAccount(ctx, (acct) =>
+      expect(ctx.module.connect(acct).removeGuardian(ctx.g3.address)).to.be.revertedWith("GuardianModule: cancel cooldown"),
+    );
+    await ctx.module.connect(ctx.g1).requestRecovery(ctx.accountAddr, PUBKEY_X, PUBKEY_Y);
+    await ctx.module.connect(ctx.g2).approveRecovery(ctx.accountAddr);
+    await asAccount(ctx, (acct) =>
+      expect(ctx.module.connect(acct).cancelRecovery()).to.be.revertedWith("GuardianModule: cancel cooldown"),
+    );
+    await hre.network.provider.send("evm_increaseTime", [TESTNET_WINDOW + 1]);
+    await hre.network.provider.send("evm_mine");
+    await ctx.module.connect(ctx.g1).finalizeRecoveryAndRotate(ctx.accountAddr, PUBKEY_X, PUBKEY_Y);
+    expect(await ctx.account.ownerX()).to.equal(PUBKEY_X);
+  });
 
-    expect((await ctx.module.recoveryState(ctx.accountAddr)).approvals).to.equal(1);
+  it("account cancel and set changes come back after the cooldown", async () => {
+    const ctx = await deployRotateFixture();
+    await ctx.module.connect(ctx.g1).requestRecovery(ctx.accountAddr, PUBKEY_X, PUBKEY_Y);
+    await asAccount(ctx, (acct) => ctx.module.connect(acct).cancelRecovery());
+    const cooldown = Number(await ctx.module.CANCEL_COOLDOWN());
+    await hre.network.provider.send("evm_increaseTime", [cooldown]);
+    await hre.network.provider.send("evm_mine");
+    await ctx.module.connect(ctx.g2).requestRecovery(ctx.accountAddr, 1n, 2n);
+    await asAccount(ctx, async (acct) => {
+      await expect(ctx.module.connect(acct).cancelRecovery()).to.emit(ctx.module, "RecoveryCancelled");
+    });
+    await hre.network.provider.send("evm_increaseTime", [cooldown]);
+    await hre.network.provider.send("evm_mine");
+    await asAccount(ctx, (acct) => ctx.module.connect(acct).addGuardian(ctx.g4.address));
+    expect(await ctx.module.thresholdOf(ctx.accountAddr)).to.equal(3);
+  });
+
+  it("M5 exploit: a pre-upgrade set below majority cannot request or finalize", async () => {
+    const ctx = await deployRotateFixture();
+    // Threshold slot of _sets[account]: keccak(account, 0) + 2.
+    const base = BigInt(hre.ethers.keccak256(
+      hre.ethers.AbiCoder.defaultAbiCoder().encode(["address", "uint256"], [ctx.accountAddr, 0]),
+    ));
+    const thrSlot = hre.ethers.toBeHex(base + 2n, 32);
+    const mod = await ctx.module.getAddress();
+    await asAccount(ctx, (acct) => ctx.module.connect(acct).addGuardian(ctx.g4.address));
+    expect(await ctx.module.thresholdOf(ctx.accountAddr)).to.equal(3);
+    await ctx.module.connect(ctx.g1).requestRecovery(ctx.accountAddr, PUBKEY_X, PUBKEY_Y);
+    await ctx.module.connect(ctx.g2).approveRecovery(ctx.accountAddr);
+    // Old code allowed 2-of-4; force that legacy state.
+    await hre.network.provider.send("hardhat_setStorageAt", [mod, thrSlot, hre.ethers.zeroPadValue("0x02", 32)]);
+    expect(await ctx.module.thresholdOf(ctx.accountAddr)).to.equal(2);
     await hre.network.provider.send("evm_increaseTime", [TESTNET_WINDOW + 1]);
     await hre.network.provider.send("evm_mine");
     await expect(
       ctx.module.connect(ctx.g1).finalizeRecoveryAndRotate(ctx.accountAddr, PUBKEY_X, PUBKEY_Y),
-    ).to.be.revertedWith("GuardianModule: below threshold");
+    ).to.be.revertedWith("GuardianModule: recovery not configured");
   });
 
   it("window floor applies to proxies initialized with a short window", async () => {

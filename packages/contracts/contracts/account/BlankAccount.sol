@@ -189,15 +189,18 @@ contract BlankAccount is BaseAccount, Initializable, UUPSUpgradeable {
     function enableValidator(address validator) external onlySelfOrEntryPoint {
         require(validator != address(0), "BlankAccount: zero validator");
         enabledValidators[validator] = true;
-        validatorEpochOf[validator] = validatorEpoch;
+        // Stored as epoch + 1 so the zero default (every enable made before
+        // the epoch existed, e.g. the old SessionKeyValidator) never matches.
+        validatorEpochOf[validator] = validatorEpoch + 1;
         emit ValidatorEnabled(validator);
     }
 
     /// @notice True when `validator` was enabled after the last owner
     ///         rotation. Owner rotation bumps `validatorEpoch`, which
     ///         revokes every validator enabled by the previous owner.
+    ///         Validators enabled before this upgrade must be re-enabled.
     function isValidatorEnabled(address validator) public view returns (bool) {
-        return enabledValidators[validator] && validatorEpochOf[validator] == validatorEpoch;
+        return enabledValidators[validator] && validatorEpochOf[validator] == validatorEpoch + 1;
     }
 
     /// @notice Phase 4.1 — revoke a previously-authorized validator. After

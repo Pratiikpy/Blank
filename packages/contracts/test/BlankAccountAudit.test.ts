@@ -131,4 +131,27 @@ describe("BlankAccount: owner rotation revokes validators (L2)", () => {
     await hre.network.provider.send("hardhat_stopImpersonatingAccount", [ctx.epAddr]);
     expect(await ctx.accountA.isValidatorEnabled(mv)).to.equal(true);
   });
+
+  it("M3 exploit: a validator enabled before the epoch upgrade is not accepted", async () => {
+    const ctx = await loadFixture(fixture);
+    const mv = await ctx.mockValidator.getAddress();
+    // Pre-upgrade state: enabledValidators[mv] = true (slot 3) and no epoch entry.
+    const slot = hre.ethers.keccak256(hre.ethers.AbiCoder.defaultAbiCoder().encode(["address", "uint256"], [mv, 3]));
+    await hre.network.provider.send("hardhat_setStorageAt", [ctx.addrA, slot, hre.ethers.zeroPadValue("0x01", 32)]);
+    expect(await ctx.accountA.enabledValidators(mv)).to.equal(true);
+    expect(await ctx.accountA.validatorEpoch()).to.equal(0n);
+    expect(await ctx.accountA.isValidatorEnabled(mv)).to.equal(false);
+    await ctx.entryPoint.depositTo(ctx.addrA, { value: hre.ethers.parseEther("1") });
+    await expect(
+      ctx.entryPoint.handleOps([await opFor(ctx, 0n)], ctx.beneficiary.address, { gasPrice: 2_000_000_000n }),
+    )
+      .to.be.revertedWithCustomError(ctx.entryPoint, "FailedOp")
+      .withArgs(0n, "AA24 signature error");
+
+    await hre.network.provider.send("hardhat_impersonateAccount", [ctx.epAddr]);
+    await hre.network.provider.send("hardhat_setBalance", [ctx.epAddr, "0x56BC75E2D63100000"]);
+    await ctx.accountA.connect(await hre.ethers.getSigner(ctx.epAddr)).enableValidator(mv);
+    await hre.network.provider.send("hardhat_stopImpersonatingAccount", [ctx.epAddr]);
+    expect(await ctx.accountA.isValidatorEnabled(mv)).to.equal(true);
+  });
 });

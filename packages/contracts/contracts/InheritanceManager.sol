@@ -281,6 +281,13 @@ contract InheritanceManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
 
         for (uint256 i = 0; i < plan.vaults.length; i++) {
             address vaultAddr = plan.vaults[i];
+            // Plans saved before the registry existed were never checked.
+            // Skip (not revert) so one delisted vault cannot block the rest;
+            // the heir can retry it with claimRemaining once it is listed.
+            if (!_isAllowedVault(vaultAddr)) {
+                emit ClaimVaultSkipped(owner_, heir, vaultAddr);
+                continue;
+            }
             try IFHERC20Vault(vaultAddr).transferFromVerified(
                 owner_,
                 heir,
@@ -303,11 +310,12 @@ contract InheritanceManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
     }
 
     /// @dev Fails closed when the registry is unset.
+    function _isAllowedVault(address vault) internal view returns (bool) {
+        return address(tokenRegistry) != address(0) && tokenRegistry.isActiveVault(vault);
+    }
+
     function _requireAllowedVault(address vault) internal view {
-        require(
-            address(tokenRegistry) != address(0) && tokenRegistry.isActiveVault(vault),
-            "InheritanceManager: vault not allowed"
-        );
+        require(_isAllowedVault(vault), "InheritanceManager: vault not allowed");
     }
 
     // ─── View Functions ─────────────────────────────────────────────────

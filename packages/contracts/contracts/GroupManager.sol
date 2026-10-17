@@ -28,7 +28,10 @@ interface IEventHub {
 ///        carry no wrap guard by design.
 ///      - A member's debt survives leave + rejoin.
 ///      - Each group settles in one allowlisted vault, pinned on first settle.
-///      - Archived groups take no new expenses or settlements.
+///        A group that settled in several vaults before this rule existed is
+///        pinned to whichever vault settles first after the upgrade.
+///      - Archived groups take no new expenses. Settling stays open so debts
+///        left in an archived group can still be paid off.
 contract GroupManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
     // ─── Types ──────────────────────────────────────────────────────────
@@ -340,7 +343,6 @@ contract GroupManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     ) external nonReentrant {
         require(isMember[groupId][msg.sender], "GroupManager: not a member");
         require(isMember[groupId][with_], "GroupManager: counterparty not a member");
-        require(_groups[groupId].active, "GroupManager: group archived");
         _requireAllowedVault(vault);
         address pinned = groupVault[groupId];
         if (pinned == address(0)) {

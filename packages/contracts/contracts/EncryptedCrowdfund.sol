@@ -99,6 +99,8 @@ contract EncryptedCrowdfund is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
     event ReceiptsBumpFailed(string kind, bytes reason);
     event PaymentReceiptsSet(address indexed previous, address indexed current);
     event TokenRegistrySet(address indexed registry);
+    event LegacyReleaseMarked(uint256 indexed campaignId);
+    event LegacyMigrationFinished();
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -108,6 +110,8 @@ contract EncryptedCrowdfund is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
     function initialize(address _eventHub) public initializer {
         __Ownable_init(msg.sender);
         eventHub = IEventHub(_eventHub);
+        // A fresh proxy has no pre-upgrade sweeps to migrate.
+        legacyMigrationDone = true;
     }
 
     // ─── Create Campaign ──────────────────────────────────────────────
@@ -253,6 +257,7 @@ contract EncryptedCrowdfund is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
         require(c.goalMet, "Crowdfund: goal not met");
         require(msg.sender == c.creator, "Crowdfund: not creator");
         require(c.status != CampaignStatus.Open, "Crowdfund: open");
+        require(legacyMigrationDone, "Crowdfund: migration pending");
         require(!releasePaid[campaignId], "Crowdfund: already released");
         releasePaid[campaignId] = true;
 
@@ -349,6 +354,26 @@ contract EncryptedCrowdfund is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
 
     // ─── Admin ────────────────────────────────────────────────────────
 
+    /// @notice One-shot migration for proxies upgraded from the version
+    ///         without `releasePaid`. That version allowed repeat sweeps
+    ///         and `status` cannot tell a swept campaign apart, so the
+    ///         owner marks every id that has a CampaignReleased event.
+    ///         Callable through upgradeToAndCall. Closed for good by
+    ///         finishLegacyMigration.
+    function markLegacyReleased(uint256[] calldata ids) external onlyOwner {
+        require(!legacyMigrationDone, "Crowdfund: migration done");
+        for (uint256 i = 0; i < ids.length; i++) {
+            releasePaid[ids[i]] = true;
+            emit LegacyReleaseMarked(ids[i]);
+        }
+    }
+
+    function finishLegacyMigration() external onlyOwner {
+        require(!legacyMigrationDone, "Crowdfund: migration done");
+        legacyMigrationDone = true;
+        emit LegacyMigrationFinished();
+    }
+
     function setTokenRegistry(address r) external onlyOwner {
         require(r.code.length > 0, "Crowdfund: bad registry");
         tokenRegistry = ITokenRegistry(r);
@@ -389,8 +414,10 @@ contract EncryptedCrowdfund is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
     ITokenRegistry public tokenRegistry;
     /// @dev campaignId => creator already swept the raised total. Appended.
     mapping(uint256 => bool) public releasePaid;
+    /// @dev claimRelease stays closed until legacy sweeps are marked. Appended.
+    bool public legacyMigrationDone;
 
     /// @dev Append-only storage: 7 original slots + tokenRegistry +
-    /// releasePaid + gap = 57. Shrink the gap by 1 per new slot.
-    uint256[48] private __gap;
+    /// releasePaid + legacyMigrationDone + gap = 57. Shrink the gap by 1 per new slot.
+    uint256[47] private __gap;
 }

@@ -27,6 +27,18 @@ interface IBlankAccount {
  *   - A live request cannot be replaced. It ends by finalize, account
  *     cancel or quorum veto, after which a new request can be opened.
  *   - The challenge window is at least MIN_RECOVERY_WINDOW.
+ *   - Adding a guardian raises the threshold to a strict majority if it
+ *     would fall below one. Raising (not reverting) keeps one-call setup
+ *     working and can only make recovery stricter. Sets saved before this
+ *     rule fail the majority check at request and finalize.
+ *   - A thief holding the old passkey is the account, so account powers are
+ *     limited while recovery runs. The guardian set is frozen while a
+ *     request is live and for CANCEL_COOLDOWN after an account cancel. The
+ *     account may cancel only a request opened outside that cooldown, so it
+ *     gets one cancel per cooldown: a reopened request then runs to finalize
+ *     unless a guardian veto quorum stops it. The real owner facing a
+ *     hostile request still has that one cancel, the guardian veto, and the
+ *     whole window to move funds with the passkey.
  */
 contract GuardianModule is UUPSUpgradeable, OwnableUpgradeable {
 
@@ -68,6 +80,10 @@ contract GuardianModule is UUPSUpgradeable, OwnableUpgradeable {
     mapping(address => uint256) public recoveryNonce;
     mapping(address => mapping(uint256 => Ballot)) internal _ballots;
 
+    uint32 public constant CANCEL_COOLDOWN = 7 days;
+    /// Last time the account cancelled a request. Appended.
+    mapping(address => uint256) public lastAccountCancelAt;
+
     event GuardianAdded(address indexed account, address indexed guardian);
     event GuardianRemoved(address indexed account, address indexed guardian);
     event ThresholdSet(address indexed account, uint8 threshold);
@@ -108,7 +124,14 @@ contract GuardianModule is UUPSUpgradeable, OwnableUpgradeable {
 
     // ─── Account config (called BY the smart account) ───────────────
 
+    function _requireSetUnlocked(address account) internal view {
+        require(!_isLive(account), "GuardianModule: recovery live");
+        uint256 last = lastAccountCancelAt[account];
+        require(last == 0 || block.timestamp >= last + CANCEL_COOLDOWN, "GuardianModule: cancel cooldown");
+    }
+
     function addGuardian(address guardian) external {
+        _requireSetUnlocked(msg.sender);
         require(guardian != address(0), "GuardianModule: guardian=0");
         require(guardian != msg.sender, "GuardianModule: self-guardian forbidden");
         GuardianSet storage gs = _sets[msg.sender];
@@ -117,9 +140,15 @@ contract GuardianModule is UUPSUpgradeable, OwnableUpgradeable {
         gs.guardians.push(guardian);
         gs.isGuardian[guardian] = true;
         emit GuardianAdded(msg.sender, guardian);
+        uint256 majority = gs.guardians.length / 2 + 1;
+        if (gs.threshold != 0 && gs.threshold < majority) {
+            gs.threshold = uint8(majority);
+            emit ThresholdSet(msg.sender, gs.threshold);
+        }
     }
 
     function removeGuardian(address guardian) external {
+        _requireSetUnlocked(msg.sender);
         GuardianSet storage gs = _sets[msg.sender];
         require(gs.isGuardian[guardian], "GuardianModule: not guardian");
         gs.isGuardian[guardian] = false;
@@ -147,6 +176,7 @@ contract GuardianModule is UUPSUpgradeable, OwnableUpgradeable {
     }
 
     function setThreshold(uint8 threshold) external {
+        _requireSetUnlocked(msg.sender);
         GuardianSet storage gs = _sets[msg.sender];
         uint256 n = gs.guardians.length;
         require(n >= MIN_GUARDIANS, "GuardianModule: need 3+ guardians");
@@ -167,7 +197,8 @@ contract GuardianModule is UUPSUpgradeable, OwnableUpgradeable {
     }
 
     function _configured(GuardianSet storage gs) internal view returns (bool) {
-        return gs.threshold >= MIN_THRESHOLD && gs.guardians.length >= MIN_GUARDIANS;
+        uint256 n = gs.guardians.length;
+        return n >= MIN_GUARDIANS && gs.threshold >= MIN_THRESHOLD && gs.threshold <= n && gs.threshold >= n / 2 + 1;
     }
 
     /// Open a recovery that rotates the account to (newOwnerX, newOwnerY).
@@ -230,10 +261,14 @@ contract GuardianModule is UUPSUpgradeable, OwnableUpgradeable {
     }
 
     /// Account cancels its own live request (e.g. the user found the old
-    /// passkey).
+    /// passkey). Refused for a request opened within CANCEL_COOLDOWN of the
+    /// previous account cancel, so a stolen passkey cannot stall recovery.
     function cancelRecovery() external {
         RecoveryRequest storage r = _recoveries[msg.sender];
         require(_isLive(msg.sender), "GuardianModule: no live request");
+        uint256 last = lastAccountCancelAt[msg.sender];
+        require(last == 0 || uint256(r.requestedAt) >= last + CANCEL_COOLDOWN, "GuardianModule: cancel cooldown");
+        lastAccountCancelAt[msg.sender] = block.timestamp;
         r.requestedAt = 0;
         r.approvals = 0;
         emit RecoveryCancelled(msg.sender);
