@@ -56,6 +56,9 @@ async function deployFixture() {
   const storefront = await deployProxy("Storefront", [await eventHub.getAddress()]);
 
   await eventHub.batchWhitelist([await storefront.getAddress()]);
+  const registry = await deployProxy("TokenRegistry");
+  await registry.registerToken(await vault.getAddress(), await testUSDC.getAddress(), "Test USDC", "USDC", USDC_DECIMALS);
+  await storefront.setTokenRegistry(await registry.getAddress());
 
   // Mint everyone TestUSDC + shield it.
   for (const signer of [alice, bob, charlie, dave]) {
@@ -70,7 +73,7 @@ async function deployFixture() {
     await vault.connect(signer).approvePlaintext(await storefront.getAddress(), MAX);
   }
 
-  return { owner, alice, bob, charlie, dave, client, testUSDC, vault, storefront };
+  return { owner, alice, bob, charlie, dave, client, testUSDC, vault, storefront, registry };
 }
 
 async function encUint64(client: any, signer: any, amount: bigint, consuming: string) {
@@ -287,79 +290,19 @@ describe("Storefront", () => {
     //   to be msg.sender's and marks ONLY that one settled. The
     //   winner's lower bids stay refundable as losers; the winning
     //   bid is correctly consumed.
-    it("CRITICAL: multi-bid winner cannot double-claim — winning bid index pinned", async () => {
+    it("one bid per address per listing (bid slots cannot be filled by one account)", async () => {
       const ctx = await loadFixture(deployFixture);
-      const encMin = await encUint64(ctx.client, ctx.alice, usdc(0), await ctx.storefront.getAddress());
+      const sf = await ctx.storefront.getAddress();
       await ctx.storefront.connect(ctx.alice).createListing(
-        MODE_AUCTION,
-        await ctx.vault.getAddress(),
-        ...encMin,
-        2 * 3600,
-        "Multi-bid test",
-        ZERO_BYTES32,
-        "",
+        MODE_AUCTION, await ctx.vault.getAddress(), ...(await encUint64(ctx.client, ctx.alice, usdc(0), sf)),
+        2 * 3600, "One bid each", ZERO_BYTES32, "",
       );
-
-      // Bob places 3 bids — ascending so bid[2] is the winner.
-      // (Charlie places 1 too, smaller, to make sure the winner-loop
-      // isn't trivially right just by Bob being the only bidder.)
-      const bobBid1 = await encUint64(ctx.client, ctx.bob, usdc(3), await ctx.storefront.getAddress());
-      await ctx.storefront.connect(ctx.bob).placeBid(0, ...bobBid1);
-      const charlieBid = await encUint64(ctx.client, ctx.charlie, usdc(5), await ctx.storefront.getAddress());
-      await ctx.storefront.connect(ctx.charlie).placeBid(0, ...charlieBid);
-      const bobBid2 = await encUint64(ctx.client, ctx.bob, usdc(7), await ctx.storefront.getAddress());
-      await ctx.storefront.connect(ctx.bob).placeBid(0, ...bobBid2);
-      const bobBid3 = await encUint64(ctx.client, ctx.bob, usdc(10), await ctx.storefront.getAddress());
-      await ctx.storefront.connect(ctx.bob).placeBid(0, ...bobBid3);
-      // Bids in order: bob=3 (idx 0), charlie=5 (idx 1), bob=7 (idx
-      // 2), bob=10 (idx 3). Winner is bob bid at idx 3 (10 USDC).
-
-      // Funds locked: 3+5+7+10 = 25.
-      const sfAddr = await ctx.storefront.getAddress();
-      const sfBalanceLocked = await ctx.vault.balanceOf(sfAddr);
-      await mock_expectPlaintext(ctx.alice.provider, sfBalanceLocked, usdc(25));
-
-      // Close + reveal.
-      await time.increase(2 * 3600 + 1);
-      await ctx.storefront.connect(ctx.alice).closeAuction(0);
-      const winnerIdxHandle = await ctx.storefront.getWinnerIdxHandle(0);
-      await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.alice);
-      const proof = await ctx.client.decryptForTx(winnerIdxHandle, FheTypes.Uint8).withoutACP().execute();
-      await ctx.storefront.connect(ctx.alice).revealWinner(0, Number(proof.decryptedValue), proof.signature);
-
-      const lRevealed = await ctx.storefront.getListing(0);
-      expect(lRevealed.winner).to.equal(ctx.bob.address);
-      // Winner is Bob's bid at index 3.
-      expect(Number(proof.decryptedValue)).to.equal(3);
-
-      // Winner claims. Pre-fix: marks bid[0] (Bob's 3 USDC) as
-      // settled, leaves bid[3] (10 USDC) refundable.
-      // Post-fix: marks bid[3] (the actual winning 10 USDC) settled.
-      await ctx.storefront.connect(ctx.bob).claimAuctionWin(0, ZERO_BYTES32);
-
-      // Bob's lower bids (idx 0 + idx 2) are still refundable as losers.
-      await ctx.storefront.connect(ctx.bob).refundLoserBid(0, 0);
-      await ctx.storefront.connect(ctx.bob).refundLoserBid(0, 2);
-      // Charlie's bid (idx 1) refundable.
-      await ctx.storefront.connect(ctx.charlie).refundLoserBid(0, 1);
-
-      // CRITICAL: Bob CANNOT refund his winning bid (idx 3) — the
-      // double-claim path the fix closes.
+      await ctx.storefront.connect(ctx.bob).placeBid(0, ...(await encUint64(ctx.client, ctx.bob, usdc(3), sf)));
+      expect(await ctx.storefront.hasBid(0, ctx.bob.address)).to.equal(true);
       await expect(
-        ctx.storefront.connect(ctx.bob).refundLoserBid(0, 3),
-      ).to.be.revertedWith("Storefront: already refunded");
-
-      // Final balances:
-      //   Alice (seller) received the winning bid = 10 → 1010.
-      //   Bob got back 3 (idx 0) + 7 (idx 2) = 10 refunded; bid 3
-      //     (10 USDC) went to seller. Bob's net loss = 10 → 1000-10 = 990.
-      //   Charlie got back 5 (idx 1). Charlie's net = 1000.
-      const aliceAfter = await ctx.vault.balanceOf(ctx.alice.address);
-      const bobAfter = await ctx.vault.balanceOf(ctx.bob.address);
-      const charlieAfter = await ctx.vault.balanceOf(ctx.charlie.address);
-      await mock_expectPlaintext(ctx.alice.provider, aliceAfter, usdc(1_010));
-      await mock_expectPlaintext(ctx.bob.provider, bobAfter, usdc(990));
-      await mock_expectPlaintext(ctx.charlie.provider, charlieAfter, usdc(1_000));
+        ctx.storefront.connect(ctx.bob).placeBid(0, ...(await encUint64(ctx.client, ctx.bob, usdc(0), sf))),
+      ).to.be.revertedWith("Storefront: already bid");
+      expect(await ctx.storefront.getBidCount(0)).to.equal(1);
     });
 
     // §1.16 — winner-refund-pre-claim exploit. Pre-fix: after revealWinner,
@@ -394,7 +337,7 @@ describe("Storefront", () => {
       const proof = await ctx.client.decryptForTx(winnerIdxHandle, FheTypes.Uint8).withoutACP().execute();
       await ctx.storefront.connect(ctx.alice).revealWinner(0, Number(proof.decryptedValue), proof.signature);
 
-      // PRE-CLAIM: winner tries to refund their winning bid — must reject.
+      // PRE-CLAIM: winner tries to refund their winning bid; must reject.
       await expect(
         ctx.storefront.connect(ctx.bob).refundLoserBid(0, 0),
       ).to.be.revertedWith("Storefront: winning bid, use claimAuctionWin");
@@ -793,5 +736,93 @@ describe("Storefront", () => {
       const listing = await ctx.storefront.getListing(0);
       expect(listing.winner).to.equal(ctx.charlie.address);
     });
+  });
+});
+
+describe("Storefront — audit fixes", () => {
+  async function auction(ctx: any) {
+    const sf = await ctx.storefront.getAddress();
+    await ctx.storefront.connect(ctx.alice).createListing(
+      MODE_AUCTION, await ctx.vault.getAddress(), ...(await encUint64(ctx.client, ctx.alice, usdc(0), sf)),
+      3600, "Audit auction", ZERO_BYTES32, "",
+    );
+    await ctx.storefront.connect(ctx.bob).placeBid(0, ...(await encUint64(ctx.client, ctx.bob, usdc(4), sf)));
+    await ctx.storefront.connect(ctx.charlie).placeBid(0, ...(await encUint64(ctx.client, ctx.charlie, usdc(9), sf)));
+    await time.increase(3601);
+    await ctx.storefront.closeAuction(0);
+  }
+
+  async function reveal(ctx: any) {
+    const h = await ctx.storefront.getWinnerIdxHandle(0);
+    await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.alice);
+    const proof = await ctx.client.decryptForTx(h, FheTypes.Uint8).withoutACP().execute();
+    await ctx.storefront.revealWinner(0, Number(proof.decryptedValue), proof.signature);
+  }
+
+  it("winner cannot refund before reveal (old code let every bidder refund pre-reveal)", async () => {
+    const ctx = await loadFixture(deployFixture);
+    await auction(ctx);
+    // Charlie is the eventual winner; pre-reveal nobody can refund.
+    await expect(ctx.storefront.connect(ctx.charlie).refundLoserBid(0, 1))
+      .to.be.revertedWith("Storefront: winner not revealed");
+    await expect(ctx.storefront.connect(ctx.bob).refundLoserBid(0, 0))
+      .to.be.revertedWith("Storefront: winner not revealed");
+
+    await reveal(ctx);
+    await ctx.storefront.connect(ctx.bob).refundLoserBid(0, 0);
+    await expect(ctx.storefront.connect(ctx.charlie).refundLoserBid(0, 1))
+      .to.be.revertedWith("Storefront: winning bid, use claimAuctionWin");
+  });
+
+  it("seller (or anyone) can settle the winning bid when the winner walks away", async () => {
+    const ctx = await loadFixture(deployFixture);
+    await auction(ctx);
+    await reveal(ctx);
+    const note = hre.ethers.keccak256("0x1234");
+    await expect(ctx.storefront.connect(ctx.alice).claimAuctionWin(0, note))
+      .to.emit(ctx.storefront, "AuctionWinnerClaimed")
+      .withArgs(0, ctx.charlie.address, ZERO_BYTES32);
+    await mock_expectPlaintext(ctx.alice.provider, await ctx.vault.balanceOf(ctx.alice.address), usdc(1_009));
+    await expect(ctx.storefront.connect(ctx.charlie).claimAuctionWin(0, note))
+      .to.be.revertedWith("Storefront: already settled");
+  });
+
+  it("buyFixed records what was actually paid; a mismatch pays 0", async () => {
+    const ctx = await loadFixture(deployFixture);
+    const sf = await ctx.storefront.getAddress();
+    await ctx.storefront.connect(ctx.alice).createListing(
+      MODE_FIXED, await ctx.vault.getAddress(), ...(await encUint64(ctx.client, ctx.alice, usdc(25), sf)),
+      0, "Ebook", ZERO_BYTES32, "",
+    );
+    await expect(ctx.storefront.connect(ctx.bob).buyFixed(0, ...(await encUint64(ctx.client, ctx.bob, usdc(1), sf)), ZERO_BYTES32))
+      .to.emit(ctx.storefront, "FixedPricePaid");
+    await mock_expectPlaintext(ctx.alice.provider, await ctx.storefront.getPaidByBuyer(0, ctx.bob.address), 0n);
+
+    // Multi-buy is intended (digital goods): a second, correct buy adds 25.
+    await ctx.storefront.connect(ctx.bob).buyFixed(0, ...(await encUint64(ctx.client, ctx.bob, usdc(25), sf)), ZERO_BYTES32);
+    await mock_expectPlaintext(ctx.alice.provider, await ctx.storefront.getPaidByBuyer(0, ctx.bob.address), usdc(25));
+    const acl = await hre.cofhe.mocks.getMockACL();
+    const paid = await ctx.storefront.getPaidByBuyer(0, ctx.bob.address);
+    expect(await acl.isAllowed(paid, ctx.alice.address)).to.equal(true);
+  });
+
+  it("vault allowlist: fake vault and unset registry revert", async () => {
+    const ctx = await loadFixture(deployFixture);
+    const sf = await ctx.storefront.getAddress();
+    const Stub = await hre.ethers.getContractFactory("MockVaultStub");
+    const fake = await Stub.deploy(await ctx.testUSDC.getAddress());
+    await expect(
+      ctx.storefront.connect(ctx.alice).createListing(
+        MODE_PWYW, await fake.getAddress(), ...(await encUint64(ctx.client, ctx.alice, 0n, sf)), 0, "x", ZERO_BYTES32, "",
+      ),
+    ).to.be.revertedWith("Storefront: vault not allowed");
+
+    const fresh = await deployProxy("Storefront", [hre.ethers.ZeroAddress]);
+    await expect(
+      fresh.connect(ctx.alice).createListing(
+        MODE_PWYW, await ctx.vault.getAddress(), ...(await encUint64(ctx.client, ctx.alice, 0n, await fresh.getAddress())), 0, "x", ZERO_BYTES32, "",
+      ),
+    ).to.be.revertedWith("Storefront: vault not allowed");
+    await expect(fresh.setTokenRegistry(ctx.alice.address)).to.be.revertedWith("Storefront: bad registry");
   });
 });

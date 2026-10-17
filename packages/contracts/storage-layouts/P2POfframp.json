@@ -1,7 +1,7 @@
 {
   "storage": [
     {
-      "astId": 73153,
+      "astId": 80748,
       "contract": "contracts/P2POfframp.sol:P2POfframp",
       "label": "_status",
       "offset": 0,
@@ -9,7 +9,7 @@
       "type": "t_uint256"
     },
     {
-      "astId": 60369,
+      "astId": 66298,
       "contract": "contracts/P2POfframp.sol:P2POfframp",
       "label": "CHALLENGE_WINDOW_SECONDS",
       "offset": 0,
@@ -17,7 +17,7 @@
       "type": "t_uint32"
     },
     {
-      "astId": 60372,
+      "astId": 66301,
       "contract": "contracts/P2POfframp.sol:P2POfframp",
       "label": "arbiter",
       "offset": 4,
@@ -25,23 +25,23 @@
       "type": "t_address"
     },
     {
-      "astId": 60375,
+      "astId": 66304,
       "contract": "contracts/P2POfframp.sol:P2POfframp",
       "label": "reclaimAdapter",
       "offset": 0,
       "slot": "2",
-      "type": "t_contract(IReclaimAdapter)60289"
+      "type": "t_contract(IReclaimAdapter)66218"
     },
     {
-      "astId": 60378,
+      "astId": 66307,
       "contract": "contracts/P2POfframp.sol:P2POfframp",
       "label": "eventHub",
       "offset": 0,
       "slot": "3",
-      "type": "t_contract(IEventHub)60303"
+      "type": "t_contract(IEventHub)66232"
     },
     {
-      "astId": 60380,
+      "astId": 66309,
       "contract": "contracts/P2POfframp.sol:P2POfframp",
       "label": "nextOfferId",
       "offset": 20,
@@ -49,7 +49,7 @@
       "type": "t_uint64"
     },
     {
-      "astId": 60382,
+      "astId": 66311,
       "contract": "contracts/P2POfframp.sol:P2POfframp",
       "label": "nextFillId",
       "offset": 0,
@@ -57,23 +57,23 @@
       "type": "t_uint64"
     },
     {
-      "astId": 60387,
+      "astId": 66316,
       "contract": "contracts/P2POfframp.sol:P2POfframp",
       "label": "offers",
       "offset": 0,
       "slot": "5",
-      "type": "t_mapping(t_uint64,t_struct(Offer)60347_storage)"
+      "type": "t_mapping(t_uint64,t_struct(Offer)66276_storage)"
     },
     {
-      "astId": 60392,
+      "astId": 66321,
       "contract": "contracts/P2POfframp.sol:P2POfframp",
       "label": "fills",
       "offset": 0,
       "slot": "6",
-      "type": "t_mapping(t_uint64,t_struct(Fill)60366_storage)"
+      "type": "t_mapping(t_uint64,t_struct(Fill)66295_storage)"
     },
     {
-      "astId": 60396,
+      "astId": 66325,
       "contract": "contracts/P2POfframp.sol:P2POfframp",
       "label": "fillToOffer",
       "offset": 0,
@@ -81,7 +81,7 @@
       "type": "t_mapping(t_uint64,t_uint64)"
     },
     {
-      "astId": 60401,
+      "astId": 66330,
       "contract": "contracts/P2POfframp.sol:P2POfframp",
       "label": "makerFillCount",
       "offset": 0,
@@ -89,12 +89,52 @@
       "type": "t_mapping(t_address,t_uint32)"
     },
     {
-      "astId": 60405,
+      "astId": 66334,
       "contract": "contracts/P2POfframp.sol:P2POfframp",
       "label": "makerDisputeCount",
       "offset": 0,
       "slot": "9",
       "type": "t_mapping(t_address,t_uint32)"
+    },
+    {
+      "astId": 67981,
+      "contract": "contracts/P2POfframp.sol:P2POfframp",
+      "label": "tokenRegistry",
+      "offset": 0,
+      "slot": "10",
+      "type": "t_contract(ITokenRegistry)78843"
+    },
+    {
+      "astId": 67987,
+      "contract": "contracts/P2POfframp.sol:P2POfframp",
+      "label": "fillEscrowed",
+      "offset": 0,
+      "slot": "11",
+      "type": "t_mapping(t_uint64,t_userDefinedValueType(euint64)13136)"
+    },
+    {
+      "astId": 67992,
+      "contract": "contracts/P2POfframp.sol:P2POfframp",
+      "label": "fillDisputedAt",
+      "offset": 0,
+      "slot": "12",
+      "type": "t_mapping(t_uint64,t_uint32)"
+    },
+    {
+      "astId": 67997,
+      "contract": "contracts/P2POfframp.sol:P2POfframp",
+      "label": "activeLocks",
+      "offset": 0,
+      "slot": "13",
+      "type": "t_mapping(t_address,t_uint32)"
+    },
+    {
+      "astId": 68002,
+      "contract": "contracts/P2POfframp.sol:P2POfframp",
+      "label": "__gap",
+      "offset": 0,
+      "slot": "14",
+      "type": "t_array(t_uint256)46_storage"
     }
   ],
   "types": {
@@ -103,27 +143,38 @@
       "label": "address",
       "numberOfBytes": "20"
     },
+    "t_array(t_uint256)46_storage": {
+      "base": "t_uint256",
+      "encoding": "inplace",
+      "label": "uint256[46]",
+      "numberOfBytes": "1472"
+    },
     "t_bytes32": {
       "encoding": "inplace",
       "label": "bytes32",
       "numberOfBytes": "32"
     },
-    "t_contract(IEventHub)60303": {
+    "t_contract(IEventHub)66232": {
       "encoding": "inplace",
       "label": "contract IEventHub",
       "numberOfBytes": "20"
     },
-    "t_contract(IReclaimAdapter)60289": {
+    "t_contract(IReclaimAdapter)66218": {
       "encoding": "inplace",
       "label": "contract IReclaimAdapter",
       "numberOfBytes": "20"
     },
-    "t_enum(FillState)60321": {
+    "t_contract(ITokenRegistry)78843": {
+      "encoding": "inplace",
+      "label": "contract ITokenRegistry",
+      "numberOfBytes": "20"
+    },
+    "t_enum(FillState)66250": {
       "encoding": "inplace",
       "label": "enum P2POfframp.FillState",
       "numberOfBytes": "1"
     },
-    "t_enum(OfferState)60314": {
+    "t_enum(OfferState)66243": {
       "encoding": "inplace",
       "label": "enum P2POfframp.OfferState",
       "numberOfBytes": "1"
@@ -135,19 +186,26 @@
       "numberOfBytes": "32",
       "value": "t_uint32"
     },
-    "t_mapping(t_uint64,t_struct(Fill)60366_storage)": {
+    "t_mapping(t_uint64,t_struct(Fill)66295_storage)": {
       "encoding": "mapping",
       "key": "t_uint64",
       "label": "mapping(uint64 => struct P2POfframp.Fill)",
       "numberOfBytes": "32",
-      "value": "t_struct(Fill)60366_storage"
+      "value": "t_struct(Fill)66295_storage"
     },
-    "t_mapping(t_uint64,t_struct(Offer)60347_storage)": {
+    "t_mapping(t_uint64,t_struct(Offer)66276_storage)": {
       "encoding": "mapping",
       "key": "t_uint64",
       "label": "mapping(uint64 => struct P2POfframp.Offer)",
       "numberOfBytes": "32",
-      "value": "t_struct(Offer)60347_storage"
+      "value": "t_struct(Offer)66276_storage"
+    },
+    "t_mapping(t_uint64,t_uint32)": {
+      "encoding": "mapping",
+      "key": "t_uint64",
+      "label": "mapping(uint64 => uint32)",
+      "numberOfBytes": "32",
+      "value": "t_uint32"
     },
     "t_mapping(t_uint64,t_uint64)": {
       "encoding": "mapping",
@@ -156,12 +214,19 @@
       "numberOfBytes": "32",
       "value": "t_uint64"
     },
-    "t_struct(Fill)60366_storage": {
+    "t_mapping(t_uint64,t_userDefinedValueType(euint64)13136)": {
+      "encoding": "mapping",
+      "key": "t_uint64",
+      "label": "mapping(uint64 => euint64)",
+      "numberOfBytes": "32",
+      "value": "t_userDefinedValueType(euint64)13136"
+    },
+    "t_struct(Fill)66295_storage": {
       "encoding": "inplace",
       "label": "struct P2POfframp.Fill",
       "members": [
         {
-          "astId": 60349,
+          "astId": 66278,
           "contract": "contracts/P2POfframp.sol:P2POfframp",
           "label": "offerId",
           "offset": 0,
@@ -169,7 +234,7 @@
           "type": "t_uint64"
         },
         {
-          "astId": 60351,
+          "astId": 66280,
           "contract": "contracts/P2POfframp.sol:P2POfframp",
           "label": "taker",
           "offset": 8,
@@ -177,15 +242,15 @@
           "type": "t_address"
         },
         {
-          "astId": 60354,
+          "astId": 66283,
           "contract": "contracts/P2POfframp.sol:P2POfframp",
           "label": "encAmountAtLock",
           "offset": 0,
           "slot": "1",
-          "type": "t_userDefinedValueType(euint64)11797"
+          "type": "t_userDefinedValueType(euint64)13136"
         },
         {
-          "astId": 60356,
+          "astId": 66285,
           "contract": "contracts/P2POfframp.sol:P2POfframp",
           "label": "fiatAmountAtLockMicroUSD",
           "offset": 0,
@@ -193,7 +258,7 @@
           "type": "t_uint64"
         },
         {
-          "astId": 60358,
+          "astId": 66287,
           "contract": "contracts/P2POfframp.sol:P2POfframp",
           "label": "lockedAt",
           "offset": 8,
@@ -201,7 +266,7 @@
           "type": "t_uint32"
         },
         {
-          "astId": 60360,
+          "astId": 66289,
           "contract": "contracts/P2POfframp.sol:P2POfframp",
           "label": "proofSubmittedAt",
           "offset": 12,
@@ -209,7 +274,7 @@
           "type": "t_uint32"
         },
         {
-          "astId": 60362,
+          "astId": 66291,
           "contract": "contracts/P2POfframp.sol:P2POfframp",
           "label": "reclaimProofHash",
           "offset": 0,
@@ -217,22 +282,22 @@
           "type": "t_bytes32"
         },
         {
-          "astId": 60365,
+          "astId": 66294,
           "contract": "contracts/P2POfframp.sol:P2POfframp",
           "label": "state",
           "offset": 0,
           "slot": "4",
-          "type": "t_enum(FillState)60321"
+          "type": "t_enum(FillState)66250"
         }
       ],
       "numberOfBytes": "160"
     },
-    "t_struct(Offer)60347_storage": {
+    "t_struct(Offer)66276_storage": {
       "encoding": "inplace",
       "label": "struct P2POfframp.Offer",
       "members": [
         {
-          "astId": 60323,
+          "astId": 66252,
           "contract": "contracts/P2POfframp.sol:P2POfframp",
           "label": "maker",
           "offset": 0,
@@ -240,7 +305,7 @@
           "type": "t_address"
         },
         {
-          "astId": 60325,
+          "astId": 66254,
           "contract": "contracts/P2POfframp.sol:P2POfframp",
           "label": "vault",
           "offset": 0,
@@ -248,7 +313,7 @@
           "type": "t_address"
         },
         {
-          "astId": 60327,
+          "astId": 66256,
           "contract": "contracts/P2POfframp.sol:P2POfframp",
           "label": "fiatAmountMicroUSD",
           "offset": 20,
@@ -256,7 +321,7 @@
           "type": "t_uint64"
         },
         {
-          "astId": 60329,
+          "astId": 66258,
           "contract": "contracts/P2POfframp.sol:P2POfframp",
           "label": "fiatRateMicroUSD",
           "offset": 0,
@@ -264,23 +329,23 @@
           "type": "t_uint64"
         },
         {
-          "astId": 60332,
+          "astId": 66261,
           "contract": "contracts/P2POfframp.sol:P2POfframp",
           "label": "encUsdcAmount",
           "offset": 0,
           "slot": "3",
-          "type": "t_userDefinedValueType(euint64)11797"
+          "type": "t_userDefinedValueType(euint64)13136"
         },
         {
-          "astId": 60335,
+          "astId": 66264,
           "contract": "contracts/P2POfframp.sol:P2POfframp",
           "label": "encMinFill",
           "offset": 0,
           "slot": "4",
-          "type": "t_userDefinedValueType(euint64)11797"
+          "type": "t_userDefinedValueType(euint64)13136"
         },
         {
-          "astId": 60337,
+          "astId": 66266,
           "contract": "contracts/P2POfframp.sol:P2POfframp",
           "label": "fiatRail",
           "offset": 0,
@@ -288,7 +353,7 @@
           "type": "t_uint32"
         },
         {
-          "astId": 60339,
+          "astId": 66268,
           "contract": "contracts/P2POfframp.sol:P2POfframp",
           "label": "makerHandleHash",
           "offset": 0,
@@ -296,7 +361,7 @@
           "type": "t_bytes32"
         },
         {
-          "astId": 60341,
+          "astId": 66270,
           "contract": "contracts/P2POfframp.sol:P2POfframp",
           "label": "expiry",
           "offset": 0,
@@ -304,7 +369,7 @@
           "type": "t_uint32"
         },
         {
-          "astId": 60343,
+          "astId": 66272,
           "contract": "contracts/P2POfframp.sol:P2POfframp",
           "label": "createdAt",
           "offset": 4,
@@ -312,12 +377,12 @@
           "type": "t_uint32"
         },
         {
-          "astId": 60346,
+          "astId": 66275,
           "contract": "contracts/P2POfframp.sol:P2POfframp",
           "label": "state",
           "offset": 8,
           "slot": "7",
-          "type": "t_enum(OfferState)60314"
+          "type": "t_enum(OfferState)66243"
         }
       ],
       "numberOfBytes": "256"
@@ -337,7 +402,7 @@
       "label": "uint64",
       "numberOfBytes": "8"
     },
-    "t_userDefinedValueType(euint64)11797": {
+    "t_userDefinedValueType(euint64)13136": {
       "encoding": "inplace",
       "label": "euint64",
       "numberOfBytes": "32"

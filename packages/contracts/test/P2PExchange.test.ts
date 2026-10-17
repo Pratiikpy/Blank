@@ -101,217 +101,49 @@ async function encAmt(client: any, signer: any, amount: bigint, consuming: strin
   return await client.encryptInputs([Encryptable.uint64(amount)]).setConsumingContract(consuming).execute();
 }
 
-describe("P2PExchange — createOffer guards", () => {
-  it("rejects same tokenGive == tokenWant", async () => {
+/// Plants an offer that was open before retirement: offers is at slot 3,
+/// nextOfferId at slot 2 (see storage-layouts/P2PExchange.json).
+async function plantLegacyOffer(p2p: any, maker: string, tokenGive: string, tokenWant: string) {
+  const addr = await p2p.getAddress();
+  const coder = hre.ethers.AbiCoder.defaultAbiCoder();
+  const base = BigInt(hre.ethers.keccak256(coder.encode(["uint256", "uint256"], [0, 3])));
+  const word = (v: bigint | string) => hre.ethers.zeroPadValue(hre.ethers.toBeHex(BigInt(v)), 32);
+  const set = (slot: bigint, v: bigint | string) =>
+    hre.network.provider.send("hardhat_setStorageAt", [addr, hre.ethers.toBeHex(slot), word(v)]);
+  await set(base, maker);
+  await set(base + 1n, tokenGive);
+  await set(base + 2n, tokenWant);
+  await set(base + 3n, usdc(10));
+  await set(base + 4n, usdc(10));
+  await set(base + 5n, 4_000_000_000n);
+  await set(base + 6n, 1n); // active = true, filled = false
+  await set(2n, 1n);        // nextOfferId = 1
+}
+
+describe("P2PExchange — retired", () => {
+  it("createOffer reverts", async () => {
     const ctx = await loadFixture(deployFixture);
     await expect(
       ctx.p2p.connect(ctx.maker).createOffer(
-        await ctx.vaultGive.getAddress(),
-        await ctx.vaultGive.getAddress(),
-        usdc(100), usdc(100), (await time.latest()) + 86400,
+        await ctx.vaultGive.getAddress(), await ctx.vaultWant.getAddress(), usdc(10), usdc(10), (await time.latest()) + 3600,
       ),
-    ).to.be.revertedWith("P2PExchange: same token");
+    ).to.be.revertedWith("P2PExchange: retired");
   });
 
-  it("rejects zero amountGive or amountWant", async () => {
+  it("fillOffer reverts, including on an offer open before retirement", async () => {
     const ctx = await loadFixture(deployFixture);
-    const expiry = (await time.latest()) + 86400;
-    await expect(
-      ctx.p2p.connect(ctx.maker).createOffer(
-        await ctx.vaultGive.getAddress(), await ctx.vaultWant.getAddress(),
-        0, usdc(100), expiry,
-      ),
-    ).to.be.revertedWith("P2PExchange: zero amount");
-    await expect(
-      ctx.p2p.connect(ctx.maker).createOffer(
-        await ctx.vaultGive.getAddress(), await ctx.vaultWant.getAddress(),
-        usdc(100), 0, expiry,
-      ),
-    ).to.be.revertedWith("P2PExchange: zero amount");
+    await plantLegacyOffer(ctx.p2p, ctx.maker.address, await ctx.vaultGive.getAddress(), await ctx.vaultWant.getAddress());
+    const enc = await encPair(ctx.client, ctx.taker, usdc(10), usdc(10), await ctx.p2p.getAddress());
+    await expect(ctx.p2p.connect(ctx.taker).fillOffer(0, ...enc)).to.be.revertedWith("P2PExchange: retired");
   });
 
-  it("rejects expiry in the past or equal to now", async () => {
+  it("maker can still cancel an offer open before retirement; views keep working", async () => {
     const ctx = await loadFixture(deployFixture);
-    const now = await time.latest();
-    await expect(
-      ctx.p2p.connect(ctx.maker).createOffer(
-        await ctx.vaultGive.getAddress(), await ctx.vaultWant.getAddress(),
-        usdc(100), usdc(100), now,
-      ),
-    ).to.be.revertedWith("P2PExchange: expired");
-  });
-});
-
-describe("P2PExchange — fillOffer guards", () => {
-  it("rejects self-fill (maker filling own offer)", async () => {
-    const ctx = await loadFixture(deployFixture);
-    await ctx.p2p.connect(ctx.maker).createOffer(
-      await ctx.vaultGive.getAddress(), await ctx.vaultWant.getAddress(),
-      usdc(100), usdc(100), (await time.latest()) + 86400,
-    );
-    const pair = await encPair(ctx.client, ctx.maker, usdc(100), usdc(100), await ctx.p2p.getAddress());
-    await expect(
-      ctx.p2p.connect(ctx.maker).fillOffer(0, pair[0], pair[1], pair[2]),
-    ).to.be.revertedWith("P2PExchange: self-fill");
-  });
-
-  it("rejects fillOffer on a cancelled offer", async () => {
-    const ctx = await loadFixture(deployFixture);
-    await ctx.p2p.connect(ctx.maker).createOffer(
-      await ctx.vaultGive.getAddress(), await ctx.vaultWant.getAddress(),
-      usdc(100), usdc(100), (await time.latest()) + 86400,
-    );
-    await ctx.p2p.connect(ctx.maker).cancelOffer(0);
-    const pair = await encPair(ctx.client, ctx.taker, usdc(100), usdc(100), await ctx.p2p.getAddress());
-    await expect(
-      ctx.p2p.connect(ctx.taker).fillOffer(0, pair[0], pair[1], pair[2]),
-    ).to.be.revertedWith("P2PExchange: not available");
-  });
-});
-
-describe("P2PExchange — #353 anti-overdraw clamp (critical security pin)", () => {
-  it("taker requesting MORE than amountGive is clamped to amountGive (maker loses no more than advertised)", async () => {
-    // Setup: maker advertises an offer to give 100 USDC for 50 USDT.
-    // Malicious taker tries to drain maker's full 1_000 USDC balance by
-    // encrypting amountGive=1_000 in encMakerPayment. The clamp at
-    // P2PExchange.sol:129-131 forces the cap to o.amountGive=100, so
-    // the maker only loses what they advertised.
-    const ctx = await loadFixture(deployFixture);
-    await ctx.p2p.connect(ctx.maker).createOffer(
-      await ctx.vaultGive.getAddress(), await ctx.vaultWant.getAddress(),
-      usdc(100), usdc(50), (await time.latest()) + 86400,
-    );
-
-    // Taker pays the legitimate amountWant (50 USDT) but requests
-    // amountGive=1_000 USDC (way over the offer cap).
-    const pair = await encPair(ctx.client, ctx.taker, usdc(50), usdc(1_000), await ctx.p2p.getAddress());
-    await ctx.p2p.connect(ctx.taker).fillOffer(0, pair[0], pair[1], pair[2]);
-
-    // Maker loses exactly 100 USDC (clamp held), not 1_000.
-    await mock_expectPlaintext(
-      ctx.maker.provider,
-      await ctx.vaultGive.balanceOf(ctx.maker.address),
-      usdc(900), // started 1_000, minus the clamped 100
-    );
-    await mock_expectPlaintext(
-      ctx.taker.provider,
-      await ctx.vaultGive.balanceOf(ctx.taker.address),
-      usdc(100), // taker received exactly amountGive
-    );
-
-    // Taker also paid the 50 USDT they encrypted.
-    await mock_expectPlaintext(
-      ctx.taker.provider,
-      await ctx.vaultWant.balanceOf(ctx.taker.address),
-      usdc(950),
-    );
-    await mock_expectPlaintext(
-      ctx.maker.provider,
-      await ctx.vaultWant.balanceOf(ctx.maker.address),
-      usdc(50),
-    );
-  });
-
-  it("happy path: taker requests EXACTLY amountGive — full atomic swap", async () => {
-    const ctx = await loadFixture(deployFixture);
-    await ctx.p2p.connect(ctx.maker).createOffer(
-      await ctx.vaultGive.getAddress(), await ctx.vaultWant.getAddress(),
-      usdc(100), usdc(50), (await time.latest()) + 86400,
-    );
-    const pair = await encPair(ctx.client, ctx.taker, usdc(50), usdc(100), await ctx.p2p.getAddress());
-    await expect(
-      ctx.p2p.connect(ctx.taker).fillOffer(0, pair[0], pair[1], pair[2]),
-    ).to.emit(ctx.p2p, "OfferFilled");
-
-    // Offer state: filled, inactive.
-    const o = await ctx.p2p.offers(0);
-    expect(o.filled).to.equal(true);
-    expect(o.active).to.equal(false);
-  });
-});
-
-describe("P2PExchange — validation flow (publish + read)", () => {
-  it("matching-amounts trade resolves to (isValid=true, isReady=true)", async () => {
-    const ctx = await loadFixture(deployFixture);
-    await ctx.p2p.connect(ctx.maker).createOffer(
-      await ctx.vaultGive.getAddress(), await ctx.vaultWant.getAddress(),
-      usdc(100), usdc(50), (await time.latest()) + 86400,
-    );
-    const pair = await encPair(ctx.client, ctx.taker, usdc(50), usdc(100), await ctx.p2p.getAddress());
-    await ctx.p2p.connect(ctx.taker).fillOffer(0, pair[0], pair[1], pair[2]);
-
-    // Off-chain decrypt the validation handle, publish it on-chain.
-    const handle = await ctx.p2p.getValidationHandle(0);
-    await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.taker);
-    const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutACP().execute();
-    await ctx.p2p.connect(ctx.taker).publishTradeValidation(0, proof.decryptedValue, proof.signature);
-
-    const [isValid, isReady] = await ctx.p2p.getTradeValidation(0);
-    expect(isReady).to.equal(true);
-    expect(isValid).to.equal(true);
-  });
-});
-
-describe("P2PExchange — cancelOffer", () => {
-  it("rejects cancel from non-maker", async () => {
-    const ctx = await loadFixture(deployFixture);
-    await ctx.p2p.connect(ctx.maker).createOffer(
-      await ctx.vaultGive.getAddress(), await ctx.vaultWant.getAddress(),
-      usdc(100), usdc(100), (await time.latest()) + 86400,
-    );
-    await expect(
-      ctx.p2p.connect(ctx.taker).cancelOffer(0),
-    ).to.be.revertedWith("P2PExchange: not maker");
-  });
-
-  it("rejects cancel of an already-filled offer", async () => {
-    const ctx = await loadFixture(deployFixture);
-    await ctx.p2p.connect(ctx.maker).createOffer(
-      await ctx.vaultGive.getAddress(), await ctx.vaultWant.getAddress(),
-      usdc(100), usdc(50), (await time.latest()) + 86400,
-    );
-    const pair = await encPair(ctx.client, ctx.taker, usdc(50), usdc(100), await ctx.p2p.getAddress());
-    await ctx.p2p.connect(ctx.taker).fillOffer(0, pair[0], pair[1], pair[2]);
-    await expect(
-      ctx.p2p.connect(ctx.maker).cancelOffer(0),
-    ).to.be.revertedWith("P2PExchange: not available");
-  });
-});
-
-describe("P2PExchange — getActiveOffers filtering", () => {
-  it("excludes cancelled, filled, and expired offers", async () => {
-    const ctx = await loadFixture(deployFixture);
-    const future = (await time.latest()) + 86400;
-
-    // Offer 0 — will be cancelled
-    await ctx.p2p.connect(ctx.maker).createOffer(
-      await ctx.vaultGive.getAddress(), await ctx.vaultWant.getAddress(),
-      usdc(10), usdc(10), future,
-    );
-    // Offer 1 — will be filled
-    await ctx.p2p.connect(ctx.maker).createOffer(
-      await ctx.vaultGive.getAddress(), await ctx.vaultWant.getAddress(),
-      usdc(20), usdc(10), future,
-    );
-    // Offer 2 — short expiry, will be expired
-    const shortExpiry = (await time.latest()) + 60;
-    await ctx.p2p.connect(ctx.maker).createOffer(
-      await ctx.vaultGive.getAddress(), await ctx.vaultWant.getAddress(),
-      usdc(30), usdc(10), shortExpiry,
-    );
-    // Offer 3 — stays active
-    await ctx.p2p.connect(ctx.maker).createOffer(
-      await ctx.vaultGive.getAddress(), await ctx.vaultWant.getAddress(),
-      usdc(40), usdc(10), future,
-    );
-
-    await ctx.p2p.connect(ctx.maker).cancelOffer(0);
-    const p1 = await encPair(ctx.client, ctx.taker, usdc(10), usdc(20), await ctx.p2p.getAddress());
-    await ctx.p2p.connect(ctx.taker).fillOffer(1, p1[0], p1[1], p1[2]);
-    await time.increaseTo(shortExpiry + 10);
-
-    const active = await ctx.p2p.getActiveOffers(0, 10);
-    expect(active.length).to.equal(1);
-    expect(active[0].amountGive).to.equal(usdc(40)); // only offer 3 survived
+    await plantLegacyOffer(ctx.p2p, ctx.maker.address, await ctx.vaultGive.getAddress(), await ctx.vaultWant.getAddress());
+    expect((await ctx.p2p.getActiveOffers(0, 10)).length).to.equal(1);
+    await expect(ctx.p2p.connect(ctx.attacker).cancelOffer(0)).to.be.revertedWith("P2PExchange: not maker");
+    await expect(ctx.p2p.connect(ctx.maker).cancelOffer(0)).to.emit(ctx.p2p, "OfferCancelled");
+    expect((await ctx.p2p.getActiveOffers(0, 10)).length).to.equal(0);
+    expect((await ctx.p2p.offers(0)).active).to.equal(false);
   });
 });

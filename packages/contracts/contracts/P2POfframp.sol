@@ -5,6 +5,7 @@ import "@fhenixprotocol/cofhe-contracts/FHE.sol";
 import "./utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import "./interfaces/ITokenRegistry.sol";
 
 interface IFHERC20Vault {
     function transferFrom(address from, address to, externalEuint64 encAmount, bytes calldata proof) external returns (euint64);
@@ -17,7 +18,9 @@ interface IReclaimAdapter {
         bytes calldata proof,
         uint32 providerId,
         bytes32 expectedReceiver,
-        uint64 expectedAmount
+        uint64 expectedAmount,
+        uint64 fillId,
+        address taker
     ) external returns (bytes32 proofHash);
 }
 
@@ -33,12 +36,13 @@ interface IEventHub {
 ///         attestation proof, and after a challenge window the USDC
 ///         releases.
 ///
-/// @dev    The encrypted-amount moat applies to fill-amount drift
-///         (FHE.eq enforced at release: fill amount cannot change
-///         between lock and release) and the maker's encrypted
-///         minimum fill (FHE.gte at take). The initial offer's fiat
-///         price is plaintext so takers can find offers — README
-///         must say so honestly.
+/// @dev    Every payout (release, arbiter, expiry, stale dispute) pays the
+///         handle the vault actually moved into escrow at takeOffer, never
+///         the maker's requested amount. The vault moves 0 when the maker is
+///         short, so the taker gets decrypt access to the escrowed handle and
+///         must check it before sending fiat. v1 is full-fill only, so
+///         encMinFill is stored but not enforced. The fiat price is plaintext
+///         so takers can find offers.
 ///
 ///         CHALLENGE_WINDOW_SECONDS is constructor immutable so
 ///         testnet can ship with 5min and mainnet (Wave 6, if any)
@@ -119,6 +123,21 @@ contract P2POfframp is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     event FillResolved(uint64 indexed fillId, bool releasedToTaker);
     event FillRefunded(uint64 indexed fillId);
     event ArbiterChanged(address indexed previous, address indexed next);
+    event ReclaimAdapterChanged(address indexed previous, address indexed next);
+    event ChallengeWindowChanged(uint32 previous, uint32 next);
+    event TokenRegistrySet(address indexed registry);
+    event FillEscrowed(uint64 indexed fillId, euint64 escrowed);
+    event StaleDisputeReleased(uint64 indexed fillId);
+
+    /// Arbiter has this long after a dispute before anyone can apply the
+    /// default outcome (release to the taker, whose payment proof already
+    /// passed the verifier).
+    uint32 public constant DISPUTE_TIMEOUT_SECONDS = 7 days;
+    /// Taker has this long after locking to submit a payment proof.
+    uint32 public constant PROOF_WINDOW_SECONDS = 24 hours;
+    /// Open locks one taker address may hold at once. Caps free offer
+    /// griefing: each lock freezes a maker's offer for PROOF_WINDOW_SECONDS.
+    uint32 public constant MAX_ACTIVE_LOCKS_PER_TAKER = 1;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() { _disableInitializers(); }
@@ -132,6 +151,8 @@ contract P2POfframp is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         __Ownable_init(msg.sender);
         require(_challengeWindowSeconds >= 60, "P2POfframp: window too short");
         require(_challengeWindowSeconds <= 7 days, "P2POfframp: window too long");
+        require(_arbiter != address(0), "P2POfframp: zero arbiter");
+        require(_reclaimAdapter.code.length > 0, "P2POfframp: bad adapter");
         arbiter = _arbiter;
         reclaimAdapter = IReclaimAdapter(_reclaimAdapter);
         eventHub = IEventHub(_eventHub);
@@ -142,18 +163,35 @@ contract P2POfframp is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     // ─── Admin ─────────────────────────────────────────────────────
 
     function setArbiter(address newArbiter) external onlyOwner {
+        require(newArbiter != address(0), "P2POfframp: zero arbiter");
         emit ArbiterChanged(arbiter, newArbiter);
         arbiter = newArbiter;
     }
 
     function setReclaimAdapter(address newAdapter) external onlyOwner {
+        require(newAdapter.code.length > 0, "P2POfframp: bad adapter");
+        emit ReclaimAdapterChanged(address(reclaimAdapter), newAdapter);
         reclaimAdapter = IReclaimAdapter(newAdapter);
     }
 
     function setChallengeWindow(uint32 newWindow) external onlyOwner {
         require(newWindow >= 60, "P2POfframp: window too short");
         require(newWindow <= 7 days, "P2POfframp: window too long");
+        emit ChallengeWindowChanged(CHALLENGE_WINDOW_SECONDS, newWindow);
         CHALLENGE_WINDOW_SECONDS = newWindow;
+    }
+
+    function setTokenRegistry(address r) external onlyOwner {
+        require(r.code.length > 0, "P2POfframp: bad registry");
+        tokenRegistry = ITokenRegistry(r);
+        emit TokenRegistrySet(r);
+    }
+
+    function _requireAllowedVault(address vault) internal view {
+        require(
+            address(tokenRegistry) != address(0) && tokenRegistry.isActiveVault(vault),
+            "P2POfframp: vault not allowed"
+        );
     }
 
     // ─── Maker side ────────────────────────────────────────────────
@@ -175,6 +213,7 @@ contract P2POfframp is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         uint32 expirySeconds
     ) external nonReentrant returns (uint64 offerId) {
         require(vault != address(0), "P2POfframp: vault");
+        _requireAllowedVault(vault);
         require(fiatRail >= 1 && fiatRail <= 6, "P2POfframp: rail");
         require(fiatAmountMicroUSD > 0, "P2POfframp: fiat zero");
         require(fiatRateMicroUSD > 0, "P2POfframp: rate zero");
@@ -225,15 +264,11 @@ contract P2POfframp is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
     // ─── Taker side ────────────────────────────────────────────────
 
-    /// Lock the offer. v1 is full-fill only — the taker accepts the
+    /// Lock the offer. v1 is full-fill only: the taker accepts the
     /// entire offer amount. Pulls the maker's encrypted USDC into
     /// this contract so it's escrowed until release or refund.
-    ///
-    /// Partial fills with proportional fiat are deliberately Wave 6
-    /// scope: they require an FHE-friendly fillFraction primitive we
-    /// don't have today, so v1 keeps the encrypted-amount-drift
-    /// surface ZERO by reusing the maker's encUsdcAmount handle for
-    /// the fill snapshot.
+    /// The vault moves 0 if the maker is short, so the taker must decrypt
+    /// getEscrowedAmount(fillId) before sending fiat.
     function takeOffer(
         uint64 offerId
     ) external nonReentrant returns (uint64 fillId) {
@@ -241,21 +276,25 @@ contract P2POfframp is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         require(o.state == OfferState.Open, "P2POfframp: offer not open");
         require(block.timestamp < o.expiry, "P2POfframp: offer expired");
         require(msg.sender != o.maker, "P2POfframp: maker cannot self-take");
+        _requireAllowedVault(o.vault);
+        require(activeLocks[msg.sender] < MAX_ACTIVE_LOCKS_PER_TAKER, "P2POfframp: too many open locks");
+        activeLocks[msg.sender] += 1;
 
-        // Re-grant the maker's encUsdcAmount handle so the vault can
-        // read it on the transferFromVerified call. The handle was
-        // created in the maker's context at createOffer; we hold
-        // contract-level access via FHE.allowThis already.
-        IFHERC20Vault(o.vault).transferFromVerified(o.maker, address(this), FHE.shareEuint64(o.encUsdcAmount, o.vault));
+        euint64 moved = FHE.receiveEuint64FromCall(
+            IFHERC20Vault(o.vault).transferFromVerified(o.maker, address(this), FHE.shareEuint64(o.encUsdcAmount, o.vault)),
+            o.vault
+        );
+        FHE.allowThis(moved);
+        FHE.allow(moved, msg.sender);
+        FHE.allow(moved, o.maker);
 
-        // The fill snapshot IS the maker's encrypted offer amount.
-        // Drift between lock and release becomes impossible because
-        // both reads point at the same FHE handle.
+        // Kept for the legacy getter shape; payouts use fillEscrowed.
         euint64 encFill = o.encUsdcAmount;
         FHE.allowThis(encFill);
         FHE.allow(encFill, msg.sender);
 
         fillId = nextFillId++;
+        fillEscrowed[fillId] = moved;
         fills[fillId] = Fill({
             offerId: offerId,
             taker: msg.sender,
@@ -271,6 +310,7 @@ contract P2POfframp is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         o.state = OfferState.Filled;
 
         emit FillLocked(fillId, offerId, msg.sender, o.fiatAmountMicroUSD);
+        emit FillEscrowed(fillId, moved);
         try eventHub.emitActivity(msg.sender, o.maker, "offramp_fill_locked", "", fillId) {} catch {}
     }
 
@@ -287,16 +327,20 @@ contract P2POfframp is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         require(f.state == FillState.Locked, "P2POfframp: bad state");
 
         Offer storage o = offers[f.offerId];
+        require(providerId == o.fiatRail, "P2POfframp: provider/rail mismatch");
 
         // Adapter checks: provider allowlist, proof validity, amount
         // match (against fill.fiatAmountAtLockMicroUSD, NOT a
-        // caller-supplied parameter), replay.
+        // caller-supplied parameter), fill + taker binding, replay.
         bytes32 proofHash = reclaimAdapter.verifyAndConsume(
             reclaimProof,
             providerId,
             o.makerHandleHash,
-            f.fiatAmountAtLockMicroUSD
+            f.fiatAmountAtLockMicroUSD,
+            fillId,
+            msg.sender
         );
+        _releaseLock(msg.sender);
 
         f.reclaimProofHash = proofHash;
         f.proofSubmittedAt = uint32(block.timestamp);
@@ -318,14 +362,8 @@ contract P2POfframp is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
         Offer storage o = offers[f.offerId];
 
-        // Drift-free by construction: f.encAmountAtLock IS the
-        // maker's offer handle stored at takeOffer time. The Solidity
-        // mapping is the only writer, and we never re-write the
-        // field after lock. transferVerified pulls exactly the
-        // escrowed encrypted amount.
-        IFHERC20Vault(o.vault).transferVerified(f.taker, FHE.shareEuint64(f.encAmountAtLock, o.vault));
-
         f.state = FillState.Released;
+        _payOut(o.vault, f.taker, fillId);
         makerFillCount[o.maker] += 1;
 
         emit FillReleased(fillId);
@@ -344,6 +382,7 @@ contract P2POfframp is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         );
 
         f.state = FillState.Disputed;
+        fillDisputedAt[fillId] = uint32(block.timestamp);
         makerDisputeCount[o.maker] += 1;
         emit FillDisputed(fillId, reason);
         try eventHub.emitActivity(msg.sender, f.taker, "offramp_disputed", reason, fillId) {} catch {}
@@ -359,31 +398,51 @@ contract P2POfframp is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         Offer storage o = offers[f.offerId];
 
         if (releaseToTaker) {
-            IFHERC20Vault(o.vault).transferVerified(f.taker, FHE.shareEuint64(f.encAmountAtLock, o.vault));
             f.state = FillState.Resolved;
             makerFillCount[o.maker] += 1;
+            _payOut(o.vault, f.taker, fillId);
         } else {
-            IFHERC20Vault(o.vault).transferVerified(o.maker, FHE.shareEuint64(f.encAmountAtLock, o.vault));
             f.state = FillState.Refunded;
+            _payOut(o.vault, o.maker, fillId);
         }
 
         emit FillResolved(fillId, releaseToTaker);
         try eventHub.emitActivity(o.maker, f.taker, releaseToTaker ? "offramp_resolved_taker" : "offramp_resolved_maker", "", fillId) {} catch {}
     }
 
+    /// Default outcome for a dispute the arbiter left open past
+    /// DISPUTE_TIMEOUT_SECONDS. Releases to the taker: their payment proof
+    /// already passed the verifier, and a refund default would let a maker
+    /// keep the fiat and the USDC by disputing and waiting. Anyone can call.
+    function resolveStaleDispute(uint64 fillId) external nonReentrant {
+        Fill storage f = fills[fillId];
+        require(f.state == FillState.Disputed, "P2POfframp: not disputed");
+        uint32 disputedAt = fillDisputedAt[fillId];
+        require(disputedAt != 0, "P2POfframp: legacy dispute, arbiter only");
+        require(block.timestamp >= uint256(disputedAt) + DISPUTE_TIMEOUT_SECONDS, "P2POfframp: arbiter window open");
+
+        Offer storage o = offers[f.offerId];
+        f.state = FillState.Resolved;
+        makerFillCount[o.maker] += 1;
+        _payOut(o.vault, f.taker, fillId);
+
+        emit FillResolved(fillId, true);
+        emit StaleDisputeReleased(fillId);
+        try eventHub.emitActivity(o.maker, f.taker, "offramp_resolved_timeout", "", fillId) {} catch {}
+    }
+
     /// Maker reclaims the escrowed USDC if the taker never submitted
-    /// a proof within `proofWindow` of locking. Hardcoded at 24h for
-    /// v1 (separate from CHALLENGE_WINDOW_SECONDS which is post-proof).
+    /// a proof within PROOF_WINDOW_SECONDS of locking.
     function expireFill(uint64 fillId) external nonReentrant {
         Fill storage f = fills[fillId];
         Offer storage o = offers[f.offerId];
         require(o.maker == msg.sender, "P2POfframp: not maker");
         require(f.state == FillState.Locked, "P2POfframp: bad state");
-        require(block.timestamp >= f.lockedAt + 24 hours, "P2POfframp: proof window open");
+        require(block.timestamp >= f.lockedAt + PROOF_WINDOW_SECONDS, "P2POfframp: proof window open");
 
-        IFHERC20Vault(o.vault).transferVerified(o.maker, FHE.shareEuint64(f.encAmountAtLock, o.vault));
-
+        _releaseLock(f.taker);
         f.state = FillState.Refunded;
+        _payOut(o.vault, o.maker, fillId);
         emit FillRefunded(fillId);
         try eventHub.emitActivity(o.maker, f.taker, "offramp_expired", "", fillId) {} catch {}
     }
@@ -421,5 +480,41 @@ contract P2POfframp is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         return (makerFillCount[maker], makerDisputeCount[maker]);
     }
 
+    /// @notice Encrypted amount the vault actually moved into escrow for a
+    ///         fill. Taker and maker can decrypt it.
+    function getEscrowedAmount(uint64 fillId) external view returns (euint64) {
+        return _escrowedOf(fillId);
+    }
+
+    // ─── Internals ─────────────────────────────────────────────────
+
+    /// Fills locked before this upgrade have no stored moved handle; they
+    /// fall back to the lock snapshot so their exits keep working.
+    function _escrowedOf(uint64 fillId) internal view returns (euint64) {
+        euint64 moved = fillEscrowed[fillId];
+        return euint64.unwrap(moved) != 0 ? moved : fills[fillId].encAmountAtLock;
+    }
+
+    function _payOut(address vault, address to, uint64 fillId) internal {
+        IFHERC20Vault(vault).transferVerified(to, FHE.shareEuint64(_escrowedOf(fillId), vault));
+    }
+
+    function _releaseLock(address taker) internal {
+        if (activeLocks[taker] > 0) activeLocks[taker] -= 1;
+    }
+
     function _authorizeUpgrade(address) internal override onlyOwner {}
+
+    // ─── Appended storage (UUPS) ───────────────────────────────────
+
+    ITokenRegistry public tokenRegistry;
+    /// fillId => handle the vault actually moved into escrow at takeOffer.
+    mapping(uint64 => euint64) public fillEscrowed;
+    /// fillId => dispute timestamp, for the stale-dispute default.
+    mapping(uint64 => uint32) public fillDisputedAt;
+    /// taker => fills currently in Locked state.
+    mapping(address => uint32) public activeLocks;
+
+    /// @dev Reserved for future appends.
+    uint256[46] private __gap;
 }

@@ -45,6 +45,9 @@ async function deployFixture() {
   ]);
   const crowdfund = await deployProxy("EncryptedCrowdfund", [await eventHub.getAddress()]);
   await eventHub.batchWhitelist([await crowdfund.getAddress()]);
+  const registry = await deployProxy("TokenRegistry");
+  await registry.registerToken(await vault.getAddress(), await testUSDC.getAddress(), "Test USDC", "USDC", USDC_DECIMALS);
+  await crowdfund.setTokenRegistry(await registry.getAddress());
 
   for (const signer of [alice, bob, charlie, dave]) {
     await testUSDC.mint(signer.address, usdc(10_000));
@@ -437,5 +440,93 @@ describe("EncryptedCrowdfund", () => {
       const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutACP().execute();
       expect(Boolean(proof.decryptedValue)).to.equal(true);
     });
+  });
+});
+
+async function publishVerdict(ctx: any, id: number) {
+  const handle = await ctx.crowdfund.getGoalCheckHandle(id);
+  await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.dave);
+  const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutACP().execute();
+  await ctx.crowdfund.connect(ctx.dave).publishCloseResult(id, Boolean(proof.decryptedValue), proof.signature);
+}
+
+describe("EncryptedCrowdfund — audit fixes", () => {
+  it("C6: creator cannot claimRelease twice and drain other campaigns on the vault", async () => {
+    const ctx = await loadFixture(deployFixture);
+    const cf = await ctx.crowdfund.getAddress();
+    // Campaign 0 (alice) and campaign 1 (bob) share the vault.
+    await ctx.crowdfund.connect(ctx.alice).createCampaign(
+      await ctx.vault.getAddress(), ...(await encUint64(ctx.client, ctx.alice, usdc(10), cf)), 3600, "A", ZERO_BYTES32,
+    );
+    await ctx.crowdfund.connect(ctx.bob).createCampaign(
+      await ctx.vault.getAddress(), ...(await encUint64(ctx.client, ctx.bob, usdc(500), cf)), 3600, "B", ZERO_BYTES32,
+    );
+    await ctx.crowdfund.connect(ctx.charlie).contribute(0, ...(await encUint64(ctx.client, ctx.charlie, usdc(20), cf)));
+    await ctx.crowdfund.connect(ctx.dave).contribute(1, ...(await encUint64(ctx.client, ctx.dave, usdc(40), cf)));
+
+    await time.increase(3601);
+    await ctx.crowdfund.closeCampaign(0);
+    await publishVerdict(ctx, 0);
+
+    await ctx.crowdfund.connect(ctx.alice).claimRelease(0);
+    expect(await ctx.crowdfund.releasePaid(0)).to.equal(true);
+    await expect(ctx.crowdfund.connect(ctx.alice).claimRelease(0)).to.be.revertedWith("Crowdfund: already released");
+
+    // Campaign 1's 40 is still in custody for Dave's refund.
+    await mock_expectPlaintext(ctx.alice.provider, await ctx.vault.balanceOf(cf), usdc(40));
+    await mock_expectPlaintext(ctx.alice.provider, await ctx.vault.balanceOf(ctx.alice.address), usdc(1_020));
+  });
+
+  it("privacy: contributors never get decrypt access to the running total; creator gets it at close", async () => {
+    const ctx = await loadFixture(deployFixture);
+    const cf = await ctx.crowdfund.getAddress();
+    const acl = await hre.cofhe.mocks.getMockACL();
+    await ctx.crowdfund.connect(ctx.alice).createCampaign(
+      await ctx.vault.getAddress(), ...(await encUint64(ctx.client, ctx.alice, usdc(50), cf)), 3600, "P", ZERO_BYTES32,
+    );
+    await ctx.crowdfund.connect(ctx.bob).contribute(0, ...(await encUint64(ctx.client, ctx.bob, usdc(10), cf)));
+    await ctx.crowdfund.connect(ctx.charlie).contribute(0, ...(await encUint64(ctx.client, ctx.charlie, usdc(5), cf)));
+
+    let raised = await ctx.crowdfund.getEncryptedRaised(0);
+    expect(await acl.isAllowed(raised, ctx.charlie.address)).to.equal(false);
+    expect(await acl.isAllowed(raised, ctx.bob.address)).to.equal(false);
+    expect(await acl.isAllowed(raised, ctx.alice.address)).to.equal(false);
+
+    await time.increase(3601);
+    await ctx.crowdfund.closeCampaign(0);
+    raised = await ctx.crowdfund.getEncryptedRaised(0);
+    expect(await acl.isAllowed(raised, ctx.alice.address)).to.equal(true);
+    await mock_expectPlaintext(ctx.alice.provider, raised, usdc(15));
+  });
+
+  it("vault allowlist: unregistered vault reverts on create; unset registry fails closed", async () => {
+    const ctx = await loadFixture(deployFixture);
+    const cf = await ctx.crowdfund.getAddress();
+    const Stub = await hre.ethers.getContractFactory("MockVaultStub");
+    const fake = await Stub.deploy(await ctx.testUSDC.getAddress());
+    await expect(
+      ctx.crowdfund.connect(ctx.alice).createCampaign(
+        await fake.getAddress(), ...(await encUint64(ctx.client, ctx.alice, usdc(1), cf)), 3600, "F", ZERO_BYTES32,
+      ),
+    ).to.be.revertedWith("Crowdfund: vault not allowed");
+
+    const fresh = await deployProxy("EncryptedCrowdfund", [hre.ethers.ZeroAddress]);
+    await expect(
+      fresh.connect(ctx.alice).createCampaign(
+        await ctx.vault.getAddress(), ...(await encUint64(ctx.client, ctx.alice, usdc(1), await fresh.getAddress())), 3600, "F", ZERO_BYTES32,
+      ),
+    ).to.be.revertedWith("Crowdfund: vault not allowed");
+    await expect(fresh.setTokenRegistry(ctx.alice.address)).to.be.revertedWith("Crowdfund: bad registry");
+  });
+
+  it("short-balance contribution records 0, so raised reflects only moved funds", async () => {
+    const ctx = await loadFixture(deployFixture);
+    const cf = await ctx.crowdfund.getAddress();
+    await ctx.crowdfund.connect(ctx.alice).createCampaign(
+      await ctx.vault.getAddress(), ...(await encUint64(ctx.client, ctx.alice, usdc(50), cf)), 3600, "S", ZERO_BYTES32,
+    );
+    // Bob has 1,000 shielded; asks to contribute 5,000.
+    await ctx.crowdfund.connect(ctx.bob).contribute(0, ...(await encUint64(ctx.client, ctx.bob, usdc(5_000), cf)));
+    await mock_expectPlaintext(ctx.alice.provider, await ctx.crowdfund.getEncryptedRaised(0), 0n);
   });
 });

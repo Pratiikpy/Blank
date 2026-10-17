@@ -1,15 +1,15 @@
 {
   "storage": [
     {
-      "astId": 66686,
+      "astId": 73114,
       "contract": "contracts/ReclaimAdapter.sol:ReclaimAdapter",
       "label": "verifier",
       "offset": 0,
       "slot": "0",
-      "type": "t_contract(IReclaimVerifier)66659"
+      "type": "t_contract(IReclaimVerifier)73087"
     },
     {
-      "astId": 66691,
+      "astId": 73119,
       "contract": "contracts/ReclaimAdapter.sol:ReclaimAdapter",
       "label": "allowedProviders",
       "offset": 0,
@@ -17,7 +17,7 @@
       "type": "t_mapping(t_uint32,t_bool)"
     },
     {
-      "astId": 66696,
+      "astId": 73124,
       "contract": "contracts/ReclaimAdapter.sol:ReclaimAdapter",
       "label": "usedProofs",
       "offset": 0,
@@ -25,12 +25,20 @@
       "type": "t_mapping(t_bytes32,t_bool)"
     },
     {
-      "astId": 66701,
+      "astId": 73129,
       "contract": "contracts/ReclaimAdapter.sol:ReclaimAdapter",
       "label": "allowedCallers",
       "offset": 0,
       "slot": "3",
       "type": "t_mapping(t_address,t_bool)"
+    },
+    {
+      "astId": 73431,
+      "contract": "contracts/ReclaimAdapter.sol:ReclaimAdapter",
+      "label": "__gap",
+      "offset": 0,
+      "slot": "4",
+      "type": "t_array(t_uint256)50_storage"
     }
   ],
   "types": {
@@ -38,6 +46,12 @@
       "encoding": "inplace",
       "label": "address",
       "numberOfBytes": "20"
+    },
+    "t_array(t_uint256)50_storage": {
+      "base": "t_uint256",
+      "encoding": "inplace",
+      "label": "uint256[50]",
+      "numberOfBytes": "1600"
     },
     "t_bool": {
       "encoding": "inplace",
@@ -49,7 +63,7 @@
       "label": "bytes32",
       "numberOfBytes": "32"
     },
-    "t_contract(IReclaimVerifier)66659": {
+    "t_contract(IReclaimVerifier)73087": {
       "encoding": "inplace",
       "label": "contract IReclaimVerifier",
       "numberOfBytes": "20"
@@ -74,6 +88,11 @@
       "label": "mapping(uint32 => bool)",
       "numberOfBytes": "32",
       "value": "t_bool"
+    },
+    "t_uint256": {
+      "encoding": "inplace",
+      "label": "uint256",
+      "numberOfBytes": "32"
     },
     "t_uint32": {
       "encoding": "inplace",

@@ -73,6 +73,9 @@ async function deployFixture() {
   ]);
   const hub = await deployProxy("CreatorHub", [await eventHub.getAddress()]);
   await eventHub.batchWhitelist([await hub.getAddress()]);
+  const registry = await deployProxy("TokenRegistry");
+  await registry.registerToken(await vault.getAddress(), await testUSDC.getAddress(), "Test USDC", "USDC", USDC_DECIMALS);
+  await hub.setTokenRegistry(await registry.getAddress());
 
   // Mint + shield for all three signers; approve the hub via plaintext
   // so the FHE-side transferFromVerified is allowed.
@@ -84,7 +87,7 @@ async function deployFixture() {
     await vault.connect(signer).approvePlaintext(await hub.getAddress(), MAX);
   }
 
-  return { owner, alice, bob, charlie, client, testUSDC, eventHub, vault, hub };
+  return { owner, alice, bob, charlie, client, testUSDC, eventHub, vault, hub, registry };
 }
 
 // Tier thresholds: 100 / 200 / 300 in token smallest units (so a tip
@@ -225,7 +228,7 @@ describe("CreatorHub — support (tipping path)", () => {
         "",
       );
     }
-    const contrib = await ctx.hub.connect(ctx.bob).getMyContribution(ctx.alice.address);
+    const contrib = await ctx.hub.connect(ctx.bob).getMyContributionIn(ctx.alice.address, await ctx.vault.getAddress());
     await mock_expectPlaintext(ctx.bob.provider, contrib, 125n);
   });
 
@@ -279,7 +282,7 @@ describe("CreatorHub — support (tipping path)", () => {
         "",
       );
     }
-    const earnings = await ctx.hub.connect(ctx.alice).getMyEarnings();
+    const earnings = await ctx.hub.connect(ctx.alice).getMyEarningsIn(await ctx.vault.getAddress());
     await mock_expectPlaintext(ctx.alice.provider, earnings, 100n);
   });
 
@@ -316,14 +319,14 @@ describe("CreatorHub — view + tier-check gates", () => {
     const ctx = await loadFixture(deployFixture);
     await ctx.hub.connect(ctx.alice).setProfile("Alice", "bio", TIER1, TIER2, TIER3);
     await expect(
-      ctx.hub.connect(ctx.bob).getMyContribution(ctx.alice.address),
+      ctx.hub.connect(ctx.bob).getMyContributionIn(ctx.alice.address, await ctx.vault.getAddress()),
     ).to.be.revertedWith("CreatorHub: not a supporter");
   });
 
   it("getMyEarnings reverts for accounts without a profile", async () => {
     const ctx = await loadFixture(deployFixture);
     await expect(
-      ctx.hub.connect(ctx.bob).getMyEarnings(),
+      ctx.hub.connect(ctx.bob).getMyEarningsIn(await ctx.vault.getAddress()),
     ).to.be.revertedWith("CreatorHub: no profile");
   });
 
@@ -331,7 +334,7 @@ describe("CreatorHub — view + tier-check gates", () => {
     const ctx = await loadFixture(deployFixture);
     await ctx.hub.connect(ctx.alice).setProfile("Alice", "bio", TIER1, TIER2, TIER3);
     await expect(
-      ctx.hub.connect(ctx.bob).checkMyTier(ctx.alice.address),
+      ctx.hub.connect(ctx.bob).checkMyTierIn(ctx.alice.address, await ctx.vault.getAddress()),
     ).to.be.revertedWith("CreatorHub: not a supporter");
   });
 
@@ -348,7 +351,7 @@ describe("CreatorHub — view + tier-check gates", () => {
     // Just assert the tx doesn't revert; the ebool returns are encrypted
     // handles that need a separate decrypt round to inspect. The encrypted
     // total IS verifiable via getMyContribution + mock_expectPlaintext.
-    await expect(ctx.hub.connect(ctx.bob).checkMyTier(ctx.alice.address)).to.not.be.reverted;
+    await expect(ctx.hub.connect(ctx.bob).checkMyTierIn(ctx.alice.address, await ctx.vault.getAddress())).to.not.be.reverted;
   });
 
   it("getSupportedCreators returns empty array for non-supporters", async () => {
@@ -381,5 +384,67 @@ describe("CreatorHub — admin (setEventHub + UUPS upgrade gate)", () => {
     await expect(
       ctx.hub.connect(ctx.alice).upgradeToAndCall(await newImpl.getAddress(), "0x"),
     ).to.be.revertedWithCustomError(ctx.hub, "OwnableUnauthorizedAccount");
+  });
+});
+
+describe("CreatorHub — audit fixes (H13)", () => {
+  it("credits the moved amount, not the requested one (short balance moves 0)", async () => {
+    const ctx = await loadFixture(deployFixture);
+    await ctx.hub.connect(ctx.alice).setProfile("Alice", "bio", TIER1, TIER2, TIER3);
+    // Bob has 1,000 USDC shielded; requests a 5,000 USDC tip.
+    const enc = await encryptAmountFor(ctx.client, ctx.bob, usdc(5_000), await ctx.hub.getAddress());
+    await ctx.hub.connect(ctx.bob).support(ctx.alice.address, await ctx.vault.getAddress(), ...enc, "");
+    const v = await ctx.vault.getAddress();
+    await mock_expectPlaintext(ctx.bob.provider, await ctx.hub.connect(ctx.bob).getMyContributionIn(ctx.alice.address, v), 0n);
+    await mock_expectPlaintext(ctx.alice.provider, await ctx.hub.connect(ctx.alice).getMyEarningsIn(v), 0n);
+  });
+
+  it("rejects an unregistered vault (fake vault cannot mint earnings or tiers)", async () => {
+    const ctx = await loadFixture(deployFixture);
+    await ctx.hub.connect(ctx.alice).setProfile("Alice", "bio", TIER1, TIER2, TIER3);
+    const Stub = await hre.ethers.getContractFactory("MockVaultStub");
+    const fake = await Stub.deploy(await ctx.testUSDC.getAddress());
+    const enc = await encryptAmountFor(ctx.client, ctx.bob, 50n, await ctx.hub.getAddress());
+    await expect(
+      ctx.hub.connect(ctx.bob).support(ctx.alice.address, await fake.getAddress(), ...enc, ""),
+    ).to.be.revertedWith("CreatorHub: vault not allowed");
+  });
+
+  it("unset registry fails closed", async () => {
+    const ctx = await loadFixture(deployFixture);
+    const fresh = await deployProxy("CreatorHub", [await ctx.eventHub.getAddress()]);
+    await fresh.connect(ctx.alice).setProfile("Alice", "bio", TIER1, TIER2, TIER3);
+    const enc = await encryptAmountFor(ctx.client, ctx.bob, 50n, await fresh.getAddress());
+    await expect(
+      fresh.connect(ctx.bob).support(ctx.alice.address, await ctx.vault.getAddress(), ...enc, ""),
+    ).to.be.revertedWith("CreatorHub: vault not allowed");
+    await expect(fresh.setTokenRegistry(ctx.bob.address)).to.be.revertedWith("CreatorHub: bad registry");
+  });
+
+  it("tips in two tokens are tracked separately, never summed", async () => {
+    const ctx = await loadFixture(deployFixture);
+    await ctx.hub.connect(ctx.alice).setProfile("Alice", "bio", TIER1, TIER2, TIER3);
+
+    const TestUSDC = await hre.ethers.getContractFactory("TestUSDC");
+    const token2 = await TestUSDC.deploy();
+    const vault2 = await deployProxy("FHERC20Vault", [
+      await token2.getAddress(), "Second", "bv2", USDC_DECIMALS, await ctx.eventHub.getAddress(),
+    ]);
+    await ctx.registry.registerToken(await vault2.getAddress(), await token2.getAddress(), "Second", "T2", USDC_DECIMALS);
+    await token2.mint(ctx.bob.address, usdc(10));
+    await token2.connect(ctx.bob).approve(await vault2.getAddress(), usdc(10));
+    await vault2.connect(ctx.bob).shield(usdc(10));
+    await vault2.connect(ctx.bob).approvePlaintext(await ctx.hub.getAddress(), (1n << 64n) - 1n);
+
+    const hub = await ctx.hub.getAddress();
+    await ctx.hub.connect(ctx.bob).support(ctx.alice.address, await ctx.vault.getAddress(), ...(await encryptAmountFor(ctx.client, ctx.bob, 150n, hub)), "");
+    await ctx.hub.connect(ctx.bob).support(ctx.alice.address, await vault2.getAddress(), ...(await encryptAmountFor(ctx.client, ctx.bob, 70n, hub)), "");
+
+    const v1 = await ctx.vault.getAddress();
+    const v2 = await vault2.getAddress();
+    await mock_expectPlaintext(ctx.alice.provider, await ctx.hub.connect(ctx.alice).getMyEarningsIn(v1), 150n);
+    await mock_expectPlaintext(ctx.alice.provider, await ctx.hub.connect(ctx.alice).getMyEarningsIn(v2), 70n);
+    await mock_expectPlaintext(ctx.bob.provider, await ctx.hub.connect(ctx.bob).getMyContributionIn(ctx.alice.address, v2), 70n);
+    expect(await ctx.hub.getSupportedCreators(ctx.bob.address)).to.deep.equal([ctx.alice.address]);
   });
 });

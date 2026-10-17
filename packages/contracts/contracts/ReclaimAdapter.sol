@@ -9,7 +9,10 @@ interface IReclaimVerifier {
         bytes calldata proof,
         uint32 providerId,
         bytes32 expectedReceiver,
-        uint64 expectedAmount
+        uint64 expectedAmount,
+        uint64 fillId,
+        address taker,
+        address offramp
     ) external view returns (bool ok, bytes32 proofHash);
 }
 
@@ -83,6 +86,7 @@ contract ReclaimAdapter is UUPSUpgradeable, OwnableUpgradeable {
     }
 
     function setVerifier(address _verifier) external onlyOwner {
+        require(_verifier.code.length > 0, "ReclaimAdapter: bad verifier");
         emit VerifierChanged(address(verifier), _verifier);
         verifier = IReclaimVerifier(_verifier);
     }
@@ -93,6 +97,7 @@ contract ReclaimAdapter is UUPSUpgradeable, OwnableUpgradeable {
     }
 
     function setCaller(address caller, bool allowed) external onlyOwner {
+        require(caller != address(0), "ReclaimAdapter: zero caller");
         allowedCallers[caller] = allowed;
         emit CallerAllowed(caller, allowed);
     }
@@ -103,17 +108,22 @@ contract ReclaimAdapter is UUPSUpgradeable, OwnableUpgradeable {
     ///   - verifier rejects the proof
     ///   - amount mismatch (verifier-enforced)
     ///   - replay
+    /// The verifier binds the attestation to (chain, verifier, msg.sender,
+    /// fillId, taker), so a proof cannot be reused for another fill or
+    /// another offramp deployment.
     function verifyAndConsume(
         bytes calldata proof,
         uint32 providerId,
         bytes32 expectedReceiver,
-        uint64 expectedAmount
+        uint64 expectedAmount,
+        uint64 fillId,
+        address taker
     ) external returns (bytes32 proofHash) {
         require(allowedCallers[msg.sender], "ReclaimAdapter: caller not allowed");
         require(allowedProviders[providerId], "ReclaimAdapter: provider not allowed");
 
         (bool ok, bytes32 hash) = verifier.verifyAndConsume(
-            proof, providerId, expectedReceiver, expectedAmount
+            proof, providerId, expectedReceiver, expectedAmount, fillId, taker, msg.sender
         );
         require(ok, "ReclaimAdapter: verifier rejected");
         require(!usedProofs[hash], "ReclaimAdapter: proof replayed");
@@ -124,4 +134,7 @@ contract ReclaimAdapter is UUPSUpgradeable, OwnableUpgradeable {
     }
 
     function _authorizeUpgrade(address) internal override onlyOwner {}
+
+    /// @dev Reserved for future appends. Used: 4.
+    uint256[50] private __gap;
 }

@@ -5,6 +5,7 @@ import "@fhenixprotocol/cofhe-contracts/FHE.sol";
 import "./utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import "./interfaces/ITokenRegistry.sol";
 
 interface IFHERC20Vault {
     function transferFrom(address from, address to, externalEuint64 encAmount, bytes calldata proof) external returns (euint64);
@@ -21,9 +22,13 @@ interface IEventHub {
 ///
 /// @dev Key design decisions:
 ///      - Splits are pre-computed OFF-CHAIN (euint64 division not supported)
-///      - Payer encrypts each member's share individually and submits as InEuint64[]
-///      - Multi-admin system (any admin can add expenses/members)
-///      - Member debts are encrypted — each member can only unseal their own
+///      - The caller is always the payer. Shares must sum exactly to the
+///        total (checked under FHE); a mismatched expense applies no change.
+///      - Debts are modular euint64 (credit is a wrapped negative), so they
+///        carry no wrap guard by design.
+///      - A member's debt survives leave + rejoin.
+///      - Each group settles in one allowlisted vault, pinned on first settle.
+///      - Archived groups take no new expenses or settlements.
 contract GroupManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
     // ─── Types ──────────────────────────────────────────────────────────
@@ -85,6 +90,11 @@ contract GroupManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     );
     event GroupArchived(uint256 indexed groupId, uint256 timestamp);
     event ExpenseArchived(uint256 indexed groupId, uint256 expenseId, uint256 timestamp);
+    event TokenRegistrySet(address indexed registry);
+    event GroupVaultPinned(uint256 indexed groupId, address indexed vault);
+    /// @notice Encrypted flag: true if the expense's shares summed to the
+    ///         total and were applied. Payer can decrypt.
+    event ExpenseApplied(uint256 indexed groupId, uint256 expenseId, ebool applied);
 
     // ─── Initializer ────────────────────────────────────────────────────
 
@@ -196,9 +206,12 @@ contract GroupManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         isMember[groupId][member] = true;
         _userGroups[member].push(groupId);
 
-        // Initialize encrypted debt to zero
-        _debts[groupId][member] = FHE.asEuint64(0);
-        FHE.allowThis(_debts[groupId][member]);
+        // First join: start at zero. Rejoin: keep the old debt, so leaving
+        // cannot wipe what a member owes.
+        if (!FHE.isInitialized(_debts[groupId][member])) {
+            _debts[groupId][member] = FHE.asEuint64(0);
+            FHE.allowThis(_debts[groupId][member]);
+        }
         FHE.allow(_debts[groupId][member], member);
     }
 
@@ -239,6 +252,7 @@ contract GroupManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         string calldata description
     ) external nonReentrant {
         require(isMember[groupId][msg.sender], "GroupManager: not a member");
+        require(_groups[groupId].active, "GroupManager: group archived");
         require(splitWith.length == shares.length, "GroupManager: length mismatch");
         require(splitWith.length > 0, "GroupManager: empty split");
         require(splitWith.length <= 30, "GroupManager: max 30 members per expense");
@@ -259,26 +273,42 @@ contract GroupManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         packed[shares.length] = totalPaid;
         euint64[] memory verified = FHE.asEuint64s(packed, proof);
 
-        // Credit the payer (reduce their debt)
+        // Shares must sum exactly to the total, with no wrap on the way.
+        // Otherwise the expense applies nothing, so a member cannot be
+        // charged more than the payer claims to have paid.
         euint64 total = verified[shares.length];
-        _debts[groupId][msg.sender] = FHE.sub(_debts[groupId][msg.sender], total);
+        euint64 sum = FHE.asEuint64(0);
+        ebool noWrap = FHE.asEbool(true);
+        for (uint256 i = 0; i < splitWith.length; i++) {
+            require(isMember[groupId][splitWith[i]], "GroupManager: not a member");
+            euint64 next = FHE.add(sum, verified[i]);
+            noWrap = FHE.and(noWrap, FHE.gte(next, sum));
+            sum = next;
+        }
+        ebool applied = FHE.and(noWrap, FHE.eq(sum, total));
+        euint64 zero = FHE.asEuint64(0);
+
+        // Credit the payer (reduce their debt)
+        _debts[groupId][msg.sender] = FHE.sub(_debts[groupId][msg.sender], FHE.select(applied, total, zero));
         FHE.allowThis(_debts[groupId][msg.sender]);
         FHE.allowSender(_debts[groupId][msg.sender]);
 
         // Debit each person's share (increase their debt)
         for (uint256 i = 0; i < splitWith.length; i++) {
-            require(isMember[groupId][splitWith[i]], "GroupManager: not a member");
-            euint64 share = verified[i];
+            euint64 share = FHE.select(applied, verified[i], zero);
             _debts[groupId][splitWith[i]] = FHE.add(_debts[groupId][splitWith[i]], share);
             FHE.allowThis(_debts[groupId][splitWith[i]]);
             FHE.allow(_debts[groupId][splitWith[i]], splitWith[i]);
         }
+        FHE.allowThis(applied);
+        FHE.allowSender(applied);
 
         // Record expense metadata
         uint256 expenseId = _groups[groupId].expenseCount++;
         expenses[groupId][expenseId] = Expense(msg.sender, description, block.timestamp);
 
         emit ExpenseAdded(groupId, expenseId, msg.sender, description, block.timestamp);
+        emit ExpenseApplied(groupId, expenseId, applied);
         try eventHub.emitActivity(msg.sender, address(0), "group_expense", description, groupId) {} catch {}
     }
 
@@ -310,6 +340,15 @@ contract GroupManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     ) external nonReentrant {
         require(isMember[groupId][msg.sender], "GroupManager: not a member");
         require(isMember[groupId][with_], "GroupManager: counterparty not a member");
+        require(_groups[groupId].active, "GroupManager: group archived");
+        _requireAllowedVault(vault);
+        address pinned = groupVault[groupId];
+        if (pinned == address(0)) {
+            groupVault[groupId] = vault;
+            emit GroupVaultPinned(groupId, vault);
+        } else {
+            require(vault == pinned, "GroupManager: wrong vault for group");
+        }
         // Reject self-settle. A self → self transfer is a no-op for
         // the vault (FHE.select clamps to balance) but the debt math
         // below still mutates _debts[msg.sender] twice in sequence:
@@ -355,9 +394,10 @@ contract GroupManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         euint64 payerDebtDelta = FHE.select(owesAtLeastActual, actual, _debts[groupId][msg.sender]);
         _debts[groupId][msg.sender] = FHE.sub(_debts[groupId][msg.sender], payerDebtDelta);
 
-        // Counterparty's debt increases by the actual transferred amount
-        // (debt is "owed by" — negative for creditors, via underflow; matches addExpense pattern).
-        _debts[groupId][with_] = FHE.add(_debts[groupId][with_], actual);
+        // Counterparty's debt increases by the same clamped amount the payer
+        // was credited, so an overpay cannot inflate the payee's debt beyond
+        // what settled (debt is "owed by": creditors are wrapped negatives).
+        _debts[groupId][with_] = FHE.add(_debts[groupId][with_], payerDebtDelta);
 
         FHE.allowThis(_debts[groupId][msg.sender]);
         FHE.allowSender(_debts[groupId][msg.sender]);
@@ -393,38 +433,10 @@ contract GroupManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     ///      declared storage to preserve all prior slot indices.
     mapping(uint256 => mapping(address => mapping(address => uint256))) public lastSettleBlock;
 
-    /// @notice Vote on whether to approve a group expense.
-    ///         Quadratic voting: casting N votes costs N² from your influence.
-    ///         Uses FHE.square() for the quadratic cost calculation.
-    /// @param groupId Group to vote in
-    /// @param expenseId Expense to vote on
-    /// @param encVotes Encrypted number of votes (quadratic cost applies)
-    function voteOnExpense(
-        uint256 groupId,
-        uint256 expenseId,
-        externalEuint64 encVotes, bytes calldata proof
-    ) external nonReentrant {
-        require(isMember[groupId][msg.sender], "GroupManager: not a member");
-        require(!_hasVoted[groupId][expenseId][msg.sender], "Already voted");
-        _hasVoted[groupId][expenseId][msg.sender] = true;
-
-        euint64 votes = FHE.asEuint64(encVotes, proof);
-
-        // Quadratic cost: casting N votes costs N² (using FHE.square)
-        // This prevents whale domination — 10 votes costs 100, not 10
-        euint64 cost = FHE.square(votes);
-        FHE.allowThis(cost);
-        FHE.allowSender(cost);
-
-        // Add votes to the encrypted tally
-        if (!_votesInitialized[groupId][expenseId]) {
-            _expenseVotes[groupId][expenseId] = FHE.asEuint64(0);
-            FHE.allowThis(_expenseVotes[groupId][expenseId]);
-            _votesInitialized[groupId][expenseId] = true;
-        }
-        _expenseVotes[groupId][expenseId] = FHE.add(_expenseVotes[groupId][expenseId], votes);
-        FHE.allowThis(_expenseVotes[groupId][expenseId]);
-        FHE.allowSender(_expenseVotes[groupId][expenseId]);
+    /// @notice Retired. Quadratic expense voting was cut; past tallies stay
+    ///         readable through getExpenseVotes.
+    function voteOnExpense(uint256, uint256, externalEuint64, bytes calldata) external pure {
+        revert("GroupManager: retired");
     }
 
     /// @notice Get the encrypted vote total for an expense
@@ -472,11 +484,26 @@ contract GroupManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         eventHub = IEventHub(_eventHub);
     }
 
-    /// @dev Reserved storage to avoid collisions on future upgrades.
-    ///      Append-only: when adding a new state variable in a later upgrade,
-    ///      decrement the gap size so total storage is unchanged.
-    /// @dev Used: 14. Gap: 50.
-    uint256[50] private __gap;
+    function setTokenRegistry(address r) external onlyOwner {
+        require(r.code.length > 0, "GroupManager: bad registry");
+        tokenRegistry = ITokenRegistry(r);
+        emit TokenRegistrySet(r);
+    }
+
+    function _requireAllowedVault(address vault) internal view {
+        require(
+            address(tokenRegistry) != address(0) && tokenRegistry.isActiveVault(vault),
+            "GroupManager: vault not allowed"
+        );
+    }
+
+    /// @dev groupId => vault the group settles in, pinned on first settle. Appended.
+    mapping(uint256 => address) public groupVault;
+    /// @dev Vault allowlist. Appended.
+    ITokenRegistry public tokenRegistry;
+
+    /// @dev Reserved storage. Shrink by 1 for each slot appended above.
+    uint256[48] private __gap;
 
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 }

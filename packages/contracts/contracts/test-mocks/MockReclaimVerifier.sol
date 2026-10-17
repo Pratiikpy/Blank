@@ -3,20 +3,22 @@ pragma solidity ^0.8.25;
 
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 
 /// @title MockReclaimVerifier
-/// @notice Wave 5 Block 0.5 fallback for the P2P offramp dispute path.
-///         Mirrors the IProofVerifier surface that Reclaim Protocol's
-///         on-chain verifier exposes, but accepts any proof signed by
-///         a known operator key. Used when Reclaim's sandbox UPI
-///         templates are unavailable so the demo + smoke flow can
-///         still capture a real on-chain tx hash.
+/// @notice Testnet stand-in for a Reclaim Protocol verifier. Accepts any
+///         attestation signed by a known operator key.
 ///
-/// @dev    Operator signs (proofHash || providerId || receiverHandle ||
-///         amountMicroUSD) and the bytes blob is the raw signature.
-///         Switching off mock mode: deploy with operator = address(0)
-///         and the contract reverts all verify calls (forces routing
-///         through the real Reclaim adapter instead).
+/// @dev    The operator signs (EIP-191 personal_sign over the 32-byte digest):
+///           keccak256(abi.encode(
+///             uint256 chainId, address verifier, address offramp,
+///             uint64 fillId, address taker,
+///             uint32 providerId, bytes32 receiverHandle, uint64 amountMicroUSD))
+///         Binding the fill, taker, chain and both contracts means one
+///         signature settles exactly one fill. The digest itself is the
+///         replay key, so re-encoding the signature (high-s, v=0/1) cannot
+///         mint a second key. Operator = address(0) disables the mock.
 contract MockReclaimVerifier is UUPSUpgradeable, OwnableUpgradeable {
     address public operator;
 
@@ -36,51 +38,45 @@ contract MockReclaimVerifier is UUPSUpgradeable, OwnableUpgradeable {
         operator = _operator;
     }
 
-    /// @notice Verify a mock proof. Returns the proofHash that the
-    ///         adapter uses for anti-replay. Reverts on bad signature,
-    ///         missing operator, or amount mismatch.
-    /// @param  proof              EIP-191 signature over the message
-    ///                            below (65 bytes).
-    /// @param  providerId         Rail provider ID. Mock accepts any.
-    /// @param  expectedReceiver   Maker's handle digest the taker is
-    ///                            paying. Echoed in the signed message.
-    /// @param  expectedAmount     The plaintext fiat amount in microUSD
-    ///                            the taker should have paid.
+    /// @notice Digest the operator must sign for a given fill.
+    function attestationDigest(
+        address offramp,
+        uint64 fillId,
+        address taker,
+        uint32 providerId,
+        bytes32 expectedReceiver,
+        uint64 expectedAmount
+    ) public view returns (bytes32) {
+        return keccak256(abi.encode(
+            block.chainid, address(this), offramp, fillId, taker,
+            providerId, expectedReceiver, expectedAmount
+        ));
+    }
+
+    /// @notice Verify a mock proof. Returns the digest as the replay key.
+    ///         Reverts on bad signature, missing operator or any field mismatch.
+    /// @param  proof 65-byte signature over attestationDigest(...).
     function verifyAndConsume(
         bytes calldata proof,
         uint32 providerId,
         bytes32 expectedReceiver,
-        uint64 expectedAmount
+        uint64 expectedAmount,
+        uint64 fillId,
+        address taker,
+        address offramp
     ) external view returns (bool ok, bytes32 proofHash) {
         require(operator != address(0), "MockReclaimVerifier: disabled");
         require(proof.length == 65, "MockReclaimVerifier: bad sig length");
 
-        // Reconstruct the message that the operator should have signed.
-        bytes32 message = keccak256(
-            abi.encode(providerId, expectedReceiver, expectedAmount)
+        bytes32 digest = attestationDigest(offramp, fillId, taker, providerId, expectedReceiver, expectedAmount);
+        (address recovered, ECDSA.RecoverError err, ) = ECDSA.tryRecover(
+            MessageHashUtils.toEthSignedMessageHash(digest),
+            proof
         );
-        bytes32 ethSignedMessage = keccak256(
-            abi.encodePacked("\x19Ethereum Signed Message:\n32", message)
-        );
-
-        bytes32 r;
-        bytes32 s;
-        uint8 v;
-        assembly {
-            r := calldataload(proof.offset)
-            s := calldataload(add(proof.offset, 32))
-            v := byte(0, calldataload(add(proof.offset, 64)))
-        }
-        if (v < 27) v += 27;
-
-        address recovered = ecrecover(ethSignedMessage, v, r, s);
-        require(recovered != address(0), "MockReclaimVerifier: ecrecover failed");
+        require(err == ECDSA.RecoverError.NoError, "MockReclaimVerifier: bad signature");
         require(recovered == operator, "MockReclaimVerifier: wrong signer");
 
-        // proofHash is deterministic over the proof bytes so the adapter
-        // can store usedProofs[h] = true for anti-replay.
-        proofHash = keccak256(proof);
-        return (true, proofHash);
+        return (true, digest);
     }
 
     function _authorizeUpgrade(address) internal override onlyOwner {}

@@ -5,6 +5,7 @@ import "@fhenixprotocol/cofhe-contracts/FHE.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "./utils/ReentrancyGuard.sol";
+import "./interfaces/ITokenRegistry.sol";
 
 interface IFHERC20Vault {
     function transferFromVerified(address from, address to, sharedEuint64 shared) external returns (sharedEuint64);
@@ -97,6 +98,7 @@ contract EncryptedCrowdfund is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
     /// bump call reverts. kind is "user" or "global". Indexer detects + replays.
     event ReceiptsBumpFailed(string kind, bytes reason);
     event PaymentReceiptsSet(address indexed previous, address indexed current);
+    event TokenRegistrySet(address indexed registry);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -118,6 +120,7 @@ contract EncryptedCrowdfund is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
         bytes32 descriptionCidHash
     ) external nonReentrant returns (uint256 campaignId) {
         require(vault != address(0), "Crowdfund: zero vault");
+        _requireAllowedVault(vault);
         require(durationSeconds >= MIN_DURATION && durationSeconds <= MAX_DURATION, "Crowdfund: bad duration");
         require(bytes(title).length > 0 && bytes(title).length <= 200, "Crowdfund: bad title");
 
@@ -157,6 +160,7 @@ contract EncryptedCrowdfund is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
         require(c.status == CampaignStatus.Open, "Crowdfund: not open");
         require(block.timestamp < c.deadline, "Crowdfund: past deadline");
         require(msg.sender != c.creator, "Crowdfund: creator cannot contribute");
+        _requireAllowedVault(c.vault);
 
         euint64 verifiedAmount = FHE.asEuint64(encAmount, proof);
 
@@ -168,11 +172,12 @@ contract EncryptedCrowdfund is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
         FHE.allowThis(locked);
         FHE.allowSender(locked);
 
-        // Bump the encrypted running total.
-        c.encRaised = FHE.add(c.encRaised, locked);
+        // Bump the encrypted running total. A wrapped sum keeps the old total.
+        // Nobody else gets decrypt access while the campaign is open; the
+        // creator is granted it at close.
+        euint64 sum = FHE.add(c.encRaised, locked);
+        c.encRaised = FHE.select(FHE.gte(sum, c.encRaised), sum, c.encRaised);
         FHE.allowThis(c.encRaised);
-        FHE.allow(c.encRaised, c.creator);
-        FHE.allowSender(c.encRaised);
 
         _contributions[campaignId].push(Contribution({
             contributor: msg.sender,
@@ -216,6 +221,7 @@ contract EncryptedCrowdfund is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
 
         c.goalCheck = reached;
         c.status = CampaignStatus.Closed;
+        FHE.allow(c.encRaised, c.creator);
 
         emit CampaignClosed(campaignId, _contributions[campaignId].length);
         try eventHub.emitActivity(c.creator, address(0), "crowdfund_closed", c.title, campaignId) {} catch {}
@@ -247,6 +253,8 @@ contract EncryptedCrowdfund is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
         require(c.goalMet, "Crowdfund: goal not met");
         require(msg.sender == c.creator, "Crowdfund: not creator");
         require(c.status != CampaignStatus.Open, "Crowdfund: open");
+        require(!releasePaid[campaignId], "Crowdfund: already released");
+        releasePaid[campaignId] = true;
 
         // Single sweep: contract -> creator.
         euint64 paid = FHE.receiveEuint64FromCall(
@@ -341,6 +349,19 @@ contract EncryptedCrowdfund is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
 
     // ─── Admin ────────────────────────────────────────────────────────
 
+    function setTokenRegistry(address r) external onlyOwner {
+        require(r.code.length > 0, "Crowdfund: bad registry");
+        tokenRegistry = ITokenRegistry(r);
+        emit TokenRegistrySet(r);
+    }
+
+    function _requireAllowedVault(address vault) internal view {
+        require(
+            address(tokenRegistry) != address(0) && tokenRegistry.isActiveVault(vault),
+            "Crowdfund: vault not allowed"
+        );
+    }
+
     function setEventHub(address _eventHub) external onlyOwner {
         eventHub = IEventHub(_eventHub);
     }
@@ -364,8 +385,12 @@ contract EncryptedCrowdfund is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
 
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 
-    /// @dev Append-only storage. Used: 7. Gap: 50.
-    /// Decrement gap by 1 when adding a new state variable; total slots
-    /// (used + gap) must stay constant across UUPS upgrades.
-    uint256[50] private __gap;
+    /// @dev Vault allowlist. Appended; gap shrunk by 1.
+    ITokenRegistry public tokenRegistry;
+    /// @dev campaignId => creator already swept the raised total. Appended.
+    mapping(uint256 => bool) public releasePaid;
+
+    /// @dev Append-only storage: 7 original slots + tokenRegistry +
+    /// releasePaid + gap = 57. Shrink the gap by 1 per new slot.
+    uint256[48] private __gap;
 }
