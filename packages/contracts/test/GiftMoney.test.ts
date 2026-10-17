@@ -62,6 +62,9 @@ async function deployFixture() {
   ]);
   const gift = await deployProxy("GiftMoney", [await eventHub.getAddress()]);
   await eventHub.batchWhitelist([await gift.getAddress()]);
+  const registry = await deployProxy("TokenRegistry");
+  await registry.registerToken(await vault.getAddress(), await testUSDC.getAddress(), "USD Coin", "USDC", USDC_DECIMALS);
+  await gift.setTokenRegistry(await registry.getAddress());
 
   for (const s of [alice, bob, charlie, dave]) {
     await testUSDC.mint(s.address, usdc(10_000));
@@ -71,8 +74,40 @@ async function deployFixture() {
   const MAX = (1n << 64n) - 1n;
   await vault.connect(alice).approvePlaintext(await gift.getAddress(), MAX);
 
-  return { owner, alice, bob, charlie, dave, client, testUSDC, vault, gift };
+  return { owner, alice, bob, charlie, dave, client, testUSDC, vault, gift, registry, eventHub };
 }
+
+// H1: a forged vault returns any handle it likes, and GiftMoney forwards it
+// to PaymentReceipts as the recipient's income. Only registered vaults count.
+describe("GiftMoney — vault allowlist (H1)", () => {
+  it("rejects an unregistered vault reporting the same underlying", async () => {
+    const ctx = await loadFixture(deployFixture);
+    const rogue = await deployProxy("FHERC20Vault", [
+      await ctx.testUSDC.getAddress(), "Rogue", "RGE", USDC_DECIMALS, await ctx.eventHub.getAddress(),
+    ]);
+    const { handles, proof } = await encShares(ctx.client, ctx.alice, [usdc(1)], await ctx.gift.getAddress());
+    await expect(
+      ctx.gift.connect(ctx.alice).createEnvelope(await rogue.getAddress(), [ctx.bob.address], handles, proof, "x", 0),
+    ).to.be.revertedWith("GiftMoney: vault not allowed");
+  });
+
+  it("fails closed when no registry is set", async () => {
+    const ctx = await loadFixture(deployFixture);
+    const fresh = await deployProxy("GiftMoney", [await ctx.eventHub.getAddress()]);
+    const { handles, proof } = await encShares(ctx.client, ctx.alice, [usdc(1)], await fresh.getAddress());
+    await expect(
+      fresh.connect(ctx.alice).createEnvelope(await ctx.vault.getAddress(), [ctx.bob.address], handles, proof, "x", 0),
+    ).to.be.revertedWith("GiftMoney: vault not allowed");
+  });
+
+  it("setTokenRegistry is owner-only, rejects an EOA, emits TokenRegistrySet", async () => {
+    const ctx = await loadFixture(deployFixture);
+    await expect(ctx.gift.connect(ctx.alice).setTokenRegistry(await ctx.registry.getAddress()))
+      .to.be.revertedWithCustomError(ctx.gift, "OwnableUnauthorizedAccount");
+    await expect(ctx.gift.setTokenRegistry(ctx.bob.address)).to.be.revertedWith("GiftMoney: bad registry");
+    await expect(ctx.gift.setTokenRegistry(await ctx.registry.getAddress())).to.emit(ctx.gift, "TokenRegistrySet");
+  });
+});
 
 async function encShare(client: any, signer: any, amount: bigint, consuming: string) {
   await hre.cofhe.connectWithHardhatSigner(client, signer);

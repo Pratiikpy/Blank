@@ -7,6 +7,7 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "./utils/ReentrancyGuard.sol";
+import "./interfaces/ITokenRegistry.sol";
 
 interface IFHERC20Vault {
     function transferFrom(address from, address to, externalEuint64 encAmount, bytes calldata proof) external returns (euint64);
@@ -183,9 +184,11 @@ contract StealthPayments is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
         require(claimCodeHash != bytes32(0), "StealthPayments: empty claim code hash");
         require(vault != address(0), "StealthPayments: invalid vault");
         require(_claimCodeToTransferId[claimCodeHash] == 0, "StealthPayments: claim code already used");
+        // Unlisted tokens would feed the global volume counter with junk.
+        require(address(tokenRegistry) != address(0) && tokenRegistry.isActiveVault(vault), "StealthPayments: vault not allowed");
 
-        // Get the underlying ERC20 token from the vault
-        address underlying = IFHERC20Vault(vault).underlyingToken();
+        address underlying = tokenRegistry.underlyingOf(vault);
+        require(underlying != address(0), "StealthPayments: no underlying");
 
         // Transfer underlying tokens from sender to this contract (escrow custody)
         IERC20(underlying).safeTransferFrom(msg.sender, address(this), plaintextAmount);
@@ -296,7 +299,8 @@ contract StealthPayments is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
 
     /// @notice Finalize a stealth claim after decryption resolves.
     ///         If the claimer was the correct recipient, they receive the full amount
-    ///         in underlying ERC20 tokens. If wrong, they receive 0.
+    ///         in underlying ERC20 tokens. If wrong, nothing is paid, the claim
+    ///         is voided and the sender can refund immediately.
     ///
     /// @param transferId       The stealth transfer to finalize
     /// @param decryptedAmount  The off-chain decrypted conditional amount
@@ -316,24 +320,27 @@ contract StealthPayments is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
         require(pending.pending, "StealthPayments: no pending claim");
         require(msg.sender == pending.claimer, "StealthPayments: not the claimer");
 
-        // Publish the off-chain decryption — verifies the signature and stores
-        // the plaintext on-chain for the read below.
-        FHE.publishDecryptResult(pending.conditionalAmount, decryptedAmount, signature);
+        // Publish only if nobody has yet, so a second publish cannot revert.
+        (, bool published) = FHE.getDecryptResultSafe(pending.conditionalAmount);
+        if (!published) {
+            FHE.publishDecryptResult(pending.conditionalAmount, decryptedAmount, signature);
+        }
 
-        // Read the now-published conditional amount
         (uint64 verifiedAmount, bool ready) = FHE.getDecryptResultSafe(pending.conditionalAmount);
         require(ready, "StealthPayments: decryption not ready yet");
-        decryptedAmount = verifiedAmount;
 
-        // Mark as finalized
-        st.finalized = true;
         pending.pending = false;
 
-        // Transfer underlying ERC20 tokens to the claimer
-        // If wrong claimer, decryptedAmount == 0 and nothing transfers
-        if (decryptedAmount > 0) {
-            IERC20(st.underlyingToken).safeTransfer(msg.sender, decryptedAmount);
+        if (verifiedAmount == 0) {
+            // Encrypted recipient did not match the claimer. Nothing was paid,
+            // so release the escrow back to the sender instead of locking it.
+            claimVoided[transferId] = true;
+            emit StealthClaimVoided(transferId, msg.sender, block.timestamp);
+            return;
         }
+
+        st.finalized = true;
+        IERC20(st.underlyingToken).safeTransfer(msg.sender, verifiedAmount);
 
         emit StealthFinalized(transferId, msg.sender, block.timestamp);
         try eventHub.emitActivity(st.sender, msg.sender, "stealth_claimed", st.note, transferId) {} catch {}
@@ -341,17 +348,22 @@ contract StealthPayments is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
 
     // ─── Refund (sender can reclaim if unclaimed after timeout) ──────────
 
-    /// @notice Sender can refund an unclaimed stealth payment after 30 days.
-    ///         Prevents funds from being locked forever if the recipient never claims.
+    /// @notice Sender refund. Allowed after 30 days for an unclaimed payment,
+    ///         or at any time once a claim resolved to 0 (the encrypted
+    ///         recipient did not match the claim-code recipient), so a sender
+    ///         mistake never locks the escrow.
     /// @param transferId The stealth transfer to refund
     function refund(uint256 transferId) external nonReentrant {
         require(transferId < nextTransferId, "StealthPayments: invalid transfer ID");
 
         StealthTransfer storage st = _transfers[transferId];
         require(msg.sender == st.sender, "StealthPayments: not the sender");
-        require(!st.claimed, "StealthPayments: already claimed");
         require(!st.finalized, "StealthPayments: already finalized");
-        require(block.timestamp > st.timestamp + 30 days, "StealthPayments: too early to refund");
+        if (st.claimed) {
+            require(_claimResolvedToZero(transferId), "StealthPayments: already claimed");
+        } else {
+            require(block.timestamp > st.timestamp + 30 days, "StealthPayments: too early to refund");
+        }
 
         // Mark as finalized to prevent double-refund
         st.finalized = true;
@@ -498,8 +510,30 @@ contract StealthPayments is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
     /// @dev Reserved storage to avoid collisions on future upgrades.
     ///      Append-only: when adding a new state variable in a later upgrade,
     ///      decrement the gap size so total storage is unchanged.
-    /// @dev Used: 9. Gap: 50.
-    uint256[50] private __gap;
+    /// @dev Appended after the original 9 slots.
+    ITokenRegistry public tokenRegistry;
+    /// @dev transferId => claim finalized to 0 (recipient mismatch); escrow refundable.
+    mapping(uint256 => bool) public claimVoided;
+    uint256[48] private __gap;
+
+    event TokenRegistrySet(address indexed registry);
+    event StealthClaimVoided(uint256 indexed transferId, address indexed claimer, uint256 timestamp);
+
+    function setTokenRegistry(address r) external onlyOwner {
+        require(r.code.length > 0, "StealthPayments: bad registry");
+        tokenRegistry = ITokenRegistry(r);
+        emit TokenRegistrySet(r);
+    }
+
+    /// @dev True once a started claim is known to pay 0: either finalized as
+    ///      void, or its conditional amount was published as 0 by anyone.
+    function _claimResolvedToZero(uint256 transferId) internal view returns (bool) {
+        if (claimVoided[transferId]) return true;
+        PendingClaim storage pc = _pendingClaims[transferId];
+        if (!pc.pending) return false;
+        (uint64 amount, bool ready) = FHE.getDecryptResultSafe(pc.conditionalAmount);
+        return ready && amount == 0;
+    }
 
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 }
