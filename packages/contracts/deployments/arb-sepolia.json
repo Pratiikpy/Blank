@@ -91,5 +91,21 @@
   "SessionKeyValidator_v0": "0x75FF37Bda28EC6A0D39db7E8Ea5CC6527febDA75",
   "BlankAccount_Impl_security_v1": "0xA92f32c42A53c9117Ba3850D464a5B639675b4E5",
   "BlankPaymaster_v1": "0x9C295E5A130a5776b287dcC77b41d4b55165C8Be",
-  "OwnerSafe": "0x38e43E5255c86d5B2e93e6E0708406Ff03908D72"
+  "OwnerSafe": "0x38e43E5255c86d5B2e93e6E0708406Ff03908D72",
+  "FHERC20Vault_USDC_Impl_audit_v2": "0xa4c86232cFE4b4443E39F21ae4da15dEbea17fAc",
+  "FHERC20Vault_USDT_Impl_audit_v2": "0x44bE4bbdB82929296BE862c52AA753413bf10f11",
+  "PaymentReceipts_Impl_audit_v2": "0xc6859E0334b1B45aA976293b0C09D15EE1607ec1",
+  "PaymentHub_Impl_audit_v2": "0xaFbEE1Dc7201aCE93cA4244E3424595966199481",
+  "PrivacyRouter_Impl_audit_v2": "0x79d0f7fae0318623af8dC7a47aE962C160A6fC87",
+  "BusinessHub_Impl_audit_v2": "0xFC3C1ce0026cdE93fe3aBa89812483B3D3F8939a",
+  "EncryptedEscrow_Impl_audit_v2": "0x821512F219B98F10539Ad1d3952c190776CF4521",
+  "ClaimLinks_Impl_audit_v2": "0x7b61E7170Ea6E44fFe7000212a2dF977A8f087f8",
+  "GiftMoney_Impl_audit_v2": "0x0b357Fe42E714d5f5e1D08Fd1c215DDf2535D114",
+  "EncryptedCrowdfund_Impl_audit_v2": "0x4C6188E70e1372864Cc637f58f80f0a15f5090e9",
+  "CreatorHub_Impl_audit_v2": "0xB2532D374E7D600aE577EF67EEc1D93e4072E670",
+  "P2POfframp_Impl_audit_v2": "0x603d19d89a93ED8Ae5f0b397A2A9361b56aB7c0c",
+  "Storefront_Impl_audit_v2": "0xB1166E01351dfa7b1620c7eeB450DCd3Ef48d148",
+  "EncryptedFlags_Impl_audit_v2": "0xC218B1DDC4dd234746c664274DD39220F760B12c",
+  "StealthPayments_Impl_audit_v2": "0x4E336BAE5E1e72BDEAEe8E2d5F1dcf7f5Cd7EaB3",
+  "InheritanceManager_Impl_audit_v2": "0x2190da4aAD83E7dED53B665d403690e977270858"
 }
