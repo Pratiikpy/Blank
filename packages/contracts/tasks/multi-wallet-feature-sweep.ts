@@ -18,6 +18,7 @@ import {
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { sepolia as viemSepolia, baseSepolia as viemBaseSepolia, arbitrumSepolia as viemArbSepolia } from "viem/chains";
+import { settleFundingExpectFunded, viemGateIO, type GateKind } from "./lib/funding-gate";
 
 // ──────────────────────────────────────────────────────────────────
 //  multi-wallet-feature-sweep — drive a real 4-wallet feature sweep
@@ -43,6 +44,13 @@ import { sepolia as viemSepolia, baseSepolia as viemBaseSepolia, arbitrumSepolia
 //   3. P2P pay — Alice→Bob and Carol→Dave via PaymentHub.sendPayment
 //   4. Group — Alice creates group, all 4 add, settle one debt
 //   5. Payment receipts — verify receipt anchors landed for each tx
+//
+//  Funding gate:
+//   Escrow, gift, claim link, tip, contribution, offramp fill and storefront
+//   purchase start Pending on an upgraded contract. Each one is confirmed
+//   (decrypt the funded bit, confirmFunding) before the step that needs it
+//   Active, and the confirm is recorded as its own "<feature>_funding" result.
+//   Contracts that predate the gate record a skip for that result instead.
 //
 //  Output:
 //   A summary table of tx hashes per feature × persona, plus a
@@ -287,6 +295,12 @@ task(
     GroupCreated:    keccak256(toBytes("GroupCreated(uint256,string,address[],uint256)")),
     StealthSent:     keccak256(toBytes("StealthSent(uint256,address,bytes32,address,string,uint256)")),
     CampaignCreated: keccak256(toBytes("CampaignCreated(uint256,address,address,uint256,string)")),
+    // Funding-gate events: emitted only by contracts that have the gate. The
+    // ebool argument is a bytes32 handle in the ABI.
+    PurchasePending: keccak256(toBytes("PurchasePending(uint256,uint256,address,bytes32)")),
+    TipPending:      keccak256(toBytes("TipPending(uint256,address,address,address,bytes32)")),
+    FillPending:     keccak256(toBytes("FillPending(uint64,uint64,address,bytes32)")),
+    Contributed:     keccak256(toBytes("Contributed(uint256,address,uint256,uint256)")),
   };
   // Defensive: log selectors at startup so a wrong canonical sig is
   // visible (won't match any logs and the extractor throws clearly).
@@ -459,6 +473,64 @@ task(
       transport: http(rpcUrl),
     });
     await cofheClient.connect(publicClient as any, wallet as any);
+  }
+
+  // Funding gate. On an upgraded contract an item starts Pending and every
+  // follow-up call reverts until confirmFunding lands. The creating persona
+  // submits it, though anyone could. Records "<feature>" as pass with the
+  // confirm tx, or skip when the contract predates the gate. A failure is
+  // recorded and rethrown so the dependent steps below it are not attempted.
+  async function settleGate(
+    kind: GateKind,
+    ids: bigint[],
+    address: string,
+    by: Persona,
+    feature: string,
+    label: string,
+  ): Promise<void> {
+    const walletClient = createWalletClient({
+      account: privateKeyToAccount(by.privKey),
+      chain,
+      transport: http(rpcUrl),
+    });
+    try {
+      const out = await settleFundingExpectFunded(
+        viemGateIO(kind, ids, { publicClient, walletClient, address: address as `0x${string}` }),
+        cofheClient,
+        { label },
+      );
+      if (!out.gated) {
+        console.log(`  ${label}: funding gate skipped (${out.reason})`);
+        results.push({ feature, persona: by.name, status: "skip", error: out.reason });
+        return;
+      }
+      results.push({ feature, persona: by.name, status: "pass", txHash: out.confirmTx });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message.slice(0, 250) : String(err);
+      console.log(`  ${label}: funding gate FAILED ${msg}`);
+      results.push({ feature, persona: by.name, status: "fail", error: msg });
+      throw err;
+    }
+  }
+
+  // First matching event's first indexed arg (the new item's id), or null when
+  // the contract never emits any of them (a generation without the gate).
+  async function tryExtractId(
+    hash: `0x${string}`,
+    contractAddr: string,
+    selectors: readonly `0x${string}`[],
+  ): Promise<bigint | null> {
+    const receipt = await publicClient.getTransactionReceipt({ hash });
+    for (const log of receipt.logs) {
+      if (
+        log.address.toLowerCase() === contractAddr.toLowerCase() &&
+        selectors.some((s) => log.topics[0]?.toLowerCase() === s.toLowerCase()) &&
+        log.topics[1]
+      ) {
+        return BigInt(log.topics[1]);
+      }
+    }
+    return null;
   }
 
   if (!cofheClient) {
@@ -825,6 +897,7 @@ task(
       try {
         // Race-safe: extract envelopeId from EnvelopeCreated event log.
         const justCreatedId = await extractIdFromReceipt(giftHash, GiftMoney, SIG.EnvelopeCreated);
+        await settleGate("gift", [justCreatedId], GiftMoney, personas[0]!, "gift_funding", `gift #${justCreatedId}`);
         const bobWallet = createWalletClient({
           account: privateKeyToAccount(personas[1]!.privKey),
           chain,
@@ -940,6 +1013,7 @@ task(
       try {
         // Race-safe: extract escrowId from EscrowCreated event log.
         const justCreatedEid = await extractIdFromReceipt(escrowHash, EncryptedEscrow, SIG.EscrowCreated);
+        await settleGate("escrow", [justCreatedEid], EncryptedEscrow, personas[0]!, "escrow_funding", `escrow #${justCreatedEid}`);
         const bobWallet = createWalletClient({
           account: privateKeyToAccount(personas[1]!.privKey),
           chain,
@@ -1092,6 +1166,9 @@ task(
       // minted. Race-safe regardless of concurrent writes.
       bearerLinkId = await extractIdFromReceipt(linkHash, ClaimLinks, SIG.LinkCreated);
       bearerClaimPriv = bearerKey.priv;
+      // Settle before the negatives so they hit the guard under test and not
+      // the "funding pending" revert.
+      await settleGate("claimLink", [bearerLinkId], ClaimLinks, personas[1]!, "claim_link_funding", `bearer link #${bearerLinkId}`);
 
       // Negative 16: Dave attempts to claim the just-created bearer
       // link with an obviously-wrong (all-zero) secret. Runs here, BEFORE
@@ -1190,6 +1267,7 @@ task(
       // Race-safe: extract the real linkId from the AddressBound
       // createLink tx's LinkCreated event log.
       const justCreatedAB = await extractIdFromReceipt(linkABHash, ClaimLinks, SIG.LinkCreated);
+      await settleGate("claimLink", [justCreatedAB], ClaimLinks, personas[1]!, "claim_link_addr_bound_funding", `AddressBound link #${justCreatedAB}`);
 
       // Negative 8d: Dave tries to claim Carol's AddressBound link
       // BEFORE Carol claims, so the revert hits "not bound address"
@@ -1291,6 +1369,7 @@ task(
 
       // Dave claims with the same secret + emailHash
       const justCreatedEB = await extractIdFromReceipt(linkEBHash, ClaimLinks, SIG.LinkCreated);
+      await settleGate("claimLink", [justCreatedEB], ClaimLinks, personas[2]!, "claim_link_email_bound_funding", `EmailBound link #${justCreatedEB}`);
       const daveWalletEB = createWalletClient({
         account: privateKeyToAccount(personas[3]!.privKey),
         chain,
@@ -1487,7 +1566,7 @@ task(
               { name: "proof", type: "bytes" },
                 { name: "deliveryNoteHash", type: "bytes32" },
               ],
-              outputs: [],
+              outputs: [{ name: "purchaseId", type: "uint256" }],
             },
           ],
           functionName: "buyFixed",
@@ -1497,6 +1576,15 @@ task(
         const buyReceipt = await waitOk(buyHash, "buyHash");
         console.log(`  Carol: buyFixed listing #${justListed} ok  tx=${buyHash}`);
         results.push({ feature: "storefront_buy", persona: "Carol", status: "pass", txHash: buyHash });
+
+        // The purchase is Pending and FixedPricePaid fires only once the funded
+        // bit is confirmed, so settle before checking the seller-side proof.
+        const purchaseId = await tryExtractId(buyHash, Storefront, [SIG.PurchasePending]);
+        if (purchaseId !== null) {
+          await settleGate("purchase", [purchaseId], Storefront, personas[2]!, "storefront_funding", `purchase #${purchaseId}`);
+        } else {
+          results.push({ feature: "storefront_funding", persona: "Carol", status: "skip", error: "no PurchasePending event (contract predates the gate)" });
+        }
 
         // The seller verifies payment through FixedPricePaid + getPaidByBuyer.
         const paidTopic = keccak256(toBytes("FixedPricePaid(uint256,address,bytes32)"));
@@ -1669,9 +1757,14 @@ task(
         address: P2POfframp, abi: OFFRAMP_ABI, functionName: "takeOffer", args: [offerIds[0]!], gas: 3_000_000n,
       }));
       await waitOk(takeHash, "dave takeOffer");
-      const fillId = await extractIdFromReceipt(takeHash, P2POfframp, FILL_LOCKED);
+      // An upgraded contract emits FillPending and the fill stays Pending until
+      // confirmFunding; an older one emits FillLocked straight away.
+      const fillId = await tryExtractId(takeHash, P2POfframp, [SIG.FillPending, FILL_LOCKED]);
+      if (fillId === null) throw new Error(`no FillPending or FillLocked event in ${takeHash}`);
       console.log(`  Dave: takeOffer #${offerIds[0]} -> fill #${fillId}  tx=${takeHash}`);
       results.push({ feature: "offramp_take", persona: "Dave", status: "pass", txHash: takeHash });
+      // submitProof and its negatives need the fill Locked, so settle first.
+      await settleGate("fill", [fillId], P2POfframp, dave, "offramp_funding", `fill #${fillId}`);
 
       const escrowHandle = await publicClient.readContract({ address: P2POfframp, abi: OFFRAMP_ABI, functionName: "getEscrowedAmount", args: [fillId] });
       const locks = await publicClient.readContract({ address: P2POfframp, abi: OFFRAMP_ABI, functionName: "activeLocks", args: [dave.address] });
@@ -1928,7 +2021,7 @@ task(
               { name: "proof", type: "bytes" },
               { name: "message", type: "string" },
             ],
-            outputs: [],
+            outputs: [{ name: "tipId", type: "uint256" }],
           },
         ],
         functionName: "support",
@@ -1938,6 +2031,15 @@ task(
       await waitOk(supportHash, "supportHash");
       console.log(`  Alice→Bob: support ok  tx=${supportHash}`);
       results.push({ feature: "creator_support", persona: "Alice", status: "pass", txHash: supportHash });
+
+      // The tip is Pending and the per-vault totals below only move once the
+      // funded bit is confirmed.
+      const tipId = await tryExtractId(supportHash, CreatorHub, [SIG.TipPending]);
+      if (tipId !== null) {
+        await settleGate("tip", [tipId], CreatorHub, personas[0]!, "creator_funding", `tip #${tipId}`);
+      } else {
+        results.push({ feature: "creator_funding", persona: "Alice", status: "skip", error: "no TipPending event (contract predates the gate)" });
+      }
 
       // Totals are per vault now. Both sides read their own handle.
       const perVaultAbi = [
@@ -2023,9 +2125,28 @@ task(
         args: [targetCampaignId, encPledge, encPledgeProof],
         gas: 5_000_000n,
       });
-      await waitOk(contributeHash, "contributeHash");
+      const contributeReceipt = await waitOk(contributeHash, "contributeHash");
       console.log(`  Carol: contribute to campaign ${targetCampaignId} ok  tx=${contributeHash}`);
       results.push({ feature: "crowdfund_contribute", persona: "Carol", status: "pass", txHash: contributeHash });
+
+      // The contribution is Pending and does not count toward the raised total
+      // until confirmContribution. Its index is the first data word of Contributed.
+      const contributedLog = contributeReceipt.logs.find(
+        (lg) => lg.address.toLowerCase() === Crowdfund.toLowerCase() && lg.topics[0]?.toLowerCase() === SIG.Contributed.toLowerCase(),
+      );
+      if (contributedLog) {
+        const contributionIndex = BigInt(`0x${contributedLog.data.slice(2, 66)}`);
+        await settleGate(
+          "contribution",
+          [targetCampaignId, contributionIndex],
+          Crowdfund,
+          personas[2]!,
+          "crowdfund_funding",
+          `contribution ${targetCampaignId}/${contributionIndex}`,
+        );
+      } else {
+        results.push({ feature: "crowdfund_funding", persona: "Carol", status: "skip", error: "no Contributed event in receipt" });
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message.slice(0, 250) : String(err);
       console.log(`  Carol: contribute FAILED ${msg}`);

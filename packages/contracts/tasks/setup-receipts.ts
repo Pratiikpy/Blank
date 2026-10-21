@@ -272,6 +272,26 @@ task("setup-receipts", "Wire PaymentHub / BusinessHub / GiftMoney / StealthPayme
         await tx.wait(2);
         console.log("     ✓ tx:", tx.hash);
       }
+
+      // The vault side of the same trust: proveBalanceAbove gets the user's
+      // balance as a share from the vault, which only hands it to readers
+      // its owner trusts. Owner-only on the vault.
+      const vault = new hre.ethers.Contract(
+        v.addr,
+        [
+          "function setTrustedBalanceReader(address,bool)",
+          "function trustedBalanceReaders(address) view returns (bool)",
+        ],
+        deployer,
+      );
+      if ((await vault.trustedBalanceReaders(addresses.PaymentReceipts)) as boolean) {
+        console.log(`  ${v.name} already trusts PaymentReceipts as a balance reader ✓`);
+      } else {
+        console.log(`  Trusting PaymentReceipts as a balance reader on ${v.name}...`);
+        const tx = await vault.setTrustedBalanceReader(addresses.PaymentReceipts, true);
+        await tx.wait(2);
+        console.log("     ✓ tx:", tx.hash);
+      }
     }
 
     // §2.7 final assertion: verify every wired hub is authorized on PR

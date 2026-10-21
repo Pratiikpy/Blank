@@ -3,6 +3,11 @@ import { readFileSync } from "fs";
 import { resolve } from "path";
 import { encodePacked, keccak256, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
+import { createPublicClient, createWalletClient, http } from "viem";
+import { arbitrumSepolia, baseSepolia as viemBaseSepolia, sepolia as viemSepolia } from "viem/chains";
+import { createCofheClient, createCofheConfig } from "@cofhe/sdk/node";
+import { arbSepolia, baseSepolia, sepolia } from "@cofhe/sdk/chains";
+import { ethersGateIO, settleFundingExpectFunded } from "./lib/funding-gate";
 
 // Claim a v2 claim link (any mode) from a testnet EOA.
 //
@@ -15,6 +20,12 @@ import { privateKeyToAccount } from "viem/accounts";
 // The contract rejects a sender claiming their own link, so pass
 // --claimerkey with a different funded key when the deployer created it.
 // Legacy (pre-v2) Bearer/EmailBound links cannot be claimed; the task says so.
+//
+// On an upgraded ClaimLinks a new link is PendingFunding until someone confirms it.
+// The app does that automatically, so a link made in the app is usually already
+// Active. If this task finds it still pending it settles the funding check first
+// (decrypt the funded bit, confirmFunding), then claims. A link that settled Void
+// (the sender's balance was short) cannot be claimed and the task says so.
 //
 // Usage:
 //   npx hardhat claim-claim-link --network eth-sepolia --linkid 0 --secret 0x... [--mode 0] [--email a@b.c] [--claimerkey 0x...]
@@ -87,6 +98,35 @@ task("claim-claim-link", "Claim a v2 claim link with its secret")
     }
     if (registered.toLowerCase() !== claimKeyAccount.address.toLowerCase()) {
       throw new Error(`Secret/email do not match this link (expected key ${registered}, derived ${claimKeyAccount.address})`);
+    }
+
+    const gateIO = ethersGateIO("claimLink", [BigInt(linkid)], claimLinksAddr, signer);
+    if (await gateIO.supported()) {
+      const status = Number(
+        await new hre.ethers.Contract(
+          claimLinksAddr,
+          ["function fundingStatus(uint256) view returns (uint8)"],
+          signer,
+        ).fundingStatus(BigInt(linkid)),
+      );
+      if (status === 2) throw new Error("Link settled Void: the sender's balance was short, nothing was locked");
+      if (status === 1) {
+        console.log("Link is PendingFunding: settling the funding check first...");
+        const chainCfg =
+          networkName === "base-sepolia" ? { cofhe: baseSepolia, viem: viemBaseSepolia, rpc: "BASE_SEPOLIA_RPC_URL" } :
+          networkName === "arb-sepolia" ? { cofhe: arbSepolia, viem: arbitrumSepolia, rpc: "ARBITRUM_SEPOLIA_RPC_URL" } :
+          { cofhe: sepolia, viem: viemSepolia, rpc: "SEPOLIA_RPC_URL" };
+        const rpcUrl = process.env[chainCfg.rpc] || (hre.network.config as { url: string }).url;
+        const pk = claimerkey ?? process.env.PRIVATE_KEY;
+        if (!pk) throw new Error("PRIVATE_KEY env (or --claimerkey) needed to decrypt the funding check");
+        const account = privateKeyToAccount((String(pk).startsWith("0x") ? String(pk) : `0x${pk}`) as Hex);
+        const cofhe = createCofheClient(createCofheConfig({ supportedChains: [chainCfg.cofhe] }));
+        await cofhe.connect(
+          createPublicClient({ chain: chainCfg.viem, transport: http(rpcUrl) }) as never,
+          createWalletClient({ account, chain: chainCfg.viem, transport: http(rpcUrl) }) as never,
+        );
+        await settleFundingExpectFunded(gateIO, cofhe, { label: `link #${linkid}` });
+      }
     }
 
     const digest = (await claimLinks.claimDigest(BigInt(linkid), claimerAddress)) as Hex;

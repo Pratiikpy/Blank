@@ -66,3 +66,6 @@ import "./deploy-upgrade-cofhe-1-0";
 import "./verify-cofhe-0-7";
 import "./deploy-upgrade-security-v1";
 import "./transfer-ownership-to-safe";
+import "./roundtrip-sdk";
+import "./deploy-upgrade-audit-v2";
+import "./verify-funding-gate-live";

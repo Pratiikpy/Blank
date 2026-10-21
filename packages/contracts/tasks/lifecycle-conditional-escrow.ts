@@ -7,11 +7,13 @@ import { arbSepolia } from "@cofhe/sdk/chains";
 import { createPublicClient, createWalletClient, http, encodeAbiParameters } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { arbitrumSepolia as viemArbSepolia } from "viem/chains";
+import { ethersGateIO, settleFundingExpectFunded } from "./lib/funding-gate";
 
 // Real Arbitrum Sepolia end-to-end proof for the conditional invoice:
-//   shield → createConditionalEscrow (real cofhe encrypt) → resolver.approve →
-//   releaseIfConditionMet → assert Released. Prints Arbiscan tx links and the
-//   escrowId so the public UI page can be opened against real state.
+//   shield → createConditionalEscrow (real cofhe encrypt) → confirmFunding →
+//   resolver.approve → releaseIfConditionMet → assert Released. Prints Arbiscan
+//   tx links and the escrowId so the public UI page can be opened against real state.
+//   confirmFunding is skipped on an escrow contract that predates the funding gate.
 //
 //   npx hardhat lifecycle-conditional-escrow --network arb-sepolia --amount 5
 
@@ -117,6 +119,16 @@ task("lifecycle-conditional-escrow", "Real Arb Sepolia: create conditional escro
     if (escrowId === null) escrowId = (await escrow.nextEscrowId()) - 1n;
     console.log(`  create tx: ${createTx.hash}`);
     console.log(`  escrowId:  ${escrowId}`);
+
+    // An upgraded escrow starts PendingFunding and release needs Active, so
+    // decrypt the funded bit and confirm before the resolver steps.
+    console.log(`\nconfirmFunding (funding gate)...`);
+    const gate = await settleFundingExpectFunded(
+      ethersGateIO("escrow", [escrowId], escrowAddr, signer),
+      client,
+      { label: `escrow #${escrowId}` },
+    );
+    if (!gate.gated) console.log(`  skipped: ${gate.reason}`);
 
     console.log(`\nresolver.approve (payer approves early release)...`);
     // Conditions are keyed by (escrow contract, escrowId).

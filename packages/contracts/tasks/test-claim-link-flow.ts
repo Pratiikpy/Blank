@@ -7,6 +7,7 @@ import { sepolia, baseSepolia } from "@cofhe/sdk/chains";
 import { createPublicClient, createWalletClient, http, keccak256, encodePacked, hexToBytes } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { sepolia as viemSepolia, baseSepolia as viemBaseSepolia } from "viem/chains";
+import { ethersGateIO, settleFundingExpectFunded } from "./lib/funding-gate";
 
 // Wave 4 task #251 follow-up — drive a real createLink on testnet.
 //
@@ -23,7 +24,9 @@ import { sepolia as viemSepolia, baseSepolia as viemBaseSepolia } from "viem/cha
 //      priv = keccak256(abi.encodePacked("BLANK_CLAIM_KEY_v2", uint8(0), secret)).
 //   4. createLink(vault, encAmount, proof, claimKey, BEARER, 0x0, 0, note).
 //   5. Wait for receipt, extract linkId from LinkCreated event.
-//   6. Print the shareable URL.
+//   6. On an upgraded ClaimLinks the link is PendingFunding: decrypt the funded
+//      bit and confirmFunding so it becomes claimable. Skipped on older contracts.
+//   7. Print the shareable URL.
 //
 // Usage:
 //   npx hardhat test-claim-link-flow --network eth-sepolia --amount 0.5
@@ -180,6 +183,14 @@ task("test-claim-link-flow", "Create a real bearer claim-link from the deployer 
     if (linkId === null) {
       throw new Error("LinkCreated event not found in receipt logs");
     }
+
+    console.log("\n[5b/5] Funding gate: confirming the link is funded...");
+    const gate = await settleFundingExpectFunded(
+      ethersGateIO("claimLink", [linkId], claimLinksAddr, signer),
+      client,
+      { label: `link #${linkId}`, log: (l) => console.log(`      ${l.trim()}`) },
+    );
+    if (!gate.gated) console.log(`      skipped: ${gate.reason}`);
 
     // base64url-encode the secret
     const b64 = Buffer.from(hexToBytes(secretHex)).toString("base64");
