@@ -8,7 +8,6 @@ import "./utils/ReentrancyGuard.sol";
 import "./interfaces/ITokenRegistry.sol";
 
 interface IFHERC20Vault {
-    function transferFrom(address from, address to, externalEuint64 encAmount, bytes calldata proof) external returns (euint64);
     function transferFromVerified(address from, address to, sharedEuint64 shared) external returns (sharedEuint64);
     function transferVerified(address to, sharedEuint64 shared) external returns (sharedEuint64);
 }
@@ -39,6 +38,16 @@ interface IPaymentReceipts {
 ///        - Per-listing bidder list + encrypted bid amounts.
 ///        - Funds custody: contract holds vault tokens for the duration
 ///          of an auction (so loser-refund paths can release).
+///
+///      Funding gate: the vault moves 0 (no revert) when a buyer is short,
+///      so a sale must not read as made until funds are proven. buyFixed and
+///      payPWYW record a Pending purchase with a public ebool "the vault
+///      moved the full amount"; confirmFunding publishes its decryption and
+///      only then marks the purchase Sold, bumps receipts and emits the
+///      sale events. A zero payment becomes Void. Auctions get the same
+///      guarantee at close: a winner must hold a non-zero bid that met the
+///      minimum, otherwise the auction closes with no winner and every bid
+///      is refundable.
 contract Storefront is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
     // ─── Types ────────────────────────────────────────────────────────
@@ -73,6 +82,20 @@ contract Storefront is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         address bidder;
         euint64 amount;
         bool refunded;
+    }
+
+    enum PurchaseKind { Fixed, PWYW }
+    enum PurchaseStatus { None, Pending, Sold, Void }
+
+    /// @dev A FixedPrice or PWYW payment awaiting confirmFunding.
+    struct Purchase {
+        uint256 listingId;
+        address buyer;
+        PurchaseKind kind;
+        PurchaseStatus status;
+        ebool funded;
+        euint64 paid;
+        bytes32 deliveryNoteHash;
     }
 
     // ─── State ────────────────────────────────────────────────────────
@@ -115,6 +138,9 @@ contract Storefront is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     ///      auction permanently. 200 keeps closeAuction comfortably
     ///      below 30M gas at EntryPoint v0.8 pricing.
     uint256 public constant MAX_BIDS = 200;
+    /// @dev Winner index revealed when no bid is eligible. Above MAX_BIDS, so
+    ///      it never collides with a real index.
+    uint8 public constant NO_WINNER = type(uint8).max;
 
     // ─── Events ───────────────────────────────────────────────────────
 
@@ -173,6 +199,16 @@ contract Storefront is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     ///         on a match with enough balance, otherwise 0. Buyer and seller
     ///         can decrypt it; the seller should check it before delivering.
     event FixedPricePaid(uint256 indexed listingId, address indexed buyer, euint64 paid);
+    /// @notice A payment is waiting for confirmFunding. Decrypt `funded`
+    ///         (public) off-chain and pass the result and signature to
+    ///         confirmFunding. FixedPriceBuy / PWYWPayment fire only then.
+    event PurchasePending(uint256 indexed purchaseId, uint256 indexed listingId, address indexed buyer, ebool funded);
+    /// @notice Nothing (or not the full price) moved; the purchase is void
+    ///         and the seller owes no delivery.
+    event PurchaseVoided(uint256 indexed purchaseId, uint256 indexed listingId, address indexed buyer);
+    /// @notice The auction closed without an eligible bid. Every bid is
+    ///         refundable through refundLoserBid.
+    event AuctionNoWinner(uint256 indexed listingId, uint256 totalBids);
 
     // ─── Initializer ──────────────────────────────────────────────────
 
@@ -264,16 +300,22 @@ contract Storefront is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     ///         match, the transfer succeeds; if not, the contract refunds
     ///         (FHE.select pattern: transfers 0 instead of reverting).
     ///
+    ///         The purchase is Pending until confirmFunding proves the full
+    ///         price moved; the seller delivers only against a Sold purchase.
+    ///         A listing priced at 0 can never confirm, use PayWhatYouWant
+    ///         for free items.
+    ///
     /// @param listingId        On-chain listing id.
     /// @param encAmount        Buyer's encrypted offer (must equal encPrice).
     /// @param deliveryNoteHash Optional buyer-side note (e.g. shipping addr
     ///                         encrypted with seller's pubkey, IPFS CID
     ///                         hash). Plaintext bytes32 stored on-chain.
+    /// @return purchaseId      Id to pass to confirmFunding.
     function buyFixed(
         uint256 listingId,
         externalEuint64 encAmount, bytes calldata proof,
         bytes32 deliveryNoteHash
-    ) external nonReentrant {
+    ) external nonReentrant returns (uint256 purchaseId) {
         Listing storage l = _listings[listingId];
         require(l.active, "Storefront: not active");
         require(!l.closed, "Storefront: closed");
@@ -301,19 +343,101 @@ contract Storefront is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         FHE.allowSender(transferred);
         FHE.allow(transferred, l.seller);
 
-        _bumpReceiptsAndGlobal(l.seller, transferred);
-
         // A listing can be bought many times (digital goods). Keep the
         // buyer's running paid total so the seller can verify payment.
+        // Adding a zero payment changes nothing, so this is not gated.
         euint64 total = FHE.add(_paidByBuyer[listingId][msg.sender], transferred);
         _paidByBuyer[listingId][msg.sender] = total;
         FHE.allowThis(total);
         FHE.allowSender(total);
         FHE.allow(total, l.seller);
 
-        emit FixedPriceBuy(listingId, msg.sender, l.seller, deliveryNoteHash);
-        emit FixedPricePaid(listingId, msg.sender, transferred);
-        try eventHub.emitActivity(msg.sender, l.seller, "storefront_buy", l.title, listingId) {} catch {}
+        ebool funded = FHE.and(
+            FHE.gt(transferred, FHE.asEuint64(0)),
+            FHE.eq(transferred, l.encPrice)
+        );
+        purchaseId = _openPurchase(listingId, PurchaseKind.Fixed, transferred, funded, deliveryNoteHash);
+    }
+
+    /// @notice Settle a pending FixedPrice or PWYW purchase (step 2 of 2).
+    ///         Anyone may call with the Threshold Network decryption of
+    ///         getPurchaseFundedHandle(purchaseId).
+    ///         true: the purchase is Sold, receipts are bumped and the sale
+    ///         events fire. false: the purchase is Void, nothing is owed.
+    function confirmFunding(uint256 purchaseId, bool fundedPlaintext, bytes calldata signature) external nonReentrant {
+        Purchase storage p = _purchases[purchaseId];
+        require(p.status == PurchaseStatus.Pending, "Storefront: purchase not pending");
+
+        // Publish only if nobody has yet, so a second publish cannot revert.
+        (bool funded, bool ready) = FHE.getDecryptResultSafe(p.funded);
+        if (!ready) {
+            FHE.publishDecryptResult(p.funded, fundedPlaintext, signature);
+            (funded, ready) = FHE.getDecryptResultSafe(p.funded);
+        }
+        require(ready, "Storefront: decryption not ready");
+
+        uint256 listingId = p.listingId;
+        address buyer = p.buyer;
+        Listing storage l = _listings[listingId];
+
+        if (!funded) {
+            p.status = PurchaseStatus.Void;
+            emit PurchaseVoided(purchaseId, listingId, buyer);
+            return;
+        }
+
+        p.status = PurchaseStatus.Sold;
+        // Receipts count settled sales only; a zero payment would still
+        // bump the public transaction counter.
+        _bumpReceiptsAndGlobal(l.seller, p.paid);
+
+        if (p.kind == PurchaseKind.Fixed) {
+            emit FixedPriceBuy(listingId, buyer, l.seller, p.deliveryNoteHash);
+            emit FixedPricePaid(listingId, buyer, p.paid);
+            try eventHub.emitActivity(buyer, l.seller, "storefront_buy", l.title, listingId) {} catch {}
+        } else {
+            emit PWYWPayment(listingId, buyer, l.seller, p.deliveryNoteHash);
+            try eventHub.emitActivity(buyer, l.seller, "storefront_pwyw", l.title, listingId) {} catch {}
+        }
+    }
+
+    /// @notice The public ebool "the vault moved the full amount" for a purchase.
+    function getPurchaseFundedHandle(uint256 purchaseId) external view returns (ebool) {
+        return _purchases[purchaseId].funded;
+    }
+
+    /// @notice Public state of a purchase (no amounts).
+    function getPurchase(uint256 purchaseId) external view returns (
+        uint256 listingId,
+        address buyer,
+        PurchaseKind kind,
+        PurchaseStatus status
+    ) {
+        Purchase storage p = _purchases[purchaseId];
+        return (p.listingId, p.buyer, p.kind, p.status);
+    }
+
+    function _openPurchase(
+        uint256 listingId,
+        PurchaseKind kind,
+        euint64 paid,
+        ebool funded,
+        bytes32 deliveryNoteHash
+    ) internal returns (uint256 purchaseId) {
+        FHE.allowThis(funded);
+        FHE.allowPublic(funded);
+
+        purchaseId = nextPurchaseId++;
+        Purchase storage p = _purchases[purchaseId];
+        p.listingId = listingId;
+        p.buyer = msg.sender;
+        p.kind = kind;
+        p.status = PurchaseStatus.Pending;
+        p.funded = funded;
+        p.paid = paid;
+        p.deliveryNoteHash = deliveryNoteHash;
+
+        emit PurchasePending(purchaseId, listingId, msg.sender, funded);
     }
 
     // ─── Auction: Place Bid ───────────────────────────────────────────
@@ -325,6 +449,11 @@ contract Storefront is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     ///
     ///         One bid per address per listing, so MAX_BIDS slots cannot be
     ///         filled by one account.
+    ///
+    ///         A bid below the minimum, or one the vault could not fund,
+    ///         locks 0 and is recorded as a 0 bid. It still takes a slot
+    ///         (rejecting it would reveal the comparison) but closeAuction
+    ///         never lets a 0 bid win, so it cannot take the item.
     function placeBid(uint256 listingId, externalEuint64 encAmount, bytes calldata proof) external nonReentrant {
         Listing storage l = _listings[listingId];
         require(l.active && !l.closed, "Storefront: listing not active");
@@ -403,12 +532,23 @@ contract Storefront is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
             winnerIdx = FHE.select(isHigher, FHE.asEuint8(uint8(i)), winnerIdx);
             currentMax = FHE.select(isHigher, bids[i].amount, currentMax);
         }
-        FHE.allowThis(winnerIdx);
-        FHE.allowPublic(winnerIdx);
+
+        // The top bid wins only if it is funded and met the minimum. Bids
+        // hold what the vault actually locked: 0 when unfunded or below the
+        // minimum. Without this, all-zero bids would hand index 0 the item
+        // for nothing. The decision is data, not a branch: an ineligible
+        // auction reveals NO_WINNER instead of an index.
+        ebool eligible = FHE.and(
+            FHE.gt(currentMax, FHE.asEuint64(0)),
+            FHE.gte(currentMax, l.encPrice)
+        );
+        euint8 revealIdx = FHE.select(eligible, winnerIdx, FHE.asEuint8(NO_WINNER));
+        FHE.allowThis(revealIdx);
+        FHE.allowPublic(revealIdx);
         FHE.allowThis(currentMax);
         FHE.allow(currentMax, l.seller);
 
-        _winnerIdxHandle[listingId] = winnerIdx;
+        _winnerIdxHandle[listingId] = revealIdx;
         l.closed = true;
         l.winningBid = currentMax;
         // l.winner stays 0x0 until revealWinner() decrypts and sets it.
@@ -420,19 +560,28 @@ contract Storefront is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     /// @notice §1.4 phase B: publish the decrypted winner index. Threshold
     /// Network signs the result; this contract verifies via FHE.publishDecryptResult
     /// and resolves the encrypted index to a concrete bidder address.
-    /// Anyone can call (the verification is the gate).
+    /// Anyone can call (the verification is the gate). `NO_WINNER` means no bid
+    /// was funded and above the minimum: the auction ends with no winner and
+    /// every bid is refundable.
     function revealWinner(uint256 listingId, uint8 plaintextIdx, bytes calldata signature) external {
         Listing storage l = _listings[listingId];
         require(l.closed, "Storefront: not closed");
         require(l.mode == SaleMode.Auction, "Storefront: not Auction");
-        require(l.winner == address(0), "Storefront: winner already revealed");
+        require(l.winner == address(0) && !_noWinner[listingId], "Storefront: winner already revealed");
 
         Bid[] storage bids = _bids[listingId];
-        require(plaintextIdx < bids.length, "Storefront: bad winner index");
+        require(plaintextIdx < bids.length || plaintextIdx == NO_WINNER, "Storefront: bad winner index");
 
         // Verify the off-chain decryption matches the on-chain encrypted handle.
         // Reverts if signature/value don't match.
         FHE.publishDecryptResult(_winnerIdxHandle[listingId], plaintextIdx, signature);
+
+        if (plaintextIdx == NO_WINNER) {
+            _noWinner[listingId] = true;
+            emit AuctionNoWinner(listingId, bids.length);
+            try eventHub.emitActivity(l.seller, address(0), "storefront_auction_no_winner", l.title, listingId) {} catch {}
+            return;
+        }
 
         l.winner = bids[plaintextIdx].bidder;
         // Pin the winning index so claimAuctionWin can mark precisely
@@ -512,9 +661,12 @@ contract Storefront is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         require(!bid.refunded, "Storefront: already refunded");
         // Refunds open only after the winner is revealed. Before that the
         // winning bid is unknown, and refunding it would leave the seller
-        // unpaid.
-        require(l.winner != address(0), "Storefront: winner not revealed");
-        require(bidIndex != _winningBidIdx[listingId], "Storefront: winning bid, use claimAuctionWin");
+        // unpaid. When no bid was eligible there is no winning bid to protect.
+        require(l.winner != address(0) || _noWinner[listingId], "Storefront: winner not revealed");
+        require(
+            l.winner == address(0) || bidIndex != _winningBidIdx[listingId],
+            "Storefront: winning bid, use claimAuctionWin"
+        );
 
         // Refund: contract → bidder.
         IFHERC20Vault(l.vault).transferVerified(msg.sender, FHE.shareEuint64(bid.amount, l.vault));
@@ -526,12 +678,15 @@ contract Storefront is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     // ─── PayWhatYouWant ────────────────────────────────────────────────
 
     /// @notice Pay any amount. Useful for tip-jar / open-source funding /
-    ///         "name your price" digital products.
+    ///         "name your price" digital products. The payment is Pending
+    ///         until confirmFunding proves the vault moved something; a zero
+    ///         payment is voided and never counts as a sale.
+    /// @return purchaseId Id to pass to confirmFunding.
     function payPWYW(
         uint256 listingId,
         externalEuint64 encAmount, bytes calldata proof,
         bytes32 deliveryNoteHash
-    ) external nonReentrant {
+    ) external nonReentrant returns (uint256 purchaseId) {
         Listing storage l = _listings[listingId];
         require(l.active && !l.closed, "Storefront: not active");
         require(l.mode == SaleMode.PayWhatYouWant, "Storefront: not PWYW");
@@ -548,10 +703,8 @@ contract Storefront is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         FHE.allowSender(transferred);
         FHE.allow(transferred, l.seller);
 
-        _bumpReceiptsAndGlobal(l.seller, transferred);
-
-        emit PWYWPayment(listingId, msg.sender, l.seller, deliveryNoteHash);
-        try eventHub.emitActivity(msg.sender, l.seller, "storefront_pwyw", l.title, listingId) {} catch {}
+        ebool funded = FHE.gt(transferred, FHE.asEuint64(0));
+        purchaseId = _openPurchase(listingId, PurchaseKind.PWYW, transferred, funded, deliveryNoteHash);
     }
 
     // ─── Listing admin ─────────────────────────────────────────────────
@@ -635,6 +788,7 @@ contract Storefront is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     // ─── Admin ─────────────────────────────────────────────────────────
 
     function setEventHub(address _eventHub) external onlyOwner {
+        require(_eventHub.code.length > 0, "Storefront: bad event hub");
         eventHub = IEventHub(_eventHub);
     }
 
@@ -660,7 +814,12 @@ contract Storefront is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         );
     }
 
+    /// @dev Zero switches receipt bumps off.
     function setPaymentReceipts(address _paymentReceipts) external onlyOwner {
+        require(
+            _paymentReceipts == address(0) || _paymentReceipts.code.length > 0,
+            "Storefront: bad receipts"
+        );
         address previous = paymentReceipts;
         paymentReceipts = _paymentReceipts;
         emit PaymentReceiptsSet(previous, _paymentReceipts);
@@ -687,9 +846,21 @@ contract Storefront is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     mapping(uint256 => mapping(address => euint64)) private _paidByBuyer;
     /// @dev Vault allowlist. Appended.
     ITokenRegistry public tokenRegistry;
+    /// @dev Next id for FixedPrice / PWYW purchases. Appended.
+    uint256 public nextPurchaseId;
+    /// @dev purchaseId => payment awaiting or past confirmFunding. Appended.
+    mapping(uint256 => Purchase) private _purchases;
+    /// @dev listingId => the auction was revealed with no eligible bid. Appended.
+    mapping(uint256 => bool) private _noWinner;
 
     /// @dev Append-only storage. The gap started at 50 and shrinks by 1 for
     /// each appended slot (_winnerIdxHandle, _winningBidIdx, _hasBid,
-    /// _paidByBuyer, tokenRegistry), so used + gap stays constant.
-    uint256[45] private __gap;
+    /// _paidByBuyer, tokenRegistry, nextPurchaseId, _purchases, _noWinner),
+    /// so used + gap stays constant.
+    uint256[42] private __gap;
+
+    /// @notice True once revealWinner showed that no bid was eligible.
+    function auctionHasNoWinner(uint256 listingId) external view returns (bool) {
+        return _noWinner[listingId];
+    }
 }

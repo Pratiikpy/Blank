@@ -31,9 +31,22 @@ interface IPaymentReceipts {
 /// @dev Keeps individual contribution amounts private throughout. The
 ///      total goal is also private — observers cannot game the campaign by
 ///      knowing how close it is to closing.
+///
+///      The vault moves zero, rather than reverting, when a balance is short.
+///      The encrypted running total is unaffected (zero adds nothing), but a
+///      contribution only counts as one once its single "locked the requested
+///      amount" bit has been decrypted and published (confirmContribution).
+///      Contributions made before that gate read as Counted. Refunds are
+///      two-step for the same reason: claimRefund moves the funds, and
+///      confirmRefund marks the contribution refunded only after the moved
+///      amount is shown to be non-zero.
 contract EncryptedCrowdfund is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
     enum CampaignStatus { Open, Closed, Released, Refunding }
+
+    /// @dev Counted is zero so every contribution made before the funding gate
+    ///      reads as Counted without a migration.
+    enum ContributionState { Counted, PendingFunding, Void }
 
     struct Campaign {
         address creator;
@@ -89,6 +102,34 @@ contract EncryptedCrowdfund is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
     event CampaignReleased(uint256 indexed campaignId, address indexed creator);
 
     event ContributionRefunded(
+        uint256 indexed campaignId,
+        address indexed contributor,
+        uint256 contributionIndex
+    );
+
+    /// @notice The contribution's funded bit decrypted true: it now counts.
+    event ContributionConfirmed(
+        uint256 indexed campaignId,
+        address indexed contributor,
+        uint256 contributionIndex
+    );
+
+    /// @notice Nothing was locked for this contribution; it never counts.
+    event ContributionVoided(
+        uint256 indexed campaignId,
+        address indexed contributor,
+        uint256 contributionIndex
+    );
+
+    /// @notice claimRefund moved funds; confirmRefund settles whether it paid.
+    event RefundRequested(
+        uint256 indexed campaignId,
+        address indexed contributor,
+        uint256 contributionIndex
+    );
+
+    /// @notice The refund moved nothing, so the contribution stays refundable.
+    event RefundNotPaid(
         uint256 indexed campaignId,
         address indexed contributor,
         uint256 contributionIndex
@@ -159,6 +200,9 @@ contract EncryptedCrowdfund is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
 
     // ─── Contribute ───────────────────────────────────────────────────
 
+    /// @notice Contribute an encrypted amount. The contribution starts
+    ///         PendingFunding: decrypt getContributionFundingCheck(id, index)
+    ///         and pass it to confirmContribution so it counts.
     function contribute(uint256 campaignId, externalEuint64 encAmount, bytes calldata proof) external nonReentrant {
         Campaign storage c = _campaigns[campaignId];
         require(c.status == CampaignStatus.Open, "Crowdfund: not open");
@@ -188,9 +232,56 @@ contract EncryptedCrowdfund is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
             amount: locked,
             refunded: false
         }));
+        uint256 index = _contributions[campaignId].length - 1;
 
-        emit Contributed(campaignId, msg.sender, _contributions[campaignId].length - 1, block.timestamp);
-        try eventHub.emitActivity(msg.sender, c.creator, "crowdfund_contributed", c.title, campaignId) {} catch {}
+        // The vault moves all or nothing, so `locked` is the requested amount
+        // or zero. The equality term keeps "funded" exact if that ever changes.
+        ebool funded = FHE.and(FHE.gt(locked, FHE.asEuint64(0)), FHE.eq(locked, verifiedAmount));
+        FHE.allowThis(funded);
+        FHE.allowPublic(funded);
+        _fundedCheck[campaignId][index] = funded;
+        contributionState[campaignId][index] = ContributionState.PendingFunding;
+        uncountedContributions[campaignId]++;
+
+        emit Contributed(campaignId, msg.sender, index, block.timestamp);
+    }
+
+    /// @notice Settle a PendingFunding contribution. Anyone may call with the
+    ///         Threshold Network decryption of
+    ///         getContributionFundingCheck(campaignId, contributionIndex).
+    ///         true: the contribution counts (and the creator is notified).
+    ///         false: nothing was locked and it never counts. The published
+    ///         value, not the argument, decides the outcome. Allowed in any
+    ///         campaign state, since it only settles this contribution.
+    function confirmContribution(
+        uint256 campaignId,
+        uint256 contributionIndex,
+        bool funded,
+        bytes calldata signature
+    ) external nonReentrant {
+        Contribution[] storage cs = _contributions[campaignId];
+        require(contributionIndex < cs.length, "Crowdfund: bad index");
+        require(
+            contributionState[campaignId][contributionIndex] == ContributionState.PendingFunding,
+            "Crowdfund: not pending funding"
+        );
+        ebool check = _fundedCheck[campaignId][contributionIndex];
+        (, bool published) = FHE.getDecryptResultSafe(check);
+        if (!published) FHE.publishDecryptResult(check, funded, signature);
+        (bool ok, bool ready) = FHE.getDecryptResultSafe(check);
+        require(ready, "Crowdfund: decryption not ready");
+
+        address contributor = cs[contributionIndex].contributor;
+        if (ok) {
+            contributionState[campaignId][contributionIndex] = ContributionState.Counted;
+            uncountedContributions[campaignId]--;
+            emit ContributionConfirmed(campaignId, contributor, contributionIndex);
+            Campaign storage c = _campaigns[campaignId];
+            try eventHub.emitActivity(contributor, c.creator, "crowdfund_contributed", c.title, campaignId) {} catch {}
+        } else {
+            contributionState[campaignId][contributionIndex] = ContributionState.Void;
+            emit ContributionVoided(campaignId, contributor, contributionIndex);
+        }
     }
 
     // ─── Close Campaign ───────────────────────────────────────────────
@@ -208,7 +299,12 @@ contract EncryptedCrowdfund is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
         // contributors would emit a fake "successful campaign" event and the
         // indexer would record a non-existent fundraise. The encrypted goal
         // value stays private; only "had at least one contribution" is public.
-        require(_contributions[campaignId].length > 0, "Crowdfund: no contributions to close against");
+        // Only contributions whose funding was confirmed (or that predate the
+        // funding gate) count, so zero-value ones cannot satisfy the guard.
+        require(
+            _contributions[campaignId].length - uncountedContributions[campaignId] > 0,
+            "Crowdfund: no contributions to close against"
+        );
 
         // §1.14 A4: prevent zero-goal grief. Creator could set encGoal=0
         // at create time so FHE.gte(raised, 0) is always true; victim
@@ -238,12 +334,18 @@ contract EncryptedCrowdfund is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
         Campaign storage c = _campaigns[campaignId];
         require(c.status == CampaignStatus.Closed || c.status == CampaignStatus.Released || c.status == CampaignStatus.Refunding, "Crowdfund: not closed");
         require(!c.resultPublished, "Crowdfund: already published");
-        FHE.publishDecryptResult(c.goalCheck, plaintext, signature);
-        c.goalMet = plaintext;
+        // Someone may already have published this handle straight to the Task
+        // Manager. Skip the publish then, and trust the stored verdict rather
+        // than the argument, which is only bound by the signature on a publish.
+        (, bool published) = FHE.getDecryptResultSafe(c.goalCheck);
+        if (!published) FHE.publishDecryptResult(c.goalCheck, plaintext, signature);
+        (bool verdict, bool ready) = FHE.getDecryptResultSafe(c.goalCheck);
+        require(ready, "Crowdfund: decryption not ready");
+        c.goalMet = verdict;
         c.resultPublished = true;
         // Set status hint so the UI knows whether to show "Release" or "Refund" CTA.
-        c.status = plaintext ? CampaignStatus.Released : CampaignStatus.Refunding;
-        emit CloseResultPublished(campaignId, plaintext);
+        c.status = verdict ? CampaignStatus.Released : CampaignStatus.Refunding;
+        emit CloseResultPublished(campaignId, verdict);
     }
 
     // ─── Release (success) ────────────────────────────────────────────
@@ -289,7 +391,10 @@ contract EncryptedCrowdfund is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
     // ─── Refund (failure) ─────────────────────────────────────────────
 
     /// @notice On failed campaign, each contributor pulls their own
-    ///         contribution back. Idempotent per contribution index.
+    ///         contribution back. Step 1 of 2: the funds move now, and the
+    ///         contribution is only marked refunded by confirmRefund once the
+    ///         moved amount is shown to be non-zero. Until then it cannot be
+    ///         requested again.
     function claimRefund(uint256 campaignId, uint256 contributionIndex) external nonReentrant {
         Campaign storage c = _campaigns[campaignId];
         require(c.resultPublished, "Crowdfund: result not published");
@@ -300,11 +405,52 @@ contract EncryptedCrowdfund is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
         Contribution storage contrib = cs[contributionIndex];
         require(contrib.contributor == msg.sender, "Crowdfund: not your contribution");
         require(!contrib.refunded, "Crowdfund: already refunded");
+        require(!refundInFlight[campaignId][contributionIndex], "Crowdfund: refund pending");
 
-        IFHERC20Vault(c.vault).transferVerified(msg.sender, FHE.shareEuint64(contrib.amount, c.vault));
+        euint64 moved = FHE.receiveEuint64FromCall(
+            IFHERC20Vault(c.vault).transferVerified(msg.sender, FHE.shareEuint64(contrib.amount, c.vault)),
+            c.vault
+        );
+        FHE.allowThis(moved);
+        FHE.allow(moved, msg.sender);
 
-        contrib.refunded = true;
-        emit ContributionRefunded(campaignId, msg.sender, contributionIndex);
+        ebool paid = FHE.gt(moved, FHE.asEuint64(0));
+        FHE.allowThis(paid);
+        FHE.allowPublic(paid);
+        _refundCheck[campaignId][contributionIndex] = paid;
+        refundInFlight[campaignId][contributionIndex] = true;
+
+        emit RefundRequested(campaignId, msg.sender, contributionIndex);
+    }
+
+    /// @notice Settle a refund (step 2 of 2). Anyone may call with the
+    ///         Threshold Network decryption of
+    ///         getRefundCheck(campaignId, contributionIndex).
+    ///         true: the contribution is marked refunded. false: nothing moved
+    ///         (for example a contribution that never locked funds), so it is
+    ///         not marked and claimRefund can be called again. The published
+    ///         value, not the argument, decides the outcome.
+    function confirmRefund(
+        uint256 campaignId,
+        uint256 contributionIndex,
+        bool paidOut,
+        bytes calldata signature
+    ) external nonReentrant {
+        require(refundInFlight[campaignId][contributionIndex], "Crowdfund: no refund pending");
+        ebool check = _refundCheck[campaignId][contributionIndex];
+        (, bool published) = FHE.getDecryptResultSafe(check);
+        if (!published) FHE.publishDecryptResult(check, paidOut, signature);
+        (bool paid, bool ready) = FHE.getDecryptResultSafe(check);
+        require(ready, "Crowdfund: decryption not ready");
+
+        refundInFlight[campaignId][contributionIndex] = false;
+        Contribution storage contrib = _contributions[campaignId][contributionIndex];
+        if (paid) {
+            contrib.refunded = true;
+            emit ContributionRefunded(campaignId, contrib.contributor, contributionIndex);
+        } else {
+            emit RefundNotPaid(campaignId, contrib.contributor, contributionIndex);
+        }
     }
 
     // ─── Views ────────────────────────────────────────────────────────
@@ -348,6 +494,18 @@ contract EncryptedCrowdfund is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
         return (c.contributor, c.refunded);
     }
 
+    /// @notice The public ebool "locked == requested and > 0" for a
+    ///         contribution made under the funding gate.
+    function getContributionFundingCheck(uint256 campaignId, uint256 contributionIndex) external view returns (ebool) {
+        return _fundedCheck[campaignId][contributionIndex];
+    }
+
+    /// @notice The public ebool "refund moved a non-zero amount" for the
+    ///         latest claimRefund of a contribution.
+    function getRefundCheck(uint256 campaignId, uint256 contributionIndex) external view returns (ebool) {
+        return _refundCheck[campaignId][contributionIndex];
+    }
+
     function getCreatorCampaigns(address creator) external view returns (uint256[] memory) {
         return _creatorCampaigns[creator];
     }
@@ -388,10 +546,16 @@ contract EncryptedCrowdfund is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
     }
 
     function setEventHub(address _eventHub) external onlyOwner {
+        require(_eventHub.code.length > 0, "Crowdfund: bad event hub");
         eventHub = IEventHub(_eventHub);
     }
 
+    /// @dev Zero turns the receipts bump off; anything else must be a contract.
     function setPaymentReceipts(address _paymentReceipts) external onlyOwner {
+        require(
+            _paymentReceipts == address(0) || _paymentReceipts.code.length > 0,
+            "Crowdfund: bad receipts"
+        );
         address previous = paymentReceipts;
         paymentReceipts = _paymentReceipts;
         emit PaymentReceiptsSet(previous, _paymentReceipts);
@@ -416,8 +580,21 @@ contract EncryptedCrowdfund is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
     mapping(uint256 => bool) public releasePaid;
     /// @dev claimRelease stays closed until legacy sweeps are marked. Appended.
     bool public legacyMigrationDone;
+    /// @dev campaignId => contributionIndex => funding gate state. Counted
+    ///      (zero) for contributions made before the gate.
+    mapping(uint256 => mapping(uint256 => ContributionState)) public contributionState;
+    /// @dev Public "funded" bit per contribution, decrypted by confirmContribution.
+    mapping(uint256 => mapping(uint256 => ebool)) private _fundedCheck;
+    /// @dev campaignId => contributions that are PendingFunding or Void. The
+    ///      close guard counts length minus this, so legacy contributions count.
+    mapping(uint256 => uint256) public uncountedContributions;
+    /// @dev Public "refund moved a non-zero amount" bit for the latest claimRefund.
+    mapping(uint256 => mapping(uint256 => ebool)) private _refundCheck;
+    /// @dev claimRefund ran and confirmRefund has not settled it yet.
+    mapping(uint256 => mapping(uint256 => bool)) public refundInFlight;
 
     /// @dev Append-only storage: 7 original slots + tokenRegistry +
-    /// releasePaid + legacyMigrationDone + gap = 57. Shrink the gap by 1 per new slot.
-    uint256[47] private __gap;
+    /// releasePaid + legacyMigrationDone + 5 funding-gate mappings + gap = 57
+    /// slots in total. Shrink the gap by 1 per new slot.
+    uint256[42] private __gap;
 }

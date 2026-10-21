@@ -73,12 +73,30 @@ async function deployFixture() {
     await vault.connect(signer).approvePlaintext(await storefront.getAddress(), MAX);
   }
 
-  return { owner, alice, bob, charlie, dave, client, testUSDC, vault, storefront, registry };
+  return { owner, alice, bob, charlie, dave, client, testUSDC, eventHub, vault, storefront, registry };
 }
 
 async function encUint64(client: any, signer: any, amount: bigint, consuming: string) {
   await hre.cofhe.connectWithHardhatSigner(client, signer);
   return await client.encryptInputs([Encryptable.uint64(amount)]).setConsumingContract(consuming).execute();
+}
+
+// A FixedPrice / PWYW payment is a sale only after confirmFunding. This runs the
+// second step the way the app does: decrypt the public funded bit, publish it.
+async function confirmPurchase(ctx: any, purchaseId: number | bigint, caller?: any) {
+  await hre.cofhe.connectWithHardhatSigner(ctx.client, caller ?? ctx.owner);
+  const handle = await ctx.storefront.getPurchaseFundedHandle(purchaseId);
+  const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutACP().execute();
+  return ctx.storefront.connect(caller ?? ctx.owner).confirmFunding(purchaseId, Boolean(proof.decryptedValue), proof.signature);
+}
+
+const NO_WINNER = 255;
+
+async function revealIdx(ctx: any, listingId: number) {
+  const h = await ctx.storefront.getWinnerIdxHandle(listingId);
+  await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.owner);
+  const proof = await ctx.client.decryptForTx(h, FheTypes.Uint8).withoutACP().execute();
+  return { idx: Number(proof.decryptedValue), signature: proof.signature as string };
 }
 
 describe("Storefront", () => {
@@ -529,7 +547,9 @@ describe("Storefront", () => {
 
       const encPay = await encUint64(ctx.client, ctx.bob, usdc(10), await ctx.storefront.getAddress());
       await expect(ctx.storefront.connect(ctx.bob).buyFixed(0, ...encPay, ZERO_BYTES32))
-        .to.emit(ctx.storefront, "FixedPriceBuy");
+        .to.emit(ctx.storefront, "PurchasePending")
+        .and.to.not.emit(ctx.storefront, "FixedPriceBuy");
+      await expect(confirmPurchase(ctx, 0)).to.emit(ctx.storefront, "FixedPriceBuy");
     });
 
     it("emits BidPlaced on placeBid + AuctionClosed on closeAuction", async () => {
@@ -557,7 +577,9 @@ describe("Storefront", () => {
 
       const encPay = await encUint64(ctx.client, ctx.bob, usdc(7), await ctx.storefront.getAddress());
       await expect(ctx.storefront.connect(ctx.bob).payPWYW(0, ...encPay, ZERO_BYTES32))
-        .to.emit(ctx.storefront, "PWYWPayment");
+        .to.emit(ctx.storefront, "PurchasePending")
+        .and.to.not.emit(ctx.storefront, "PWYWPayment");
+      await expect(confirmPurchase(ctx, 0)).to.emit(ctx.storefront, "PWYWPayment");
     });
   });
 
@@ -566,19 +588,21 @@ describe("Storefront", () => {
   describe("PaymentReceiptsSet event", () => {
     it("emits PaymentReceiptsSet with previous=zero, current=newAddr on first set", async () => {
       const ctx = await loadFixture(deployFixture);
-      const fake = "0x000000000000000000000000000000000000bEEF";
+      const receipts = await (await hre.ethers.getContractFactory("MockReceiptsSpy")).deploy();
+      const addr = await receipts.getAddress();
 
-      await expect(ctx.storefront.connect(ctx.owner).setPaymentReceipts(fake))
+      await expect(ctx.storefront.connect(ctx.owner).setPaymentReceipts(addr))
         .to.emit(ctx.storefront, "PaymentReceiptsSet")
-        .withArgs(hre.ethers.ZeroAddress, fake);
+        .withArgs(hre.ethers.ZeroAddress, addr);
 
-      expect(await ctx.storefront.paymentReceipts()).to.equal(fake);
+      expect(await ctx.storefront.paymentReceipts()).to.equal(addr);
     });
 
     it("emits PaymentReceiptsSet with the prior address on subsequent set", async () => {
       const ctx = await loadFixture(deployFixture);
-      const first = "0x000000000000000000000000000000000000dEaD";
-      const second = "0x000000000000000000000000000000000000bEEF";
+      const Spy = await hre.ethers.getContractFactory("MockReceiptsSpy");
+      const first = await (await Spy.deploy()).getAddress();
+      const second = await (await Spy.deploy()).getAddress();
 
       await ctx.storefront.connect(ctx.owner).setPaymentReceipts(first);
 
@@ -589,11 +613,20 @@ describe("Storefront", () => {
 
     it("only owner can call setPaymentReceipts", async () => {
       const ctx = await loadFixture(deployFixture);
-      const fake = "0x000000000000000000000000000000000000bEEF";
+      const addr = await (await (await hre.ethers.getContractFactory("MockReceiptsSpy")).deploy()).getAddress();
 
       await expect(
-        ctx.storefront.connect(ctx.alice).setPaymentReceipts(fake),
+        ctx.storefront.connect(ctx.alice).setPaymentReceipts(addr),
       ).to.be.reverted;
+    });
+
+    it("rejects a codeless receipts or event hub address; zero switches receipts off", async () => {
+      const ctx = await loadFixture(deployFixture);
+      await expect(ctx.storefront.setPaymentReceipts(ctx.bob.address)).to.be.revertedWith("Storefront: bad receipts");
+      await expect(ctx.storefront.setEventHub(ctx.bob.address)).to.be.revertedWith("Storefront: bad event hub");
+      await expect(ctx.storefront.setEventHub(hre.ethers.ZeroAddress)).to.be.revertedWith("Storefront: bad event hub");
+      await expect(ctx.storefront.setPaymentReceipts(hre.ethers.ZeroAddress)).to.not.be.reverted;
+      await expect(ctx.storefront.setEventHub(await ctx.eventHub.getAddress())).to.not.be.reverted;
     });
   });
 
@@ -795,11 +828,15 @@ describe("Storefront — audit fixes", () => {
       0, "Ebook", ZERO_BYTES32, "",
     );
     await expect(ctx.storefront.connect(ctx.bob).buyFixed(0, ...(await encUint64(ctx.client, ctx.bob, usdc(1), sf)), ZERO_BYTES32))
-      .to.emit(ctx.storefront, "FixedPricePaid");
+      .to.emit(ctx.storefront, "PurchasePending");
+    await expect(confirmPurchase(ctx, 0))
+      .to.emit(ctx.storefront, "PurchaseVoided")
+      .and.to.not.emit(ctx.storefront, "FixedPricePaid");
     await mock_expectPlaintext(ctx.alice.provider, await ctx.storefront.getPaidByBuyer(0, ctx.bob.address), 0n);
 
     // Multi-buy is intended (digital goods): a second, correct buy adds 25.
     await ctx.storefront.connect(ctx.bob).buyFixed(0, ...(await encUint64(ctx.client, ctx.bob, usdc(25), sf)), ZERO_BYTES32);
+    await expect(confirmPurchase(ctx, 1)).to.emit(ctx.storefront, "FixedPricePaid");
     await mock_expectPlaintext(ctx.alice.provider, await ctx.storefront.getPaidByBuyer(0, ctx.bob.address), usdc(25));
     const acl = await hre.cofhe.mocks.getMockACL();
     const paid = await ctx.storefront.getPaidByBuyer(0, ctx.bob.address);
@@ -824,5 +861,271 @@ describe("Storefront — audit fixes", () => {
       ),
     ).to.be.revertedWith("Storefront: vault not allowed");
     await expect(fresh.setTokenRegistry(ctx.alice.address)).to.be.revertedWith("Storefront: bad registry");
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════
+//  Funding gate (C3): the vault moves 0 when a buyer is short, so a
+//  sale is real only after confirmFunding, and an auction can only be
+//  won by a funded bid that met the minimum.
+// ══════════════════════════════════════════════════════════════════
+
+const PURCHASE_NONE = 0;
+const PURCHASE_PENDING = 1;
+const PURCHASE_SOLD = 2;
+const PURCHASE_VOID = 3;
+
+describe("Storefront: funding gate (C3) FixedPrice and PWYW", () => {
+  async function withSpy(ctx: any) {
+    const spy = await (await hre.ethers.getContractFactory("MockReceiptsSpy")).deploy();
+    await ctx.storefront.setPaymentReceipts(await spy.getAddress());
+    return spy;
+  }
+
+  async function fixedListing(ctx: any, price: bigint) {
+    const sf = await ctx.storefront.getAddress();
+    await ctx.storefront.connect(ctx.alice).createListing(
+      MODE_FIXED, await ctx.vault.getAddress(), ...(await encUint64(ctx.client, ctx.alice, price, sf)),
+      0, "Gated item", ZERO_BYTES32, "",
+    );
+    return sf;
+  }
+
+  async function pwywListing(ctx: any) {
+    const sf = await ctx.storefront.getAddress();
+    await ctx.storefront.connect(ctx.alice).createListing(
+      MODE_PWYW, await ctx.vault.getAddress(), ...(await encUint64(ctx.client, ctx.alice, 0n, sf)),
+      0, "Tip jar", ZERO_BYTES32, "",
+    );
+    return sf;
+  }
+
+  it("funded fixed purchase: Pending first, Sold only after confirmFunding; receipts bump once, on Sold", async () => {
+    const ctx = await loadFixture(deployFixture);
+    const spy = await withSpy(ctx);
+    const sf = await fixedListing(ctx, usdc(10));
+
+    await expect(ctx.storefront.connect(ctx.bob).buyFixed(0, ...(await encUint64(ctx.client, ctx.bob, usdc(10), sf)), ZERO_BYTES32))
+      .to.emit(ctx.storefront, "PurchasePending")
+      .withArgs(0, 0, ctx.bob.address, (_h: string) => true)
+      .and.to.not.emit(ctx.storefront, "FixedPriceBuy")
+      .and.to.not.emit(ctx.storefront, "FixedPricePaid");
+    expect((await ctx.storefront.getPurchase(0)).status).to.equal(PURCHASE_PENDING);
+    expect(await spy.userBumps()).to.equal(0);
+    expect(await spy.globalBumps()).to.equal(0);
+
+    await expect(confirmPurchase(ctx, 0))
+      .to.emit(ctx.storefront, "FixedPriceBuy").withArgs(0, ctx.bob.address, ctx.alice.address, ZERO_BYTES32)
+      .and.to.emit(ctx.storefront, "FixedPricePaid");
+    const p = await ctx.storefront.getPurchase(0);
+    expect(p.status).to.equal(PURCHASE_SOLD);
+    expect(p.listingId).to.equal(0);
+    expect(p.buyer).to.equal(ctx.bob.address);
+    expect(await spy.userBumps()).to.equal(1);
+    expect(await spy.globalBumps()).to.equal(1);
+    await mock_expectPlaintext(ctx.alice.provider, await ctx.vault.balanceOf(ctx.alice.address), usdc(1_010));
+  });
+
+  it("a wrong-amount buy moves 0 and is voided: no sale event, no receipts bump", async () => {
+    const ctx = await loadFixture(deployFixture);
+    const spy = await withSpy(ctx);
+    const sf = await fixedListing(ctx, usdc(10));
+    await ctx.storefront.connect(ctx.bob).buyFixed(0, ...(await encUint64(ctx.client, ctx.bob, usdc(3), sf)), ZERO_BYTES32);
+    await expect(confirmPurchase(ctx, 0))
+      .to.emit(ctx.storefront, "PurchaseVoided").withArgs(0, 0, ctx.bob.address)
+      .and.to.not.emit(ctx.storefront, "FixedPriceBuy");
+    expect((await ctx.storefront.getPurchase(0)).status).to.equal(PURCHASE_VOID);
+    expect(await spy.userBumps()).to.equal(0);
+    expect(await spy.globalBumps()).to.equal(0);
+  });
+
+  it("a buyer who cannot afford the price (vault moves 0) is voided", async () => {
+    const ctx = await loadFixture(deployFixture);
+    const spy = await withSpy(ctx);
+    const sf = await fixedListing(ctx, usdc(5_000));
+    await ctx.storefront.connect(ctx.bob).buyFixed(0, ...(await encUint64(ctx.client, ctx.bob, usdc(5_000), sf)), ZERO_BYTES32);
+    await confirmPurchase(ctx, 0);
+    expect((await ctx.storefront.getPurchase(0)).status).to.equal(PURCHASE_VOID);
+    expect(await spy.globalBumps()).to.equal(0);
+    await mock_expectPlaintext(ctx.alice.provider, await ctx.vault.balanceOf(ctx.alice.address), usdc(1_000));
+  });
+
+  it("a zero-priced fixed listing never confirms (zero payment is not a sale)", async () => {
+    const ctx = await loadFixture(deployFixture);
+    const sf = await fixedListing(ctx, 0n);
+    await ctx.storefront.connect(ctx.bob).buyFixed(0, ...(await encUint64(ctx.client, ctx.bob, 0n, sf)), ZERO_BYTES32);
+    await confirmPurchase(ctx, 0);
+    expect((await ctx.storefront.getPurchase(0)).status).to.equal(PURCHASE_VOID);
+  });
+
+  it("PWYW: a positive payment is Sold, a zero or unaffordable payment is Void", async () => {
+    const ctx = await loadFixture(deployFixture);
+    const spy = await withSpy(ctx);
+    const sf = await pwywListing(ctx);
+    await ctx.storefront.connect(ctx.bob).payPWYW(0, ...(await encUint64(ctx.client, ctx.bob, usdc(7), sf)), ZERO_BYTES32);
+    await ctx.storefront.connect(ctx.charlie).payPWYW(0, ...(await encUint64(ctx.client, ctx.charlie, 0n, sf)), ZERO_BYTES32);
+    await ctx.storefront.connect(ctx.dave).payPWYW(0, ...(await encUint64(ctx.client, ctx.dave, usdc(9_999), sf)), ZERO_BYTES32);
+    expect(await spy.globalBumps()).to.equal(0);
+
+    await expect(confirmPurchase(ctx, 0)).to.emit(ctx.storefront, "PWYWPayment");
+    await expect(confirmPurchase(ctx, 1)).to.emit(ctx.storefront, "PurchaseVoided").and.to.not.emit(ctx.storefront, "PWYWPayment");
+    await expect(confirmPurchase(ctx, 2)).to.emit(ctx.storefront, "PurchaseVoided");
+    expect((await ctx.storefront.getPurchase(0)).status).to.equal(PURCHASE_SOLD);
+    expect((await ctx.storefront.getPurchase(1)).status).to.equal(PURCHASE_VOID);
+    expect((await ctx.storefront.getPurchase(2)).status).to.equal(PURCHASE_VOID);
+    expect(await spy.userBumps()).to.equal(1);
+    expect(await spy.globalBumps()).to.equal(1);
+  });
+
+  it("anyone can confirm, once; unknown ids and forged flags revert", async () => {
+    const ctx = await loadFixture(deployFixture);
+    const sf = await pwywListing(ctx);
+    await ctx.storefront.connect(ctx.bob).payPWYW(0, ...(await encUint64(ctx.client, ctx.bob, 0n, sf)), ZERO_BYTES32);
+
+    await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.owner);
+    const proof = await ctx.client.decryptForTx(await ctx.storefront.getPurchaseFundedHandle(0), FheTypes.Bool).withoutACP().execute();
+    expect(Boolean(proof.decryptedValue)).to.equal(false);
+    await expect(ctx.storefront.confirmFunding(0, true, proof.signature)).to.be.reverted;
+    expect((await ctx.storefront.getPurchase(0)).status).to.equal(PURCHASE_PENDING);
+
+    await confirmPurchase(ctx, 0, ctx.charlie);
+    await expect(confirmPurchase(ctx, 0)).to.be.revertedWith("Storefront: purchase not pending");
+    await expect(ctx.storefront.confirmFunding(42, true, "0x")).to.be.revertedWith("Storefront: purchase not pending");
+    expect((await ctx.storefront.getPurchase(42)).status).to.equal(PURCHASE_NONE);
+  });
+
+  it("works with receipts switched off (address zero)", async () => {
+    const ctx = await loadFixture(deployFixture);
+    const sf = await pwywListing(ctx);
+    await ctx.storefront.connect(ctx.bob).payPWYW(0, ...(await encUint64(ctx.client, ctx.bob, usdc(1), sf)), ZERO_BYTES32);
+    await expect(confirmPurchase(ctx, 0)).to.emit(ctx.storefront, "PWYWPayment");
+  });
+});
+
+describe("Storefront: funding gate (C3) auctions", () => {
+  async function auctionWithMin(ctx: any, min: bigint) {
+    const sf = await ctx.storefront.getAddress();
+    await ctx.storefront.connect(ctx.alice).createListing(
+      MODE_AUCTION, await ctx.vault.getAddress(), ...(await encUint64(ctx.client, ctx.alice, min, sf)),
+      3600, "Gated auction", ZERO_BYTES32, "",
+    );
+    return sf;
+  }
+
+  async function bid(ctx: any, who: any, amount: bigint) {
+    const sf = await ctx.storefront.getAddress();
+    await ctx.storefront.connect(who).placeBid(0, ...(await encUint64(ctx.client, who, amount, sf)));
+  }
+
+  async function closeAndReveal(ctx: any) {
+    await time.increase(3601);
+    await ctx.storefront.connect(ctx.alice).closeAuction(0);
+    const r = await revealIdx(ctx, 0);
+    await ctx.storefront.connect(ctx.alice).revealWinner(0, r.idx, r.signature);
+    return r.idx;
+  }
+
+  it("all bids unfunded (zero locked): the auction closes with NO winner, nobody is paid", async () => {
+    const ctx = await loadFixture(deployFixture);
+    await auctionWithMin(ctx, 0n);
+    // Both bidders ask for far more than they hold: the vault moves 0.
+    await bid(ctx, ctx.bob, usdc(5_000));
+    await bid(ctx, ctx.charlie, usdc(7_000));
+
+    await time.increase(3601);
+    await ctx.storefront.connect(ctx.alice).closeAuction(0);
+    const r = await revealIdx(ctx, 0);
+    expect(r.idx).to.equal(NO_WINNER);
+
+    await expect(ctx.storefront.connect(ctx.alice).revealWinner(0, r.idx, r.signature))
+      .to.emit(ctx.storefront, "AuctionNoWinner").withArgs(0, 2);
+    const l = await ctx.storefront.getListing(0);
+    expect(l.winner).to.equal(hre.ethers.ZeroAddress);
+    expect(l.closed).to.equal(true);
+    expect(await ctx.storefront.auctionHasNoWinner(0)).to.equal(true);
+
+    // Nothing was ever locked, nothing is owed to the seller.
+    await expect(ctx.storefront.claimAuctionWin(0, ZERO_BYTES32)).to.be.revertedWith("Storefront: winner not revealed");
+    await mock_expectPlaintext(ctx.alice.provider, await ctx.vault.balanceOf(ctx.alice.address), usdc(1_000));
+
+    // Every bid, including index 0, is refundable.
+    await ctx.storefront.connect(ctx.bob).refundLoserBid(0, 0);
+    await ctx.storefront.connect(ctx.charlie).refundLoserBid(0, 1);
+    await mock_expectPlaintext(ctx.bob.provider, await ctx.vault.balanceOf(ctx.bob.address), usdc(1_000));
+    await mock_expectPlaintext(ctx.charlie.provider, await ctx.vault.balanceOf(ctx.charlie.address), usdc(1_000));
+    await expect(ctx.storefront.connect(ctx.bob).refundLoserBid(0, 0)).to.be.revertedWith("Storefront: already refunded");
+    await expect(ctx.storefront.revealWinner(0, r.idx, r.signature)).to.be.revertedWith("Storefront: winner already revealed");
+  });
+
+  it("explicit zero bids cannot win either, even when index 0 would win by default", async () => {
+    const ctx = await loadFixture(deployFixture);
+    await auctionWithMin(ctx, 0n);
+    await bid(ctx, ctx.bob, 0n);
+    await bid(ctx, ctx.charlie, 0n);
+    expect(await closeAndReveal(ctx)).to.equal(NO_WINNER);
+    expect((await ctx.storefront.getListing(0)).winner).to.equal(hre.ethers.ZeroAddress);
+  });
+
+  it("bids below the minimum cannot win: no winner when every bid is under it", async () => {
+    const ctx = await loadFixture(deployFixture);
+    await auctionWithMin(ctx, usdc(10));
+    await bid(ctx, ctx.bob, usdc(4));
+    await bid(ctx, ctx.charlie, usdc(9));
+    expect(await closeAndReveal(ctx)).to.equal(NO_WINNER);
+    // Below-minimum bids locked nothing, so the bidders lost nothing.
+    await ctx.storefront.connect(ctx.charlie).refundLoserBid(0, 1);
+    await mock_expectPlaintext(ctx.charlie.provider, await ctx.vault.balanceOf(ctx.charlie.address), usdc(1_000));
+  });
+
+  it("a funded bid at exactly the minimum wins (boundary is inclusive)", async () => {
+    const ctx = await loadFixture(deployFixture);
+    await auctionWithMin(ctx, usdc(10));
+    await bid(ctx, ctx.bob, usdc(10));
+    expect(await closeAndReveal(ctx)).to.equal(0);
+    expect((await ctx.storefront.getListing(0)).winner).to.equal(ctx.bob.address);
+    await ctx.storefront.connect(ctx.bob).claimAuctionWin(0, ZERO_BYTES32);
+    await mock_expectPlaintext(ctx.alice.provider, await ctx.vault.balanceOf(ctx.alice.address), usdc(1_010));
+  });
+
+  it("one funded bid among unfunded and under-minimum bids wins, and is paid in full", async () => {
+    const ctx = await loadFixture(deployFixture);
+    await auctionWithMin(ctx, usdc(10));
+    await bid(ctx, ctx.bob, usdc(4)); // under the minimum, locks 0
+    await bid(ctx, ctx.charlie, usdc(5_000)); // unaffordable, locks 0
+    await bid(ctx, ctx.dave, usdc(25)); // valid
+    expect(await closeAndReveal(ctx)).to.equal(2);
+    expect((await ctx.storefront.getListing(0)).winner).to.equal(ctx.dave.address);
+    expect(await ctx.storefront.auctionHasNoWinner(0)).to.equal(false);
+
+    await ctx.storefront.connect(ctx.dave).claimAuctionWin(0, ZERO_BYTES32);
+    await mock_expectPlaintext(ctx.alice.provider, await ctx.vault.balanceOf(ctx.alice.address), usdc(1_025));
+    // The unfunded losers can still take their (empty) bids back.
+    await ctx.storefront.connect(ctx.bob).refundLoserBid(0, 0);
+    await ctx.storefront.connect(ctx.charlie).refundLoserBid(0, 1);
+  });
+
+  it("a forged NO_WINNER cannot hide a real winner, and a real index cannot be forged into NO_WINNER", async () => {
+    const ctx = await loadFixture(deployFixture);
+    await auctionWithMin(ctx, 0n);
+    await bid(ctx, ctx.bob, usdc(3));
+    await bid(ctx, ctx.charlie, usdc(8));
+    await time.increase(3601);
+    await ctx.storefront.closeAuction(0);
+    const r = await revealIdx(ctx, 0);
+    expect(r.idx).to.equal(1);
+    await expect(ctx.storefront.revealWinner(0, NO_WINNER, r.signature)).to.be.reverted;
+    await expect(ctx.storefront.revealWinner(0, 200, r.signature)).to.be.revertedWith("Storefront: bad winner index");
+    expect(await ctx.storefront.auctionHasNoWinner(0)).to.equal(false);
+    await ctx.storefront.revealWinner(0, r.idx, r.signature);
+    expect((await ctx.storefront.getListing(0)).winner).to.equal(ctx.charlie.address);
+  });
+
+  it("refunds stay closed before the reveal even when every bid is empty", async () => {
+    const ctx = await loadFixture(deployFixture);
+    await auctionWithMin(ctx, 0n);
+    await bid(ctx, ctx.bob, usdc(5_000));
+    await time.increase(3601);
+    await ctx.storefront.closeAuction(0);
+    await expect(ctx.storefront.connect(ctx.bob).refundLoserBid(0, 0)).to.be.revertedWith("Storefront: winner not revealed");
   });
 });

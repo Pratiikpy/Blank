@@ -35,6 +35,7 @@ const USDC_DECIMALS = 6;
 const usdc = (n: number | string) => parseUnits(String(n), USDC_DECIMALS);
 const MIN_INACTIVITY = 30 * 86400;
 const CHALLENGE_PERIOD = 7 * 86400;
+const RETRY_COOLDOWN = 86400;
 
 async function deployProxy(name: string, initArgs: unknown[] = []) {
   const Factory = await hre.ethers.getContractFactory(name);
@@ -414,6 +415,7 @@ describe("InheritanceManager: audit M4/L5 + vault allowlist", () => {
     await ctx.im.connect(ctx.heir).finalizeClaim(ctx.principal.address, [bad[0]], bad[1]);
     await mock_expectPlaintext(ctx.heir.provider, await ctx.vault.balanceOf(ctx.heir.address), 0n);
 
+    await time.increase(RETRY_COOLDOWN);
     const good = await encAmt(ctx.client, ctx.heir, usdc(500), await ctx.im.getAddress());
     await expect(ctx.im.connect(ctx.heir).claimRemaining(ctx.principal.address, [good[0]], good[1]))
       .to.emit(ctx.im, "ClaimRetried");
@@ -473,8 +475,73 @@ describe("InheritanceManager: audit M4/L5 + vault allowlist", () => {
     await mock_expectPlaintext(ctx.principal.provider, await ctx.vault.balanceOf(ctx.principal.address), usdc(500));
 
     await ctx.registry.reactivateToken(v);
+    await time.increase(RETRY_COOLDOWN);
     const e2 = await encAmt(ctx.client, ctx.heir, usdc(500), await ctx.im.getAddress());
     await ctx.im.connect(ctx.heir).claimRemaining(ctx.principal.address, [e2[0]], e2[1]);
+    await mock_expectPlaintext(ctx.heir.provider, await ctx.vault.balanceOf(ctx.heir.address), usdc(500));
+  });
+
+  // C6: the heir answers "is balance >= X?" once per call through the moved
+  // handle. Retries are rate limited so that cannot be repeated freely.
+  it("C6: claimRemaining is limited to one call per cooldown, counted from finalizeClaim", async () => {
+    const ctx = await loadFixture(deployFixture);
+    await readyToFinalize(ctx);
+    const imAddr = await ctx.im.getAddress();
+    const max = (1n << 64n) - 1n;
+    const probe = async (x: bigint) => {
+      const e = await encAmt(ctx.client, ctx.heir, x, imAddr);
+      return ctx.im.connect(ctx.heir).claimRemaining(ctx.principal.address, [e[0]], e[1]);
+    };
+    const f = await encAmt(ctx.client, ctx.heir, max, imAddr);
+    await ctx.im.connect(ctx.heir).finalizeClaim(ctx.principal.address, [f[0]], f[1]);
+    expect(await ctx.im.CLAIM_RETRY_COOLDOWN()).to.equal(RETRY_COOLDOWN);
+
+    await expect(probe(usdc(1))).to.be.revertedWith("InheritanceManager: retry cooldown");
+    await time.increase(RETRY_COOLDOWN - 60);
+    await expect(probe(usdc(1))).to.be.revertedWith("InheritanceManager: retry cooldown");
+    await time.increase(120);
+    await expect(probe(usdc(250))).to.emit(ctx.im, "ClaimRetried");
+    // The attempt restarts the clock: no second probe the same day.
+    await expect(probe(usdc(250))).to.be.revertedWith("InheritanceManager: retry cooldown");
+    await time.increase(RETRY_COOLDOWN + 1);
+    await expect(probe(usdc(250))).to.emit(ctx.im, "ClaimRetried");
+    await mock_expectPlaintext(ctx.heir.provider, await ctx.vault.balanceOf(ctx.heir.address), usdc(500));
+  });
+
+  it("C6: a returning principal can end the claim inside the cooldown, before another pull", async () => {
+    const ctx = await loadFixture(deployFixture);
+    await readyToFinalize(ctx);
+    const imAddr = await ctx.im.getAddress();
+    const f = await encAmt(ctx.client, ctx.heir, usdc(500), imAddr);
+    await ctx.im.connect(ctx.heir).finalizeClaim(ctx.principal.address, [f[0]], f[1]);
+
+    // The principal is back and receives new funds.
+    await ctx.vault.connect(ctx.principal).shield(usdc(100));
+    await ctx.im.connect(ctx.principal).removeHeir();
+    await time.increase(RETRY_COOLDOWN + 1);
+    const e = await encAmt(ctx.client, ctx.heir, usdc(100), imAddr);
+    await expect(ctx.im.connect(ctx.heir).claimRemaining(ctx.principal.address, [e[0]], e[1]))
+      .to.be.revertedWith("InheritanceManager: claim not finalized");
+    await mock_expectPlaintext(ctx.principal.provider, await ctx.vault.balanceOf(ctx.principal.address), usdc(100));
+  });
+
+  it("C6: a claim finalized before the cooldown existed (lastClaimAt unset) can retry immediately", async () => {
+    const ctx = await loadFixture(deployFixture);
+    await readyToFinalize(ctx);
+    const imAddr = await ctx.im.getAddress();
+    const max = (1n << 64n) - 1n;
+    const bad = await encAmt(ctx.client, ctx.heir, max, imAddr);
+    await ctx.im.connect(ctx.heir).finalizeClaim(ctx.principal.address, [bad[0]], bad[1]);
+    // Emulate a pre-upgrade record: lastClaimAt (slot 5) was never written.
+    const slot = hre.ethers.keccak256(
+      hre.ethers.AbiCoder.defaultAbiCoder().encode(["address", "uint256"], [ctx.principal.address, 5]),
+    );
+    await hre.network.provider.send("hardhat_setStorageAt", [imAddr, slot, hre.ethers.toBeHex(0, 32)]);
+    expect(await ctx.im.lastClaimAt(ctx.principal.address)).to.equal(0);
+
+    const good = await encAmt(ctx.client, ctx.heir, usdc(500), imAddr);
+    await expect(ctx.im.connect(ctx.heir).claimRemaining(ctx.principal.address, [good[0]], good[1]))
+      .to.emit(ctx.im, "ClaimRetried");
     await mock_expectPlaintext(ctx.heir.provider, await ctx.vault.balanceOf(ctx.heir.address), usdc(500));
   });
 

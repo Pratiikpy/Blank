@@ -2,7 +2,7 @@ import { expect } from "chai";
 import hre from "hardhat";
 import { loadFixture, time } from "@nomicfoundation/hardhat-network-helpers";
 import { mock_expectPlaintext } from "@cofhe/hardhat-plugin";
-import { Encryptable } from "@cofhe/sdk";
+import { Encryptable, FheTypes } from "@cofhe/sdk";
 import { parseUnits } from "ethers";
 
 const USDC_DECIMALS = 6;
@@ -12,6 +12,8 @@ const STATUS_ACTIVE = 0;
 const STATUS_DISPUTED = 1;
 const STATUS_RELEASED = 2;
 const STATUS_REFUNDED = 3;
+const STATUS_PENDING_FUNDING = 4;
+const STATUS_VOID = 5;
 
 async function deployProxy(contractName: string, initArgs: unknown[] = []) {
   const Factory = await hre.ethers.getContractFactory(contractName);
@@ -73,6 +75,20 @@ async function encUint64(client: any, signer: any, amount: bigint, consuming: st
   return await client.encryptInputs([Encryptable.uint64(amount)]).setConsumingContract(consuming).execute();
 }
 
+/// Decrypts the public funded bit of an escrow and settles it on-chain, the
+/// way the app's automatic second step does. Anyone may submit it.
+async function confirmEscrow(ctx: any, id: number | bigint, caller: any = ctx.owner) {
+  const handle = await ctx.escrow.getFundingCheck(id);
+  await hre.cofhe.connectWithHardhatSigner(ctx.client, caller);
+  const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutACP().execute();
+  return ctx.escrow.connect(caller).confirmFunding(id, Boolean(proof.decryptedValue), proof.signature);
+}
+
+/// Confirms the most recently created escrow.
+async function fundLatest(ctx: any) {
+  await confirmEscrow(ctx, (await ctx.escrow.nextEscrowId()) - 1n);
+}
+
 describe("EncryptedEscrow", () => {
   it("creates an encrypted escrow", async () => {
     const ctx = await loadFixture(deployFixture);
@@ -85,6 +101,7 @@ describe("EncryptedEscrow", () => {
       hre.ethers.ZeroAddress,
       (await time.latest()) + 7 * 86400,
     );
+    await fundLatest(ctx);
 
     const e = await ctx.escrow.getEscrow(0);
     expect(e.depositor).to.equal(ctx.alice.address);
@@ -145,6 +162,7 @@ describe("EncryptedEscrow", () => {
       ctx.bob.address, await ctx.vault.getAddress(), ...enc,
       "x", hre.ethers.ZeroAddress, (await time.latest()) + 7 * 86400,
     );
+    await fundLatest(ctx);
 
     await ctx.escrow.connect(ctx.bob).markDelivered(0);
     await ctx.escrow.connect(ctx.alice).approveRelease(0);
@@ -162,6 +180,7 @@ describe("EncryptedEscrow", () => {
       ctx.bob.address, await ctx.vault.getAddress(), ...enc,
       "x", hre.ethers.ZeroAddress, (await time.latest()) + 7 * 86400,
     );
+    await fundLatest(ctx);
 
     await ctx.escrow.connect(ctx.alice).approveRelease(0);
     // Still active because beneficiary hasn't marked delivered yet.
@@ -180,6 +199,7 @@ describe("EncryptedEscrow", () => {
       ctx.bob.address, await ctx.vault.getAddress(), ...enc,
       "with arbiter", ctx.charlie.address, (await time.latest()) + 7 * 86400,
     );
+    await fundLatest(ctx);
 
     await ctx.escrow.connect(ctx.alice).disputeEscrow(0);
     await ctx.escrow.connect(ctx.charlie).arbiterDecide(0, true);
@@ -197,6 +217,7 @@ describe("EncryptedEscrow", () => {
       ctx.bob.address, await ctx.vault.getAddress(), ...enc,
       "with arbiter", ctx.charlie.address, (await time.latest()) + 7 * 86400,
     );
+    await fundLatest(ctx);
 
     await ctx.escrow.connect(ctx.bob).disputeEscrow(0);
     await expect(ctx.escrow.connect(ctx.charlie).arbiterDecide(0, false))
@@ -217,6 +238,7 @@ describe("EncryptedEscrow", () => {
       ctx.bob.address, await ctx.vault.getAddress(), ...enc,
       "silent arbiter", ctx.charlie.address, (await time.latest()) + 7 * 86400,
     );
+    await fundLatest(ctx);
     await ctx.escrow.connect(ctx.bob).disputeEscrow(0);
     expect(await ctx.escrow.getDisputedAt(0)).to.equal(await time.latest());
 
@@ -241,6 +263,7 @@ describe("EncryptedEscrow", () => {
       ctx.bob.address, await ctx.vault.getAddress(), ...enc,
       "x", ctx.charlie.address, (await time.latest()) + 7 * 86400,
     );
+    await fundLatest(ctx);
     await time.increase(60 * 86400);
     await expect(ctx.escrow.connect(ctx.alice).claimDisputeTimeout(0))
       .to.be.revertedWith("EncryptedEscrow: not disputed");
@@ -302,14 +325,16 @@ describe("EncryptedEscrow", () => {
       ctx.bob.address, await ctx.vault.getAddress(), ...enc, "x", hre.ethers.ZeroAddress,
       (await time.latest()) + 7 * 86400,
     );
+    await fundLatest(ctx);
     await ctx.registry.deactivateToken(await ctx.vault.getAddress());
     await time.increase(7 * 86400 + 1);
     await ctx.escrow.connect(ctx.alice).claimExpiredEscrow(0);
     await mock_expectPlaintext(ctx.alice.provider, await ctx.vault.balanceOf(ctx.alice.address), usdc(1_000));
   });
 
-  // A12: the record holds what moved, so a short balance locks (and later pays) zero.
-  it("records the moved amount, not the requested one, on a short balance", async () => {
+  // A12: the record holds what moved, so a short balance locks zero. Since the
+  // funding gate such an escrow ends Void and the zero can never be released.
+  it("records the moved amount on a short balance and the escrow ends Void", async () => {
     const ctx = await loadFixture(deployFixture);
     const enc = await encUint64(ctx.client, ctx.alice, usdc(5_000), await ctx.escrow.getAddress());
     await ctx.escrow.connect(ctx.alice).createEscrow(
@@ -317,8 +342,9 @@ describe("EncryptedEscrow", () => {
       (await time.latest()) + 7 * 86400,
     );
     await mock_expectPlaintext(ctx.bob.provider, await ctx.escrow.getEncryptedAmount(0), 0n);
-    await ctx.escrow.connect(ctx.bob).markDelivered(0);
-    await ctx.escrow.connect(ctx.alice).approveRelease(0);
+    await fundLatest(ctx);
+    expect((await ctx.escrow.getEscrow(0)).status).to.equal(STATUS_VOID);
+    await expect(ctx.escrow.connect(ctx.bob).markDelivered(0)).to.be.revertedWith("EncryptedEscrow: not active");
     await mock_expectPlaintext(ctx.bob.provider, await ctx.vault.balanceOf(ctx.bob.address), usdc(1_000));
   });
 
@@ -340,6 +366,7 @@ describe("EncryptedEscrow", () => {
       ctx.bob.address, await ctx.vault.getAddress(), ...enc,
       "x", hre.ethers.ZeroAddress, deadline,
     );
+    await fundLatest(ctx);
 
     // Cannot refund before deadline.
     await expect(
@@ -362,6 +389,7 @@ describe("EncryptedEscrow", () => {
       ctx.bob.address, await ctx.vault.getAddress(), ...enc,
       "x", ctx.charlie.address, (await time.latest()) + 7 * 86400,
     );
+    await fundLatest(ctx);
     await ctx.escrow.connect(ctx.alice).disputeEscrow(0);
 
     await expect(
@@ -377,6 +405,7 @@ describe("EncryptedEscrow", () => {
       ctx.bob.address, await ctx.vault.getAddress(), ...enc,
       "x", ctx.charlie.address, (await time.latest()) + 7 * 86400,
     );
+    await fundLatest(ctx);
     await ctx.escrow.connect(ctx.bob).markDelivered(0);
 
     await expect(
@@ -391,6 +420,7 @@ describe("EncryptedEscrow", () => {
       ctx.bob.address, await ctx.vault.getAddress(), ...enc,
       "x", ctx.charlie.address, (await time.latest()) + 7 * 86400,
     );
+    await fundLatest(ctx);
     await ctx.escrow.connect(ctx.alice).approveRelease(0);
 
     await expect(
@@ -405,6 +435,7 @@ describe("EncryptedEscrow", () => {
       ctx.bob.address, await ctx.vault.getAddress(), ...enc,
       "x", hre.ethers.ZeroAddress, (await time.latest()) + 7 * 86400,
     );
+    await fundLatest(ctx);
 
     await expect(
       ctx.escrow.connect(ctx.alice).disputeEscrow(0),
@@ -465,6 +496,7 @@ describe("EncryptedEscrow", () => {
         ctx.bob.address, await ctx.vault.getAddress(), ...enc,
         "happy", hre.ethers.ZeroAddress, (await time.latest()) + 7 * 86400,
       );
+      await fundLatest(ctx);
 
       await expect(ctx.escrow.connect(ctx.bob).markDelivered(0))
         .to.emit(ctx.escrow, "EscrowDelivered");
@@ -483,6 +515,7 @@ describe("EncryptedEscrow", () => {
         ctx.bob.address, await ctx.vault.getAddress(), ...enc,
         "dispute", ctx.charlie.address, (await time.latest()) + 7 * 86400,
       );
+      await fundLatest(ctx);
 
       await expect(ctx.escrow.connect(ctx.alice).disputeEscrow(0))
         .to.emit(ctx.escrow, "EscrowDisputed");
@@ -499,6 +532,7 @@ describe("EncryptedEscrow", () => {
         ctx.bob.address, await ctx.vault.getAddress(), ...enc,
         "expired", hre.ethers.ZeroAddress, deadline,
       );
+      await fundLatest(ctx);
 
       await time.increase(7 * 86400 + 1);
 
@@ -566,6 +600,7 @@ describe("EncryptedEscrow", () => {
         resolverData(ctx.alice.address, deadline),
         deadline,
       );
+      await fundLatest(ctx);
 
       await expect(
         ctx.escrow.connect(ctx.bob).releaseIfConditionMet(0),
@@ -590,6 +625,7 @@ describe("EncryptedEscrow", () => {
         ctx.bob.address, await ctx.vault.getAddress(), ...enc,
         "auto", resolverAddr, resolverData(ctx.alice.address, deadline), deadline,
       );
+      await fundLatest(ctx);
 
       await expect(
         ctx.escrow.connect(ctx.bob).releaseIfConditionMet(0),
@@ -614,6 +650,7 @@ describe("EncryptedEscrow", () => {
         ctx.bob.address, await ctx.vault.getAddress(), ...enc,
         "no refund", resolverAddr, resolverData(ctx.alice.address, deadline), deadline,
       );
+      await fundLatest(ctx);
 
       await time.increase(2 * 86400 + 1);
       await expect(
@@ -647,5 +684,269 @@ describe("EncryptedEscrow", () => {
         ),
       ).to.be.reverted;
     });
+  });
+});
+
+// The vault moves zero instead of reverting when the depositor is short, so an
+// escrow is only live once the single "locked the requested amount" bit has
+// been decrypted and published.
+describe("EncryptedEscrow, funding gate", () => {
+  const MAX = (1n << 64n) - 1n;
+  const abi = hre.ethers.AbiCoder.defaultAbiCoder();
+
+  // Eve holds nothing in the vault but has approved the escrow, so the only
+  // reason her escrows can fail is a short balance.
+  async function gateFixture() {
+    const ctx = await deployFixture();
+    const eve = (await hre.ethers.getSigners())[4];
+    await ctx.vault.connect(eve).approvePlaintext(await ctx.escrow.getAddress(), MAX);
+    const receipts = await deployProxy("PaymentReceipts", []);
+    await receipts.setAuthorizedCaller(await ctx.escrow.getAddress(), true);
+    await ctx.escrow.setPaymentReceipts(await receipts.getAddress());
+    return { ...ctx, eve, receipts };
+  }
+
+  async function create(ctx: any, payer: any, amount: bigint, arbiter: string = hre.ethers.ZeroAddress) {
+    const enc = await encUint64(ctx.client, payer, amount, await ctx.escrow.getAddress());
+    await ctx.escrow.connect(payer).createEscrow(
+      ctx.bob.address, await ctx.vault.getAddress(), ...enc,
+      "gate", arbiter, (await time.latest()) + 7 * 86400,
+    );
+    return (await ctx.escrow.nextEscrowId()) - 1n;
+  }
+
+  async function fundedBit(ctx: any, id: bigint, reader: any = ctx.owner) {
+    await hre.cofhe.connectWithHardhatSigner(ctx.client, reader);
+    const handle = await ctx.escrow.getFundingCheck(id);
+    const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutACP().execute();
+    return { value: Boolean(proof.decryptedValue), signature: proof.signature };
+  }
+
+  async function receivedHandle(ctx: any, who: any) {
+    return ctx.receipts.connect(who).getMyTotalReceived();
+  }
+
+  it("a funded escrow starts PendingFunding and nothing can move it until confirmed", async () => {
+    const ctx = await loadFixture(gateFixture);
+    const id = await create(ctx, ctx.alice, usdc(50), ctx.charlie.address);
+
+    expect((await ctx.escrow.getEscrow(id)).status).to.equal(STATUS_PENDING_FUNDING);
+    // The money is already locked in the vault, but no path can touch it yet.
+    await mock_expectPlaintext(ctx.alice.provider, await ctx.vault.balanceOf(await ctx.escrow.getAddress()), usdc(50));
+    await expect(ctx.escrow.connect(ctx.bob).markDelivered(id)).to.be.revertedWith("EncryptedEscrow: not active");
+    await expect(ctx.escrow.connect(ctx.alice).approveRelease(id)).to.be.revertedWith("EncryptedEscrow: not active");
+    await expect(ctx.escrow.connect(ctx.alice).disputeEscrow(id)).to.be.revertedWith("EncryptedEscrow: not active");
+    await expect(ctx.escrow.releaseIfConditionMet(id)).to.be.revertedWith("EncryptedEscrow: not active");
+    await expect(ctx.escrow.connect(ctx.charlie).arbiterDecide(id, true)).to.be.revertedWith("EncryptedEscrow: not disputed");
+    await expect(ctx.escrow.connect(ctx.alice).claimDisputeTimeout(id)).to.be.revertedWith("EncryptedEscrow: not disputed");
+    await time.increase(8 * 86400);
+    await expect(ctx.escrow.connect(ctx.alice).claimExpiredEscrow(id)).to.be.revertedWith("EncryptedEscrow: not active");
+    expect((await ctx.escrow.getEscrow(id)).status).to.equal(STATUS_PENDING_FUNDING);
+  });
+
+  it("anyone can read the funded bit, and a third party confirming activates the escrow", async () => {
+    const ctx = await loadFixture(gateFixture);
+    const id = await create(ctx, ctx.alice, usdc(50));
+    // A stranger with no grant on the escrow reads the one public bit.
+    const bit = await fundedBit(ctx, id, ctx.eve);
+    expect(bit.value).to.equal(true);
+
+    await expect(ctx.escrow.connect(ctx.eve).confirmFunding(id, bit.value, bit.signature))
+      .to.emit(ctx.escrow, "EscrowFunded").withArgs(id, ctx.alice.address, ctx.bob.address)
+      .and.not.to.emit(ctx.escrow, "EscrowVoided");
+    expect((await ctx.escrow.getEscrow(id)).status).to.equal(STATUS_ACTIVE);
+  });
+
+  it("funded path end to end: confirm, deliver, approve, release, receipts bumped once", async () => {
+    const ctx = await loadFixture(gateFixture);
+    const id = await create(ctx, ctx.alice, usdc(50));
+    // Beneficiary has no income recorded before release.
+    expect(await receivedHandle(ctx, ctx.bob)).to.equal(0n);
+
+    await confirmEscrow(ctx, id, ctx.charlie);
+    await ctx.escrow.connect(ctx.bob).markDelivered(id);
+    await ctx.escrow.connect(ctx.alice).approveRelease(id);
+
+    expect((await ctx.escrow.getEscrow(id)).status).to.equal(STATUS_RELEASED);
+    await mock_expectPlaintext(ctx.bob.provider, await ctx.vault.balanceOf(ctx.bob.address), usdc(1_050));
+    await mock_expectPlaintext(ctx.bob.provider, await receivedHandle(ctx, ctx.bob), usdc(50));
+  });
+
+  it("zero-balance payer: the escrow ends Void, nothing is locked and nothing can release or refund", async () => {
+    const ctx = await loadFixture(gateFixture);
+    const id = await create(ctx, ctx.eve, usdc(50), ctx.charlie.address);
+    await mock_expectPlaintext(ctx.bob.provider, await ctx.escrow.getEncryptedAmount(id), 0n);
+
+    const bit = await fundedBit(ctx, id);
+    expect(bit.value).to.equal(false);
+    await expect(ctx.escrow.connect(ctx.bob).confirmFunding(id, bit.value, bit.signature))
+      .to.emit(ctx.escrow, "EscrowVoided").withArgs(id, ctx.eve.address)
+      .and.not.to.emit(ctx.escrow, "EscrowFunded");
+    expect((await ctx.escrow.getEscrow(id)).status).to.equal(STATUS_VOID);
+
+    // Every door is shut.
+    await expect(ctx.escrow.connect(ctx.bob).markDelivered(id)).to.be.revertedWith("EncryptedEscrow: not active");
+    await expect(ctx.escrow.connect(ctx.eve).approveRelease(id)).to.be.revertedWith("EncryptedEscrow: not active");
+    await expect(ctx.escrow.connect(ctx.bob).disputeEscrow(id)).to.be.revertedWith("EncryptedEscrow: not active");
+    await expect(ctx.escrow.releaseIfConditionMet(id)).to.be.revertedWith("EncryptedEscrow: not active");
+    await expect(ctx.escrow.connect(ctx.charlie).arbiterDecide(id, true)).to.be.revertedWith("EncryptedEscrow: not disputed");
+    await expect(ctx.escrow.connect(ctx.eve).claimDisputeTimeout(id)).to.be.revertedWith("EncryptedEscrow: not disputed");
+    await time.increase(8 * 86400);
+    await expect(ctx.escrow.connect(ctx.eve).claimExpiredEscrow(id)).to.be.revertedWith("EncryptedEscrow: not active");
+    await expect(ctx.escrow.confirmFunding(id, false, "0x")).to.be.revertedWith("EncryptedEscrow: not pending funding");
+
+    // No payment, no receipt.
+    await mock_expectPlaintext(ctx.bob.provider, await ctx.vault.balanceOf(ctx.bob.address), usdc(1_000));
+    expect(await receivedHandle(ctx, ctx.bob)).to.equal(0n);
+  });
+
+  it("a zero-amount escrow from a funded payer is Void too", async () => {
+    const ctx = await loadFixture(gateFixture);
+    const id = await create(ctx, ctx.alice, 0n);
+    await confirmEscrow(ctx, id);
+    expect((await ctx.escrow.getEscrow(id)).status).to.equal(STATUS_VOID);
+    await mock_expectPlaintext(ctx.alice.provider, await ctx.vault.balanceOf(ctx.alice.address), usdc(1_000));
+  });
+
+  it("an escrow larger than the balance is Void and takes nothing from the payer", async () => {
+    const ctx = await loadFixture(gateFixture);
+    const id = await create(ctx, ctx.alice, usdc(5_000));
+    await confirmEscrow(ctx, id);
+    expect((await ctx.escrow.getEscrow(id)).status).to.equal(STATUS_VOID);
+    await mock_expectPlaintext(ctx.alice.provider, await ctx.vault.balanceOf(ctx.alice.address), usdc(1_000));
+    await mock_expectPlaintext(ctx.alice.provider, await ctx.vault.balanceOf(await ctx.escrow.getAddress()), 0n);
+  });
+
+  it("the published value decides, not the caller's argument", async () => {
+    const ctx = await loadFixture(gateFixture);
+    const id = await create(ctx, ctx.eve, usdc(50));
+    const bit = await fundedBit(ctx, id);
+    expect(bit.value).to.equal(false);
+    // A lie with the real signature is rejected by the signature check.
+    await expect(ctx.escrow.confirmFunding(id, true, bit.signature)).to.be.reverted;
+    expect((await ctx.escrow.getEscrow(id)).status).to.equal(STATUS_PENDING_FUNDING);
+
+    // If the verdict was already published straight to the Task Manager, a
+    // caller cannot flip it by passing the opposite value with no signature.
+    const tm = await hre.cofhe.mocks.getMockTaskManager();
+    await tm.publishDecryptResult(await ctx.escrow.getFundingCheck(id), 0, bit.signature);
+    await ctx.escrow.confirmFunding(id, true, "0x");
+    expect((await ctx.escrow.getEscrow(id)).status).to.equal(STATUS_VOID);
+  });
+
+  it("confirmFunding cannot run twice or on an unknown escrow", async () => {
+    const ctx = await loadFixture(gateFixture);
+    const id = await create(ctx, ctx.alice, usdc(10));
+    const bit = await fundedBit(ctx, id);
+    await ctx.escrow.confirmFunding(id, bit.value, bit.signature);
+    await expect(ctx.escrow.confirmFunding(id, bit.value, bit.signature))
+      .to.be.revertedWith("EncryptedEscrow: not pending funding");
+    await expect(ctx.escrow.confirmFunding(99, true, "0x")).to.be.revertedWith("EncryptedEscrow: not pending funding");
+  });
+
+  it("conditional escrow: unfunded stays Void even when the condition is met; funded releases after confirm", async () => {
+    const ctx = await loadFixture(gateFixture);
+    const resolverAddr = await ctx.resolver.getAddress();
+    const deadline = (await time.latest()) + 2 * 86400;
+    const data = abi.encode(["address", "uint64"], [ctx.eve.address, deadline]);
+    const encEve = await encUint64(ctx.client, ctx.eve, usdc(40), await ctx.escrow.getAddress());
+    await ctx.escrow.connect(ctx.eve).createConditionalEscrow(
+      ctx.bob.address, await ctx.vault.getAddress(), ...encEve, "unfunded", resolverAddr, data, deadline,
+    );
+    const encAlice = await encUint64(ctx.client, ctx.alice, usdc(40), await ctx.escrow.getAddress());
+    await ctx.escrow.connect(ctx.alice).createConditionalEscrow(
+      ctx.bob.address, await ctx.vault.getAddress(), ...encAlice, "funded", resolverAddr,
+      abi.encode(["address", "uint64"], [ctx.alice.address, deadline]), deadline,
+    );
+    expect((await ctx.escrow.getEscrow(0)).status).to.equal(STATUS_PENDING_FUNDING);
+    expect((await ctx.escrow.getEscrow(1)).status).to.equal(STATUS_PENDING_FUNDING);
+
+    await ctx.resolver.connect(ctx.eve).approve(await ctx.escrow.getAddress(), 0);
+    await ctx.resolver.connect(ctx.alice).approve(await ctx.escrow.getAddress(), 1);
+    // Condition met, but a pending escrow is not releasable.
+    await expect(ctx.escrow.connect(ctx.bob).releaseIfConditionMet(1)).to.be.revertedWith("EncryptedEscrow: not active");
+
+    await confirmEscrow(ctx, 0);
+    await confirmEscrow(ctx, 1);
+    expect((await ctx.escrow.getEscrow(0)).status).to.equal(STATUS_VOID);
+    await expect(ctx.escrow.connect(ctx.bob).releaseIfConditionMet(0)).to.be.revertedWith("EncryptedEscrow: not active");
+    await time.increase(2 * 86400 + 1);
+    await expect(ctx.escrow.connect(ctx.eve).claimExpiredEscrow(0)).to.be.revertedWith("EncryptedEscrow: not active");
+
+    await ctx.escrow.connect(ctx.bob).releaseIfConditionMet(1);
+    expect((await ctx.escrow.getEscrow(1)).status).to.equal(STATUS_RELEASED);
+    await mock_expectPlaintext(ctx.bob.provider, await ctx.vault.balanceOf(ctx.bob.address), usdc(1_040));
+  });
+
+  it("cancelPendingEscrow: only the depositor, returns the locked funds, then nothing else can settle it", async () => {
+    const ctx = await loadFixture(gateFixture);
+    const id = await create(ctx, ctx.alice, usdc(50));
+    await mock_expectPlaintext(ctx.alice.provider, await ctx.vault.balanceOf(ctx.alice.address), usdc(950));
+
+    await expect(ctx.escrow.connect(ctx.bob).cancelPendingEscrow(id)).to.be.revertedWith("EncryptedEscrow: not depositor");
+    await expect(ctx.escrow.connect(ctx.alice).cancelPendingEscrow(id))
+      .to.emit(ctx.escrow, "EscrowVoided").withArgs(id, ctx.alice.address);
+    expect((await ctx.escrow.getEscrow(id)).status).to.equal(STATUS_VOID);
+    await mock_expectPlaintext(ctx.alice.provider, await ctx.vault.balanceOf(ctx.alice.address), usdc(1_000));
+    await mock_expectPlaintext(ctx.alice.provider, await ctx.vault.balanceOf(await ctx.escrow.getAddress()), 0n);
+
+    const bit = await fundedBit(ctx, id);
+    await expect(ctx.escrow.confirmFunding(id, bit.value, bit.signature))
+      .to.be.revertedWith("EncryptedEscrow: not pending funding");
+    await expect(ctx.escrow.connect(ctx.alice).cancelPendingEscrow(id))
+      .to.be.revertedWith("EncryptedEscrow: not pending funding");
+  });
+
+  it("cancelPendingEscrow is closed once the escrow is Active", async () => {
+    const ctx = await loadFixture(gateFixture);
+    const id = await create(ctx, ctx.alice, usdc(50));
+    await confirmEscrow(ctx, id);
+    await expect(ctx.escrow.connect(ctx.alice).cancelPendingEscrow(id))
+      .to.be.revertedWith("EncryptedEscrow: not pending funding");
+  });
+
+  // A record written before this upgrade carries status Active and no funding
+  // bit. The packed slot (flags + status) is rewritten to model it.
+  it("legacy record: an Active escrow with no funding bit behaves exactly as before", async () => {
+    const ctx = await loadFixture(gateFixture);
+    const id = await create(ctx, ctx.alice, usdc(30));
+    const ESCROWS_SLOT = 4; // _escrows mapping (storage-layouts/EncryptedEscrow.json)
+    const base = BigInt(hre.ethers.keccak256(abi.encode(["uint256", "uint256"], [id, ESCROWS_SLOT])));
+    // depositorApproved, beneficiaryMarkedDelivered and status share base + 6.
+    await hre.network.provider.send("hardhat_setStorageAt", [
+      await ctx.escrow.getAddress(), hre.ethers.toBeHex(base + 6n, 32), hre.ethers.ZeroHash,
+    ]);
+    await hre.network.provider.send("hardhat_setStorageAt", [
+      await ctx.escrow.getAddress(),
+      hre.ethers.keccak256(abi.encode(["uint256", "uint256"], [id, 9])), // _fundedCheck mapping slot
+      hre.ethers.ZeroHash,
+    ]);
+    expect((await ctx.escrow.getEscrow(id)).status).to.equal(STATUS_ACTIVE);
+    expect(await ctx.escrow.getFundingCheck(id)).to.equal(0n);
+
+    await expect(ctx.escrow.confirmFunding(id, true, "0x")).to.be.revertedWith("EncryptedEscrow: not pending funding");
+    await ctx.escrow.connect(ctx.bob).markDelivered(id);
+    await ctx.escrow.connect(ctx.alice).approveRelease(id);
+    expect((await ctx.escrow.getEscrow(id)).status).to.equal(STATUS_RELEASED);
+    await mock_expectPlaintext(ctx.bob.provider, await ctx.vault.balanceOf(ctx.bob.address), usdc(1_030));
+  });
+
+  it("legacy record: an Active escrow still refunds after its deadline", async () => {
+    const ctx = await loadFixture(gateFixture);
+    const id = await create(ctx, ctx.alice, usdc(30));
+    const base = BigInt(hre.ethers.keccak256(abi.encode(["uint256", "uint256"], [id, 4])));
+    await hre.network.provider.send("hardhat_setStorageAt", [
+      await ctx.escrow.getAddress(), hre.ethers.toBeHex(base + 6n, 32), hre.ethers.ZeroHash,
+    ]);
+    await time.increase(8 * 86400);
+    await ctx.escrow.connect(ctx.alice).claimExpiredEscrow(id);
+    expect((await ctx.escrow.getEscrow(id)).status).to.equal(STATUS_REFUNDED);
+    await mock_expectPlaintext(ctx.alice.provider, await ctx.vault.balanceOf(ctx.alice.address), usdc(1_000));
+  });
+
+  it("the first four status numbers are unchanged", async () => {
+    // Pre-upgrade records store 0..3; the new members sit after them.
+    expect([STATUS_ACTIVE, STATUS_DISPUTED, STATUS_RELEASED, STATUS_REFUNDED]).to.deep.equal([0, 1, 2, 3]);
+    expect([STATUS_PENDING_FUNDING, STATUS_VOID]).to.deep.equal([4, 5]);
   });
 });

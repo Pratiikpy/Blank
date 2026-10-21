@@ -14,6 +14,10 @@ const STATUS_CLOSED = 1;
 const STATUS_RELEASED = 2;
 const STATUS_REFUNDING = 3;
 
+const CONTRIB_COUNTED = 0;
+const CONTRIB_PENDING = 1;
+const CONTRIB_VOID = 2;
+
 async function deployProxy(contractName: string, initArgs: unknown[] = []) {
   const Factory = await hre.ethers.getContractFactory(contractName);
   const impl = await Factory.deploy();
@@ -68,6 +72,30 @@ async function encUint64(client: any, signer: any, amount: bigint, consuming: st
   return await client.encryptInputs([Encryptable.uint64(amount)]).setConsumingContract(consuming).execute();
 }
 
+/// Decrypts a contribution's public funded bit and settles it on-chain, the way
+/// the app's automatic second step does. Anyone may submit it.
+async function confirmContributionAt(ctx: any, campaignId: bigint | number, index: bigint | number, caller: any = ctx.dave) {
+  const handle = await ctx.crowdfund.getContributionFundingCheck(campaignId, index);
+  await hre.cofhe.connectWithHardhatSigner(ctx.client, caller);
+  const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutACP().execute();
+  return ctx.crowdfund.connect(caller).confirmContribution(campaignId, index, Boolean(proof.decryptedValue), proof.signature);
+}
+
+/// Confirms the most recent contribution on any campaign.
+async function confirmLatest(ctx: any) {
+  const events = await ctx.crowdfund.queryFilter(ctx.crowdfund.filters.Contributed());
+  const last = events[events.length - 1];
+  await confirmContributionAt(ctx, last.args.campaignId, last.args.contributionIndex);
+}
+
+/// Settles a claimRefund: decrypts the public "moved a non-zero amount" bit.
+async function confirmRefundAt(ctx: any, campaignId: bigint | number, index: bigint | number, caller: any = ctx.dave) {
+  const handle = await ctx.crowdfund.getRefundCheck(campaignId, index);
+  await hre.cofhe.connectWithHardhatSigner(ctx.client, caller);
+  const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutACP().execute();
+  return ctx.crowdfund.connect(caller).confirmRefund(campaignId, index, Boolean(proof.decryptedValue), proof.signature);
+}
+
 describe("EncryptedCrowdfund", () => {
   it("creates a campaign", async () => {
     const ctx = await loadFixture(deployFixture);
@@ -102,8 +130,10 @@ describe("EncryptedCrowdfund", () => {
 
     const c1 = await encUint64(ctx.client, ctx.bob, usdc(40), await ctx.crowdfund.getAddress());
     await ctx.crowdfund.connect(ctx.bob).contribute(0, ...c1);
+    await confirmLatest(ctx);
     const c2 = await encUint64(ctx.client, ctx.charlie, usdc(30), await ctx.crowdfund.getAddress());
     await ctx.crowdfund.connect(ctx.charlie).contribute(0, ...c2);
+    await confirmLatest(ctx);
 
     expect(await ctx.crowdfund.getContributionCount(0)).to.equal(2);
 
@@ -133,8 +163,10 @@ describe("EncryptedCrowdfund", () => {
 
     const c1 = await encUint64(ctx.client, ctx.bob, usdc(40), await ctx.crowdfund.getAddress());
     await ctx.crowdfund.connect(ctx.bob).contribute(0, ...c1);
+    await confirmLatest(ctx);
     const c2 = await encUint64(ctx.client, ctx.charlie, usdc(20), await ctx.crowdfund.getAddress());
     await ctx.crowdfund.connect(ctx.charlie).contribute(0, ...c2);
+    await confirmLatest(ctx);
 
     // 60 raised >= 50 goal → success.
     await time.increase(3601);
@@ -167,8 +199,10 @@ describe("EncryptedCrowdfund", () => {
 
     const c1 = await encUint64(ctx.client, ctx.bob, usdc(40), await ctx.crowdfund.getAddress());
     await ctx.crowdfund.connect(ctx.bob).contribute(0, ...c1);
+    await confirmLatest(ctx);
     const c2 = await encUint64(ctx.client, ctx.charlie, usdc(20), await ctx.crowdfund.getAddress());
     await ctx.crowdfund.connect(ctx.charlie).contribute(0, ...c2);
+    await confirmLatest(ctx);
 
     // 60 raised < 500 goal → failure.
     await time.increase(3601);
@@ -191,6 +225,11 @@ describe("EncryptedCrowdfund", () => {
     // Bob + charlie refund.
     await ctx.crowdfund.connect(ctx.bob).claimRefund(0, 0);
     await ctx.crowdfund.connect(ctx.charlie).claimRefund(0, 1);
+    // The funds moved, but a contribution is only marked refunded once the
+    // moved amount is shown to be non-zero.
+    await expect(ctx.crowdfund.connect(ctx.bob).claimRefund(0, 0)).to.be.revertedWith("Crowdfund: refund pending");
+    await confirmRefundAt(ctx, 0, 0);
+    await confirmRefundAt(ctx, 0, 1);
 
     const bobAfter = await ctx.vault.balanceOf(ctx.bob.address);
     const charlieAfter = await ctx.vault.balanceOf(ctx.charlie.address);
@@ -243,8 +282,10 @@ describe("EncryptedCrowdfund", () => {
 
     const c1 = await encUint64(ctx.client, ctx.bob, usdc(40), await ctx.crowdfund.getAddress());
     await ctx.crowdfund.connect(ctx.bob).contribute(0, ...c1);
+    await confirmLatest(ctx);
     const c2 = await encUint64(ctx.client, ctx.charlie, usdc(20), await ctx.crowdfund.getAddress());
     await ctx.crowdfund.connect(ctx.charlie).contribute(0, ...c2);
+    await confirmLatest(ctx);
 
     await time.increase(3601);
     await ctx.crowdfund.connect(ctx.dave).closeCampaign(0);
@@ -295,8 +336,10 @@ describe("EncryptedCrowdfund", () => {
 
       const c1 = await encUint64(ctx.client, ctx.bob, usdc(40), await ctx.crowdfund.getAddress());
       await ctx.crowdfund.connect(ctx.bob).contribute(0, ...c1);
+      await confirmLatest(ctx);
       const c2 = await encUint64(ctx.client, ctx.charlie, usdc(20), await ctx.crowdfund.getAddress());
       await ctx.crowdfund.connect(ctx.charlie).contribute(0, ...c2);
+      await confirmLatest(ctx);
 
       await time.increase(3601);
       await expect(ctx.crowdfund.connect(ctx.dave).closeCampaign(0))
@@ -323,6 +366,7 @@ describe("EncryptedCrowdfund", () => {
 
       const c1 = await encUint64(ctx.client, ctx.bob, usdc(40), await ctx.crowdfund.getAddress());
       await ctx.crowdfund.connect(ctx.bob).contribute(0, ...c1);
+      await confirmLatest(ctx);
 
       await time.increase(3601);
       await ctx.crowdfund.connect(ctx.dave).closeCampaign(0);
@@ -333,7 +377,10 @@ describe("EncryptedCrowdfund", () => {
       await ctx.crowdfund.connect(ctx.dave).publishCloseResult(0, Boolean(proof.decryptedValue), proof.signature);
 
       await expect(ctx.crowdfund.connect(ctx.bob).claimRefund(0, 0))
-        .to.emit(ctx.crowdfund, "ContributionRefunded");
+        .to.emit(ctx.crowdfund, "RefundRequested").withArgs(0, ctx.bob.address, 0)
+        .and.not.to.emit(ctx.crowdfund, "ContributionRefunded");
+      await expect(confirmRefundAt(ctx, 0, 0))
+        .to.emit(ctx.crowdfund, "ContributionRefunded").withArgs(0, ctx.bob.address, 0);
     });
   });
 
@@ -342,7 +389,7 @@ describe("EncryptedCrowdfund", () => {
   describe("PaymentReceiptsSet event", () => {
     it("emits PaymentReceiptsSet with previous=zero, current=newAddr on first set", async () => {
       const ctx = await loadFixture(deployFixture);
-      const fake = "0x000000000000000000000000000000000000bEEF";
+      const fake = await ctx.vault.getAddress();
 
       await expect(ctx.crowdfund.connect(ctx.owner).setPaymentReceipts(fake))
         .to.emit(ctx.crowdfund, "PaymentReceiptsSet")
@@ -353,8 +400,8 @@ describe("EncryptedCrowdfund", () => {
 
     it("emits PaymentReceiptsSet with the prior address on subsequent set", async () => {
       const ctx = await loadFixture(deployFixture);
-      const first = "0x000000000000000000000000000000000000dEaD";
-      const second = "0x000000000000000000000000000000000000bEEF";
+      const first = await ctx.vault.getAddress();
+      const second = await ctx.testUSDC.getAddress();
 
       await ctx.crowdfund.connect(ctx.owner).setPaymentReceipts(first);
 
@@ -365,11 +412,21 @@ describe("EncryptedCrowdfund", () => {
 
     it("only owner can call setPaymentReceipts", async () => {
       const ctx = await loadFixture(deployFixture);
-      const fake = "0x000000000000000000000000000000000000bEEF";
+      const fake = await ctx.vault.getAddress();
 
       await expect(
         ctx.crowdfund.connect(ctx.alice).setPaymentReceipts(fake),
       ).to.be.reverted;
+    });
+
+    it("E5: setters reject a codeless address; zero still switches receipts off", async () => {
+      const ctx = await loadFixture(deployFixture);
+      const eoa = "0x000000000000000000000000000000000000bEEF";
+      await expect(ctx.crowdfund.setEventHub(eoa)).to.be.revertedWith("Crowdfund: bad event hub");
+      await expect(ctx.crowdfund.setPaymentReceipts(eoa)).to.be.revertedWith("Crowdfund: bad receipts");
+      await expect(ctx.crowdfund.setEventHub(await ctx.vault.getAddress())).to.not.be.reverted;
+      await expect(ctx.crowdfund.setPaymentReceipts(hre.ethers.ZeroAddress)).to.not.be.reverted;
+      await expect(ctx.crowdfund.connect(ctx.alice).setEventHub(await ctx.vault.getAddress())).to.be.reverted;
     });
   });
 
@@ -393,6 +450,7 @@ describe("EncryptedCrowdfund", () => {
       // Bob contributes $40.
       const bob = await encUint64(ctx.client, ctx.bob, usdc(40), await ctx.crowdfund.getAddress());
       await ctx.crowdfund.connect(ctx.bob).contribute(0, ...bob);
+      await confirmLatest(ctx);
 
       await time.increase(3601);
       await ctx.crowdfund.connect(ctx.dave).closeCampaign(0);
@@ -431,6 +489,7 @@ describe("EncryptedCrowdfund", () => {
 
       const bob = await encUint64(ctx.client, ctx.bob, usdc(60), await ctx.crowdfund.getAddress());
       await ctx.crowdfund.connect(ctx.bob).contribute(0, ...bob);
+      await confirmLatest(ctx);
 
       await time.increase(3601);
       await ctx.crowdfund.connect(ctx.dave).closeCampaign(0);
@@ -462,7 +521,9 @@ describe("EncryptedCrowdfund — audit fixes", () => {
       await ctx.vault.getAddress(), ...(await encUint64(ctx.client, ctx.bob, usdc(500), cf)), 3600, "B", ZERO_BYTES32,
     );
     await ctx.crowdfund.connect(ctx.charlie).contribute(0, ...(await encUint64(ctx.client, ctx.charlie, usdc(20), cf)));
+    await confirmLatest(ctx);
     await ctx.crowdfund.connect(ctx.dave).contribute(1, ...(await encUint64(ctx.client, ctx.dave, usdc(40), cf)));
+    await confirmLatest(ctx);
 
     await time.increase(3601);
     await ctx.crowdfund.closeCampaign(0);
@@ -487,7 +548,9 @@ describe("EncryptedCrowdfund — audit fixes", () => {
       await ctx.vault.getAddress(), ...(await encUint64(ctx.client, ctx.bob, usdc(10), cf)), 3600, "B", ZERO_BYTES32,
     );
     await ctx.crowdfund.connect(ctx.charlie).contribute(0, ...(await encUint64(ctx.client, ctx.charlie, usdc(20), cf)));
+    await confirmLatest(ctx);
     await ctx.crowdfund.connect(ctx.dave).contribute(1, ...(await encUint64(ctx.client, ctx.dave, usdc(40), cf)));
+    await confirmLatest(ctx);
     await time.increase(3601);
     await ctx.crowdfund.closeCampaign(0);
     await publishVerdict(ctx, 0);
@@ -542,7 +605,9 @@ describe("EncryptedCrowdfund — audit fixes", () => {
       await ctx.vault.getAddress(), ...(await encUint64(ctx.client, ctx.alice, usdc(50), cf)), 3600, "P", ZERO_BYTES32,
     );
     await ctx.crowdfund.connect(ctx.bob).contribute(0, ...(await encUint64(ctx.client, ctx.bob, usdc(10), cf)));
+    await confirmLatest(ctx);
     await ctx.crowdfund.connect(ctx.charlie).contribute(0, ...(await encUint64(ctx.client, ctx.charlie, usdc(5), cf)));
+    await confirmLatest(ctx);
 
     let raised = await ctx.crowdfund.getEncryptedRaised(0);
     expect(await acl.isAllowed(raised, ctx.charlie.address)).to.equal(false);
@@ -584,6 +649,269 @@ describe("EncryptedCrowdfund — audit fixes", () => {
     );
     // Bob has 1,000 shielded; asks to contribute 5,000.
     await ctx.crowdfund.connect(ctx.bob).contribute(0, ...(await encUint64(ctx.client, ctx.bob, usdc(5_000), cf)));
+    await confirmLatest(ctx);
     await mock_expectPlaintext(ctx.alice.provider, await ctx.crowdfund.getEncryptedRaised(0), 0n);
+    expect(await ctx.crowdfund.contributionState(0, 0)).to.equal(CONTRIB_VOID);
+  });
+});
+
+// The vault moves zero instead of reverting when a contributor is short. The
+// encrypted total is unaffected (zero adds nothing), but a contribution only
+// counts as one, and only a refund only counts as paid, once a single public
+// bit has been decrypted and published.
+describe("EncryptedCrowdfund, funding gate", () => {
+  const MAX = (1n << 64n) - 1n;
+  const abi = hre.ethers.AbiCoder.defaultAbiCoder();
+  // Slots of the appended mappings (storage-layouts/EncryptedCrowdfund.json).
+  const CONTRIBUTION_STATE_SLOT = 10;
+  const UNCOUNTED_SLOT = 12;
+
+  // Eve holds nothing in the vault but has approved the crowdfund, so the only
+  // reason her contributions can fail is a short balance.
+  async function gateFixture() {
+    const ctx = await deployFixture();
+    const eve = (await hre.ethers.getSigners())[5];
+    await ctx.vault.connect(eve).approvePlaintext(await ctx.crowdfund.getAddress(), MAX);
+    return { ...ctx, eve };
+  }
+
+  async function campaign(ctx: any, goal: bigint, duration = 3600) {
+    const cf = await ctx.crowdfund.getAddress();
+    await ctx.crowdfund.connect(ctx.alice).createCampaign(
+      await ctx.vault.getAddress(), ...(await encUint64(ctx.client, ctx.alice, goal, cf)), duration, "gate", ZERO_BYTES32,
+    );
+    return (await ctx.crowdfund.nextCampaignId()) - 1n;
+  }
+
+  async function contribute(ctx: any, who: any, id: bigint, amount: bigint) {
+    const cf = await ctx.crowdfund.getAddress();
+    await ctx.crowdfund.connect(who).contribute(id, ...(await encUint64(ctx.client, who, amount, cf)));
+    return (await ctx.crowdfund.getContributionCount(id)) - 1n;
+  }
+
+  async function fundedBit(ctx: any, id: bigint, index: bigint) {
+    await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.dave);
+    const handle = await ctx.crowdfund.getContributionFundingCheck(id, index);
+    const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutACP().execute();
+    return { value: Boolean(proof.decryptedValue), signature: proof.signature };
+  }
+
+  async function closeAndPublish(ctx: any, id: bigint) {
+    await time.increase(3601);
+    await ctx.crowdfund.connect(ctx.dave).closeCampaign(id);
+    await publishVerdict(ctx, Number(id));
+  }
+
+  it("a funded contribution starts PendingFunding, counts toward the total, but not toward the close guard", async () => {
+    const ctx = await loadFixture(gateFixture);
+    const id = await campaign(ctx, usdc(50));
+    const index = await contribute(ctx, ctx.bob, id, usdc(60));
+    expect(await ctx.crowdfund.contributionState(id, index)).to.equal(CONTRIB_PENDING);
+    expect(await ctx.crowdfund.uncountedContributions(id)).to.equal(1);
+    // The money is locked, and the encrypted total already holds it.
+    await mock_expectPlaintext(ctx.alice.provider, await ctx.vault.balanceOf(await ctx.crowdfund.getAddress()), usdc(60));
+    await mock_expectPlaintext(ctx.alice.provider, await ctx.crowdfund.getEncryptedRaised(id), usdc(60));
+
+    await time.increase(3601);
+    await expect(ctx.crowdfund.connect(ctx.dave).closeCampaign(id))
+      .to.be.revertedWith("Crowdfund: no contributions to close against");
+  });
+
+  it("funded path end to end: a stranger confirms, the campaign closes, the goal is met, the creator is paid", async () => {
+    const ctx = await loadFixture(gateFixture);
+    const id = await campaign(ctx, usdc(50));
+    const index = await contribute(ctx, ctx.bob, id, usdc(60));
+    const bit = await fundedBit(ctx, id, index);
+    expect(bit.value).to.equal(true);
+
+    await expect(ctx.crowdfund.connect(ctx.eve).confirmContribution(id, index, bit.value, bit.signature))
+      .to.emit(ctx.crowdfund, "ContributionConfirmed").withArgs(id, ctx.bob.address, index)
+      .and.not.to.emit(ctx.crowdfund, "ContributionVoided");
+    expect(await ctx.crowdfund.contributionState(id, index)).to.equal(CONTRIB_COUNTED);
+    expect(await ctx.crowdfund.uncountedContributions(id)).to.equal(0);
+
+    await closeAndPublish(ctx, id);
+    expect((await ctx.crowdfund.getCampaign(id)).goalMet).to.equal(true);
+    await ctx.crowdfund.connect(ctx.alice).claimRelease(id);
+    await mock_expectPlaintext(ctx.alice.provider, await ctx.vault.balanceOf(ctx.alice.address), usdc(1_060));
+  });
+
+  it("zero-balance contributor: the contribution ends Void, adds nothing and never satisfies the close guard", async () => {
+    const ctx = await loadFixture(gateFixture);
+    const id = await campaign(ctx, usdc(50));
+    const index = await contribute(ctx, ctx.eve, id, usdc(50));
+    const bit = await fundedBit(ctx, id, index);
+    expect(bit.value).to.equal(false);
+
+    await expect(ctx.crowdfund.connect(ctx.bob).confirmContribution(id, index, bit.value, bit.signature))
+      .to.emit(ctx.crowdfund, "ContributionVoided").withArgs(id, ctx.eve.address, index)
+      .and.not.to.emit(ctx.crowdfund, "ContributionConfirmed");
+    expect(await ctx.crowdfund.contributionState(id, index)).to.equal(CONTRIB_VOID);
+    expect(await ctx.crowdfund.uncountedContributions(id)).to.equal(1);
+    expect(await ctx.crowdfund.getContributionCount(id)).to.equal(1);
+
+    await time.increase(3601);
+    await expect(ctx.crowdfund.connect(ctx.dave).closeCampaign(id))
+      .to.be.revertedWith("Crowdfund: no contributions to close against");
+  });
+
+  it("a Void contribution beside a real one leaves the verdict and refunds correct, and its refund stays retryable", async () => {
+    const ctx = await loadFixture(gateFixture);
+    const id = await campaign(ctx, usdc(100));
+    const real = await contribute(ctx, ctx.bob, id, usdc(60));
+    const empty = await contribute(ctx, ctx.eve, id, usdc(50));
+    await confirmContributionAt(ctx, id, real);
+    await confirmContributionAt(ctx, id, empty);
+
+    await closeAndPublish(ctx, id);
+    // 60 raised < 100 goal; Eve's void 50 did not inflate the total.
+    expect((await ctx.crowdfund.getCampaign(id)).goalMet).to.equal(false);
+
+    await ctx.crowdfund.connect(ctx.bob).claimRefund(id, real);
+    await confirmRefundAt(ctx, id, real);
+    expect((await ctx.crowdfund.getContribution(id, real)).refunded).to.equal(true);
+    await mock_expectPlaintext(ctx.bob.provider, await ctx.vault.balanceOf(ctx.bob.address), usdc(1_000));
+
+    // Eve's refund moves nothing, so it must not be marked refunded.
+    await ctx.crowdfund.connect(ctx.eve).claimRefund(id, empty);
+    await expect(confirmRefundAt(ctx, id, empty))
+      .to.emit(ctx.crowdfund, "RefundNotPaid").withArgs(id, ctx.eve.address, empty)
+      .and.not.to.emit(ctx.crowdfund, "ContributionRefunded");
+    expect((await ctx.crowdfund.getContribution(id, empty)).refunded).to.equal(false);
+    expect(await ctx.crowdfund.refundInFlight(id, empty)).to.equal(false);
+    // Retryable: the call is accepted again.
+    await expect(ctx.crowdfund.connect(ctx.eve).claimRefund(id, empty)).to.emit(ctx.crowdfund, "RefundRequested");
+  });
+
+  it("an unconfirmed funded contribution still counts toward the goal and is swept on release", async () => {
+    const ctx = await loadFixture(gateFixture);
+    const id = await campaign(ctx, usdc(50));
+    const confirmed = await contribute(ctx, ctx.bob, id, usdc(40));
+    const late = await contribute(ctx, ctx.charlie, id, usdc(20));
+    await confirmContributionAt(ctx, id, confirmed);
+    expect(await ctx.crowdfund.uncountedContributions(id)).to.equal(1);
+
+    await closeAndPublish(ctx, id);
+    expect((await ctx.crowdfund.getCampaign(id)).goalMet).to.equal(true);
+    await ctx.crowdfund.connect(ctx.alice).claimRelease(id);
+    await mock_expectPlaintext(ctx.alice.provider, await ctx.vault.balanceOf(ctx.alice.address), usdc(1_060));
+
+    // Settling the late one after close is allowed and only touches its own state.
+    await confirmContributionAt(ctx, id, late);
+    expect(await ctx.crowdfund.contributionState(id, late)).to.equal(CONTRIB_COUNTED);
+  });
+
+  it("confirmContribution rejects a bad index, a repeat, and a lie about the bit", async () => {
+    const ctx = await loadFixture(gateFixture);
+    const id = await campaign(ctx, usdc(50));
+    const index = await contribute(ctx, ctx.eve, id, usdc(5));
+    await expect(ctx.crowdfund.confirmContribution(id, 9, true, "0x")).to.be.revertedWith("Crowdfund: bad index");
+
+    const bit = await fundedBit(ctx, id, index);
+    expect(bit.value).to.equal(false);
+    await expect(ctx.crowdfund.confirmContribution(id, index, true, bit.signature)).to.be.reverted;
+    expect(await ctx.crowdfund.contributionState(id, index)).to.equal(CONTRIB_PENDING);
+
+    // A verdict published straight to the Task Manager cannot be flipped by the argument.
+    const tm = await hre.cofhe.mocks.getMockTaskManager();
+    await tm.publishDecryptResult(await ctx.crowdfund.getContributionFundingCheck(id, index), 0, bit.signature);
+    await ctx.crowdfund.confirmContribution(id, index, true, "0x");
+    expect(await ctx.crowdfund.contributionState(id, index)).to.equal(CONTRIB_VOID);
+    await expect(ctx.crowdfund.confirmContribution(id, index, false, bit.signature))
+      .to.be.revertedWith("Crowdfund: not pending funding");
+  });
+
+  it("refund is two-step: funds move on claim, the flag flips only on confirm, and a repeat is blocked in between", async () => {
+    const ctx = await loadFixture(gateFixture);
+    const id = await campaign(ctx, usdc(500));
+    const index = await contribute(ctx, ctx.bob, id, usdc(40));
+    await confirmContributionAt(ctx, id, index);
+    await closeAndPublish(ctx, id);
+
+    await expect(ctx.crowdfund.confirmRefund(id, index, true, "0x")).to.be.revertedWith("Crowdfund: no refund pending");
+    await ctx.crowdfund.connect(ctx.bob).claimRefund(id, index);
+    expect(await ctx.crowdfund.refundInFlight(id, index)).to.equal(true);
+    expect((await ctx.crowdfund.getContribution(id, index)).refunded).to.equal(false);
+    await mock_expectPlaintext(ctx.bob.provider, await ctx.vault.balanceOf(ctx.bob.address), usdc(1_000));
+    await expect(ctx.crowdfund.connect(ctx.bob).claimRefund(id, index)).to.be.revertedWith("Crowdfund: refund pending");
+
+    await expect(confirmRefundAt(ctx, id, index, ctx.charlie))
+      .to.emit(ctx.crowdfund, "ContributionRefunded").withArgs(id, ctx.bob.address, index);
+    expect((await ctx.crowdfund.getContribution(id, index)).refunded).to.equal(true);
+    expect(await ctx.crowdfund.refundInFlight(id, index)).to.equal(false);
+    await expect(ctx.crowdfund.connect(ctx.bob).claimRefund(id, index)).to.be.revertedWith("Crowdfund: already refunded");
+    await expect(ctx.crowdfund.confirmRefund(id, index, true, "0x")).to.be.revertedWith("Crowdfund: no refund pending");
+    // No double payout from the second claim attempts.
+    await mock_expectPlaintext(ctx.bob.provider, await ctx.vault.balanceOf(ctx.bob.address), usdc(1_000));
+  });
+
+  it("refund confirmation takes the published bit, not the argument", async () => {
+    const ctx = await loadFixture(gateFixture);
+    const id = await campaign(ctx, usdc(500));
+    // A real contribution lets the campaign close; Eve's moves nothing.
+    await confirmContributionAt(ctx, id, await contribute(ctx, ctx.bob, id, usdc(10)));
+    const index = await contribute(ctx, ctx.eve, id, usdc(40));
+    await confirmContributionAt(ctx, id, index);
+    await closeAndPublish(ctx, id);
+    await ctx.crowdfund.connect(ctx.eve).claimRefund(id, index);
+
+    await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.dave);
+    const handle = await ctx.crowdfund.getRefundCheck(id, index);
+    const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutACP().execute();
+    expect(Boolean(proof.decryptedValue)).to.equal(false);
+    await expect(ctx.crowdfund.confirmRefund(id, index, true, proof.signature)).to.be.reverted;
+
+    const tm = await hre.cofhe.mocks.getMockTaskManager();
+    await tm.publishDecryptResult(handle, 0, proof.signature);
+    await ctx.crowdfund.confirmRefund(id, index, true, "0x");
+    expect((await ctx.crowdfund.getContribution(id, index)).refunded).to.equal(false);
+  });
+
+  it("publishCloseResult takes the stored verdict when it was already published, and a lie cannot flip it", async () => {
+    const ctx = await loadFixture(gateFixture);
+    const id = await campaign(ctx, usdc(50));
+    const index = await contribute(ctx, ctx.bob, id, usdc(60));
+    await confirmContributionAt(ctx, id, index);
+    await time.increase(3601);
+    await ctx.crowdfund.connect(ctx.dave).closeCampaign(id);
+
+    const handle = await ctx.crowdfund.getGoalCheckHandle(id);
+    await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.dave);
+    const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutACP().execute();
+    expect(Boolean(proof.decryptedValue)).to.equal(true);
+    // Unpublished: a false claim is rejected by the signature check.
+    await expect(ctx.crowdfund.publishCloseResult(id, false, proof.signature)).to.be.reverted;
+
+    // Someone else publishes the verdict straight to the Task Manager first.
+    const tm = await hre.cofhe.mocks.getMockTaskManager();
+    await tm.publishDecryptResult(handle, 1, proof.signature);
+    await expect(ctx.crowdfund.publishCloseResult(id, false, "0x"))
+      .to.emit(ctx.crowdfund, "CloseResultPublished").withArgs(id, true);
+    const c = await ctx.crowdfund.getCampaign(id);
+    expect(c.goalMet).to.equal(true);
+    expect(c.status).to.equal(STATUS_RELEASED);
+  });
+
+  // Contributions made before the upgrade have state Counted and no entry in
+  // uncountedContributions. Zeroing both for a pending contribution models them.
+  it("legacy contributions count toward the close guard and refund as before", async () => {
+    const ctx = await loadFixture(gateFixture);
+    const id = await campaign(ctx, usdc(500));
+    const index = await contribute(ctx, ctx.bob, id, usdc(40));
+    const cfAddr = await ctx.crowdfund.getAddress();
+    const outer = hre.ethers.keccak256(abi.encode(["uint256", "uint256"], [id, CONTRIBUTION_STATE_SLOT]));
+    const stateSlot = hre.ethers.keccak256(abi.encode(["uint256", "bytes32"], [index, outer]));
+    const uncountedSlot = hre.ethers.keccak256(abi.encode(["uint256", "uint256"], [id, UNCOUNTED_SLOT]));
+    await hre.network.provider.send("hardhat_setStorageAt", [cfAddr, stateSlot, hre.ethers.ZeroHash]);
+    await hre.network.provider.send("hardhat_setStorageAt", [cfAddr, uncountedSlot, hre.ethers.ZeroHash]);
+    expect(await ctx.crowdfund.contributionState(id, index)).to.equal(CONTRIB_COUNTED);
+    expect(await ctx.crowdfund.uncountedContributions(id)).to.equal(0);
+
+    await expect(ctx.crowdfund.confirmContribution(id, index, true, "0x")).to.be.revertedWith("Crowdfund: not pending funding");
+    await closeAndPublish(ctx, id);
+    await ctx.crowdfund.connect(ctx.bob).claimRefund(id, index);
+    await confirmRefundAt(ctx, id, index);
+    expect((await ctx.crowdfund.getContribution(id, index)).refunded).to.equal(true);
+    await mock_expectPlaintext(ctx.bob.provider, await ctx.vault.balanceOf(ctx.bob.address), usdc(1_000));
   });
 });

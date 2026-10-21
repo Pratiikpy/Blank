@@ -8,7 +8,6 @@ import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "./interfaces/ITokenRegistry.sol";
 
 interface IFHERC20Vault {
-    function transferFrom(address from, address to, externalEuint64 encAmount, bytes calldata proof) external returns (euint64);
     function transferFromVerified(address from, address to, sharedEuint64 shared) external returns (sharedEuint64);
 }
 
@@ -17,15 +16,27 @@ interface IEventHub {
 }
 
 /// @title CreatorHub — Encrypted creator tipping with tier badges
-/// @notice Support creators with encrypted amounts. Nobody sees how much you gave —
-///         not even the creator. Supporters earn tier badges (Bronze/Silver/Gold)
-///         based on encrypted threshold checks.
+/// @notice Support creators with encrypted amounts. Supporters earn tier badges
+///         (Bronze/Silver/Gold) based on encrypted threshold checks.
 ///
 /// @dev Tier thresholds are plaintext (public knowledge). Cumulative contributions
 ///      are encrypted. Tier check returns ebool that only the supporter can unseal.
 ///      Totals are kept per vault so tips in different tokens are never summed.
 ///      The pre-upgrade mixed-token totals (totalEarnings, _contributions) are
 ///      frozen and no longer read.
+///
+///      Privacy: no handle granted to the creator carries a single tip. The
+///      creator can decrypt only the running per-vault total (getMyEarningsIn).
+///      Residual: the vault credits the creator's own balance on every tip, so
+///      a creator who decrypts that balance after each tip can still infer the
+///      individual amount. The tipper's address is public by design.
+///
+///      Funding gate: the vault moves 0 (no revert) when the tipper is short,
+///      so a tip is only counted once it is proven non-zero. support() records
+///      a Pending tip with a public ebool; confirmFunding() publishes its
+///      decryption and then either counts the supporter (supporterCount,
+///      supporter list, tier access, Supported events) or voids the tip.
+///      The encrypted totals update immediately because adding 0 is harmless.
 contract CreatorHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
     // ─── Types ──────────────────────────────────────────────────────────
@@ -39,6 +50,18 @@ contract CreatorHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         euint64 totalEarnings;   // Encrypted total — only creator sees
         uint256 supporterCount;  // Public count
         bool active;
+    }
+
+    enum TipStatus { None, Pending, Confirmed, Voided }
+
+    struct PendingTip {
+        address supporter;
+        address creator;
+        address vault;
+        TipStatus status;
+        ebool funded;
+        euint64 moved;
+        string message;
     }
 
     // ─── State ──────────────────────────────────────────────────────────
@@ -63,6 +86,11 @@ contract CreatorHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     event Supported(address indexed supporter, address indexed creator, string message, uint256 timestamp);
     event SupportedIn(address indexed supporter, address indexed creator, address indexed vault, euint64 moved);
     event TokenRegistrySet(address indexed registry);
+    /// @notice A tip is waiting for confirmFunding. Decrypt `funded` (public)
+    ///         off-chain and pass the result and signature to confirmFunding.
+    event TipPending(uint256 indexed tipId, address indexed supporter, address indexed creator, address vault, ebool funded);
+    /// @notice The vault moved nothing for this tip; it was not counted.
+    event TipVoided(uint256 indexed tipId, address indexed supporter, address indexed creator);
 
     // ─── Initializer ────────────────────────────────────────────────────
 
@@ -119,18 +147,22 @@ contract CreatorHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
     // ─── Support a Creator ──────────────────────────────────────────────
 
-    /// @notice Support a creator with an encrypted amount.
-    ///         Amount is hidden from everyone — even the creator doesn't see individual contributions.
+    /// @notice Support a creator with an encrypted amount. The amount is
+    ///         hidden from everyone but the tipper; the creator can read only
+    ///         the running total. The tip does not count (supporter list,
+    ///         supporterCount, tier access, Supported event) until
+    ///         confirmFunding proves the vault actually moved funds.
     /// @param creator Creator's address
     /// @param vault FHERC20Vault for the token
     /// @param encAmount Encrypted tip amount
     /// @param message Public support message
+    /// @return tipId Id to pass to confirmFunding
     function support(
         address creator,
         address vault,
         externalEuint64 encAmount, bytes calldata proof,
         string calldata message
-    ) external nonReentrant {
+    ) external nonReentrant returns (uint256 tipId) {
         require(hasProfile[creator], "CreatorHub: no profile");
         require(_profiles[creator].active, "CreatorHub: inactive");
         require(creator != msg.sender, "CreatorHub: cannot self-tip");
@@ -147,27 +179,87 @@ contract CreatorHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         );
         FHE.allowThis(moved);
         FHE.allowSender(moved);
-        FHE.allow(moved, creator);
 
         euint64 earned = _addNoWrap(_earningsByVault[creator][vault], moved);
         _earningsByVault[creator][vault] = earned;
         FHE.allowThis(earned);
         FHE.allow(earned, creator);
 
-        if (!_hasContributed[creator][msg.sender]) {
-            _hasContributed[creator][msg.sender] = true;
-            _profiles[creator].supporterCount++;
-            _supportedCreators[msg.sender].push(creator);
-        }
-
         euint64 given = _addNoWrap(_contributionsByVault[creator][msg.sender][vault], moved);
         _contributionsByVault[creator][msg.sender][vault] = given;
         FHE.allowThis(given);
         FHE.allowSender(given);
 
-        emit Supported(msg.sender, creator, message, block.timestamp);
-        emit SupportedIn(msg.sender, creator, vault, moved);
-        try eventHub.emitActivity(msg.sender, creator, "tip", message, 0) {} catch {}
+        ebool funded = FHE.gt(moved, FHE.asEuint64(0));
+        FHE.allowThis(funded);
+        FHE.allowPublic(funded);
+
+        tipId = nextTipId++;
+        PendingTip storage t = _tips[tipId];
+        t.supporter = msg.sender;
+        t.creator = creator;
+        t.vault = vault;
+        t.funded = funded;
+        t.moved = moved;
+        t.message = message;
+        t.status = TipStatus.Pending;
+
+        emit TipPending(tipId, msg.sender, creator, vault, funded);
+    }
+
+    /// @notice Settle a pending tip (step 2 of 2). Anyone may call with the
+    ///         Threshold Network decryption of getTipFundedHandle(tipId).
+    ///         true: the supporter is counted and Supported fires.
+    ///         false: nothing moved, the tip is voided.
+    function confirmFunding(uint256 tipId, bool fundedPlaintext, bytes calldata signature) external nonReentrant {
+        PendingTip storage t = _tips[tipId];
+        require(t.status == TipStatus.Pending, "CreatorHub: tip not pending");
+
+        // Publish only if nobody has yet, so a second publish cannot revert.
+        (bool funded, bool ready) = FHE.getDecryptResultSafe(t.funded);
+        if (!ready) {
+            FHE.publishDecryptResult(t.funded, fundedPlaintext, signature);
+            (funded, ready) = FHE.getDecryptResultSafe(t.funded);
+        }
+        require(ready, "CreatorHub: decryption not ready");
+
+        address supporter = t.supporter;
+        address creator = t.creator;
+        string memory message = t.message;
+        delete t.message;
+
+        if (!funded) {
+            t.status = TipStatus.Voided;
+            emit TipVoided(tipId, supporter, creator);
+            return;
+        }
+
+        t.status = TipStatus.Confirmed;
+        if (!_hasContributed[creator][supporter]) {
+            _hasContributed[creator][supporter] = true;
+            _profiles[creator].supporterCount++;
+            _supportedCreators[supporter].push(creator);
+        }
+
+        emit Supported(supporter, creator, message, block.timestamp);
+        emit SupportedIn(supporter, creator, t.vault, t.moved);
+        try eventHub.emitActivity(supporter, creator, "tip", message, 0) {} catch {}
+    }
+
+    /// @notice The public ebool "the vault moved a non-zero amount" for a tip.
+    function getTipFundedHandle(uint256 tipId) external view returns (ebool) {
+        return _tips[tipId].funded;
+    }
+
+    /// @notice Public state of a tip (no amounts, no message).
+    function getTip(uint256 tipId) external view returns (
+        address supporter,
+        address creator,
+        address vault,
+        TipStatus status
+    ) {
+        PendingTip storage t = _tips[tipId];
+        return (t.supporter, t.creator, t.vault, t.status);
     }
 
     // ─── Tier Checks ────────────────────────────────────────────────────
@@ -176,6 +268,7 @@ contract CreatorHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     ///         comparisons against your total given through `vault`.
     ///         Returns 3 encrypted booleans; unseal with a permit.
     ///         NOT a view function because FHE operations submit CoFHE tasks.
+    ///         Open only to supporters whose first tip was confirmed.
     /// @return bronze Whether contribution >= tier1
     /// @return silver Whether contribution >= tier2
     /// @return gold Whether contribution >= tier3
@@ -239,6 +332,7 @@ contract CreatorHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     // ─── Admin ──────────────────────────────────────────────────────────
 
     function setEventHub(address _eventHub) external onlyOwner {
+        require(_eventHub.code.length > 0, "CreatorHub: bad event hub");
         eventHub = IEventHub(_eventHub);
     }
 
@@ -268,9 +362,13 @@ contract CreatorHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     /// @dev creator => supporter => vault => encrypted cumulative contribution.
     mapping(address => mapping(address => mapping(address => euint64))) private _contributionsByVault;
     ITokenRegistry public tokenRegistry;
+    /// @dev Next id for support() records. Appended.
+    uint256 public nextTipId;
+    /// @dev tipId => tip awaiting or past confirmFunding. Appended.
+    mapping(uint256 => PendingTip) private _tips;
 
     /// @dev Reserved storage. Shrink by 1 for each slot appended above.
-    uint256[47] private __gap;
+    uint256[45] private __gap;
 
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 }

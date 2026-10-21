@@ -8,7 +8,6 @@ import "./utils/ReentrancyGuard.sol";
 import "./interfaces/ITokenRegistry.sol";
 
 interface IFHERC20Vault {
-    function transferFrom(address from, address to, externalEuint64 encAmount, bytes calldata proof) external returns (euint64);
     function transferFromVerified(address from, address to, sharedEuint64 shared) external returns (sharedEuint64);
 }
 
@@ -39,6 +38,15 @@ interface IPaymentReceipts {
 ///      - Social context (who, when, note) is public; financial details are private
 ///      - UUPS upgradeable, ReentrancyGuard on all mutating functions
 ///      - Security zone 0 enforced everywhere
+///      - Funding gate: the vault moves zero, rather than reverting, when the
+///        sender's balance is short. A new envelope starts PendingFunding and
+///        only becomes openable once the single bit "every share moved"
+///        has been decrypted and published (confirmFunding). A short sender
+///        ends Void. Receipts are bumped at confirmation, only for a funded
+///        envelope. Envelopes created before the gate read as Active.
+///      - A share that moved before another share fell short stays with its
+///        recipient: transfers are irrevocable and the contract never holds
+///        the funds, so a Void envelope can still have paid some recipients.
 contract GiftMoney is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
     // ─── Types ──────────────────────────────────────────────────────────
@@ -81,6 +89,10 @@ contract GiftMoney is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
     uint256 public constant MAX_RECIPIENTS = 30;
 
+    /// @dev Active is zero so every envelope created before the funding gate
+    ///      reads as Active without a migration.
+    enum FundingStatus { Active, PendingFunding, Void }
+
     // ─── #204: PaymentReceipts wiring (append-only storage) ─────────────
     // When non-zero, createEnvelope forwards each recipient's transferred
     // share to paymentReceipts.bumpUserReceived(recipient, actual) and bumps
@@ -122,6 +134,12 @@ contract GiftMoney is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     event ReceiptsBumpFailed(string kind, bytes reason);
     event PaymentReceiptsSet(address indexed previous, address indexed current);
 
+    /// @notice The funded bit decrypted true: the envelope is openable.
+    event EnvelopeFunded(uint256 indexed envelopeId, address indexed sender);
+    /// @notice The envelope never became openable because at least one share
+    ///         did not move. It is deactivated.
+    event EnvelopeVoided(uint256 indexed envelopeId, address indexed sender);
+
     // ─── Initializer ────────────────────────────────────────────────────
 
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -148,6 +166,10 @@ contract GiftMoney is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     ///
     ///         Sender must have approved this contract on the vault beforehand
     ///         (lazy approval pattern: approvePlaintext(GiftMoney, type(uint64).max)).
+    ///
+    ///         The envelope starts PendingFunding: decrypt getFundingCheck(id)
+    ///         and pass it to confirmFunding to make it openable (or Void when
+    ///         a share fell short). Receipts are bumped at confirmation.
     ///
     /// @param vault FHERC20Vault address for the token being gifted
     /// @param recipients Array of recipient addresses
@@ -191,6 +213,10 @@ contract GiftMoney is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         // One batch signature covers every share in the envelope.
         euint64[] memory verifiedShares = FHE.asEuint64s(shares, proof);
 
+        // Every share must have moved. The vault moves all or nothing per share,
+        // so a share that moved is positive and one that fell short is zero.
+        ebool allFunded;
+
         for (uint256 i = 0; i < count; i++) {
             address recipient = recipients[i];
             require(recipient != address(0), "GiftMoney: zero address recipient");
@@ -216,10 +242,8 @@ contract GiftMoney is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
             FHE.allow(transferred, recipient);
             FHE.allowSender(transferred);
 
-            // #204: bump per-recipient received counter so gift recipients can
-            // call proveIncomeAbove. Also bumps the global aggregate so the
-            // landing-page counter reflects gift volume.
-            _bumpReceiptsAndGlobal(recipient, transferred);
+            ebool moved = FHE.gt(transferred, FHE.asEuint64(0));
+            allFunded = i == 0 ? moved : FHE.and(allFunded, moved);
 
             // Track membership and reverse lookups
             isRecipient[envelopeId][recipient] = true;
@@ -228,6 +252,11 @@ contract GiftMoney is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         }
 
         _sentEnvelopes[msg.sender].push(envelopeId);
+
+        FHE.allowThis(allFunded);
+        FHE.allowPublic(allFunded);
+        _fundedCheck[envelopeId] = allFunded;
+        fundingStatus[envelopeId] = FundingStatus.PendingFunding;
 
         emit EnvelopeCreated(envelopeId, msg.sender, vault, count, note, block.timestamp);
         try eventHub.emitActivity(msg.sender, address(0), "gift_created", note, envelopeId) {} catch {}
@@ -249,6 +278,9 @@ contract GiftMoney is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     function claimGift(uint256 envelopeId) external nonReentrant {
         GiftEnvelope storage env = _envelopes[envelopeId];
         require(env.active, "GiftMoney: envelope not active");
+        FundingStatus status = fundingStatus[envelopeId];
+        require(status != FundingStatus.PendingFunding, "GiftMoney: funding pending");
+        require(status != FundingStatus.Void, "GiftMoney: envelope unfunded");
         // #241 — Enforce expiry on-chain. Advisory-only display isn't enough;
         // block claims past the deadline. Zero expiry means no expiry (legacy
         // envelopes + intentional perpetual gifts). Funds are already in the
@@ -267,6 +299,46 @@ contract GiftMoney is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
         emit GiftOpened(envelopeId, msg.sender, block.timestamp);
         try eventHub.emitActivity(env.sender, msg.sender, "gift_claimed", env.note, envelopeId) {} catch {}
+    }
+
+    // ─── Funding gate ───────────────────────────────────────────────────
+
+    /// @notice Settle a PendingFunding envelope. Anyone may call with the
+    ///         Threshold Network decryption of getFundingCheck(envelopeId).
+    ///         true: the envelope becomes openable and each recipient's
+    ///         receipts counter is bumped. false: at least one share did not
+    ///         move; the envelope is Void and deactivated. The published
+    ///         value, not the argument, decides the outcome.
+    function confirmFunding(uint256 envelopeId, bool funded, bytes calldata signature) external nonReentrant {
+        require(fundingStatus[envelopeId] == FundingStatus.PendingFunding, "GiftMoney: not pending funding");
+        GiftEnvelope storage env = _envelopes[envelopeId];
+        ebool check = _fundedCheck[envelopeId];
+        (, bool published) = FHE.getDecryptResultSafe(check);
+        if (!published) FHE.publishDecryptResult(check, funded, signature);
+        (bool ok, bool ready) = FHE.getDecryptResultSafe(check);
+        require(ready, "GiftMoney: decryption not ready");
+
+        if (ok) {
+            fundingStatus[envelopeId] = FundingStatus.Active;
+            address[] storage list = _recipients[envelopeId];
+            for (uint256 i = 0; i < list.length; i++) {
+                // #204: bump per-recipient received counter so gift recipients
+                // can call proveIncomeAbove, and the global aggregate so the
+                // landing-page counter reflects gift volume.
+                _bumpReceiptsAndGlobal(list[i], _shares[envelopeId][list[i]]);
+            }
+            emit EnvelopeFunded(envelopeId, env.sender);
+        } else {
+            fundingStatus[envelopeId] = FundingStatus.Void;
+            env.active = false;
+            emit EnvelopeVoided(envelopeId, env.sender);
+        }
+    }
+
+    /// @notice The public ebool "every share moved" for an envelope created
+    ///         under the funding gate. Uninitialized for older envelopes.
+    function getFundingCheck(uint256 envelopeId) external view returns (ebool) {
+        return _fundedCheck[envelopeId];
     }
 
     // ─── Expiry & Deactivation ──────────────────────────────────────────
@@ -393,6 +465,7 @@ contract GiftMoney is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     // ─── Admin ──────────────────────────────────────────────────────────
 
     function setEventHub(address _eventHub) external onlyOwner {
+        require(_eventHub.code.length > 0, "GiftMoney: bad event hub");
         eventHub = IEventHub(_eventHub);
     }
 
@@ -401,7 +474,12 @@ contract GiftMoney is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     ///         paymentReceipts.bumpUserReceived so they can later prove their
     ///         encrypted total received income, and bumps the global
     ///         aggregate so the landing-page counter reflects gift volume.
+    ///         Zero turns the bump off; anything else must be a contract.
     function setPaymentReceipts(address _paymentReceipts) external onlyOwner {
+        require(
+            _paymentReceipts == address(0) || _paymentReceipts.code.length > 0,
+            "GiftMoney: bad receipts"
+        );
         address previous = paymentReceipts;
         paymentReceipts = _paymentReceipts;
         emit PaymentReceiptsSet(previous, _paymentReceipts);
@@ -427,9 +505,14 @@ contract GiftMoney is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     /// @dev Reserved storage to avoid collisions on future upgrades.
     ///      Append-only: when adding a new state variable in a later upgrade,
     ///      decrement the gap size so total storage is unchanged.
-    /// @dev tokenRegistry was appended after the original 11 slots.
+    /// @dev tokenRegistry was appended after the original 11 slots, then
+    ///      fundingStatus and _fundedCheck.
     ITokenRegistry public tokenRegistry;
-    uint256[49] private __gap;
+    /// @dev envelopeId => funding gate state. Active (zero) for pre-gate envelopes.
+    mapping(uint256 => FundingStatus) public fundingStatus;
+    /// @dev envelopeId => public "every share moved" bit decrypted by confirmFunding.
+    mapping(uint256 => ebool) private _fundedCheck;
+    uint256[47] private __gap;
 
     event TokenRegistrySet(address indexed registry);
 

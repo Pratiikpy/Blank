@@ -30,16 +30,27 @@ interface IPaymentReceipts {
 ///         the amount is never visible to anyone except the parties.
 ///
 /// @dev Lifecycle:
+///        create → PendingFunding → confirmFunding → Active | Void
 ///        Active → (markDelivered + approveRelease) → Released
 ///        Active → disputeEscrow → Disputed → arbiterDecide → Released | Refunded
 ///        Disputed → claimDisputeTimeout (DISPUTE_TIMEOUT after dispute) → Refunded
 ///        Active → claimExpiredEscrow (after deadline) → Refunded
 ///
+///      The vault moves zero, rather than reverting, when the depositor's
+///      balance is short, because it cannot reveal a secret balance. So a new
+///      escrow starts PendingFunding and only becomes Active once the single
+///      "locked the requested amount" bit has been decrypted and published
+///      (confirmFunding). A short depositor ends Void with nothing locked.
+///      Escrows created before this gate existed carry status Active and are
+///      unaffected.
+///
 ///      Same actor model as BusinessHub.Escrow (depositor, beneficiary,
 ///      optional arbiter) but the amount is FHE-encrypted end-to-end.
 contract EncryptedEscrow is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
-    enum EscrowStatus { Active, Disputed, Released, Refunded }
+    /// @dev PendingFunding and Void were appended; the first four values keep
+    ///      their numbers so records written before the funding gate stay valid.
+    enum EscrowStatus { Active, Disputed, Released, Refunded, PendingFunding, Void }
 
     struct Escrow {
         address depositor;
@@ -93,6 +104,11 @@ contract EncryptedEscrow is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
     event TokenRegistrySet(address indexed registry);
     /// @notice Funds went back to the depositor through a dispute path.
     event EscrowRefunded(uint256 indexed escrowId, address indexed depositor);
+    /// @notice The funded bit decrypted true: the escrow is Active.
+    event EscrowFunded(uint256 indexed escrowId, address indexed depositor, address indexed beneficiary);
+    /// @notice The escrow never became Active (unfunded, or cancelled while
+    ///         pending). Anything locked went back to the depositor.
+    event EscrowVoided(uint256 indexed escrowId, address indexed depositor);
 
     /// @notice An unresolved dispute can be unwound by the depositor after this.
     uint256 public constant DISPUTE_TIMEOUT = 30 days;
@@ -112,7 +128,10 @@ contract EncryptedEscrow is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
     // ─── Create ───────────────────────────────────────────────────────
 
     /// @notice Open a new encrypted escrow. The amount is pulled from the
-    ///         depositor's encrypted vault balance into this contract.
+    ///         depositor's encrypted vault balance into this contract. The
+    ///         escrow starts PendingFunding: decrypt getFundingCheck(id) and
+    ///         pass it to confirmFunding to make it Active (or Void when the
+    ///         depositor's balance was short and nothing moved).
     function createEscrow(
         address beneficiary,
         address vault,
@@ -154,6 +173,7 @@ contract EncryptedEscrow is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
         // into a contract the arbiter is not yet involved in. Half-baked A12.
 
         escrowId = nextEscrowId++;
+        _openFundingGate(escrowId, verified, locked);
         _escrows[escrowId] = Escrow({
             depositor: msg.sender,
             beneficiary: beneficiary,
@@ -163,7 +183,7 @@ contract EncryptedEscrow is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
             deadline: deadline,
             depositorApproved: false,
             beneficiaryMarkedDelivered: false,
-            status: EscrowStatus.Active,
+            status: EscrowStatus.PendingFunding,
             description: description,
             createdAt: block.timestamp
         });
@@ -172,7 +192,6 @@ contract EncryptedEscrow is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
         if (arbiter != address(0)) _userEscrows[arbiter].push(escrowId);
 
         emit EscrowCreated(escrowId, msg.sender, beneficiary, arbiter, deadline);
-        try eventHub.emitActivity(msg.sender, beneficiary, "escrow_created", description, escrowId) {} catch {}
     }
 
     // ─── Conditional create (Reineira IConditionResolver standard) ─────
@@ -219,6 +238,7 @@ contract EncryptedEscrow is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
         FHE.allow(locked, beneficiary);
 
         escrowId = nextEscrowId++;
+        _openFundingGate(escrowId, verified, locked);
         _escrows[escrowId] = Escrow({
             depositor: msg.sender,
             beneficiary: beneficiary,
@@ -228,7 +248,7 @@ contract EncryptedEscrow is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
             deadline: deadline,
             depositorApproved: false,
             beneficiaryMarkedDelivered: false,
-            status: EscrowStatus.Active,
+            status: EscrowStatus.PendingFunding,
             description: description,
             createdAt: block.timestamp
         });
@@ -242,7 +262,65 @@ contract EncryptedEscrow is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
 
         emit EscrowCreated(escrowId, msg.sender, beneficiary, address(0), deadline);
         emit EscrowResolverSet(escrowId, resolver);
-        try eventHub.emitActivity(msg.sender, beneficiary, "escrow_created", description, escrowId) {} catch {}
+    }
+
+    // ─── Funding gate ─────────────────────────────────────────────────
+
+    /// @notice Settle a PendingFunding escrow. Anyone may call with the
+    ///         Threshold Network decryption of getFundingCheck(escrowId).
+    ///         true: Active, and the beneficiary is notified. false: nothing
+    ///         was locked, the escrow is Void and can never release or refund.
+    ///         The published value, not the argument, decides the outcome.
+    function confirmFunding(uint256 escrowId, bool funded, bytes calldata signature) external nonReentrant {
+        Escrow storage e = _escrows[escrowId];
+        require(e.status == EscrowStatus.PendingFunding, "EncryptedEscrow: not pending funding");
+        ebool check = _fundedCheck[escrowId];
+        (, bool published) = FHE.getDecryptResultSafe(check);
+        if (!published) FHE.publishDecryptResult(check, funded, signature);
+        (bool ok, bool ready) = FHE.getDecryptResultSafe(check);
+        require(ready, "EncryptedEscrow: decryption not ready");
+
+        if (ok) {
+            e.status = EscrowStatus.Active;
+            emit EscrowFunded(escrowId, e.depositor, e.beneficiary);
+            try eventHub.emitActivity(e.depositor, e.beneficiary, "escrow_created", e.description, escrowId) {} catch {}
+        } else {
+            _voidEscrow(escrowId, e);
+        }
+    }
+
+    /// @notice The depositor abandons an escrow that is still PendingFunding,
+    ///         for example when the funding decryption is slow. Whatever was
+    ///         locked (nothing, when the balance was short) goes back.
+    function cancelPendingEscrow(uint256 escrowId) external nonReentrant {
+        Escrow storage e = _escrows[escrowId];
+        require(e.status == EscrowStatus.PendingFunding, "EncryptedEscrow: not pending funding");
+        require(msg.sender == e.depositor, "EncryptedEscrow: not depositor");
+        _voidEscrow(escrowId, e);
+    }
+
+    /// @notice The public ebool "locked == requested and > 0" for an escrow
+    ///         created under the funding gate. Uninitialized for older escrows.
+    function getFundingCheck(uint256 escrowId) external view returns (ebool) {
+        return _fundedCheck[escrowId];
+    }
+
+    /// @dev The vault moves all or nothing, so `locked` is the requested amount
+    ///      or zero. The equality term keeps "funded" exact if that ever changes.
+    function _openFundingGate(uint256 escrowId, euint64 requested, euint64 locked) private {
+        ebool funded = FHE.and(FHE.gt(locked, FHE.asEuint64(0)), FHE.eq(locked, requested));
+        FHE.allowThis(funded);
+        FHE.allowPublic(funded);
+        _fundedCheck[escrowId] = funded;
+    }
+
+    /// @dev Returns whatever the escrow holds to the depositor. That is zero
+    ///      for an unfunded escrow, so the transfer is a no-op in practice and
+    ///      only matters if the vault ever moved a partial amount.
+    function _voidEscrow(uint256 escrowId, Escrow storage e) private {
+        e.status = EscrowStatus.Void;
+        IFHERC20Vault(e.vault).transferVerified(e.depositor, FHE.shareEuint64(e.encAmount, e.vault));
+        emit EscrowVoided(escrowId, e.depositor);
     }
 
     // ─── Markers ──────────────────────────────────────────────────────
@@ -480,8 +558,12 @@ contract EncryptedEscrow is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
     /// @dev escrowId => timestamp the dispute opened.
     mapping(uint256 => uint256) private _disputedAt;
 
-    /// @dev Append-only storage. Used: 9. Gap: 47. Decrement gap by 1 when
+    /// @dev escrowId => public "funded" bit decrypted by confirmFunding. Unset
+    ///      for escrows created before the funding gate (they are Active).
+    mapping(uint256 => ebool) private _fundedCheck;
+
+    /// @dev Append-only storage. Used: 10. Gap: 46. Decrement gap by 1 when
     /// adding a new state variable; total slots (used + gap) must stay
     /// constant across UUPS upgrades.
-    uint256[47] private __gap;
+    uint256[46] private __gap;
 }

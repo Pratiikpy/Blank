@@ -8,7 +8,6 @@ import "./utils/ReentrancyGuard.sol";
 import "./interfaces/ITokenRegistry.sol";
 
 interface IFHERC20Vault {
-    function transferFrom(address from, address to, externalEuint64 encAmount, bytes calldata proof) external returns (euint64);
     function transferFromVerified(address from, address to, sharedEuint64 shared) external returns (sharedEuint64);
 }
 
@@ -24,6 +23,20 @@ interface IEventHub {
 ///      if inactive too long → heir calls startClaim() →
 ///      7-day challenge window → heir calls finalizeClaim() →
 ///      heir receives funds from specified vaults
+///
+///      Known limit (C6): the vault moves an exact requested amount or 0, and
+///      has no "move everything" call, so the heir must name the amount. The
+///      heir has no ACL on the principal's balance, so the amount has to come
+///      from coordination (the principal can call allowBalanceReader on the
+///      vault, or share the figure). Each claim call therefore answers one
+///      question for the heir: "is the balance at least X?", through the
+///      moved handle. After finalizeClaim the heir is entitled to the whole
+///      balance, so that answer discloses nothing the heir could not take,
+///      but unbounded retries would let it drain funds the principal receives
+///      after coming back. claimRemaining is rate limited to one call per
+///      CLAIM_RETRY_COOLDOWN, which also bounds that probing. A full fix needs
+///      a vault call that moves the whole balance to a spender; it cannot be
+///      built from this contract alone.
 contract InheritanceManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
     struct InheritancePlan {
@@ -37,6 +50,11 @@ contract InheritanceManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
 
     uint256 public constant CHALLENGE_PERIOD = 7 days;
     uint256 public constant MIN_INACTIVITY = 30 days;
+    /// @dev Least time between finalizeClaim / claimRemaining executions for
+    ///      one principal. Gives a returning principal time to call
+    ///      removeHeir or setHeir, and caps balance probing to one question
+    ///      per day.
+    uint256 public constant CLAIM_RETRY_COOLDOWN = 1 days;
 
     IEventHub public eventHub;
 
@@ -238,6 +256,7 @@ contract InheritanceManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
         // nonReentrant modifier — strict first-attempt-wins semantics.
         plan.active = false;
         claimFinalized[owner_] = true;
+        lastClaimAt[owner_] = block.timestamp;
 
         _transferAll(owner_, plan, encAmounts, proof);
 
@@ -248,7 +267,9 @@ contract InheritanceManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
     /// @notice After finalizeClaim, the heir may pull again (for example
     ///         when a requested amount exceeded the balance and moved 0, or
     ///         when the principal's vaults received funds later). Ends when
-    ///         the principal calls setHeir or removeHeir.
+    ///         the principal calls setHeir or removeHeir. At most one call
+    ///         per CLAIM_RETRY_COOLDOWN, counted from the previous
+    ///         finalizeClaim or claimRemaining.
     function claimRemaining(
         address owner_,
         externalEuint64[] calldata encAmounts,
@@ -258,9 +279,14 @@ contract InheritanceManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
         InheritancePlan storage plan = plans[owner_];
         require(msg.sender == plan.heir, "InheritanceManager: not heir");
         require(
+            block.timestamp >= lastClaimAt[owner_] + CLAIM_RETRY_COOLDOWN,
+            "InheritanceManager: retry cooldown"
+        );
+        require(
             encAmounts.length == plan.vaults.length,
             "InheritanceManager: amounts/vaults length mismatch"
         );
+        lastClaimAt[owner_] = block.timestamp;
         _transferAll(owner_, plan, encAmounts, proof);
         emit ClaimRetried(owner_, plan.heir, block.timestamp);
     }
@@ -338,9 +364,13 @@ contract InheritanceManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGu
     ///      Append-only: when adding a new state variable in a later upgrade,
     ///      decrement the gap size so total storage is unchanged.
     ITokenRegistry public tokenRegistry;
+    /// @dev principal => time of the last finalizeClaim / claimRemaining. 0
+    ///      for plans finalized before this existed, so their first retry is
+    ///      not delayed. Appended.
+    mapping(address => uint256) public lastClaimAt;
 
-    /// @dev Used: 5. Gap: 49.
-    uint256[49] private __gap;
+    /// @dev Used: 6. Gap: 48.
+    uint256[48] private __gap;
 
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 }

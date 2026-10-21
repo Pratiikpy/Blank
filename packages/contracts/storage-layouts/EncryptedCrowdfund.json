@@ -1,7 +1,7 @@
 {
   "storage": [
     {
-      "astId": 84642,
+      "astId": 83367,
       "contract": "contracts/EncryptedCrowdfund.sol:EncryptedCrowdfund",
       "label": "_status",
       "offset": 0,
@@ -9,15 +9,15 @@
       "type": "t_uint256"
     },
     {
-      "astId": 55816,
+      "astId": 52635,
       "contract": "contracts/EncryptedCrowdfund.sol:EncryptedCrowdfund",
       "label": "eventHub",
       "offset": 0,
       "slot": "1",
-      "type": "t_contract(IEventHub)55749"
+      "type": "t_contract(IEventHub)52563"
     },
     {
-      "astId": 55818,
+      "astId": 52637,
       "contract": "contracts/EncryptedCrowdfund.sol:EncryptedCrowdfund",
       "label": "paymentReceipts",
       "offset": 0,
@@ -25,7 +25,7 @@
       "type": "t_address"
     },
     {
-      "astId": 55820,
+      "astId": 52639,
       "contract": "contracts/EncryptedCrowdfund.sol:EncryptedCrowdfund",
       "label": "nextCampaignId",
       "offset": 0,
@@ -33,23 +33,23 @@
       "type": "t_uint256"
     },
     {
-      "astId": 55825,
+      "astId": 52644,
       "contract": "contracts/EncryptedCrowdfund.sol:EncryptedCrowdfund",
       "label": "_campaigns",
       "offset": 0,
       "slot": "4",
-      "type": "t_mapping(t_uint256,t_struct(Campaign)55805_storage)"
+      "type": "t_mapping(t_uint256,t_struct(Campaign)52624_storage)"
     },
     {
-      "astId": 55831,
+      "astId": 52650,
       "contract": "contracts/EncryptedCrowdfund.sol:EncryptedCrowdfund",
       "label": "_contributions",
       "offset": 0,
       "slot": "5",
-      "type": "t_mapping(t_uint256,t_array(t_struct(Contribution)55813_storage)dyn_storage)"
+      "type": "t_mapping(t_uint256,t_array(t_struct(Contribution)52632_storage)dyn_storage)"
     },
     {
-      "astId": 55836,
+      "astId": 52655,
       "contract": "contracts/EncryptedCrowdfund.sol:EncryptedCrowdfund",
       "label": "_creatorCampaigns",
       "offset": 0,
@@ -57,15 +57,15 @@
       "type": "t_mapping(t_address,t_array(t_uint256)dyn_storage)"
     },
     {
-      "astId": 57122,
+      "astId": 54437,
       "contract": "contracts/EncryptedCrowdfund.sol:EncryptedCrowdfund",
       "label": "tokenRegistry",
       "offset": 0,
       "slot": "7",
-      "type": "t_contract(ITokenRegistry)81990"
+      "type": "t_contract(ITokenRegistry)80281"
     },
     {
-      "astId": 57127,
+      "astId": 54442,
       "contract": "contracts/EncryptedCrowdfund.sol:EncryptedCrowdfund",
       "label": "releasePaid",
       "offset": 0,
@@ -73,7 +73,7 @@
       "type": "t_mapping(t_uint256,t_bool)"
     },
     {
-      "astId": 57130,
+      "astId": 54445,
       "contract": "contracts/EncryptedCrowdfund.sol:EncryptedCrowdfund",
       "label": "legacyMigrationDone",
       "offset": 0,
@@ -81,12 +81,52 @@
       "type": "t_bool"
     },
     {
-      "astId": 57135,
+      "astId": 54453,
+      "contract": "contracts/EncryptedCrowdfund.sol:EncryptedCrowdfund",
+      "label": "contributionState",
+      "offset": 0,
+      "slot": "10",
+      "type": "t_mapping(t_uint256,t_mapping(t_uint256,t_enum(ContributionState)52595))"
+    },
+    {
+      "astId": 54461,
+      "contract": "contracts/EncryptedCrowdfund.sol:EncryptedCrowdfund",
+      "label": "_fundedCheck",
+      "offset": 0,
+      "slot": "11",
+      "type": "t_mapping(t_uint256,t_mapping(t_uint256,t_userDefinedValueType(ebool)13128))"
+    },
+    {
+      "astId": 54466,
+      "contract": "contracts/EncryptedCrowdfund.sol:EncryptedCrowdfund",
+      "label": "uncountedContributions",
+      "offset": 0,
+      "slot": "12",
+      "type": "t_mapping(t_uint256,t_uint256)"
+    },
+    {
+      "astId": 54474,
+      "contract": "contracts/EncryptedCrowdfund.sol:EncryptedCrowdfund",
+      "label": "_refundCheck",
+      "offset": 0,
+      "slot": "13",
+      "type": "t_mapping(t_uint256,t_mapping(t_uint256,t_userDefinedValueType(ebool)13128))"
+    },
+    {
+      "astId": 54481,
+      "contract": "contracts/EncryptedCrowdfund.sol:EncryptedCrowdfund",
+      "label": "refundInFlight",
+      "offset": 0,
+      "slot": "14",
+      "type": "t_mapping(t_uint256,t_mapping(t_uint256,t_bool))"
+    },
+    {
+      "astId": 54486,
       "contract": "contracts/EncryptedCrowdfund.sol:EncryptedCrowdfund",
       "label": "__gap",
       "offset": 0,
-      "slot": "10",
-      "type": "t_array(t_uint256)47_storage"
+      "slot": "15",
+      "type": "t_array(t_uint256)42_storage"
     }
   ],
   "types": {
@@ -95,17 +135,17 @@
       "label": "address",
       "numberOfBytes": "20"
     },
-    "t_array(t_struct(Contribution)55813_storage)dyn_storage": {
-      "base": "t_struct(Contribution)55813_storage",
+    "t_array(t_struct(Contribution)52632_storage)dyn_storage": {
+      "base": "t_struct(Contribution)52632_storage",
       "encoding": "dynamic_array",
       "label": "struct EncryptedCrowdfund.Contribution[]",
       "numberOfBytes": "32"
     },
-    "t_array(t_uint256)47_storage": {
+    "t_array(t_uint256)42_storage": {
       "base": "t_uint256",
       "encoding": "inplace",
-      "label": "uint256[47]",
-      "numberOfBytes": "1504"
+      "label": "uint256[42]",
+      "numberOfBytes": "1344"
     },
     "t_array(t_uint256)dyn_storage": {
       "base": "t_uint256",
@@ -123,19 +163,24 @@
       "label": "bytes32",
       "numberOfBytes": "32"
     },
-    "t_contract(IEventHub)55749": {
+    "t_contract(IEventHub)52563": {
       "encoding": "inplace",
       "label": "contract IEventHub",
       "numberOfBytes": "20"
     },
-    "t_contract(ITokenRegistry)81990": {
+    "t_contract(ITokenRegistry)80281": {
       "encoding": "inplace",
       "label": "contract ITokenRegistry",
       "numberOfBytes": "20"
     },
-    "t_enum(CampaignStatus)55776": {
+    "t_enum(CampaignStatus)52590": {
       "encoding": "inplace",
       "label": "enum EncryptedCrowdfund.CampaignStatus",
+      "numberOfBytes": "1"
+    },
+    "t_enum(ContributionState)52595": {
+      "encoding": "inplace",
+      "label": "enum EncryptedCrowdfund.ContributionState",
       "numberOfBytes": "1"
     },
     "t_mapping(t_address,t_array(t_uint256)dyn_storage)": {
@@ -145,12 +190,12 @@
       "numberOfBytes": "32",
       "value": "t_array(t_uint256)dyn_storage"
     },
-    "t_mapping(t_uint256,t_array(t_struct(Contribution)55813_storage)dyn_storage)": {
+    "t_mapping(t_uint256,t_array(t_struct(Contribution)52632_storage)dyn_storage)": {
       "encoding": "mapping",
       "key": "t_uint256",
       "label": "mapping(uint256 => struct EncryptedCrowdfund.Contribution[])",
       "numberOfBytes": "32",
-      "value": "t_array(t_struct(Contribution)55813_storage)dyn_storage"
+      "value": "t_array(t_struct(Contribution)52632_storage)dyn_storage"
     },
     "t_mapping(t_uint256,t_bool)": {
       "encoding": "mapping",
@@ -159,24 +204,66 @@
       "numberOfBytes": "32",
       "value": "t_bool"
     },
-    "t_mapping(t_uint256,t_struct(Campaign)55805_storage)": {
+    "t_mapping(t_uint256,t_enum(ContributionState)52595)": {
+      "encoding": "mapping",
+      "key": "t_uint256",
+      "label": "mapping(uint256 => enum EncryptedCrowdfund.ContributionState)",
+      "numberOfBytes": "32",
+      "value": "t_enum(ContributionState)52595"
+    },
+    "t_mapping(t_uint256,t_mapping(t_uint256,t_bool))": {
+      "encoding": "mapping",
+      "key": "t_uint256",
+      "label": "mapping(uint256 => mapping(uint256 => bool))",
+      "numberOfBytes": "32",
+      "value": "t_mapping(t_uint256,t_bool)"
+    },
+    "t_mapping(t_uint256,t_mapping(t_uint256,t_enum(ContributionState)52595))": {
+      "encoding": "mapping",
+      "key": "t_uint256",
+      "label": "mapping(uint256 => mapping(uint256 => enum EncryptedCrowdfund.ContributionState))",
+      "numberOfBytes": "32",
+      "value": "t_mapping(t_uint256,t_enum(ContributionState)52595)"
+    },
+    "t_mapping(t_uint256,t_mapping(t_uint256,t_userDefinedValueType(ebool)13128))": {
+      "encoding": "mapping",
+      "key": "t_uint256",
+      "label": "mapping(uint256 => mapping(uint256 => ebool))",
+      "numberOfBytes": "32",
+      "value": "t_mapping(t_uint256,t_userDefinedValueType(ebool)13128)"
+    },
+    "t_mapping(t_uint256,t_struct(Campaign)52624_storage)": {
       "encoding": "mapping",
       "key": "t_uint256",
       "label": "mapping(uint256 => struct EncryptedCrowdfund.Campaign)",
       "numberOfBytes": "32",
-      "value": "t_struct(Campaign)55805_storage"
+      "value": "t_struct(Campaign)52624_storage"
+    },
+    "t_mapping(t_uint256,t_uint256)": {
+      "encoding": "mapping",
+      "key": "t_uint256",
+      "label": "mapping(uint256 => uint256)",
+      "numberOfBytes": "32",
+      "value": "t_uint256"
+    },
+    "t_mapping(t_uint256,t_userDefinedValueType(ebool)13128)": {
+      "encoding": "mapping",
+      "key": "t_uint256",
+      "label": "mapping(uint256 => ebool)",
+      "numberOfBytes": "32",
+      "value": "t_userDefinedValueType(ebool)13128"
     },
     "t_string_storage": {
       "encoding": "bytes",
       "label": "string",
       "numberOfBytes": "32"
     },
-    "t_struct(Campaign)55805_storage": {
+    "t_struct(Campaign)52624_storage": {
       "encoding": "inplace",
       "label": "struct EncryptedCrowdfund.Campaign",
       "members": [
         {
-          "astId": 55778,
+          "astId": 52597,
           "contract": "contracts/EncryptedCrowdfund.sol:EncryptedCrowdfund",
           "label": "creator",
           "offset": 0,
@@ -184,7 +271,7 @@
           "type": "t_address"
         },
         {
-          "astId": 55780,
+          "astId": 52599,
           "contract": "contracts/EncryptedCrowdfund.sol:EncryptedCrowdfund",
           "label": "vault",
           "offset": 0,
@@ -192,7 +279,7 @@
           "type": "t_address"
         },
         {
-          "astId": 55783,
+          "astId": 52602,
           "contract": "contracts/EncryptedCrowdfund.sol:EncryptedCrowdfund",
           "label": "encGoal",
           "offset": 0,
@@ -200,7 +287,7 @@
           "type": "t_userDefinedValueType(euint64)13136"
         },
         {
-          "astId": 55786,
+          "astId": 52605,
           "contract": "contracts/EncryptedCrowdfund.sol:EncryptedCrowdfund",
           "label": "encRaised",
           "offset": 0,
@@ -208,7 +295,7 @@
           "type": "t_userDefinedValueType(euint64)13136"
         },
         {
-          "astId": 55788,
+          "astId": 52607,
           "contract": "contracts/EncryptedCrowdfund.sol:EncryptedCrowdfund",
           "label": "deadline",
           "offset": 0,
@@ -216,15 +303,15 @@
           "type": "t_uint256"
         },
         {
-          "astId": 55791,
+          "astId": 52610,
           "contract": "contracts/EncryptedCrowdfund.sol:EncryptedCrowdfund",
           "label": "status",
           "offset": 0,
           "slot": "5",
-          "type": "t_enum(CampaignStatus)55776"
+          "type": "t_enum(CampaignStatus)52590"
         },
         {
-          "astId": 55793,
+          "astId": 52612,
           "contract": "contracts/EncryptedCrowdfund.sol:EncryptedCrowdfund",
           "label": "goalMet",
           "offset": 1,
@@ -232,7 +319,7 @@
           "type": "t_bool"
         },
         {
-          "astId": 55796,
+          "astId": 52615,
           "contract": "contracts/EncryptedCrowdfund.sol:EncryptedCrowdfund",
           "label": "goalCheck",
           "offset": 0,
@@ -240,7 +327,7 @@
           "type": "t_userDefinedValueType(ebool)13128"
         },
         {
-          "astId": 55798,
+          "astId": 52617,
           "contract": "contracts/EncryptedCrowdfund.sol:EncryptedCrowdfund",
           "label": "resultPublished",
           "offset": 0,
@@ -248,7 +335,7 @@
           "type": "t_bool"
         },
         {
-          "astId": 55800,
+          "astId": 52619,
           "contract": "contracts/EncryptedCrowdfund.sol:EncryptedCrowdfund",
           "label": "title",
           "offset": 0,
@@ -256,7 +343,7 @@
           "type": "t_string_storage"
         },
         {
-          "astId": 55802,
+          "astId": 52621,
           "contract": "contracts/EncryptedCrowdfund.sol:EncryptedCrowdfund",
           "label": "descriptionCidHash",
           "offset": 0,
@@ -264,7 +351,7 @@
           "type": "t_bytes32"
         },
         {
-          "astId": 55804,
+          "astId": 52623,
           "contract": "contracts/EncryptedCrowdfund.sol:EncryptedCrowdfund",
           "label": "createdAt",
           "offset": 0,
@@ -274,12 +361,12 @@
       ],
       "numberOfBytes": "352"
     },
-    "t_struct(Contribution)55813_storage": {
+    "t_struct(Contribution)52632_storage": {
       "encoding": "inplace",
       "label": "struct EncryptedCrowdfund.Contribution",
       "members": [
         {
-          "astId": 55807,
+          "astId": 52626,
           "contract": "contracts/EncryptedCrowdfund.sol:EncryptedCrowdfund",
           "label": "contributor",
           "offset": 0,
@@ -287,7 +374,7 @@
           "type": "t_address"
         },
         {
-          "astId": 55810,
+          "astId": 52629,
           "contract": "contracts/EncryptedCrowdfund.sol:EncryptedCrowdfund",
           "label": "amount",
           "offset": 0,
@@ -295,7 +382,7 @@
           "type": "t_userDefinedValueType(euint64)13136"
         },
         {
-          "astId": 55812,
+          "astId": 52631,
           "contract": "contracts/EncryptedCrowdfund.sol:EncryptedCrowdfund",
           "label": "refunded",
           "offset": 0,

@@ -5,11 +5,12 @@ import "@fhenixprotocol/cofhe-contracts/FHE.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
-/// @dev Minimal interface for reading encrypted vault balances. Lets
-///      proveBalanceAbove read FHERC20Vault.balanceOf without importing
-///      the full vault contract.
+/// @dev Minimal interface for reading encrypted vault balances. The vault
+///      hands the user's current balance to this contract as a share, so
+///      proveBalanceAbove never depends on a persistent grant over a handle
+///      that the next balance write replaces.
 interface IFHERC20VaultBalance {
-    function balanceOf(address account) external view returns (euint64);
+    function shareBalanceWithReader(address user) external returns (sharedEuint64);
 }
 
 /// @title PaymentReceipts — Cryptographic encrypted receipts for every payment
@@ -137,6 +138,7 @@ contract PaymentReceipts is UUPSUpgradeable, OwnableUpgradeable {
     /// @param authorized Whether the vault is authorized
     function setAuthorizedVault(address vault, bool authorized) external onlyOwner {
         require(vault != address(0), "PaymentReceipts: vault zero");
+        require(!authorized || vault.code.length > 0, "PaymentReceipts: bad vault");
         authorizedVaults[vault] = authorized;
         emit AuthorizedVaultSet(vault, authorized);
     }
@@ -206,8 +208,8 @@ contract PaymentReceipts is UUPSUpgradeable, OwnableUpgradeable {
         FHE.allowThis(_totalReceived[payee]);
         FHE.allow(_totalReceived[payee], payee);
 
-        // Increment encrypted transaction count using add(count, 1)
-        euint64 one = FHE.asEuint64(1);
+        // A zero amount moved nothing, so it must not count as a transaction.
+        euint64 one = _countIfMoved(amount);
         _transactionCount[payer] = FHE.add(_transactionCount[payer], one);
         _transactionCount[payee] = FHE.add(_transactionCount[payee], one);
         FHE.allowThis(_transactionCount[payer]);
@@ -219,7 +221,7 @@ contract PaymentReceipts is UUPSUpgradeable, OwnableUpgradeable {
         _ensureGlobalStatsInit();
         _globalVolume = FHE.add(_globalVolume, amount);
         FHE.allowThis(_globalVolume);
-        _globalTxCount = FHE.add(_globalTxCount, FHE.asEuint64(1));
+        _globalTxCount = FHE.add(_globalTxCount, one);
         FHE.allowThis(_globalTxCount);
 
         // Track receipts per user
@@ -374,8 +376,10 @@ contract PaymentReceipts is UUPSUpgradeable, OwnableUpgradeable {
 
     /// @notice Prove your encrypted balance in `vault` is >= threshold,
     ///         WITHOUT revealing the actual balance. Same publication +
-    ///         verification flow as proveIncomeAbove. Requires the vault
-    ///         to expose balanceOf(address) returning euint64.
+    ///         verification flow as proveIncomeAbove. The caller must first
+    ///         call vault.allowBalanceReader(this contract) once, and the
+    ///         vault owner must have trusted this contract
+    ///         (vault.setTrustedBalanceReader).
     /// @param vault FHERC20Vault address whose balance to compare against
     /// @param thresholdPlaintext Public threshold (e.g. 50000 USDC = 50_000_000_000 with 6 decimals)
     function proveBalanceAbove(address vault, uint64 thresholdPlaintext) external returns (uint256 proofId) {
@@ -385,11 +389,15 @@ contract PaymentReceipts is UUPSUpgradeable, OwnableUpgradeable {
         // fake vault that returns uint64.max, pass any threshold).
         require(authorizedVaults[vault], "PaymentReceipts: vault not authorized");
 
-        // Read the caller's encrypted balance from the vault. The vault must
-        // have allowed THIS contract to read the handle — that's automatic
-        // for FHERC20Vault since balanceOf returns the raw euint64 handle.
-        euint64 balance = IFHERC20VaultBalance(vault).balanceOf(msg.sender);
-        FHE.allowThis(balance);
+        // The vault shares the caller's CURRENT balance handle with this
+        // contract for this transaction only. It requires the vault owner to
+        // trust this contract and the caller to have consented through
+        // vault.allowBalanceReader(this). msg.sender is the only account
+        // ever passed, so a caller can only prove their own balance.
+        euint64 balance = FHE.receiveEuint64FromCall(
+            IFHERC20VaultBalance(vault).shareBalanceWithReader(msg.sender),
+            vault
+        );
 
         euint64 threshold = FHE.asEuint64(thresholdPlaintext);
         ebool result = FHE.gte(balance, threshold);
@@ -514,8 +522,16 @@ contract PaymentReceipts is UUPSUpgradeable, OwnableUpgradeable {
         _ensureGlobalStatsInit();
         _globalVolume = FHE.add(_globalVolume, amount);
         FHE.allowThis(_globalVolume);
-        _globalTxCount = FHE.add(_globalTxCount, FHE.asEuint64(1));
+        _globalTxCount = FHE.add(_globalTxCount, _countIfMoved(amount));
         FHE.allowThis(_globalTxCount);
+    }
+
+    /// @dev Encrypted 1 when `amount` is non-zero, else encrypted 0. The vault
+    ///      moves zero (no revert) on a short balance, so a bare +1 would count
+    ///      payments that never happened and inflate the counts that
+    ///      publishGlobalSnapshot and the per-user stats are built on.
+    function _countIfMoved(euint64 amount) internal returns (euint64) {
+        return FHE.select(FHE.gt(amount, FHE.asEuint64(0)), FHE.asEuint64(1), FHE.asEuint64(0));
     }
 
     /// @notice #199: Decrement the encrypted global volume aggregate. Called

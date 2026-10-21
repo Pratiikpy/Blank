@@ -8,7 +8,6 @@ import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "./interfaces/ITokenRegistry.sol";
 
 interface IFHERC20Vault {
-    function transferFrom(address from, address to, externalEuint64 encAmount, bytes calldata proof) external returns (euint64);
     function transferFromVerified(address from, address to, sharedEuint64 shared) external returns (sharedEuint64);
     function transferVerified(address to, sharedEuint64 shared) external returns (sharedEuint64);
 }
@@ -39,10 +38,18 @@ interface IEventHub {
 /// @dev    Every payout (release, arbiter, expiry, stale dispute) pays the
 ///         handle the vault actually moved into escrow at takeOffer, never
 ///         the maker's requested amount. The vault moves 0 when the maker is
-///         short, so the taker gets decrypt access to the escrowed handle and
-///         must check it before sending fiat. v1 is full-fill only, so
-///         encMinFill is stored but not enforced. The fiat price is plaintext
-///         so takers can find offers.
+///         short, so a fill starts Pending with a public ebool "escrowed > 0
+///         and >= the taker's minimum". confirmFunding publishes its
+///         decryption: true moves the fill to Locked (the only state in which
+///         submitProof works, so no fiat leg is unlocked on an empty escrow),
+///         false voids the fill, refunds whatever did move and reopens the
+///         offer. v1 is full-fill only, so encMinFill is stored but not
+///         enforced. The fiat price is plaintext so takers can find offers.
+///
+///         createOffer cannot prove the maker's funds: the balance is
+///         encrypted and the vault only reveals it by moving it. An offer is
+///         therefore an unfunded promise until a fill is confirmed; a maker
+///         who cannot pay costs a taker one voided fill, never fiat.
 ///
 ///         CHALLENGE_WINDOW_SECONDS is constructor immutable so
 ///         testnet can ship with 5min and mainnet (Wave 6, if any)
@@ -50,7 +57,9 @@ interface IEventHub {
 contract P2POfframp is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
     enum OfferState   { Open, Cancelled, Filled }
-    enum FillState    { Locked, ProofSubmitted, Released, Disputed, Resolved, Refunded }
+    /// Pending and Voided are appended: fills created before the funding gate
+    /// are Locked and keep working unchanged.
+    enum FillState    { Locked, ProofSubmitted, Released, Disputed, Resolved, Refunded, Pending, Voided }
 
     struct Offer {
         address maker;
@@ -128,6 +137,12 @@ contract P2POfframp is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     event TokenRegistrySet(address indexed registry);
     event FillEscrowed(uint64 indexed fillId, euint64 escrowed);
     event StaleDisputeReleased(uint64 indexed fillId);
+    /// A fill is waiting for confirmFunding. Decrypt `funded` (public)
+    /// off-chain and pass the result and signature to confirmFunding.
+    event FillPending(uint64 indexed fillId, uint64 indexed offerId, address indexed taker, ebool funded);
+    /// The escrow did not cover the fill. Anything that moved was refunded
+    /// to the maker and the offer is open again.
+    event FillVoided(uint64 indexed fillId, uint64 indexed offerId);
 
     /// Arbiter has this long after a dispute before anyone can apply the
     /// default outcome (release to the taker, whose payment proof already
@@ -204,8 +219,9 @@ contract P2POfframp is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     // ─── Maker side ────────────────────────────────────────────────
 
     /// Create an offer. Maker's vault USDC stays in maker's account
-    /// until takeOffer; we just record intent here. Maker MUST have
-    /// pre-approved the vault to this contract's address.
+    /// until takeOffer; we just record intent here, and the funds are only
+    /// proven when a fill is confirmed. Maker MUST have pre-approved the
+    /// vault to this contract's address.
     /// @param proof One batch signature covering `encAmount` then `encMinFill`,
     ///        in that exact order.
     function createOffer(
@@ -271,14 +287,28 @@ contract P2POfframp is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
     // ─── Taker side ────────────────────────────────────────────────
 
-    /// Lock the offer. v1 is full-fill only: the taker accepts the
+    /// Take the offer. v1 is full-fill only: the taker accepts the
     /// entire offer amount. Pulls the maker's encrypted USDC into
     /// this contract so it's escrowed until release or refund.
-    /// The vault moves 0 if the maker is short, so the taker must decrypt
-    /// getEscrowedAmount(fillId) before sending fiat.
+    /// The fill is Pending: the vault moves 0 if the maker is short, so the
+    /// taker must not send fiat until confirmFunding moves it to Locked.
     function takeOffer(
         uint64 offerId
     ) external nonReentrant returns (uint64 fillId) {
+        return _take(offerId, 0);
+    }
+
+    /// Same as takeOffer, with the least USDC (smallest units) the taker
+    /// will accept for the fiat price. An escrow below it voids the fill, so
+    /// a maker cannot lock a taker into a worse rate than the one shown.
+    function takeOfferExpecting(
+        uint64 offerId,
+        uint64 minUsdc
+    ) external nonReentrant returns (uint64 fillId) {
+        return _take(offerId, minUsdc);
+    }
+
+    function _take(uint64 offerId, uint64 minUsdc) internal returns (uint64 fillId) {
         Offer storage o = offers[offerId];
         require(o.state == OfferState.Open, "P2POfframp: offer not open");
         require(block.timestamp < o.expiry, "P2POfframp: offer expired");
@@ -300,8 +330,18 @@ contract P2POfframp is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         FHE.allowThis(encFill);
         FHE.allow(encFill, msg.sender);
 
+        // The fiat leg stays locked until this bit is proven true: escrow
+        // is non-zero and at least what the taker asked for.
+        ebool funded = FHE.and(
+            FHE.gt(moved, FHE.asEuint64(0)),
+            FHE.gte(moved, FHE.asEuint64(minUsdc))
+        );
+        FHE.allowThis(funded);
+        FHE.allowPublic(funded);
+
         fillId = nextFillId++;
         fillEscrowed[fillId] = moved;
+        fillFunded[fillId] = funded;
         fills[fillId] = Fill({
             offerId: offerId,
             taker: msg.sender,
@@ -310,15 +350,50 @@ contract P2POfframp is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
             lockedAt: uint32(block.timestamp),
             proofSubmittedAt: 0,
             reclaimProofHash: bytes32(0),
-            state: FillState.Locked
+            state: FillState.Pending
         });
         fillToOffer[fillId] = offerId;
 
         o.state = OfferState.Filled;
 
-        emit FillLocked(fillId, offerId, msg.sender, o.fiatAmountMicroUSD);
+        emit FillPending(fillId, offerId, msg.sender, funded);
         emit FillEscrowed(fillId, moved);
-        try eventHub.emitActivity(msg.sender, o.maker, "offramp_fill_locked", "", fillId) {} catch {}
+    }
+
+    /// Settle a pending fill (step 2 of 2). Anyone may call with the
+    /// Threshold Network decryption of fillFunded(fillId).
+    /// true: the fill is Locked and the proof window starts now.
+    /// false: the fill is Voided, whatever moved goes back to the maker and
+    /// the offer reopens.
+    function confirmFunding(uint64 fillId, bool fundedPlaintext, bytes calldata signature) external nonReentrant {
+        Fill storage f = fills[fillId];
+        require(f.state == FillState.Pending, "P2POfframp: fill not pending");
+
+        ebool check = fillFunded[fillId];
+        // Publish only if nobody has yet, so a second publish cannot revert.
+        (bool funded, bool ready) = FHE.getDecryptResultSafe(check);
+        if (!ready) {
+            FHE.publishDecryptResult(check, fundedPlaintext, signature);
+            (funded, ready) = FHE.getDecryptResultSafe(check);
+        }
+        require(ready, "P2POfframp: decryption not ready");
+
+        Offer storage o = offers[f.offerId];
+        if (funded) {
+            f.state = FillState.Locked;
+            f.lockedAt = uint32(block.timestamp);
+            emit FillLocked(fillId, f.offerId, f.taker, f.fiatAmountAtLockMicroUSD);
+            try eventHub.emitActivity(f.taker, o.maker, "offramp_fill_locked", "", fillId) {} catch {}
+        } else {
+            f.state = FillState.Voided;
+            o.state = OfferState.Open;
+            _releaseLock(f.taker);
+            // Zero when the maker was short; the full escrow when it fell
+            // below the taker's minimum.
+            _payOut(o.vault, o.maker, fillId);
+            emit FillVoided(fillId, f.offerId);
+            try eventHub.emitActivity(f.taker, o.maker, "offramp_fill_voided", "", fillId) {} catch {}
+        }
     }
 
     /// Taker submits a Reclaim proof attesting they paid via the rail.
@@ -439,12 +514,14 @@ contract P2POfframp is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     }
 
     /// Maker reclaims the escrowed USDC if the taker never submitted
-    /// a proof within PROOF_WINDOW_SECONDS of locking.
+    /// a proof within PROOF_WINDOW_SECONDS of locking. A fill nobody
+    /// confirmed within the same window is reclaimable too, so an unconfirmed
+    /// escrow can never be stranded.
     function expireFill(uint64 fillId) external nonReentrant {
         Fill storage f = fills[fillId];
         Offer storage o = offers[f.offerId];
         require(o.maker == msg.sender, "P2POfframp: not maker");
-        require(f.state == FillState.Locked, "P2POfframp: bad state");
+        require(f.state == FillState.Locked || f.state == FillState.Pending, "P2POfframp: bad state");
         require(block.timestamp >= f.lockedAt + PROOF_WINDOW_SECONDS, "P2POfframp: proof window open");
 
         _releaseLock(f.taker);
@@ -521,7 +598,11 @@ contract P2POfframp is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     mapping(uint64 => uint32) public fillDisputedAt;
     /// taker => fills currently in Locked state.
     mapping(address => uint32) public activeLocks;
+    /// fillId => public ebool "escrow is non-zero and covers the taker's
+    /// minimum", decrypted by confirmFunding. Unset for fills created before
+    /// the funding gate, which are Locked.
+    mapping(uint64 => ebool) public fillFunded;
 
     /// @dev Reserved for future appends.
-    uint256[46] private __gap;
+    uint256[45] private __gap;
 }

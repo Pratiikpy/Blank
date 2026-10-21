@@ -352,6 +352,63 @@ describe("StealthPayments — privacy invariant: wrong claimer gets 0 (NO revert
   });
 });
 
+// R-5 residual leaks, pinned so the NatSpec stays true. See the contract
+// header: neither can be closed on-chain.
+describe("StealthPayments: R-5 residual leaks (documented)", () => {
+  it("a started claim publishes only amount-or-zero, readable by any third party", async () => {
+    const ctx = await loadFixture(deployFixture);
+    const claimCode = hre.ethers.hexlify(hre.ethers.randomBytes(32));
+    await ctx.stealth.connect(ctx.sender).sendStealth(
+      usdc(40), ...(await encAddress(ctx.client, ctx.sender, ctx.alice.address, await ctx.stealth.getAddress())),
+      bindClaim(claimCode, ctx.alice.address), await ctx.vault.getAddress(), "matched",
+    );
+    await ctx.stealth.connect(ctx.alice).claimStealth(0, claimCode);
+    // Eve is not a party, yet can decrypt the conditional amount: it equals the
+    // plaintext deposit, which is already public, so it adds no information.
+    const seen = await decryptPendingAmount(ctx.stealth, ctx.client, ctx.eve, 0);
+    expect(seen.plaintext).to.equal(usdc(40));
+    expect((await ctx.stealth.getTransferInfo(0)).plaintextAmount).to.equal(usdc(40));
+  });
+
+  it("the one extra bit is the sender's own consistency: encrypted recipient equals the hash-bound claimer", async () => {
+    const ctx = await loadFixture(deployFixture);
+    const claimCode = hre.ethers.hexlify(hre.ethers.randomBytes(32));
+    // Encrypted recipient alice, hash bound to bob: the sender contradicted itself.
+    await ctx.stealth.connect(ctx.sender).sendStealth(
+      usdc(40), ...(await encAddress(ctx.client, ctx.sender, ctx.alice.address, await ctx.stealth.getAddress())),
+      bindClaim(claimCode, ctx.bob.address), await ctx.vault.getAddress(), "inconsistent",
+    );
+    await ctx.stealth.connect(ctx.bob).claimStealth(0, claimCode);
+    const seen = await decryptPendingAmount(ctx.stealth, ctx.client, ctx.eve, 0);
+    expect(seen.plaintext).to.equal(0n);
+    // Alice is not exposed: nothing published names her.
+    await expect(ctx.stealth.connect(ctx.alice).claimStealth(0, claimCode)).to.be.revertedWith("StealthPayments: already claimed");
+  });
+
+  it("claimCodeHash protects the recipient only as far as claimCode is unguessable", async () => {
+    const ctx = await loadFixture(deployFixture);
+    // A low-entropy code: an observer holding a candidate recipient list tests
+    // each candidate against the public hash and recovers the recipient.
+    const weakCode = hre.ethers.zeroPadValue(hre.ethers.toUtf8Bytes("birthday"), 32);
+    await ctx.stealth.connect(ctx.sender).sendStealth(
+      usdc(5), ...(await encAddress(ctx.client, ctx.sender, ctx.bob.address, await ctx.stealth.getAddress())),
+      bindClaim(weakCode, ctx.bob.address), await ctx.vault.getAddress(), "weak",
+    );
+    const published = (await ctx.stealth.getTransferInfo(0)).claimCodeHash;
+    const candidates = [ctx.alice.address, ctx.bob.address, ctx.eve.address];
+    const recovered = candidates.filter((c) => bindClaim(weakCode, c) === published);
+    expect(recovered).to.deep.equal([ctx.bob.address]);
+    // A random 32-byte code gives the same observer nothing to test.
+    const strongCode = hre.ethers.hexlify(hre.ethers.randomBytes(32));
+    await ctx.stealth.connect(ctx.sender).sendStealth(
+      usdc(5), ...(await encAddress(ctx.client, ctx.sender, ctx.bob.address, await ctx.stealth.getAddress())),
+      bindClaim(strongCode, ctx.bob.address), await ctx.vault.getAddress(), "strong",
+    );
+    const published2 = (await ctx.stealth.getTransferInfo(1)).claimCodeHash;
+    expect(candidates.filter((c) => bindClaim(weakCode, c) === published2)).to.deep.equal([]);
+  });
+});
+
 describe("StealthPayments — finalizeClaim publish (L2)", () => {
   it("finalize succeeds when the decrypt result is already published, ignoring the passed signature", async () => {
     const ctx = await loadFixture(deployFixture);

@@ -64,6 +64,17 @@ async function encryptUint64For(client: any, signer: any, value: bigint, consumi
   return await client.encryptInputs([Encryptable.uint64(value)]).setConsumingContract(consuming).execute();
 }
 
+async function encryptBoolFor(client: any, signer: any, value: boolean, consuming: string) {
+  await hre.cofhe.connectWithHardhatSigner(client, signer);
+  return await client.encryptInputs([Encryptable.bool(value)]).setConsumingContract(consuming).execute();
+}
+
+/// setFeeRatesEncrypted verifies both rates under one batch signature.
+async function encryptUint64Pair(client: any, signer: any, a: bigint, b: bigint, consuming: string) {
+  await hre.cofhe.connectWithHardhatSigner(client, signer);
+  return await client.encryptInputs([Encryptable.uint64(a), Encryptable.uint64(b)]).setConsumingContract(consuming).execute();
+}
+
 const BASE_FEE_RATE = 100n; // 1% in basis points (scaled by 1e4)
 const MERCHANT_DISCOUNT = 5000n; // 50% off the fee for merchants (basis points)
 
@@ -409,10 +420,175 @@ describe("EncryptedFlags: audit fixes", () => {
     await expect(ctx.flags.setFeeRates(0, 10_001)).to.be.revertedWith("EncryptedFlags: rate above 10000");
     await expect(ctx.flags.connect(ctx.alice).setFeeRates(1, 1))
       .to.be.revertedWithCustomError(ctx.flags, "OwnableUnauthorizedAccount");
-    await expect(ctx.flags.setFeeRates(250, 0)).to.emit(ctx.flags, "FeeRatesSet").withArgs(250, 0);
+    // The event carries no rate: it stays encrypted at rest.
+    await expect(ctx.flags.setFeeRates(250, 0)).to.emit(ctx.flags, "FeeRatesSet").withArgs((_t: bigint) => true);
     const [fee] = await feeOf(ctx, ctx.alice, 1_000_000n);
     await mock_expectPlaintext(ctx.alice.provider, fee, 25_000n);
     await expect(deployProxy("EncryptedFlags", [20_000n, 0n])).to.be.reverted;
+  });
+});
+
+// C4a: results are shared handles, so another contract can consume them.
+describe("EncryptedFlags: results a calling contract can use (C4a)", () => {
+  async function consumerFixture() {
+    const ctx = await deployFixture();
+    const Consumer = await hre.ethers.getContractFactory("MockFlagsConsumer");
+    const consumer = await Consumer.deploy(await ctx.flags.getAddress());
+    await consumer.waitForDeployment();
+    await ctx.flags.setAuthorizedCaller(await consumer.getAddress(), true);
+    return { ...ctx, consumer };
+  }
+
+  it("canSend: a contract takes the shared handle and reads the verified AND active result", async () => {
+    const ctx = await loadFixture(consumerFixture);
+    await ctx.flags.setVerified(ctx.alice.address, true);
+    await ctx.flags.setActive(ctx.alice.address, true);
+    await ctx.consumer.checkSend(ctx.alice.address);
+    await mock_expectPlaintext(ctx.alice.provider, await ctx.consumer.sendOk(), 1n);
+
+    await ctx.flags.setActive(ctx.alice.address, false);
+    await ctx.consumer.checkSend(ctx.alice.address);
+    await mock_expectPlaintext(ctx.alice.provider, await ctx.consumer.sendOk(), 0n);
+  });
+
+  it("canReceive: verified OR kyc, consumed by a contract", async () => {
+    const ctx = await loadFixture(consumerFixture);
+    await ctx.flags.setVerified(ctx.alice.address, false);
+    await ctx.flags.setKYCCompleted(ctx.alice.address);
+    await ctx.consumer.checkReceive(ctx.alice.address);
+    await mock_expectPlaintext(ctx.alice.provider, await ctx.consumer.receiveOk(), 1n);
+
+    await ctx.flags.setVerified(ctx.bob.address, false);
+    await ctx.flags.setKYCCompleted(ctx.bob.address);
+    await ctx.flags.setVerifiedEncrypted(ctx.bob.address, ...(await encryptBoolFor(ctx.client, ctx.owner, false, await ctx.flags.getAddress())));
+    await ctx.flags.setKYCCompletedEncrypted(ctx.bob.address, ...(await encryptBoolFor(ctx.client, ctx.owner, false, await ctx.flags.getAddress())));
+    await ctx.consumer.checkReceive(ctx.bob.address);
+    await mock_expectPlaintext(ctx.bob.provider, await ctx.consumer.receiveOk(), 0n);
+  });
+
+  it("the received result feeds a further FHE operation (gate an amount)", async () => {
+    const ctx = await loadFixture(consumerFixture);
+    await ctx.flags.setVerified(ctx.alice.address, true);
+    await ctx.flags.setActive(ctx.alice.address, true);
+    await ctx.consumer.gateAmount(ctx.alice.address, 777);
+    await mock_expectPlaintext(ctx.alice.provider, await ctx.consumer.gated(), 777n);
+
+    await ctx.flags.setVerified(ctx.alice.address, false);
+    await ctx.consumer.gateAmount(ctx.alice.address, 777);
+    await mock_expectPlaintext(ctx.alice.provider, await ctx.consumer.gated(), 0n);
+  });
+
+  it("calculateFeeVerified / calculateMerchantFeeVerified work from a shared amount", async () => {
+    const ctx = await loadFixture(consumerFixture);
+    await ctx.consumer.feeFor(1_000_000);
+    await mock_expectPlaintext(ctx.alice.provider, await ctx.consumer.fee(), 10_000n);
+    await mock_expectPlaintext(ctx.alice.provider, await ctx.consumer.net(), 990_000n);
+
+    await ctx.flags.setMerchant(ctx.alice.address, true);
+    await ctx.consumer.merchantFeeFor(1_000_000, ctx.alice.address);
+    await mock_expectPlaintext(ctx.alice.provider, await ctx.consumer.fee(), 5_000n);
+    await mock_expectPlaintext(ctx.alice.provider, await ctx.consumer.net(), 995_000n);
+  });
+
+  it("an unauthorized contract is still refused", async () => {
+    const ctx = await loadFixture(consumerFixture);
+    const Consumer = await hre.ethers.getContractFactory("MockFlagsConsumer");
+    const stranger = await Consumer.deploy(await ctx.flags.getAddress());
+    await expect(stranger.checkSend(ctx.alice.address)).to.be.revertedWith("EncryptedFlags: not authorized");
+    await expect(stranger.merchantFeeFor(1_000, ctx.alice.address)).to.be.revertedWith("EncryptedFlags: not authorized");
+  });
+
+  it("an EOA still reads its own result handle", async () => {
+    const ctx = await loadFixture(deployFixture);
+    await ctx.flags.setVerified(ctx.alice.address, true);
+    await ctx.flags.setActive(ctx.alice.address, true);
+    const handle = await ctx.flags.connect(ctx.alice).canSend.staticCall(ctx.alice.address);
+    await ctx.flags.connect(ctx.alice).canSend(ctx.alice.address);
+    await mock_expectPlaintext(ctx.alice.provider, handle, 1n);
+  });
+});
+
+// C4b: confidential setters. The plaintext ones stay (deprecated) for owners
+// that cannot produce an encrypted input.
+describe("EncryptedFlags: encrypted setters (C4b)", () => {
+  it("setVerified / setActive / setKYC / setMerchant take encrypted values and store them", async () => {
+    const ctx = await loadFixture(deployFixture);
+    const addr = await ctx.flags.getAddress();
+    await expect(ctx.flags.setVerifiedEncrypted(ctx.alice.address, ...(await encryptBoolFor(ctx.client, ctx.owner, true, addr))))
+      .to.emit(ctx.flags, "FlagSet").withArgs(ctx.alice.address, "verified", (_t: bigint) => true);
+    await ctx.flags.setActiveEncrypted(ctx.alice.address, ...(await encryptBoolFor(ctx.client, ctx.owner, true, addr)));
+    await ctx.flags.setKYCCompletedEncrypted(ctx.alice.address, ...(await encryptBoolFor(ctx.client, ctx.owner, false, addr)));
+    await ctx.flags.setMerchantEncrypted(ctx.alice.address, ...(await encryptBoolFor(ctx.client, ctx.owner, true, addr)));
+
+    const p = ctx.alice.provider;
+    await mock_expectPlaintext(p, await ctx.flags.connect(ctx.alice).getMyVerifiedStatus(), 1n);
+    await mock_expectPlaintext(p, await ctx.flags.connect(ctx.alice).getMyActiveStatus(), 1n);
+    await mock_expectPlaintext(p, await ctx.flags.connect(ctx.alice).getMyKYCStatus(), 0n);
+    await mock_expectPlaintext(p, await ctx.flags.connect(ctx.alice).getMyMerchantStatus(), 1n);
+  });
+
+  it("the user can read their own encrypted flag, a stranger cannot", async () => {
+    const ctx = await loadFixture(deployFixture);
+    await ctx.flags.setVerifiedEncrypted(ctx.alice.address, ...(await encryptBoolFor(ctx.client, ctx.owner, true, await ctx.flags.getAddress())));
+    const handle = await ctx.flags.connect(ctx.alice).getMyVerifiedStatus();
+    const acl = await hre.cofhe.mocks.getMockACL();
+    expect(await acl.isAllowed(handle, ctx.alice.address)).to.equal(true);
+    expect(await acl.isAllowed(handle, ctx.bob.address)).to.equal(false);
+  });
+
+  it("every encrypted setter is owner-only", async () => {
+    const ctx = await loadFixture(deployFixture);
+    const addr = await ctx.flags.getAddress();
+    const flag = await encryptBoolFor(ctx.client, ctx.alice, true, addr);
+    const rates = await encryptUint64Pair(ctx.client, ctx.alice, 1n, 2n, addr);
+    const asAlice = ctx.flags.connect(ctx.alice);
+    for (const call of [
+      () => asAlice.setVerifiedEncrypted(ctx.alice.address, ...flag),
+      () => asAlice.setActiveEncrypted(ctx.alice.address, ...flag),
+      () => asAlice.setKYCCompletedEncrypted(ctx.alice.address, ...flag),
+      () => asAlice.setMerchantEncrypted(ctx.alice.address, ...flag),
+      () => asAlice.setFeeRatesEncrypted(...rates),
+    ]) {
+      await expect(call()).to.be.revertedWithCustomError(ctx.flags, "OwnableUnauthorizedAccount");
+    }
+  });
+
+  it("setFeeRatesEncrypted sets confidential rates: no rate in any event, fees follow", async () => {
+    const ctx = await loadFixture(deployFixture);
+    const addr = await ctx.flags.getAddress();
+    const tx = await ctx.flags.setFeeRatesEncrypted(...(await encryptUint64Pair(ctx.client, ctx.owner, 300n, 0n, addr)));
+    const receipt = await tx.wait();
+    const rateLog = receipt.logs
+      .map((l: any) => { try { return ctx.flags.interface.parseLog(l); } catch { return null; } })
+      .find((p: any) => p && p.name === "FeeRatesSet");
+    expect(rateLog.args.length).to.equal(1); // timestamp only
+    const enc = await encryptUint64For(ctx.client, ctx.alice, 1_000_000n, addr);
+    const [fee, net] = await ctx.flags.connect(ctx.alice).calculateFee.staticCall(...enc);
+    await ctx.flags.connect(ctx.alice).calculateFee(...enc);
+    await mock_expectPlaintext(ctx.alice.provider, fee, 30_000n);
+    await mock_expectPlaintext(ctx.alice.provider, net, 970_000n);
+  });
+
+  it("encrypted rates above 10000 bps are clamped, so a fee can never exceed the amount", async () => {
+    const ctx = await loadFixture(deployFixture);
+    const addr = await ctx.flags.getAddress();
+    await ctx.flags.setFeeRatesEncrypted(...(await encryptUint64Pair(ctx.client, ctx.owner, 50_000n, 99_999n, addr)));
+    const enc = await encryptUint64For(ctx.client, ctx.alice, 1_000_000n, addr);
+    const [fee, net] = await ctx.flags.connect(ctx.alice).calculateFee.staticCall(...enc);
+    await ctx.flags.connect(ctx.alice).calculateFee(...enc);
+    await mock_expectPlaintext(ctx.alice.provider, fee, 1_000_000n);
+    await mock_expectPlaintext(ctx.alice.provider, net, 0n);
+  });
+
+  it("the plaintext initialize / setFeeRates still work and now emit no rate", async () => {
+    const ctx = await loadFixture(deployFixture);
+    const tx = await ctx.flags.setFeeRates(125, 2500);
+    const receipt = await tx.wait();
+    const rateLog = receipt.logs
+      .map((l: any) => { try { return ctx.flags.interface.parseLog(l); } catch { return null; } })
+      .find((p: any) => p && p.name === "FeeRatesSet");
+    expect(rateLog.args.length).to.equal(1);
+    expect(ctx.flags.interface.getEvent("FeeRatesSet")!.inputs.map((i: any) => i.name)).to.deep.equal(["timestamp"]);
   });
 });
 

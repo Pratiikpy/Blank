@@ -10,7 +10,6 @@ import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "./interfaces/ITokenRegistry.sol";
 
 interface IFHERC20Vault {
-    function transferFrom(address from, address to, externalEuint64 encAmount, bytes calldata proof) external returns (euint64);
     function transferFromVerified(address from, address to, sharedEuint64 shared) external returns (sharedEuint64);
     function transferVerified(address to, sharedEuint64 shared) external returns (sharedEuint64);
     function underlyingToken() external view returns (address);
@@ -922,7 +921,12 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
     // ─── Admin ──────────────────────────────────────────────────────────
 
-    function setEventHub(address _eventHub) external onlyOwner { eventHub = IEventHub(_eventHub); }
+    function setEventHub(address _eventHub) external onlyOwner {
+        // A codeless hub makes every emitActivity call revert outside the
+        // try/catch (extcodesize check), which would brick the hub.
+        require(_eventHub.code.length > 0, "BusinessHub: bad event hub");
+        eventHub = IEventHub(_eventHub);
+    }
 
     /// @notice Vault allowlist used by every entry that takes a vault.
     function setTokenRegistry(address r) external onlyOwner {
@@ -935,6 +939,10 @@ contract BusinessHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     ///         runPayroll forwards each recipient's transferred amount so
     ///         they can later prove their encrypted total received income.
     function setPaymentReceipts(address _paymentReceipts) external onlyOwner {
+        require(
+            _paymentReceipts == address(0) || _paymentReceipts.code.length > 0,
+            "BusinessHub: bad receipts"
+        );
         address previous = paymentReceipts;
         paymentReceipts = _paymentReceipts;
         emit PaymentReceiptsSet(previous, _paymentReceipts);

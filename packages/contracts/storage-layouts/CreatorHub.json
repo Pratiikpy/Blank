@@ -1,7 +1,7 @@
 {
   "storage": [
     {
-      "astId": 80748,
+      "astId": 83818,
       "contract": "contracts/CreatorHub.sol:CreatorHub",
       "label": "_status",
       "offset": 0,
@@ -9,23 +9,23 @@
       "type": "t_uint256"
     },
     {
-      "astId": 54140,
+      "astId": 51038,
       "contract": "contracts/CreatorHub.sol:CreatorHub",
       "label": "eventHub",
       "offset": 0,
       "slot": "1",
-      "type": "t_contract(IEventHub)54112"
+      "type": "t_contract(IEventHub)50987"
     },
     {
-      "astId": 54145,
+      "astId": 51043,
       "contract": "contracts/CreatorHub.sol:CreatorHub",
       "label": "_profiles",
       "offset": 0,
       "slot": "2",
-      "type": "t_mapping(t_address,t_struct(CreatorProfile)54137_storage)"
+      "type": "t_mapping(t_address,t_struct(CreatorProfile)51012_storage)"
     },
     {
-      "astId": 54149,
+      "astId": 51047,
       "contract": "contracts/CreatorHub.sol:CreatorHub",
       "label": "hasProfile",
       "offset": 0,
@@ -33,7 +33,7 @@
       "type": "t_mapping(t_address,t_bool)"
     },
     {
-      "astId": 54157,
+      "astId": 51055,
       "contract": "contracts/CreatorHub.sol:CreatorHub",
       "label": "_contributions",
       "offset": 0,
@@ -41,7 +41,7 @@
       "type": "t_mapping(t_address,t_mapping(t_address,t_userDefinedValueType(euint64)13136))"
     },
     {
-      "astId": 54164,
+      "astId": 51062,
       "contract": "contracts/CreatorHub.sol:CreatorHub",
       "label": "_hasContributed",
       "offset": 0,
@@ -49,7 +49,7 @@
       "type": "t_mapping(t_address,t_mapping(t_address,t_bool))"
     },
     {
-      "astId": 54170,
+      "astId": 51068,
       "contract": "contracts/CreatorHub.sol:CreatorHub",
       "label": "_supportedCreators",
       "offset": 0,
@@ -57,7 +57,7 @@
       "type": "t_mapping(t_address,t_array(t_address)dyn_storage)"
     },
     {
-      "astId": 54956,
+      "astId": 52125,
       "contract": "contracts/CreatorHub.sol:CreatorHub",
       "label": "_earningsByVault",
       "offset": 0,
@@ -65,7 +65,7 @@
       "type": "t_mapping(t_address,t_mapping(t_address,t_userDefinedValueType(euint64)13136))"
     },
     {
-      "astId": 54966,
+      "astId": 52135,
       "contract": "contracts/CreatorHub.sol:CreatorHub",
       "label": "_contributionsByVault",
       "offset": 0,
@@ -73,20 +73,36 @@
       "type": "t_mapping(t_address,t_mapping(t_address,t_mapping(t_address,t_userDefinedValueType(euint64)13136)))"
     },
     {
-      "astId": 54969,
+      "astId": 52138,
       "contract": "contracts/CreatorHub.sol:CreatorHub",
       "label": "tokenRegistry",
       "offset": 0,
       "slot": "9",
-      "type": "t_contract(ITokenRegistry)78843"
+      "type": "t_contract(ITokenRegistry)80351"
     },
     {
-      "astId": 54974,
+      "astId": 52141,
+      "contract": "contracts/CreatorHub.sol:CreatorHub",
+      "label": "nextTipId",
+      "offset": 0,
+      "slot": "10",
+      "type": "t_uint256"
+    },
+    {
+      "astId": 52147,
+      "contract": "contracts/CreatorHub.sol:CreatorHub",
+      "label": "_tips",
+      "offset": 0,
+      "slot": "11",
+      "type": "t_mapping(t_uint256,t_struct(PendingTip)51035_storage)"
+    },
+    {
+      "astId": 52152,
       "contract": "contracts/CreatorHub.sol:CreatorHub",
       "label": "__gap",
       "offset": 0,
-      "slot": "10",
-      "type": "t_array(t_uint256)47_storage"
+      "slot": "12",
+      "type": "t_array(t_uint256)45_storage"
     }
   ],
   "types": {
@@ -101,26 +117,31 @@
       "label": "address[]",
       "numberOfBytes": "32"
     },
-    "t_array(t_uint256)47_storage": {
+    "t_array(t_uint256)45_storage": {
       "base": "t_uint256",
       "encoding": "inplace",
-      "label": "uint256[47]",
-      "numberOfBytes": "1504"
+      "label": "uint256[45]",
+      "numberOfBytes": "1440"
     },
     "t_bool": {
       "encoding": "inplace",
       "label": "bool",
       "numberOfBytes": "1"
     },
-    "t_contract(IEventHub)54112": {
+    "t_contract(IEventHub)50987": {
       "encoding": "inplace",
       "label": "contract IEventHub",
       "numberOfBytes": "20"
     },
-    "t_contract(ITokenRegistry)78843": {
+    "t_contract(ITokenRegistry)80351": {
       "encoding": "inplace",
       "label": "contract ITokenRegistry",
       "numberOfBytes": "20"
+    },
+    "t_enum(TipStatus)51017": {
+      "encoding": "inplace",
+      "label": "enum CreatorHub.TipStatus",
+      "numberOfBytes": "1"
     },
     "t_mapping(t_address,t_array(t_address)dyn_storage)": {
       "encoding": "mapping",
@@ -157,12 +178,12 @@
       "numberOfBytes": "32",
       "value": "t_mapping(t_address,t_userDefinedValueType(euint64)13136)"
     },
-    "t_mapping(t_address,t_struct(CreatorProfile)54137_storage)": {
+    "t_mapping(t_address,t_struct(CreatorProfile)51012_storage)": {
       "encoding": "mapping",
       "key": "t_address",
       "label": "mapping(address => struct CreatorHub.CreatorProfile)",
       "numberOfBytes": "32",
-      "value": "t_struct(CreatorProfile)54137_storage"
+      "value": "t_struct(CreatorProfile)51012_storage"
     },
     "t_mapping(t_address,t_userDefinedValueType(euint64)13136)": {
       "encoding": "mapping",
@@ -171,17 +192,24 @@
       "numberOfBytes": "32",
       "value": "t_userDefinedValueType(euint64)13136"
     },
+    "t_mapping(t_uint256,t_struct(PendingTip)51035_storage)": {
+      "encoding": "mapping",
+      "key": "t_uint256",
+      "label": "mapping(uint256 => struct CreatorHub.PendingTip)",
+      "numberOfBytes": "32",
+      "value": "t_struct(PendingTip)51035_storage"
+    },
     "t_string_storage": {
       "encoding": "bytes",
       "label": "string",
       "numberOfBytes": "32"
     },
-    "t_struct(CreatorProfile)54137_storage": {
+    "t_struct(CreatorProfile)51012_storage": {
       "encoding": "inplace",
       "label": "struct CreatorHub.CreatorProfile",
       "members": [
         {
-          "astId": 54121,
+          "astId": 50996,
           "contract": "contracts/CreatorHub.sol:CreatorHub",
           "label": "name",
           "offset": 0,
@@ -189,7 +217,7 @@
           "type": "t_string_storage"
         },
         {
-          "astId": 54123,
+          "astId": 50998,
           "contract": "contracts/CreatorHub.sol:CreatorHub",
           "label": "bio",
           "offset": 0,
@@ -197,7 +225,7 @@
           "type": "t_string_storage"
         },
         {
-          "astId": 54125,
+          "astId": 51000,
           "contract": "contracts/CreatorHub.sol:CreatorHub",
           "label": "tier1Threshold",
           "offset": 0,
@@ -205,7 +233,7 @@
           "type": "t_uint64"
         },
         {
-          "astId": 54127,
+          "astId": 51002,
           "contract": "contracts/CreatorHub.sol:CreatorHub",
           "label": "tier2Threshold",
           "offset": 8,
@@ -213,7 +241,7 @@
           "type": "t_uint64"
         },
         {
-          "astId": 54129,
+          "astId": 51004,
           "contract": "contracts/CreatorHub.sol:CreatorHub",
           "label": "tier3Threshold",
           "offset": 16,
@@ -221,7 +249,7 @@
           "type": "t_uint64"
         },
         {
-          "astId": 54132,
+          "astId": 51007,
           "contract": "contracts/CreatorHub.sol:CreatorHub",
           "label": "totalEarnings",
           "offset": 0,
@@ -229,7 +257,7 @@
           "type": "t_userDefinedValueType(euint64)13136"
         },
         {
-          "astId": 54134,
+          "astId": 51009,
           "contract": "contracts/CreatorHub.sol:CreatorHub",
           "label": "supporterCount",
           "offset": 0,
@@ -237,12 +265,75 @@
           "type": "t_uint256"
         },
         {
-          "astId": 54136,
+          "astId": 51011,
           "contract": "contracts/CreatorHub.sol:CreatorHub",
           "label": "active",
           "offset": 0,
           "slot": "5",
           "type": "t_bool"
+        }
+      ],
+      "numberOfBytes": "192"
+    },
+    "t_struct(PendingTip)51035_storage": {
+      "encoding": "inplace",
+      "label": "struct CreatorHub.PendingTip",
+      "members": [
+        {
+          "astId": 51019,
+          "contract": "contracts/CreatorHub.sol:CreatorHub",
+          "label": "supporter",
+          "offset": 0,
+          "slot": "0",
+          "type": "t_address"
+        },
+        {
+          "astId": 51021,
+          "contract": "contracts/CreatorHub.sol:CreatorHub",
+          "label": "creator",
+          "offset": 0,
+          "slot": "1",
+          "type": "t_address"
+        },
+        {
+          "astId": 51023,
+          "contract": "contracts/CreatorHub.sol:CreatorHub",
+          "label": "vault",
+          "offset": 0,
+          "slot": "2",
+          "type": "t_address"
+        },
+        {
+          "astId": 51026,
+          "contract": "contracts/CreatorHub.sol:CreatorHub",
+          "label": "status",
+          "offset": 20,
+          "slot": "2",
+          "type": "t_enum(TipStatus)51017"
+        },
+        {
+          "astId": 51029,
+          "contract": "contracts/CreatorHub.sol:CreatorHub",
+          "label": "funded",
+          "offset": 0,
+          "slot": "3",
+          "type": "t_userDefinedValueType(ebool)13128"
+        },
+        {
+          "astId": 51032,
+          "contract": "contracts/CreatorHub.sol:CreatorHub",
+          "label": "moved",
+          "offset": 0,
+          "slot": "4",
+          "type": "t_userDefinedValueType(euint64)13136"
+        },
+        {
+          "astId": 51034,
+          "contract": "contracts/CreatorHub.sol:CreatorHub",
+          "label": "message",
+          "offset": 0,
+          "slot": "5",
+          "type": "t_string_storage"
         }
       ],
       "numberOfBytes": "192"
@@ -256,6 +347,11 @@
       "encoding": "inplace",
       "label": "uint64",
       "numberOfBytes": "8"
+    },
+    "t_userDefinedValueType(ebool)13128": {
+      "encoding": "inplace",
+      "label": "ebool",
+      "numberOfBytes": "32"
     },
     "t_userDefinedValueType(euint64)13136": {
       "encoding": "inplace",

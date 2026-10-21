@@ -2,7 +2,7 @@ import { expect } from "chai";
 import hre from "hardhat";
 import { loadFixture, time } from "@nomicfoundation/hardhat-network-helpers";
 import { mock_expectPlaintext } from "@cofhe/hardhat-plugin";
-import { Encryptable } from "@cofhe/sdk";
+import { Encryptable, FheTypes } from "@cofhe/sdk";
 import {
   AbiCoder, Wallet, getBytes, keccak256, parseUnits, solidityPackedKeccak256,
   randomBytes, hexlify, toUtf8Bytes, zeroPadValue, toBeHex,
@@ -117,16 +117,31 @@ async function encAmount(client: any, signer: any, amount: bigint, consuming: st
   return await client.encryptInputs([Encryptable.uint64(amount)]).setConsumingContract(consuming).execute();
 }
 
-// Creates link 0 (or the next id) and returns the claim key.
+// Decrypts the public funded bit of a link and settles it on-chain, the way
+// the app's automatic second step does. Anyone may submit it.
+async function confirmLink(ctx: any, linkId: number | bigint, caller: any = ctx.owner) {
+  const handle = await ctx.claimLinks.getFundingCheck(linkId);
+  await hre.cofhe.connectWithHardhatSigner(ctx.client, caller);
+  const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutACP().execute();
+  return ctx.claimLinks.connect(caller).confirmFunding(linkId, Boolean(proof.decryptedValue), proof.signature);
+}
+
+// Creates link 0 (or the next id) and returns the claim key. The link is
+// confirmed funded unless `confirm: false`, so the claim-path tests below read
+// as they did before the funding gate.
 async function createLink(
   ctx: any,
-  opts: { amount?: bigint; mode?: number; bound?: string; expiry?: number; note?: string; email?: string } = {},
+  opts: {
+    amount?: bigint; mode?: number; bound?: string; expiry?: number; note?: string; email?: string;
+    sender?: any; confirm?: boolean;
+  } = {},
 ) {
   const mode = opts.mode ?? MODE_BEARER;
+  const sender = opts.sender ?? ctx.alice;
   const secret = newSecret();
   const key = claimWallet(mode, secret, opts.email ? emailDigestOf(opts.email) : undefined);
-  const enc = await encAmount(ctx.client, ctx.alice, opts.amount ?? usdc(10), await ctx.claimLinks.getAddress());
-  await ctx.claimLinks.connect(ctx.alice).createLink(
+  const enc = await encAmount(ctx.client, sender, opts.amount ?? usdc(10), await ctx.claimLinks.getAddress());
+  await ctx.claimLinks.connect(sender).createLink(
     await ctx.vault.getAddress(),
     ...enc,
     key.address,
@@ -135,7 +150,9 @@ async function createLink(
     opts.expiry ?? 0,
     opts.note ?? "",
   );
-  return { secret, key };
+  const linkId = (await ctx.claimLinks.nextLinkId()) - 1n;
+  if (opts.confirm !== false) await confirmLink(ctx, linkId);
+  return { secret, key, linkId };
 }
 
 // Simulates a link created before the claim-key upgrade (only a secret hash).
@@ -458,7 +475,7 @@ describe("ClaimLinks", () => {
   describe("PaymentReceiptsSet event", () => {
     it("emits PaymentReceiptsSet with previous=zero, current=newAddr on first set", async () => {
       const ctx = await loadFixture(deployFixture);
-      const fake = "0x000000000000000000000000000000000000bEEF";
+      const fake = await ctx.registry.getAddress();
       await expect(ctx.claimLinks.connect(ctx.owner).setPaymentReceipts(fake))
         .to.emit(ctx.claimLinks, "PaymentReceiptsSet")
         .withArgs(hre.ethers.ZeroAddress, fake);
@@ -467,8 +484,8 @@ describe("ClaimLinks", () => {
 
     it("emits PaymentReceiptsSet with the prior address on subsequent set", async () => {
       const ctx = await loadFixture(deployFixture);
-      const first = "0x000000000000000000000000000000000000dEaD";
-      const second = "0x000000000000000000000000000000000000bEEF";
+      const first = await ctx.registry.getAddress();
+      const second = await ctx.vault.getAddress();
       await ctx.claimLinks.connect(ctx.owner).setPaymentReceipts(first);
       await expect(ctx.claimLinks.connect(ctx.owner).setPaymentReceipts(second))
         .to.emit(ctx.claimLinks, "PaymentReceiptsSet")
@@ -478,8 +495,18 @@ describe("ClaimLinks", () => {
     it("only owner can call setPaymentReceipts", async () => {
       const ctx = await loadFixture(deployFixture);
       await expect(
-        ctx.claimLinks.connect(ctx.alice).setPaymentReceipts("0x000000000000000000000000000000000000bEEF"),
+        ctx.claimLinks.connect(ctx.alice).setPaymentReceipts(await ctx.registry.getAddress()),
       ).to.be.reverted;
+    });
+
+    it("E5: setters reject a codeless address; zero still switches receipts off", async () => {
+      const ctx = await loadFixture(deployFixture);
+      const eoa = "0x000000000000000000000000000000000000bEEF";
+      await expect(ctx.claimLinks.setEventHub(eoa)).to.be.revertedWith("ClaimLinks: bad event hub");
+      await expect(ctx.claimLinks.setPaymentReceipts(eoa)).to.be.revertedWith("ClaimLinks: bad receipts");
+      await expect(ctx.claimLinks.setEventHub(await ctx.eventHub.getAddress())).to.not.be.reverted;
+      await expect(ctx.claimLinks.setPaymentReceipts(hre.ethers.ZeroAddress)).to.not.be.reverted;
+      await expect(ctx.claimLinks.connect(ctx.alice).setEventHub(await ctx.eventHub.getAddress())).to.be.reverted;
     });
   });
 
@@ -508,5 +535,182 @@ describe("ClaimLinks", () => {
       await time.increase(101);
       await expect(ctx.claimLinks.connect(ctx.alice).refundLink(0)).to.emit(ctx.claimLinks, "LinkRefunded");
     });
+  });
+});
+
+// The vault moves zero instead of reverting when the sender is short, so a
+// link is only claimable once the single "locked the requested amount" bit
+// has been decrypted and published.
+describe("ClaimLinks, funding gate", () => {
+  const MAX = (1n << 64n) - 1n;
+  const FUNDING_STATUS_SLOT = 10; // fundingStatus mapping (storage-layouts/ClaimLinks.json)
+  const ACTIVE = 0;
+  const PENDING = 1;
+  const VOID = 2;
+
+  // Eve holds nothing in the vault but has approved ClaimLinks, so the only
+  // reason her links can fail is a short balance.
+  async function gateFixture() {
+    const ctx = await deployFixture();
+    const eve = (await hre.ethers.getSigners())[4];
+    await ctx.vault.connect(eve).approvePlaintext(await ctx.claimLinks.getAddress(), MAX);
+    const receipts = await deployProxy("PaymentReceipts", []);
+    await receipts.setAuthorizedCaller(await ctx.claimLinks.getAddress(), true);
+    await ctx.claimLinks.setPaymentReceipts(await receipts.getAddress());
+    return { ...ctx, eve, receipts };
+  }
+
+  async function fundedBit(ctx: any, linkId: bigint | number, reader: any = ctx.owner) {
+    await hre.cofhe.connectWithHardhatSigner(ctx.client, reader);
+    const handle = await ctx.claimLinks.getFundingCheck(linkId);
+    const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutACP().execute();
+    return { value: Boolean(proof.decryptedValue), signature: proof.signature };
+  }
+
+  const received = (ctx: any, who: any) => ctx.receipts.connect(who).getMyTotalReceived();
+
+  it("a funded link starts PendingFunding and can neither be claimed nor refunded", async () => {
+    const ctx = await loadFixture(gateFixture);
+    const { key, linkId } = await createLink(ctx, { amount: usdc(50), expiry: 100, confirm: false });
+    expect(await ctx.claimLinks.fundingStatus(linkId)).to.equal(PENDING);
+    await mock_expectPlaintext(ctx.alice.provider, await ctx.vault.balanceOf(await ctx.claimLinks.getAddress()), usdc(50));
+
+    await expect(ctx.claimLinks.connect(ctx.bob).claim(linkId, await signClaim(ctx, key, 0, ctx.bob.address)))
+      .to.be.revertedWith("ClaimLinks: funding pending");
+    await time.increase(101);
+    await expect(ctx.claimLinks.connect(ctx.alice).refundLink(linkId)).to.be.revertedWith("ClaimLinks: funding pending");
+    const l = await ctx.claimLinks.getLink(linkId);
+    expect(l.claimed).to.equal(false);
+    expect(l.refunded).to.equal(false);
+  });
+
+  it("funded path end to end: a stranger confirms, the recipient claims, receipts bump once", async () => {
+    const ctx = await loadFixture(gateFixture);
+    const { key, linkId } = await createLink(ctx, { amount: usdc(50), confirm: false });
+    const bit = await fundedBit(ctx, linkId, ctx.eve);
+    expect(bit.value).to.equal(true);
+
+    await expect(ctx.claimLinks.connect(ctx.eve).confirmFunding(linkId, bit.value, bit.signature))
+      .to.emit(ctx.claimLinks, "LinkFunded").withArgs(linkId, ctx.alice.address)
+      .and.not.to.emit(ctx.claimLinks, "LinkVoided");
+    expect(await ctx.claimLinks.fundingStatus(linkId)).to.equal(ACTIVE);
+
+    expect(await received(ctx, ctx.bob)).to.equal(0n);
+    await ctx.claimLinks.connect(ctx.bob).claim(linkId, await signClaim(ctx, key, Number(linkId), ctx.bob.address));
+    await mock_expectPlaintext(ctx.bob.provider, await ctx.vault.balanceOf(ctx.bob.address), usdc(50));
+    await mock_expectPlaintext(ctx.bob.provider, await received(ctx, ctx.bob), usdc(50));
+  });
+
+  it("zero-balance sender: the link ends Void, is never claimable and pays nothing", async () => {
+    const ctx = await loadFixture(gateFixture);
+    const { key, linkId } = await createLink(ctx, { sender: ctx.eve, amount: usdc(50), expiry: 100, confirm: false });
+    await mock_expectPlaintext(ctx.bob.provider, await ctx.claimLinks.getEncryptedAmount(linkId), 0n);
+    const bit = await fundedBit(ctx, linkId);
+    expect(bit.value).to.equal(false);
+
+    await expect(ctx.claimLinks.connect(ctx.bob).confirmFunding(linkId, bit.value, bit.signature))
+      .to.emit(ctx.claimLinks, "LinkVoided").withArgs(linkId, ctx.eve.address)
+      .and.not.to.emit(ctx.claimLinks, "LinkFunded");
+    expect(await ctx.claimLinks.fundingStatus(linkId)).to.equal(VOID);
+
+    await expect(ctx.claimLinks.connect(ctx.bob).claim(linkId, await signClaim(ctx, key, Number(linkId), ctx.bob.address)))
+      .to.be.revertedWith("ClaimLinks: link unfunded");
+    await expect(ctx.claimLinks.connect(ctx.bob).claimAddressBound(linkId, newSecret()))
+      .to.be.revertedWith("ClaimLinks: link unfunded");
+    await time.increase(101);
+    await expect(ctx.claimLinks.connect(ctx.eve).refundLink(linkId)).to.be.revertedWith("ClaimLinks: link unfunded");
+
+    const l = await ctx.claimLinks.getLink(linkId);
+    expect(l.claimed).to.equal(false);
+    expect(l.refunded).to.equal(false);
+    expect(l.claimer).to.equal(hre.ethers.ZeroAddress);
+    expect(await ctx.claimLinks.getReceivedLinks(ctx.bob.address)).to.deep.equal([]);
+    // Bob never held vault tokens, so his balance handle was never created.
+    expect(await ctx.vault.balanceOf(ctx.bob.address)).to.equal(0n);
+    expect(await received(ctx, ctx.bob)).to.equal(0n);
+  });
+
+  it("a zero-amount link and an over-balance link both end Void and take nothing", async () => {
+    const ctx = await loadFixture(gateFixture);
+    const zero = await createLink(ctx, { amount: 0n, confirm: false });
+    const over = await createLink(ctx, { amount: usdc(5_000), confirm: false });
+    await confirmLink(ctx, zero.linkId);
+    await confirmLink(ctx, over.linkId);
+    expect(await ctx.claimLinks.fundingStatus(zero.linkId)).to.equal(VOID);
+    expect(await ctx.claimLinks.fundingStatus(over.linkId)).to.equal(VOID);
+    await mock_expectPlaintext(ctx.alice.provider, await ctx.vault.balanceOf(ctx.alice.address), usdc(1_000));
+    await mock_expectPlaintext(ctx.alice.provider, await ctx.vault.balanceOf(await ctx.claimLinks.getAddress()), 0n);
+  });
+
+  it("the published value decides, not the caller's argument", async () => {
+    const ctx = await loadFixture(gateFixture);
+    const { linkId } = await createLink(ctx, { sender: ctx.eve, amount: usdc(50), confirm: false });
+    const bit = await fundedBit(ctx, linkId);
+    expect(bit.value).to.equal(false);
+    await expect(ctx.claimLinks.confirmFunding(linkId, true, bit.signature)).to.be.reverted;
+    expect(await ctx.claimLinks.fundingStatus(linkId)).to.equal(PENDING);
+
+    const tm = await hre.cofhe.mocks.getMockTaskManager();
+    await tm.publishDecryptResult(await ctx.claimLinks.getFundingCheck(linkId), 0, bit.signature);
+    await ctx.claimLinks.confirmFunding(linkId, true, "0x");
+    expect(await ctx.claimLinks.fundingStatus(linkId)).to.equal(VOID);
+  });
+
+  it("confirmFunding cannot run twice or on a link that is not pending", async () => {
+    const ctx = await loadFixture(gateFixture);
+    const { linkId } = await createLink(ctx, { amount: usdc(5) });
+    await expect(ctx.claimLinks.confirmFunding(linkId, true, "0x")).to.be.revertedWith("ClaimLinks: not pending funding");
+    await expect(ctx.claimLinks.confirmFunding(99, true, "0x")).to.be.revertedWith("ClaimLinks: not pending funding");
+  });
+
+  it("cancelPendingLink: only the sender, returns the locked funds, then nothing can settle it", async () => {
+    const ctx = await loadFixture(gateFixture);
+    const { key, linkId } = await createLink(ctx, { amount: usdc(50), confirm: false });
+    await mock_expectPlaintext(ctx.alice.provider, await ctx.vault.balanceOf(ctx.alice.address), usdc(950));
+
+    await expect(ctx.claimLinks.connect(ctx.bob).cancelPendingLink(linkId)).to.be.revertedWith("ClaimLinks: not sender");
+    await expect(ctx.claimLinks.connect(ctx.alice).cancelPendingLink(linkId))
+      .to.emit(ctx.claimLinks, "LinkVoided").withArgs(linkId, ctx.alice.address);
+    expect(await ctx.claimLinks.fundingStatus(linkId)).to.equal(VOID);
+    await mock_expectPlaintext(ctx.alice.provider, await ctx.vault.balanceOf(ctx.alice.address), usdc(1_000));
+    await mock_expectPlaintext(ctx.alice.provider, await ctx.vault.balanceOf(await ctx.claimLinks.getAddress()), 0n);
+
+    const bit = await fundedBit(ctx, linkId);
+    await expect(ctx.claimLinks.confirmFunding(linkId, bit.value, bit.signature))
+      .to.be.revertedWith("ClaimLinks: not pending funding");
+    await expect(ctx.claimLinks.connect(ctx.bob).claim(linkId, await signClaim(ctx, key, Number(linkId), ctx.bob.address)))
+      .to.be.revertedWith("ClaimLinks: link unfunded");
+    await expect(ctx.claimLinks.connect(ctx.alice).cancelPendingLink(linkId))
+      .to.be.revertedWith("ClaimLinks: not pending funding");
+  });
+
+  it("cancelPendingLink is closed once the link is Active", async () => {
+    const ctx = await loadFixture(gateFixture);
+    const { linkId } = await createLink(ctx, { amount: usdc(5) });
+    await expect(ctx.claimLinks.connect(ctx.alice).cancelPendingLink(linkId))
+      .to.be.revertedWith("ClaimLinks: not pending funding");
+  });
+
+  // A link written before this upgrade has fundingStatus 0 (Active) and no
+  // funding bit. Zeroing the status slot of a pending link models that record.
+  it("legacy record: a link with no funding state claims and refunds exactly as before", async () => {
+    const ctx = await loadFixture(gateFixture);
+    const claimable = await createLink(ctx, { amount: usdc(20), confirm: false });
+    const refundable = await createLink(ctx, { amount: usdc(10), expiry: 100, confirm: false });
+    for (const linkId of [claimable.linkId, refundable.linkId]) {
+      const slot = keccak256(AbiCoder.defaultAbiCoder().encode(["uint256", "uint256"], [linkId, FUNDING_STATUS_SLOT]));
+      await hre.network.provider.send("hardhat_setStorageAt", [
+        await ctx.claimLinks.getAddress(), slot, zeroPadValue(toBeHex(0), 32),
+      ]);
+      expect(await ctx.claimLinks.fundingStatus(linkId)).to.equal(ACTIVE);
+    }
+    await ctx.claimLinks.connect(ctx.bob).claim(
+      claimable.linkId, await signClaim(ctx, claimable.key, Number(claimable.linkId), ctx.bob.address),
+    );
+    await mock_expectPlaintext(ctx.bob.provider, await ctx.vault.balanceOf(ctx.bob.address), usdc(20));
+
+    await time.increase(101);
+    await ctx.claimLinks.connect(ctx.alice).refundLink(refundable.linkId);
+    await mock_expectPlaintext(ctx.alice.provider, await ctx.vault.balanceOf(ctx.alice.address), usdc(980));
   });
 });

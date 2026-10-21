@@ -10,7 +10,6 @@ import "./utils/ReentrancyGuard.sol";
 import "./interfaces/ITokenRegistry.sol";
 
 interface IFHERC20Vault {
-    function transferFrom(address from, address to, externalEuint64 encAmount, bytes calldata proof) external returns (euint64);
     function transferFromVerified(address from, address to, sharedEuint64 shared) external returns (sharedEuint64);
     function underlyingToken() external view returns (address);
 }
@@ -45,6 +44,23 @@ interface IPaymentReceipts {
 ///      - Recipient identity is encrypted (private until claimed)
 ///      - Wrong claimers get 0 tokens instead of a revert (privacy preserved)
 ///      - Uses FHE.select() for balance checks, never reverts on identity mismatch
+///
+///      Residual leaks (R-5), by design and not fixable on-chain:
+///      - claimCodeHash is public and equals keccak256(claimCode, recipient).
+///        Its only protection is the entropy of claimCode: with 32 random
+///        bytes (what the Blank app generates) no recipient set can be tested
+///        against it. A caller that picks a low-entropy code lets anyone
+///        brute-force candidate recipients offline. The contract cannot
+///        measure entropy, so integrators must pass 256-bit random codes.
+///      - The conditional amount of a started claim is publicly decryptable
+///        (finalizeClaim needs it, and anyone may publish it). Because the
+///        hash check already pins msg.sender to the hash-bound address, the
+///        one bit this exposes is whether the sender's encrypted recipient
+///        equals that same address: a consistency check of the sender's own
+///        input. It says nothing about any other address. The amount is
+///        already public as plaintextAmount.
+///      - The claimer's address is public the moment the claim starts
+///        (StealthClaimStarted), and claimCode appears in that calldata.
 ///
 ///      Follows the same escrow pattern as BusinessHub (ERC20 custody, not vault custody)
 ///      because FHERC20Vault.transferFrom requires InEuint64 (client-encrypted input),
@@ -477,6 +493,7 @@ contract StealthPayments is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
     // ─── Admin ──────────────────────────────────────────────────────────
 
     function setEventHub(address _eventHub) external onlyOwner {
+        require(_eventHub.code.length > 0, "StealthPayments: bad event hub");
         eventHub = IEventHub(_eventHub);
     }
 
@@ -484,6 +501,10 @@ contract StealthPayments is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
     ///         sendStealth bumps and refund decrements the global encrypted
     ///         volume aggregate. Zero-address = feature off (back-compat).
     function setPaymentReceipts(address _paymentReceipts) external onlyOwner {
+        require(
+            _paymentReceipts == address(0) || _paymentReceipts.code.length > 0,
+            "StealthPayments: bad receipts"
+        );
         address previous = paymentReceipts;
         paymentReceipts = _paymentReceipts;
         emit PaymentReceiptsSet(previous, _paymentReceipts);

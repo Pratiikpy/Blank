@@ -12,14 +12,11 @@ import "./interfaces/ITokenRegistry.sol";
 // ─── Interfaces ──────────────────────────────────────────────────────
 
 interface IFHERC20Vault {
-    function transferFrom(address from, address to, externalEuint64 encAmount, bytes calldata proof) external returns (euint64);
     function transferFromVerified(address from, address to, sharedEuint64 shared) external returns (sharedEuint64);
-    function transfer(address to, externalEuint64 encAmount, bytes calldata proof) external returns (euint64);
-    function balanceOf(address account) external view returns (euint64);
     function underlyingToken() external view returns (address);
     function shield(uint256 amount) external;
     function approvePlaintext(address spender, uint64 amount) external;
-    function requestUnshield(externalEuint64 encAmount, bytes calldata proof) external returns (euint64);
+    function requestUnshield(externalEuint64 encAmount, bytes calldata proof) external returns (sharedEuint64);
     function claimUnshield(uint64 plaintext, bytes calldata signature) external;
 }
 
@@ -577,12 +574,15 @@ contract PrivacyRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     ///         this router as the account (cofhe sdk setAccount(router)) and
     ///         the vault as the consuming contract.
     function requestReserveUnshield(address vault, externalEuint64 encAmount, bytes calldata proof)
-        external onlyOwner nonReentrant returns (euint64)
+        external onlyOwner nonReentrant returns (sharedEuint64)
     {
         _requireVault(vault);
-        euint64 pending = IFHERC20Vault(vault).requestUnshield(encAmount, proof);
+        euint64 pending = FHE.receiveEuint64FromCall(
+            IFHERC20Vault(vault).requestUnshield(encAmount, proof),
+            vault
+        );
         emit ReserveUnshieldRequested(vault);
-        return pending;
+        return FHE.shareEuint64(pending, msg.sender);
     }
 
     /// @notice Finish a reserve unshield. The underlying lands in this
@@ -616,6 +616,9 @@ contract PrivacyRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     /// @notice Update the EventHub address
     /// @param _eventHub New EventHub address
     function setEventHub(address _eventHub) external onlyOwner {
+        // A codeless hub makes every emitActivity call revert outside the
+        // try/catch (extcodesize check), which would brick the swap lifecycle.
+        require(_eventHub.code.length > 0, "PrivacyRouter: bad event hub");
         eventHub = IEventHub(_eventHub);
     }
 

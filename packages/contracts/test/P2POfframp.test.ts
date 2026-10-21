@@ -1,7 +1,7 @@
 import { expect } from "chai";
 import hre from "hardhat";
 import { loadFixture, time } from "@nomicfoundation/hardhat-network-helpers";
-import { Encryptable } from "@cofhe/sdk";
+import { Encryptable, FheTypes } from "@cofhe/sdk";
 import { parseUnits, AbiCoder, keccak256, getBytes } from "ethers";
 
 // ══════════════════════════════════════════════════════════════════
@@ -166,6 +166,29 @@ async function proofFor(ctx: any, fillId: number, taker: any) {
   return signReclaimMessage(ctx.operator, ctx, fillId, taker.address, RAIL_UPI_PHONEPE, HANDLE, FIAT);
 }
 
+// A fill unlocks the fiat leg only after confirmFunding. This runs the second
+// step the way the app does: decrypt the public funded bit, publish it.
+async function confirmFill(ctx: any, fillId: number | bigint, caller?: any) {
+  await hre.cofhe.connectWithHardhatSigner(ctx.client, caller ?? ctx.owner);
+  const handle = await ctx.offramp.fillFunded(fillId);
+  const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutACP().execute();
+  return ctx.offramp.connect(caller ?? ctx.owner).confirmFunding(fillId, Boolean(proof.decryptedValue), proof.signature);
+}
+
+async function takeAndConfirm(ctx: any, taker: any, offerId: number) {
+  const fillId = await ctx.offramp.nextFillId();
+  await ctx.offramp.connect(taker).takeOffer(offerId);
+  await confirmFill(ctx, fillId);
+  return fillId as bigint;
+}
+
+const FILL_LOCKED = 0;
+const FILL_REFUNDED = 5;
+const FILL_PENDING = 6;
+const FILL_VOIDED = 7;
+const OFFER_OPEN = 0;
+const OFFER_FILLED = 2;
+
 describe("P2POfframp", () => {
   it("happy path: createOffer → takeOffer → submitProof → release after window", async () => {
     const ctx = await loadFixture(deployFixture);
@@ -179,13 +202,19 @@ describe("P2POfframp", () => {
     ).to.emit(ctx.offramp, "OfferCreated");
 
     await expect(ctx.offramp.connect(ctx.bob).takeOffer(0))
-      .to.emit(ctx.offramp, "FillLocked")
-      .and.to.emit(ctx.offramp, "FillEscrowed");
+      .to.emit(ctx.offramp, "FillPending")
+      .and.to.emit(ctx.offramp, "FillEscrowed")
+      .and.to.not.emit(ctx.offramp, "FillLocked");
 
     // Taker can read what was really escrowed before paying fiat.
     expect(await plain(await ctx.offramp.getEscrowedAmount(0))).to.equal(usdc(50));
 
+    // The fiat leg is closed until funding is proven.
     const proof = await proofFor(ctx, 0, ctx.bob);
+    await expect(ctx.offramp.connect(ctx.bob).submitProof(0, proof, RAIL_UPI_PHONEPE))
+      .to.be.revertedWith("P2POfframp: bad state");
+    await expect(confirmFill(ctx, 0)).to.emit(ctx.offramp, "FillLocked");
+
     await expect(ctx.offramp.connect(ctx.bob).submitProof(0, proof, RAIL_UPI_PHONEPE))
       .to.emit(ctx.offramp, "ProofSubmitted");
 
@@ -204,7 +233,7 @@ describe("P2POfframp", () => {
     const ctx = await loadFixture(deployFixture);
     // Alice escrows a real 50 (taken by Bob).
     await makeOffer(ctx, ctx.alice, usdc(50));
-    await ctx.offramp.connect(ctx.bob).takeOffer(0);
+    await takeAndConfirm(ctx, ctx.bob, 0);
 
     // Carol has 10 shielded but offers 50. The vault moves 0 at take.
     await ctx.usdcToken.mint(ctx.carol.address, usdc(10));
@@ -230,7 +259,7 @@ describe("P2POfframp", () => {
   it("dispute path: maker disputes → arbiter resolves to maker → fill Refunded", async () => {
     const ctx = await loadFixture(deployFixture);
     await makeOffer(ctx, ctx.alice, usdc(50));
-    await ctx.offramp.connect(ctx.bob).takeOffer(0);
+    await takeAndConfirm(ctx, ctx.bob, 0);
     await ctx.offramp.connect(ctx.bob).submitProof(0, await proofFor(ctx, 0, ctx.bob), RAIL_UPI_PHONEPE);
 
     await expect(ctx.offramp.connect(ctx.alice).disputeFill(0, "did not receive payment"))
@@ -249,7 +278,7 @@ describe("P2POfframp", () => {
   it("stale dispute: after 7 days without the arbiter, anyone releases to the taker", async () => {
     const ctx = await loadFixture(deployFixture);
     await makeOffer(ctx, ctx.alice, usdc(50));
-    await ctx.offramp.connect(ctx.bob).takeOffer(0);
+    await takeAndConfirm(ctx, ctx.bob, 0);
     await ctx.offramp.connect(ctx.bob).submitProof(0, await proofFor(ctx, 0, ctx.bob), RAIL_UPI_PHONEPE);
     await ctx.offramp.connect(ctx.alice).disputeFill(0, "grief");
 
@@ -270,7 +299,7 @@ describe("P2POfframp", () => {
     const ctx = await loadFixture(deployFixture);
     await makeOffer(ctx, ctx.alice, usdc(20));
     await makeOffer(ctx, ctx.alice, usdc(20));
-    await ctx.offramp.connect(ctx.bob).takeOffer(0);
+    await takeAndConfirm(ctx, ctx.bob, 0);
 
     // Signed for another chain id.
     const wrongChain = await signReclaimMessage(ctx.operator, ctx, 0, ctx.bob.address, RAIL_UPI_PHONEPE, HANDLE, FIAT, 1n);
@@ -285,7 +314,7 @@ describe("P2POfframp", () => {
     await ctx.offramp.connect(ctx.bob).submitProof(0, proof0, RAIL_UPI_PHONEPE);
 
     // Old code accepted fill 0's proof for any fill with the same amount.
-    await ctx.offramp.connect(ctx.bob).takeOffer(1);
+    await takeAndConfirm(ctx, ctx.bob, 1);
     await expect(ctx.offramp.connect(ctx.bob).submitProof(1, proof0, RAIL_UPI_PHONEPE))
       .to.be.revertedWith("MockReclaimVerifier: wrong signer");
   });
@@ -293,7 +322,7 @@ describe("P2POfframp", () => {
   it("providerId must match the offer's rail", async () => {
     const ctx = await loadFixture(deployFixture);
     await makeOffer(ctx, ctx.alice, usdc(50));
-    await ctx.offramp.connect(ctx.bob).takeOffer(0);
+    await takeAndConfirm(ctx, ctx.bob, 0);
     const proof = await signReclaimMessage(ctx.operator, ctx, 0, ctx.bob.address, 4, HANDLE, FIAT);
     await expect(ctx.offramp.connect(ctx.bob).submitProof(0, proof, 4))
       .to.be.revertedWith("P2POfframp: provider/rail mismatch");
@@ -306,6 +335,7 @@ describe("P2POfframp", () => {
     await ctx.offramp.connect(ctx.bob).takeOffer(0);
     await expect(ctx.offramp.connect(ctx.bob).takeOffer(1))
       .to.be.revertedWith("P2POfframp: too many open locks");
+    await confirmFill(ctx, 0);
     await ctx.offramp.connect(ctx.bob).submitProof(0, await proofFor(ctx, 0, ctx.bob), RAIL_UPI_PHONEPE);
     expect(await ctx.offramp.activeLocks(ctx.bob.address)).to.equal(0);
     await ctx.offramp.connect(ctx.bob).takeOffer(1);
@@ -360,7 +390,7 @@ describe("P2POfframp", () => {
   it("expire path: maker reclaims after 24h proof window and the lock is freed", async () => {
     const ctx = await loadFixture(deployFixture);
     await makeOffer(ctx, ctx.alice, usdc(50), 24 * 3600 * 2);
-    await ctx.offramp.connect(ctx.bob).takeOffer(0);
+    await takeAndConfirm(ctx, ctx.bob, 0);
 
     await expect(ctx.offramp.connect(ctx.alice).expireFill(0)).to.be.revertedWith("P2POfframp: proof window open");
     await time.increase(24 * 3600 + 1);
@@ -372,11 +402,174 @@ describe("P2POfframp", () => {
   it("guard: dispute after window closed reverts", async () => {
     const ctx = await loadFixture(deployFixture);
     await makeOffer(ctx, ctx.alice, usdc(50));
-    await ctx.offramp.connect(ctx.bob).takeOffer(0);
+    await takeAndConfirm(ctx, ctx.bob, 0);
     await ctx.offramp.connect(ctx.bob).submitProof(0, await proofFor(ctx, 0, ctx.bob), RAIL_UPI_PHONEPE);
     await time.increase(CHALLENGE_WINDOW + 1);
     await expect(ctx.offramp.connect(ctx.alice).disputeFill(0, "too late"))
       .to.be.revertedWith("P2POfframp: window closed");
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════
+//  Funding gate (C2): the vault moves 0 when the maker is short, so a
+//  fill unlocks the fiat leg only after confirmFunding proves the escrow.
+// ══════════════════════════════════════════════════════════════════
+
+function mapSlot(keyType: string, key: string | bigint | number, slot: bigint | number): bigint {
+  return BigInt(keccak256(AbiCoder.defaultAbiCoder().encode([keyType, "uint256"], [key, slot])));
+}
+
+describe("P2POfframp: funding gate (C2)", () => {
+  async function drainMaker(ctx: any, maker: any) {
+    // Move the maker's whole vault balance away so the offer cannot be funded.
+    const other = ctx.dave;
+    await hre.cofhe.connectWithHardhatSigner(ctx.client, maker);
+    const enc = await ctx.client.encryptInputs([Encryptable.uint64(usdc(100))]).setConsumingContract(await ctx.vault.getAddress()).execute();
+    await ctx.vault.connect(maker).transfer(other.address, ...enc);
+  }
+
+  it("funded fill: Pending → confirmFunding → Locked, proof window restarts at confirmation", async () => {
+    const ctx = await loadFixture(deployFixture);
+    await makeOffer(ctx, ctx.alice, usdc(50));
+    await ctx.offramp.connect(ctx.bob).takeOffer(0);
+
+    const [, , , , , , pendingState] = await ctx.offramp.getFill(0);
+    expect(pendingState).to.equal(FILL_PENDING);
+    expect((await ctx.offramp.offers(0)).state).to.equal(OFFER_FILLED);
+    expect(await ctx.offramp.activeLocks(ctx.bob.address)).to.equal(1);
+
+    await time.increase(3 * 3600);
+    await confirmFill(ctx, 0);
+    const [, , , lockedAt, , , lockedState] = await ctx.offramp.getFill(0);
+    expect(lockedState).to.equal(FILL_LOCKED);
+    expect(Number(lockedAt)).to.be.greaterThan((await time.latest()) - 5);
+    await ctx.offramp.connect(ctx.bob).submitProof(0, await proofFor(ctx, 0, ctx.bob), RAIL_UPI_PHONEPE);
+  });
+
+  it("drained maker: fill is voided, offer reopens, lock freed, fiat leg never opens", async () => {
+    const ctx = await loadFixture(deployFixture);
+    await makeOffer(ctx, ctx.alice, usdc(50));
+    await drainMaker(ctx, ctx.alice);
+
+    await ctx.offramp.connect(ctx.bob).takeOffer(0);
+    expect(await plain(await ctx.offramp.getEscrowedAmount(0))).to.equal(0n);
+    await expect(ctx.offramp.connect(ctx.bob).submitProof(0, await proofFor(ctx, 0, ctx.bob), RAIL_UPI_PHONEPE))
+      .to.be.revertedWith("P2POfframp: bad state");
+
+    await expect(confirmFill(ctx, 0))
+      .to.emit(ctx.offramp, "FillVoided").withArgs(0, 0)
+      .and.to.not.emit(ctx.offramp, "FillLocked");
+    const [, , , , , , state] = await ctx.offramp.getFill(0);
+    expect(state).to.equal(FILL_VOIDED);
+    expect((await ctx.offramp.offers(0)).state).to.equal(OFFER_OPEN);
+    expect(await ctx.offramp.activeLocks(ctx.bob.address)).to.equal(0);
+    await expect(ctx.offramp.connect(ctx.bob).submitProof(0, await proofFor(ctx, 0, ctx.bob), RAIL_UPI_PHONEPE))
+      .to.be.revertedWith("P2POfframp: bad state");
+    await expect(ctx.offramp.connect(ctx.alice).expireFill(0)).to.be.revertedWith("P2POfframp: bad state");
+
+    // The maker can cancel the dead offer, and the taker is free to try elsewhere.
+    await expect(ctx.offramp.connect(ctx.alice).cancelOffer(0)).to.emit(ctx.offramp, "OfferCancelled");
+  });
+
+  it("a voided offer is open again: once the maker is funded, a second taker can lock it", async () => {
+    const ctx = await loadFixture(deployFixture);
+    await makeOffer(ctx, ctx.alice, usdc(50));
+    await drainMaker(ctx, ctx.alice);
+    await ctx.offramp.connect(ctx.bob).takeOffer(0);
+    await confirmFill(ctx, 0);
+    expect((await ctx.offramp.offers(0)).state).to.equal(OFFER_OPEN);
+
+    await ctx.usdcToken.connect(ctx.alice).approve(await ctx.vault.getAddress(), usdc(100));
+    await ctx.vault.connect(ctx.alice).shield(usdc(100));
+    await takeAndConfirm(ctx, ctx.carol, 0);
+    const [, taker, , , , , state] = await ctx.offramp.getFill(1);
+    expect(taker).to.equal(ctx.carol.address);
+    expect(state).to.equal(FILL_LOCKED);
+    expect(await plain(await ctx.offramp.getEscrowedAmount(1))).to.equal(usdc(50));
+  });
+
+  it("an offer of 0 can never be locked", async () => {
+    const ctx = await loadFixture(deployFixture);
+    await makeOffer(ctx, ctx.alice, 0n);
+    await ctx.offramp.connect(ctx.bob).takeOffer(0);
+    await confirmFill(ctx, 0);
+    const [, , , , , , state] = await ctx.offramp.getFill(0);
+    expect(state).to.equal(FILL_VOIDED);
+  });
+
+  it("takeOfferExpecting: escrow at or above the minimum locks", async () => {
+    const ctx = await loadFixture(deployFixture);
+    await makeOffer(ctx, ctx.alice, usdc(50));
+    await ctx.offramp.connect(ctx.bob).takeOfferExpecting(0, usdc(50));
+    await confirmFill(ctx, 0);
+    const [, , , , , , state] = await ctx.offramp.getFill(0);
+    expect(state).to.equal(FILL_LOCKED);
+  });
+
+  it("takeOfferExpecting: escrow below the minimum voids and returns the escrow to the maker", async () => {
+    const ctx = await loadFixture(deployFixture);
+    await makeOffer(ctx, ctx.alice, usdc(20));
+    await ctx.offramp.connect(ctx.bob).takeOfferExpecting(0, usdc(50));
+    expect(await plain(await ctx.offramp.getEscrowedAmount(0))).to.equal(usdc(20));
+    expect(await plain(await ctx.vault.balanceOf(ctx.alice.address))).to.equal(usdc(80));
+
+    await expect(confirmFill(ctx, 0)).to.emit(ctx.offramp, "FillVoided");
+    const [, , , , , , state] = await ctx.offramp.getFill(0);
+    expect(state).to.equal(FILL_VOIDED);
+    expect(await plain(await ctx.vault.balanceOf(ctx.alice.address))).to.equal(usdc(100));
+    expect((await ctx.offramp.offers(0)).state).to.equal(OFFER_OPEN);
+  });
+
+  it("anyone can confirm, once; unknown fills and forged flags revert", async () => {
+    const ctx = await loadFixture(deployFixture);
+    await makeOffer(ctx, ctx.alice, usdc(50));
+    await drainMaker(ctx, ctx.alice);
+    await ctx.offramp.connect(ctx.bob).takeOffer(0);
+
+    await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.owner);
+    const proof = await ctx.client.decryptForTx(await ctx.offramp.fillFunded(0), FheTypes.Bool).withoutACP().execute();
+    expect(Boolean(proof.decryptedValue)).to.equal(false);
+    await expect(ctx.offramp.connect(ctx.carol).confirmFunding(0, true, proof.signature)).to.be.reverted;
+    const [, , , , , , stillPending] = await ctx.offramp.getFill(0);
+    expect(stillPending).to.equal(FILL_PENDING);
+
+    await confirmFill(ctx, 0, ctx.carol);
+    await expect(confirmFill(ctx, 0)).to.be.revertedWith("P2POfframp: fill not pending");
+    await expect(ctx.offramp.confirmFunding(77, true, "0x")).to.be.revertedWith("P2POfframp: fill not pending");
+  });
+
+  it("an unconfirmed funded fill is reclaimable by the maker after the proof window", async () => {
+    const ctx = await loadFixture(deployFixture);
+    await makeOffer(ctx, ctx.alice, usdc(50), 3 * 24 * 3600);
+    await ctx.offramp.connect(ctx.bob).takeOffer(0);
+    await expect(ctx.offramp.connect(ctx.alice).expireFill(0)).to.be.revertedWith("P2POfframp: proof window open");
+    await time.increase(24 * 3600 + 1);
+    await expect(ctx.offramp.connect(ctx.alice).expireFill(0)).to.emit(ctx.offramp, "FillRefunded");
+    const [, , , , , , state] = await ctx.offramp.getFill(0);
+    expect(state).to.equal(FILL_REFUNDED);
+    expect(await plain(await ctx.vault.balanceOf(ctx.alice.address))).to.equal(usdc(100));
+    expect(await ctx.offramp.activeLocks(ctx.bob.address)).to.equal(0);
+    await expect(confirmFill(ctx, 0)).to.be.revertedWith("P2POfframp: fill not pending");
+  });
+
+  it("legacy Locked fills (no funded bit) keep working: proof, challenge window, release", async () => {
+    const ctx = await loadFixture(deployFixture);
+    await makeOffer(ctx, ctx.alice, usdc(50));
+    await ctx.offramp.connect(ctx.bob).takeOffer(0);
+    // Emulate a fill created before the gate: Locked, funded bit never set.
+    const offrampAddr = await ctx.offramp.getAddress();
+    const fillBase = mapSlot("uint64", 0, 6); // fills mapping
+    await hre.network.provider.send("hardhat_setStorageAt", [offrampAddr, hre.ethers.toBeHex(fillBase + 4n, 32), hre.ethers.toBeHex(0, 32)]);
+    const fundedSlot = mapSlot("uint64", 0, 14); // fillFunded mapping
+    await hre.network.provider.send("hardhat_setStorageAt", [offrampAddr, hre.ethers.toBeHex(fundedSlot, 32), hre.ethers.toBeHex(0, 32)]);
+    const [, , , , , , state] = await ctx.offramp.getFill(0);
+    expect(state).to.equal(FILL_LOCKED);
+
+    await ctx.offramp.connect(ctx.bob).submitProof(0, await proofFor(ctx, 0, ctx.bob), RAIL_UPI_PHONEPE);
+    await time.increase(CHALLENGE_WINDOW + 1);
+    await ctx.offramp.releaseFill(0);
+    expect(await plain(await ctx.vault.balanceOf(ctx.bob.address))).to.equal(usdc(50));
+    await expect(ctx.offramp.confirmFunding(0, true, "0x")).to.be.revertedWith("P2POfframp: fill not pending");
   });
 });
 

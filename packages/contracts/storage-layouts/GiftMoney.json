@@ -1,7 +1,7 @@
 {
   "storage": [
     {
-      "astId": 80940,
+      "astId": 83367,
       "contract": "contracts/GiftMoney.sol:GiftMoney",
       "label": "_status",
       "offset": 0,
@@ -9,15 +9,15 @@
       "type": "t_uint256"
     },
     {
-      "astId": 60643,
+      "astId": 59379,
       "contract": "contracts/GiftMoney.sol:GiftMoney",
       "label": "eventHub",
       "offset": 0,
       "slot": "1",
-      "type": "t_contract(IEventHub)60601"
+      "type": "t_contract(IEventHub)59337"
     },
     {
-      "astId": 60645,
+      "astId": 59381,
       "contract": "contracts/GiftMoney.sol:GiftMoney",
       "label": "nextEnvelopeId",
       "offset": 0,
@@ -25,15 +25,15 @@
       "type": "t_uint256"
     },
     {
-      "astId": 60650,
+      "astId": 59386,
       "contract": "contracts/GiftMoney.sol:GiftMoney",
       "label": "_envelopes",
       "offset": 0,
       "slot": "3",
-      "type": "t_mapping(t_uint256,t_struct(GiftEnvelope)60640_storage)"
+      "type": "t_mapping(t_uint256,t_struct(GiftEnvelope)59376_storage)"
     },
     {
-      "astId": 60656,
+      "astId": 59392,
       "contract": "contracts/GiftMoney.sol:GiftMoney",
       "label": "_recipients",
       "offset": 0,
@@ -41,7 +41,7 @@
       "type": "t_mapping(t_uint256,t_array(t_address)dyn_storage)"
     },
     {
-      "astId": 60664,
+      "astId": 59400,
       "contract": "contracts/GiftMoney.sol:GiftMoney",
       "label": "_shares",
       "offset": 0,
@@ -49,7 +49,7 @@
       "type": "t_mapping(t_uint256,t_mapping(t_address,t_userDefinedValueType(euint64)13136))"
     },
     {
-      "astId": 60671,
+      "astId": 59407,
       "contract": "contracts/GiftMoney.sol:GiftMoney",
       "label": "opened",
       "offset": 0,
@@ -57,7 +57,7 @@
       "type": "t_mapping(t_uint256,t_mapping(t_address,t_bool))"
     },
     {
-      "astId": 60678,
+      "astId": 59414,
       "contract": "contracts/GiftMoney.sol:GiftMoney",
       "label": "isRecipient",
       "offset": 0,
@@ -65,7 +65,7 @@
       "type": "t_mapping(t_uint256,t_mapping(t_address,t_bool))"
     },
     {
-      "astId": 60684,
+      "astId": 59420,
       "contract": "contracts/GiftMoney.sol:GiftMoney",
       "label": "_receivedEnvelopes",
       "offset": 0,
@@ -73,7 +73,7 @@
       "type": "t_mapping(t_address,t_array(t_uint256)dyn_storage)"
     },
     {
-      "astId": 60690,
+      "astId": 59426,
       "contract": "contracts/GiftMoney.sol:GiftMoney",
       "label": "_sentEnvelopes",
       "offset": 0,
@@ -81,7 +81,7 @@
       "type": "t_mapping(t_address,t_array(t_uint256)dyn_storage)"
     },
     {
-      "astId": 60695,
+      "astId": 59436,
       "contract": "contracts/GiftMoney.sol:GiftMoney",
       "label": "paymentReceipts",
       "offset": 0,
@@ -89,20 +89,36 @@
       "type": "t_address"
     },
     {
-      "astId": 61548,
+      "astId": 60554,
       "contract": "contracts/GiftMoney.sol:GiftMoney",
       "label": "tokenRegistry",
       "offset": 0,
       "slot": "11",
-      "type": "t_contract(ITokenRegistry)79050"
+      "type": "t_contract(ITokenRegistry)80281"
     },
     {
-      "astId": 61552,
+      "astId": 60560,
+      "contract": "contracts/GiftMoney.sol:GiftMoney",
+      "label": "fundingStatus",
+      "offset": 0,
+      "slot": "12",
+      "type": "t_mapping(t_uint256,t_enum(FundingStatus)59434)"
+    },
+    {
+      "astId": 60566,
+      "contract": "contracts/GiftMoney.sol:GiftMoney",
+      "label": "_fundedCheck",
+      "offset": 0,
+      "slot": "13",
+      "type": "t_mapping(t_uint256,t_userDefinedValueType(ebool)13128)"
+    },
+    {
+      "astId": 60570,
       "contract": "contracts/GiftMoney.sol:GiftMoney",
       "label": "__gap",
       "offset": 0,
-      "slot": "12",
-      "type": "t_array(t_uint256)49_storage"
+      "slot": "14",
+      "type": "t_array(t_uint256)47_storage"
     }
   ],
   "types": {
@@ -117,11 +133,11 @@
       "label": "address[]",
       "numberOfBytes": "32"
     },
-    "t_array(t_uint256)49_storage": {
+    "t_array(t_uint256)47_storage": {
       "base": "t_uint256",
       "encoding": "inplace",
-      "label": "uint256[49]",
-      "numberOfBytes": "1568"
+      "label": "uint256[47]",
+      "numberOfBytes": "1504"
     },
     "t_array(t_uint256)dyn_storage": {
       "base": "t_uint256",
@@ -134,15 +150,20 @@
       "label": "bool",
       "numberOfBytes": "1"
     },
-    "t_contract(IEventHub)60601": {
+    "t_contract(IEventHub)59337": {
       "encoding": "inplace",
       "label": "contract IEventHub",
       "numberOfBytes": "20"
     },
-    "t_contract(ITokenRegistry)79050": {
+    "t_contract(ITokenRegistry)80281": {
       "encoding": "inplace",
       "label": "contract ITokenRegistry",
       "numberOfBytes": "20"
+    },
+    "t_enum(FundingStatus)59434": {
+      "encoding": "inplace",
+      "label": "enum GiftMoney.FundingStatus",
+      "numberOfBytes": "1"
     },
     "t_mapping(t_address,t_array(t_uint256)dyn_storage)": {
       "encoding": "mapping",
@@ -172,6 +193,13 @@
       "numberOfBytes": "32",
       "value": "t_array(t_address)dyn_storage"
     },
+    "t_mapping(t_uint256,t_enum(FundingStatus)59434)": {
+      "encoding": "mapping",
+      "key": "t_uint256",
+      "label": "mapping(uint256 => enum GiftMoney.FundingStatus)",
+      "numberOfBytes": "32",
+      "value": "t_enum(FundingStatus)59434"
+    },
     "t_mapping(t_uint256,t_mapping(t_address,t_bool))": {
       "encoding": "mapping",
       "key": "t_uint256",
@@ -186,24 +214,31 @@
       "numberOfBytes": "32",
       "value": "t_mapping(t_address,t_userDefinedValueType(euint64)13136)"
     },
-    "t_mapping(t_uint256,t_struct(GiftEnvelope)60640_storage)": {
+    "t_mapping(t_uint256,t_struct(GiftEnvelope)59376_storage)": {
       "encoding": "mapping",
       "key": "t_uint256",
       "label": "mapping(uint256 => struct GiftMoney.GiftEnvelope)",
       "numberOfBytes": "32",
-      "value": "t_struct(GiftEnvelope)60640_storage"
+      "value": "t_struct(GiftEnvelope)59376_storage"
+    },
+    "t_mapping(t_uint256,t_userDefinedValueType(ebool)13128)": {
+      "encoding": "mapping",
+      "key": "t_uint256",
+      "label": "mapping(uint256 => ebool)",
+      "numberOfBytes": "32",
+      "value": "t_userDefinedValueType(ebool)13128"
     },
     "t_string_storage": {
       "encoding": "bytes",
       "label": "string",
       "numberOfBytes": "32"
     },
-    "t_struct(GiftEnvelope)60640_storage": {
+    "t_struct(GiftEnvelope)59376_storage": {
       "encoding": "inplace",
       "label": "struct GiftMoney.GiftEnvelope",
       "members": [
         {
-          "astId": 60625,
+          "astId": 59361,
           "contract": "contracts/GiftMoney.sol:GiftMoney",
           "label": "sender",
           "offset": 0,
@@ -211,7 +246,7 @@
           "type": "t_address"
         },
         {
-          "astId": 60627,
+          "astId": 59363,
           "contract": "contracts/GiftMoney.sol:GiftMoney",
           "label": "vault",
           "offset": 0,
@@ -219,7 +254,7 @@
           "type": "t_address"
         },
         {
-          "astId": 60629,
+          "astId": 59365,
           "contract": "contracts/GiftMoney.sol:GiftMoney",
           "label": "recipientCount",
           "offset": 0,
@@ -227,7 +262,7 @@
           "type": "t_uint256"
         },
         {
-          "astId": 60631,
+          "astId": 59367,
           "contract": "contracts/GiftMoney.sol:GiftMoney",
           "label": "claimedCount",
           "offset": 0,
@@ -235,7 +270,7 @@
           "type": "t_uint256"
         },
         {
-          "astId": 60633,
+          "astId": 59369,
           "contract": "contracts/GiftMoney.sol:GiftMoney",
           "label": "note",
           "offset": 0,
@@ -243,7 +278,7 @@
           "type": "t_string_storage"
         },
         {
-          "astId": 60635,
+          "astId": 59371,
           "contract": "contracts/GiftMoney.sol:GiftMoney",
           "label": "timestamp",
           "offset": 0,
@@ -251,7 +286,7 @@
           "type": "t_uint256"
         },
         {
-          "astId": 60637,
+          "astId": 59373,
           "contract": "contracts/GiftMoney.sol:GiftMoney",
           "label": "active",
           "offset": 0,
@@ -259,7 +294,7 @@
           "type": "t_bool"
         },
         {
-          "astId": 60639,
+          "astId": 59375,
           "contract": "contracts/GiftMoney.sol:GiftMoney",
           "label": "expiryTimestamp",
           "offset": 0,
@@ -272,6 +307,11 @@
     "t_uint256": {
       "encoding": "inplace",
       "label": "uint256",
+      "numberOfBytes": "32"
+    },
+    "t_userDefinedValueType(ebool)13128": {
+      "encoding": "inplace",
+      "label": "ebool",
       "numberOfBytes": "32"
     },
     "t_userDefinedValueType(euint64)13136": {

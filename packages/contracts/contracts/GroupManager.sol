@@ -8,7 +8,6 @@ import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "./interfaces/ITokenRegistry.sol";
 
 interface IFHERC20Vault {
-    function transferFrom(address from, address to, externalEuint64 encAmount, bytes calldata proof) external returns (euint64);
     function transferFromVerified(address from, address to, sharedEuint64 shared) external returns (sharedEuint64);
 }
 
@@ -77,6 +76,11 @@ contract GroupManager is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     event MemberRemoved(uint256 indexed groupId, address indexed member, uint256 timestamp);
     event AdminAdded(uint256 indexed groupId, address indexed admin, uint256 timestamp);
     event ExpenseAdded(uint256 indexed groupId, uint256 expenseId, address indexed payer, string description, uint256 timestamp);
+    /// @notice A settlement was attempted. It does NOT mean money moved: the
+    ///         vault moves 0 on a short balance and no revert can say so.
+    ///         Debts change only by the amount actually moved, so a zero
+    ///         attempt leaves every balance as it was and creates no
+    ///         obligation. Read DebtSettledEncrypted for the amount.
     event DebtSettled(uint256 indexed groupId, address indexed from, address indexed to, uint256 timestamp);
     /// @notice Encrypted actual-transferred amount for a settlement.
     ///         The vault may have transferred less than requested if balance/allowance

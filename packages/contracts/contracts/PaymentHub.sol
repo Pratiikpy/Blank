@@ -10,9 +10,7 @@ import "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {ITokenRegistry} from "./interfaces/ITokenRegistry.sol";
 
 interface IFHERC20Vault {
-    function transferFrom(address from, address to, externalEuint64 encAmount, bytes calldata proof) external returns (euint64);
     function transferFromVerified(address from, address to, sharedEuint64 shared) external returns (sharedEuint64);
-    function transfer(address to, externalEuint64 encAmount, bytes calldata proof) external returns (euint64);
 }
 
 interface IEventHub {
@@ -132,6 +130,8 @@ contract PaymentHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     event RequestSettling(uint256 indexed requestId, uint256 timestamp);
     /// @notice The attempt moved nothing; the request is Pending again.
     event RequestFulfillFailed(uint256 indexed requestId, uint256 timestamp);
+    /// @notice A Settling request was returned to Pending after the timeout.
+    event RequestSettlingReopened(uint256 indexed requestId, address indexed by, uint256 timestamp);
 
     // ─── Initializer ────────────────────────────────────────────────────
 
@@ -249,12 +249,25 @@ contract PaymentHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
         // Verify encrypted input here (msg.sender = user) before cross-contract call
         euint64 verifiedAmount = FHE.asEuint64(encAmount, proof);
-        euint64 toSend = FHE.select(FHE.eq(verifiedAmount, req.amount), req.amount, FHE.asEuint64(0));
+        ebool amountMatches = FHE.eq(verifiedAmount, req.amount);
+
+        // A reopened request may already have been paid by an earlier attempt
+        // whose decryption was never delivered. Fold that attempt in under
+        // FHE so a retry cannot pay twice: if the earlier attempt moved the
+        // funds, this one sends nothing and keeps the earlier moved amount.
+        ebool prevPaid = _fulfillCheck[requestId];
+        bool hasPrev = FHE.isInitialized(prevPaid);
+        euint64 toSend = FHE.select(
+            hasPrev ? FHE.and(amountMatches, FHE.not(prevPaid)) : amountMatches,
+            req.amount,
+            FHE.asEuint64(0)
+        );
 
         euint64 actual = FHE.receiveEuint64FromCall(
             IFHERC20Vault(req.vault).transferFromVerified(msg.sender, req.to, FHE.shareEuint64(toSend, req.vault)),
             req.vault
         );
+        if (hasPrev) actual = FHE.select(prevPaid, _fulfillMoved[requestId], actual);
         FHE.allowSender(actual);  // Payer can verify transfer succeeded
         FHE.allow(actual, req.to);
         FHE.allowThis(actual);    // Needed for the bump in finalizeRequest
@@ -264,9 +277,32 @@ contract PaymentHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         FHE.allowPublic(paid);
         _fulfillCheck[requestId] = paid;
         _fulfillMoved[requestId] = actual;
+        _settlingSince[requestId] = block.timestamp;
         req.status = RequestStatus.Settling;
 
         emit RequestSettling(requestId, block.timestamp);
+    }
+
+    /// @notice Recovery for a request stuck in Settling because its
+    ///         decryption was never delivered. After SETTLING_TIMEOUT either
+    ///         party may return it to Pending, from where the creator can
+    ///         cancel it or the payer can retry.
+    /// @dev    No decryption is consulted. If the abandoned attempt did move
+    ///         the funds, the retry in fulfillRequest sees the earlier check
+    ///         under FHE and sends nothing, so the payer cannot pay twice.
+    ///         finalizeRequest is the path that settles a delivered
+    ///         decryption.
+    function reopenSettlingRequest(uint256 requestId) external nonReentrant {
+        PaymentRequest storage req = _requests[requestId];
+        require(req.status == RequestStatus.Settling, "PaymentHub: not settling");
+        require(msg.sender == req.from || msg.sender == req.to, "PaymentHub: not a party");
+        require(
+            block.timestamp >= _settlingSince[requestId] + SETTLING_TIMEOUT,
+            "PaymentHub: settling not expired"
+        );
+
+        req.status = RequestStatus.Pending;
+        emit RequestSettlingReopened(requestId, msg.sender, block.timestamp);
     }
 
     /// @notice Settle a paid request (step 2 of 2). Anyone may call with the
@@ -549,8 +585,16 @@ contract PaymentHub is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     /// @dev requestId => handle moved by the last fulfillRequest attempt.
     mapping(uint256 => euint64) private _fulfillMoved;
 
-    /// @dev Used: 11. Gap: 47.
-    uint256[47] private __gap;
+    /// @dev requestId => timestamp of the last fulfillRequest attempt. Zero
+    ///      for requests that entered Settling before this slot existed, which
+    ///      makes them reopenable immediately.
+    mapping(uint256 => uint256) private _settlingSince;
+
+    /// @notice Time after which a Settling request can be reopened.
+    uint256 public constant SETTLING_TIMEOUT = 1 days;
+
+    /// @dev Used: 12. Gap: 46.
+    uint256[46] private __gap;
 
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 }

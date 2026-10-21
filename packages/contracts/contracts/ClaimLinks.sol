@@ -10,7 +10,6 @@ import "./utils/ReentrancyGuard.sol";
 import "./interfaces/ITokenRegistry.sol";
 
 interface IFHERC20Vault {
-    function transferFrom(address from, address to, externalEuint64 encAmount, bytes calldata proof) external returns (euint64);
     function transferFromVerified(address from, address to, sharedEuint64 shared) external returns (sharedEuint64);
     function transferVerified(address to, sharedEuint64 shared) external returns (sharedEuint64);
 }
@@ -53,6 +52,13 @@ interface IPaymentReceipts {
 ///      vault before creating links.
 ///
 ///      One-shot: claimed/refunded links cannot be reused.
+///
+///      Funding gate: the vault moves zero, rather than reverting, when the
+///      sender's balance is short. A new link therefore starts PendingFunding
+///      and only becomes claimable once the single "locked the requested
+///      amount" bit has been decrypted and published (confirmFunding). A short
+///      sender ends Void with nothing locked. Links created before the gate
+///      read as Active and are unaffected.
 contract ClaimLinks is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
     // ─── Domain separator (versioned hash scheme) ─────────────────────────
@@ -63,6 +69,10 @@ contract ClaimLinks is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     // ─── Types ────────────────────────────────────────────────────────────
 
     enum LinkMode { Bearer, EmailBound, AddressBound }
+
+    /// @dev Active is zero so every link created before the funding gate reads
+    ///      as Active without a migration.
+    enum FundingStatus { Active, PendingFunding, Void }
 
     /// @dev Upper bound on per-link expiry. Prevents `type(uint256).max` shenanigans
     /// and makes "infinite" links impossible. Senders pass a value <= this OR pass
@@ -131,6 +141,12 @@ contract ClaimLinks is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     event ReceiptsBumpFailed(string kind, bytes reason);
     event PaymentReceiptsSet(address indexed previous, address indexed current);
 
+    /// @notice The funded bit decrypted true: the link is claimable.
+    event LinkFunded(uint256 indexed linkId, address indexed sender);
+    /// @notice The link never became claimable (unfunded, or cancelled while
+    ///         pending). Anything locked went back to the sender.
+    event LinkVoided(uint256 indexed linkId, address indexed sender);
+
     // ─── Initializer ──────────────────────────────────────────────────────
 
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -146,7 +162,9 @@ contract ClaimLinks is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
     // ─── Create Link ──────────────────────────────────────────────────────
 
-    /// @notice Create a claim link.
+    /// @notice Create a claim link. It starts PendingFunding: decrypt
+    ///         getFundingCheck(linkId) and pass it to confirmFunding to make it
+    ///         claimable (or Void when the sender's balance was short).
     ///
     /// @param vault            FHERC20Vault address for the token.
     /// @param encAmount        Encrypted amount, locked into this contract.
@@ -201,6 +219,14 @@ contract ClaimLinks is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         FHE.allowThis(locked);
 
         linkId = nextLinkId++;
+        // The vault moves all or nothing, so `locked` is the requested amount
+        // or zero. The equality term keeps "funded" exact if that ever changes.
+        ebool funded = FHE.and(FHE.gt(locked, FHE.asEuint64(0)), FHE.eq(locked, verified));
+        FHE.allowThis(funded);
+        FHE.allowPublic(funded);
+        _fundedCheck[linkId] = funded;
+        fundingStatus[linkId] = FundingStatus.PendingFunding;
+
         _links[linkId] = ClaimLink({
             sender: msg.sender,
             vault: vault,
@@ -266,6 +292,7 @@ contract ClaimLinks is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         require(!link.claimed, "ClaimLinks: already claimed");
         require(!link.refunded, "ClaimLinks: refunded");
         require(block.timestamp < link.expiryTimestamp, "ClaimLinks: expired");
+        _requireFunded(linkId);
         // Reject self-claim. A sender claiming their own link is a
         // no-op net for the vault (transferFrom self → contract +
         // transferVerified contract → self), but _release calls
@@ -312,6 +339,8 @@ contract ClaimLinks is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         require(!link.claimed, "ClaimLinks: already claimed");
         require(!link.refunded, "ClaimLinks: already refunded");
         require(block.timestamp >= link.expiryTimestamp, "ClaimLinks: not yet expired");
+        // Pending links use cancelPendingLink; Void links hold nothing.
+        _requireFunded(linkId);
 
         link.refunded = true;
 
@@ -325,6 +354,66 @@ contract ClaimLinks is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
         emit LinkRefunded(linkId, msg.sender, block.timestamp);
         try eventHub.emitActivity(msg.sender, address(0), "claim_link_refunded", link.note, linkId) {} catch {}
+    }
+
+    // ─── Funding gate ─────────────────────────────────────────────────────
+
+    /// @notice Settle a PendingFunding link. Anyone may call with the
+    ///         Threshold Network decryption of getFundingCheck(linkId).
+    ///         true: the link becomes claimable. false: nothing was locked and
+    ///         the link is Void. The published value, not the argument, decides
+    ///         the outcome.
+    function confirmFunding(uint256 linkId, bool funded, bytes calldata signature) external nonReentrant {
+        ClaimLink storage link = _links[linkId];
+        require(fundingStatus[linkId] == FundingStatus.PendingFunding, "ClaimLinks: not pending funding");
+        ebool check = _fundedCheck[linkId];
+        (, bool published) = FHE.getDecryptResultSafe(check);
+        if (!published) FHE.publishDecryptResult(check, funded, signature);
+        (bool ok, bool ready) = FHE.getDecryptResultSafe(check);
+        require(ready, "ClaimLinks: decryption not ready");
+
+        if (ok) {
+            fundingStatus[linkId] = FundingStatus.Active;
+            emit LinkFunded(linkId, link.sender);
+        } else {
+            _voidLink(linkId, link);
+        }
+    }
+
+    /// @notice The sender abandons a link that is still PendingFunding, for
+    ///         example when the funding decryption is slow. Whatever was locked
+    ///         (nothing, when the balance was short) goes back.
+    function cancelPendingLink(uint256 linkId) external nonReentrant {
+        ClaimLink storage link = _links[linkId];
+        require(fundingStatus[linkId] == FundingStatus.PendingFunding, "ClaimLinks: not pending funding");
+        require(link.sender == msg.sender, "ClaimLinks: not sender");
+        _voidLink(linkId, link);
+    }
+
+    /// @notice The public ebool "locked == requested and > 0" for a link created
+    ///         under the funding gate. Uninitialized for older links.
+    function getFundingCheck(uint256 linkId) external view returns (ebool) {
+        return _fundedCheck[linkId];
+    }
+
+    function _requireFunded(uint256 linkId) internal view {
+        FundingStatus status = fundingStatus[linkId];
+        require(status != FundingStatus.PendingFunding, "ClaimLinks: funding pending");
+        require(status != FundingStatus.Void, "ClaimLinks: link unfunded");
+    }
+
+    /// @dev Returns whatever the link holds to the sender. That is zero for an
+    ///      unfunded link, so the transfer is a no-op in practice and only
+    ///      matters if the vault ever moved a partial amount.
+    function _voidLink(uint256 linkId, ClaimLink storage link) internal {
+        fundingStatus[linkId] = FundingStatus.Void;
+        euint64 returned = FHE.receiveEuint64FromCall(
+            IFHERC20Vault(link.vault).transferVerified(link.sender, FHE.shareEuint64(link.encAmount, link.vault)),
+            link.vault
+        );
+        FHE.allowThis(returned);
+        FHE.allow(returned, link.sender);
+        emit LinkVoided(linkId, link.sender);
     }
 
     // ─── Views ────────────────────────────────────────────────────────────
@@ -373,10 +462,16 @@ contract ClaimLinks is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     // ─── Admin ────────────────────────────────────────────────────────────
 
     function setEventHub(address _eventHub) external onlyOwner {
+        require(_eventHub.code.length > 0, "ClaimLinks: bad event hub");
         eventHub = IEventHub(_eventHub);
     }
 
+    /// @dev Zero turns the receipts bump off; anything else must be a contract.
     function setPaymentReceipts(address _paymentReceipts) external onlyOwner {
+        require(
+            _paymentReceipts == address(0) || _paymentReceipts.code.length > 0,
+            "ClaimLinks: bad receipts"
+        );
         address previous = paymentReceipts;
         paymentReceipts = _paymentReceipts;
         emit PaymentReceiptsSet(previous, _paymentReceipts);
@@ -404,13 +499,18 @@ contract ClaimLinks is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 
-    /// @dev Append-only storage. Original 8 slots, then tokenRegistry and claimKeyOf.
+    /// @dev Append-only storage. Original 8 slots, then tokenRegistry, claimKeyOf,
+    /// fundingStatus and _fundedCheck.
     /// Decrement gap by 1 when adding a new state variable; total slots
     /// (used + gap) must stay constant across UUPS upgrades.
     ITokenRegistry public tokenRegistry;
     /// @dev linkId => one-time claim key. Zero for links created before v2.
     mapping(uint256 => address) public claimKeyOf;
-    uint256[48] private __gap;
+    /// @dev linkId => funding gate state. Active (zero) for pre-gate links.
+    mapping(uint256 => FundingStatus) public fundingStatus;
+    /// @dev linkId => public "funded" bit decrypted by confirmFunding.
+    mapping(uint256 => ebool) private _fundedCheck;
+    uint256[46] private __gap;
 
     event TokenRegistrySet(address indexed registry);
 

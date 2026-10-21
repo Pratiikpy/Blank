@@ -885,9 +885,9 @@ describe("BusinessHub", () => {
 
     // After whitelisting, the require gate flips — the call no longer
     // reverts WITH the "vault not authorized" message. It may revert
-    // for orthogonal reasons (the underlying FHE.allowThis on a
-    // returned-handle path needs the vault to pre-grant
-    // PaymentReceipts on each balance, which is wired separately).
+    // for orthogonal reasons (the vault owner has not trusted
+    // PaymentReceipts as a balance reader and the user has not
+    // consented; SharedHandlesAndCounters covers that path).
     // What matters for THIS fix is that the whitelist gate works.
     await ctx.paymentReceipts.setAuthorizedVault(await ctx.vault.getAddress(), true);
     await expect(
@@ -1871,6 +1871,15 @@ async function wireTokenRegistry(base: any, hub: any) {
   return registry;
 }
 
+// A new envelope is PendingFunding until its public "every share moved" bit is
+// decrypted and published, the way the app's automatic second step does.
+async function confirmEnvelopeFunding(ctx: any, hub: any, envelopeId: number | bigint) {
+  const handle = await hub.getFundingCheck(envelopeId);
+  await hre.cofhe.connectWithHardhatSigner(ctx.client, ctx.owner);
+  const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutACP().execute();
+  await hub.connect(ctx.owner).confirmFunding(envelopeId, Boolean(proof.decryptedValue), proof.signature);
+}
+
 describe("GiftMoney expiry enforcement (#241)", () => {
   async function deployGiftFixture() {
     const base = await deployBlankFixture();
@@ -1902,6 +1911,7 @@ describe("GiftMoney expiry enforcement (#241)", () => {
         "Happy new year",
         expiry,
       );
+    await confirmEnvelopeFunding(ctx, ctx.giftMoney, 0);
 
     // Advance time past expiry (120s > 60s deadline).
     await hre.network.provider.send("evm_increaseTime", [120]);
@@ -1933,6 +1943,7 @@ describe("GiftMoney expiry enforcement (#241)", () => {
         "Forever gift",
         0, // 0 = no expiry
       );
+    await confirmEnvelopeFunding(ctx, ctx.giftMoney, 0);
 
     // Even after a big time jump the claim should still work.
     await hre.network.provider.send("evm_increaseTime", [365 * 24 * 3600]);
@@ -2211,6 +2222,8 @@ describe("GiftMoney receipts wiring (#204)", () => {
       "team bonus",
       0,
     );
+    // Receipts are bumped when the envelope's funding is confirmed, not at create.
+    await confirmEnvelopeFunding(ctx, ctx.giftMoney, 0);
 
     // Each recipient's encrypted _totalReceived should match their share.
     const bobTotal = await ctx.paymentReceipts.connect(ctx.bob).getMyTotalReceived();
@@ -2227,6 +2240,7 @@ describe("GiftMoney receipts wiring (#204)", () => {
     await ctx.giftMoney.connect(ctx.alice).createEnvelope(
       await ctx.vault.getAddress(), [ctx.bob.address, erin.address], gift2.handles, gift2.proof, "extra", 0,
     );
+    await confirmEnvelopeFunding(ctx, ctx.giftMoney, 1);
 
     // Global volume should decrypt to the sum (120 USDC). Use erin as a
     // third party with no special grant: proves the FHE.allowGlobal path works.
@@ -2420,8 +2434,8 @@ describe("PaymentReceiptsSet event (PaymentHub + BusinessHub)", () => {
 
   it("BusinessHub: emits PaymentReceiptsSet with prior address on subsequent set", async () => {
     const ctx = await loadFixture(deployBlankFixture);
-    const first = "0x000000000000000000000000000000000000dEaD";
-    const second = "0x000000000000000000000000000000000000bEEF";
+    const first = await ctx.paymentReceipts.getAddress();
+    const second = await ctx.eventHub.getAddress();
 
     await ctx.businessHub.connect(ctx.owner).setPaymentReceipts(first);
 
@@ -2457,7 +2471,8 @@ describe("PaymentReceiptsSet event (GiftMoney + StealthPayments)", () => {
 
   it("GiftMoney: emits PaymentReceiptsSet with previous=zero on first set", async () => {
     const { owner, hub } = await deployFreshHub("GiftMoney");
-    const fake = "0x000000000000000000000000000000000000bEEF";
+    // setPaymentReceipts now requires a contract (or zero), so use a deployed one.
+    const fake = await hub.eventHub();
 
     await expect(hub.connect(owner).setPaymentReceipts(fake))
       .to.emit(hub, "PaymentReceiptsSet")
@@ -2468,8 +2483,8 @@ describe("PaymentReceiptsSet event (GiftMoney + StealthPayments)", () => {
 
   it("GiftMoney: emits PaymentReceiptsSet with prior address on subsequent set", async () => {
     const { owner, hub } = await deployFreshHub("GiftMoney");
-    const first = "0x000000000000000000000000000000000000dEaD";
-    const second = "0x000000000000000000000000000000000000bEEF";
+    const first = await hub.eventHub();
+    const second = await hub.getAddress();
 
     await hub.connect(owner).setPaymentReceipts(first);
     await expect(hub.connect(owner).setPaymentReceipts(second))
@@ -2488,21 +2503,31 @@ describe("PaymentReceiptsSet event (GiftMoney + StealthPayments)", () => {
 
   it("StealthPayments: emits PaymentReceiptsSet with previous=zero on first set", async () => {
     const { owner, hub } = await deployFreshHub("StealthPayments");
-    const fake = "0x000000000000000000000000000000000000bEEF";
+    // Any deployed contract passes the code check.
+    const receipts = await (await deployProxy("EventHub")).getAddress();
 
-    await expect(hub.connect(owner).setPaymentReceipts(fake))
+    await expect(hub.connect(owner).setPaymentReceipts(receipts))
       .to.emit(hub, "PaymentReceiptsSet")
-      .withArgs(hre.ethers.ZeroAddress, fake);
+      .withArgs(hre.ethers.ZeroAddress, receipts);
 
-    expect(await hub.paymentReceipts()).to.equal(fake);
+    expect(await hub.paymentReceipts()).to.equal(receipts);
   });
 
   it("StealthPayments: only owner can call setPaymentReceipts", async () => {
     const { alice, hub } = await deployFreshHub("StealthPayments");
-    const fake = "0x000000000000000000000000000000000000bEEF";
+    const receipts = await (await deployProxy("EventHub")).getAddress();
 
     await expect(
-      hub.connect(alice).setPaymentReceipts(fake),
-    ).to.be.reverted;
+      hub.connect(alice).setPaymentReceipts(receipts),
+    ).to.be.revertedWithCustomError(hub, "OwnableUnauthorizedAccount");
+  });
+
+  it("StealthPayments: setters reject codeless addresses; zero switches receipts off", async () => {
+    const { owner, alice, hub } = await deployFreshHub("StealthPayments");
+    await expect(hub.connect(owner).setPaymentReceipts(alice.address)).to.be.revertedWith("StealthPayments: bad receipts");
+    await expect(hub.connect(owner).setEventHub(alice.address)).to.be.revertedWith("StealthPayments: bad event hub");
+    await expect(hub.connect(owner).setEventHub(hre.ethers.ZeroAddress)).to.be.revertedWith("StealthPayments: bad event hub");
+    await expect(hub.connect(owner).setPaymentReceipts(hre.ethers.ZeroAddress)).to.not.be.reverted;
+    await expect(hub.connect(owner).setEventHub(await (await deployProxy("EventHub")).getAddress())).to.not.be.reverted;
   });
 });

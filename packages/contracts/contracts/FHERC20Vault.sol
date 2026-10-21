@@ -63,6 +63,8 @@ contract FHERC20Vault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     event UnshieldClaimed(address indexed user, address indexed token, uint256 plaintextAmount, uint256 timestamp);
     event EncryptedTransfer(address indexed from, address indexed to, uint256 timestamp);
     event EncryptedApproval(address indexed owner, address indexed spender, uint256 timestamp);
+    event TrustedBalanceReaderSet(address indexed reader, bool trusted);
+    event BalanceReaderConsent(address indexed user, address indexed reader, bool allowed);
 
     // ─── Initializer ───────────────────────────────────────────────────
 
@@ -171,11 +173,14 @@ contract FHERC20Vault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     ///         Uses FHE.select() to avoid leaking whether balance is sufficient.
     /// @param encAmount Encrypted amount handle to unshield
     /// @param proof Batch signature authenticating `encAmount`
-    /// @return success Encrypted boolean — unseal to check if it worked
+    /// @return pending The caller's pending unshield handle, shared to the
+    ///         caller. A contract caller consumes it with
+    ///         FHE.receiveEuint64FromCall(result, vault); an EOA ignores it
+    ///         and reads pendingUnshield(account) instead.
     function requestUnshield(
         externalEuint64 encAmount,
         bytes calldata proof
-    ) external nonReentrant returns (euint64) {
+    ) external nonReentrant returns (sharedEuint64) {
         _ensureInitialized(msg.sender);
 
         euint64 amount = FHE.asEuint64(encAmount, proof);
@@ -212,7 +217,7 @@ contract FHERC20Vault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         emit UnshieldRequested(msg.sender, address(underlyingToken), block.timestamp);
         try eventHub.emitActivity(msg.sender, address(0), "unshield", "", 0) {} catch {}
 
-        return _pendingUnshields[msg.sender];
+        return FHE.shareEuint64(_pendingUnshields[msg.sender], msg.sender);
     }
 
     /// @notice Claim a completed unshield. Caller supplies the off-chain
@@ -260,12 +265,14 @@ contract FHERC20Vault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     /// @param to Recipient address
     /// @param encAmount Encrypted amount handle to transfer
     /// @param proof Batch signature authenticating `encAmount`
-    /// @return transferred The encrypted amount actually transferred (zero if failed)
+    /// @return transferred The encrypted amount actually transferred (zero if
+    ///         failed), shared to the caller. An EOA ignores the return and
+    ///         unseals the same handle through its persistent allow.
     function transfer(
         address to,
         externalEuint64 encAmount,
         bytes calldata proof
-    ) external nonReentrant returns (euint64) {
+    ) external nonReentrant returns (sharedEuint64) {
         require(to != address(0), "FHERC20Vault: transfer to zero address");
         require(to != msg.sender, "FHERC20Vault: transfer to self");
 
@@ -284,13 +291,14 @@ contract FHERC20Vault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         FHE.allowThis(_balances[to]);
         FHE.allow(_balances[to], to);
 
-        // Return handle so caller can check success
+        // Persistent allow lets an EOA caller unseal the result; the share
+        // is what a contract caller consumes.
         FHE.allowThis(actualAmount);
         FHE.allowSender(actualAmount);
 
         emit EncryptedTransfer(msg.sender, to, block.timestamp);
 
-        return actualAmount;
+        return FHE.shareEuint64(actualAmount, msg.sender);
     }
 
     // ─── Encrypted TransferFrom (for approved contracts) ────────────────
@@ -352,13 +360,14 @@ contract FHERC20Vault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     /// @param from Token owner
     /// @param to Recipient
     /// @param encAmount Encrypted amount
-    /// @return transferred The encrypted amount actually transferred
+    /// @return transferred The encrypted amount actually transferred, shared
+    ///         to the caller
     function transferFrom(
         address from,
         address to,
         externalEuint64 encAmount,
         bytes calldata proof
-    ) external nonReentrant returns (euint64) {
+    ) external nonReentrant returns (sharedEuint64) {
         require(to != address(0), "FHERC20Vault: transfer to zero address");
         // Defense-in-depth: reject from == to. transferVerified already
         // rejects to == msg.sender; transferFrom (used by hubs that
@@ -376,7 +385,7 @@ contract FHERC20Vault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
         euint64 amount = FHE.asEuint64(encAmount, proof);
 
-        return _executeTransferFrom(from, to, amount);
+        return FHE.shareEuint64(_executeTransferFrom(from, to, amount), msg.sender);
     }
 
     /// @notice Transfer tokens on behalf of `from` using a pre-verified euint64 handle.
@@ -432,7 +441,6 @@ contract FHERC20Vault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         FHE.allowThis(_allowances[from][msg.sender]);
         FHE.allow(_allowances[from][msg.sender], from);
         FHE.allowThis(actualAmount);
-        FHE.allowTransient(actualAmount, msg.sender);
 
         emit EncryptedTransfer(from, to, block.timestamp);
 
@@ -493,15 +501,47 @@ contract FHERC20Vault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         emit EncryptedApproval(msg.sender, spender, block.timestamp);
     }
 
-    /// @notice Grant a third-party contract FHE read access to your encrypted
-    ///         balance. Required before that contract can perform FHE operations
-    ///         on your balance handle (e.g. PaymentReceipts.proveBalanceAbove).
-    ///         Only the balance owner can call this — consent-based access.
-    /// @param reader The contract address to grant read access to
+    /// @notice Consent to a trusted reader contract (e.g. PaymentReceipts)
+    ///         receiving your CURRENT encrypted balance as a same-transaction
+    ///         share, via shareBalanceWithReader. Nothing is granted on the
+    ///         balance handle itself: that handle is replaced by every
+    ///         balance write, so a persistent grant on it would go stale.
+    ///         The consent is durable until revokeBalanceReader. Only readers
+    ///         the vault owner trusts can be consented to, so a phished
+    ///         signature cannot hand your balance to an arbitrary contract.
+    /// @param reader The trusted contract address to consent to
     function allowBalanceReader(address reader) external {
         require(reader != address(0), "FHERC20Vault: reader zero");
+        require(trustedBalanceReaders[reader], "FHERC20Vault: reader not trusted");
         require(_initialized[msg.sender], "FHERC20Vault: not initialized");
-        FHE.allow(_balances[msg.sender], reader);
+        _balanceReaderConsent[msg.sender][reader] = true;
+        emit BalanceReaderConsent(msg.sender, reader, true);
+    }
+
+    /// @notice Withdraw consent given through allowBalanceReader.
+    function revokeBalanceReader(address reader) external {
+        _balanceReaderConsent[msg.sender][reader] = false;
+        emit BalanceReaderConsent(msg.sender, reader, false);
+    }
+
+    /// @notice Hand `user`'s current encrypted balance to the calling reader
+    ///         for the rest of this transaction. The caller must be a reader
+    ///         the owner trusts AND `user` must have consented to it. The
+    ///         reader consumes the result with
+    ///         FHE.receiveEuint64FromCall(result, vault). A reader is
+    ///         expected to pass only its own msg.sender as `user`.
+    /// @param user Balance owner who consented through allowBalanceReader
+    function shareBalanceWithReader(address user) external nonReentrant returns (sharedEuint64) {
+        require(
+            trustedBalanceReaders[msg.sender] && _balanceReaderConsent[user][msg.sender],
+            "FHERC20Vault: reader not allowed"
+        );
+        return FHE.shareEuint64(_balances[user], msg.sender);
+    }
+
+    /// @notice Whether `reader` is trusted AND `user` has consented to it.
+    function isBalanceReader(address user, address reader) external view returns (bool) {
+        return trustedBalanceReaders[reader] && _balanceReaderConsent[user][reader];
     }
 
     // ─── View Functions ─────────────────────────────────────────────────
@@ -542,11 +582,26 @@ contract FHERC20Vault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         eventHub = IEventHub(_eventHub);
     }
 
+    /// @notice Owner-managed set of contracts that may be consented to for
+    ///         balance reads (PaymentReceipts). Appended after the original
+    ///         layout.
+    function setTrustedBalanceReader(address reader, bool trusted) external onlyOwner {
+        require(!trusted || reader.code.length > 0, "FHERC20Vault: bad reader");
+        trustedBalanceReaders[reader] = trusted;
+        emit TrustedBalanceReaderSet(reader, trusted);
+    }
+
+    /// @notice Reader contracts the owner trusts with a shared balance handle.
+    mapping(address => bool) public trustedBalanceReaders;
+
+    /// @dev user => reader => consent given through allowBalanceReader.
+    mapping(address => mapping(address => bool)) private _balanceReaderConsent;
+
     /// @dev Reserved storage to avoid collisions on future upgrades.
     ///      Append-only: when adding a new state variable in a later upgrade,
     ///      decrement the gap size so total storage is unchanged.
-    /// @dev Used: 10. Gap: 50.
-    uint256[50] private __gap;
+    /// @dev Used: 12. Gap: 48.
+    uint256[48] private __gap;
 
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 }

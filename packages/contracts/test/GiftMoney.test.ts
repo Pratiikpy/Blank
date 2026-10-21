@@ -2,7 +2,7 @@ import { expect } from "chai";
 import hre from "hardhat";
 import { loadFixture, time } from "@nomicfoundation/hardhat-network-helpers";
 import { mock_expectPlaintext } from "@cofhe/hardhat-plugin";
-import { Encryptable } from "@cofhe/sdk";
+import { Encryptable, FheTypes } from "@cofhe/sdk";
 import { parseUnits } from "ethers";
 
 // ══════════════════════════════════════════════════════════════════
@@ -125,6 +125,20 @@ async function encShares(client: any, signer: any, amounts: bigint[], consuming:
   return { handles: r.slice(0, -1), proof: r[r.length - 1] };
 }
 
+/// Decrypts the public funded bit of an envelope and settles it on-chain, the
+/// way the app's automatic second step does. Anyone may submit it.
+async function confirmEnvelope(ctx: any, id: number | bigint, caller: any = ctx.owner) {
+  const handle = await ctx.gift.getFundingCheck(id);
+  await hre.cofhe.connectWithHardhatSigner(ctx.client, caller);
+  const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutACP().execute();
+  return ctx.gift.connect(caller).confirmFunding(id, Boolean(proof.decryptedValue), proof.signature);
+}
+
+/// Confirms the most recently created envelope.
+async function fundLatest(ctx: any) {
+  await confirmEnvelope(ctx, (await ctx.gift.nextEnvelopeId()) - 1n);
+}
+
 describe("GiftMoney — createEnvelope guards", () => {
   it("rejects empty recipients array", async () => {
     const ctx = await loadFixture(deployFixture);
@@ -229,9 +243,11 @@ describe("GiftMoney — createEnvelope guards", () => {
     await ctx.gift.connect(ctx.alice).createEnvelope(
       await ctx.vault.getAddress(), [ctx.bob.address], [s1[0]], s1[1], "future-exp", future,
     );
+    await fundLatest(ctx);
     await ctx.gift.connect(ctx.alice).createEnvelope(
       await ctx.vault.getAddress(), [ctx.charlie.address], [s2[0]], s2[1], "no-exp", 0,
     );
+    await fundLatest(ctx);
 
     expect((await ctx.gift.getEnvelope(0)).expiryTimestamp).to.equal(future);
     expect((await ctx.gift.getEnvelope(1)).expiryTimestamp).to.equal(0);
@@ -245,6 +261,7 @@ describe("GiftMoney — claimGift guards", () => {
     await ctx.gift.connect(ctx.alice).createEnvelope(
       await ctx.vault.getAddress(), [ctx.bob.address], [s[0]], s[1], "x", 0,
     );
+    await fundLatest(ctx);
     // Charlie was never added → not a recipient.
     await expect(
       ctx.gift.connect(ctx.charlie).claimGift(0),
@@ -257,6 +274,7 @@ describe("GiftMoney — claimGift guards", () => {
     await ctx.gift.connect(ctx.alice).createEnvelope(
       await ctx.vault.getAddress(), [ctx.bob.address], [s[0]], s[1], "x", 0,
     );
+    await fundLatest(ctx);
     await ctx.gift.connect(ctx.bob).claimGift(0);
     await expect(
       ctx.gift.connect(ctx.bob).claimGift(0),
@@ -269,6 +287,7 @@ describe("GiftMoney — claimGift guards", () => {
     await ctx.gift.connect(ctx.alice).createEnvelope(
       await ctx.vault.getAddress(), [ctx.bob.address], [s[0]], s[1], "x", 0,
     );
+    await fundLatest(ctx);
     await ctx.gift.connect(ctx.alice).deactivateEnvelope(0);
     await expect(
       ctx.gift.connect(ctx.bob).claimGift(0),
@@ -290,6 +309,7 @@ describe("GiftMoney — IRREVOCABILITY invariant (#184)", () => {
     await ctx.gift.connect(ctx.alice).createEnvelope(
       await ctx.vault.getAddress(), [ctx.bob.address], [s[0]], s[1], "irrevocable", 0,
     );
+    await fundLatest(ctx);
 
     // Right after create: alice -50, bob +50 in encrypted balance.
     await mock_expectPlaintext(ctx.alice.provider, await ctx.vault.balanceOf(ctx.alice.address), usdc(950));
@@ -313,6 +333,7 @@ describe("GiftMoney — IRREVOCABILITY invariant (#184)", () => {
     await ctx.gift.connect(ctx.alice).createEnvelope(
       await ctx.vault.getAddress(), [ctx.bob.address], [s[0]], s[1], "x", 0,
     );
+    await fundLatest(ctx);
     await expect(
       ctx.gift.connect(ctx.bob).deactivateEnvelope(0),
     ).to.be.revertedWith("GiftMoney: not sender");
@@ -324,6 +345,7 @@ describe("GiftMoney — IRREVOCABILITY invariant (#184)", () => {
     await ctx.gift.connect(ctx.alice).createEnvelope(
       await ctx.vault.getAddress(), [ctx.bob.address], [s[0]], s[1], "x", 0,
     );
+    await fundLatest(ctx);
     await ctx.gift.connect(ctx.alice).deactivateEnvelope(0);
     await expect(
       ctx.gift.connect(ctx.alice).deactivateEnvelope(0),
@@ -338,6 +360,7 @@ describe("GiftMoney — setExpiry", () => {
     await ctx.gift.connect(ctx.alice).createEnvelope(
       await ctx.vault.getAddress(), [ctx.bob.address], [s[0]], s[1], "x", 0,
     );
+    await fundLatest(ctx);
     await expect(
       ctx.gift.connect(ctx.bob).setExpiry(0, (await time.latest()) + 86400),
     ).to.be.revertedWith("GiftMoney: not sender");
@@ -349,6 +372,7 @@ describe("GiftMoney — setExpiry", () => {
     await ctx.gift.connect(ctx.alice).createEnvelope(
       await ctx.vault.getAddress(), [ctx.bob.address], [s[0]], s[1], "x", 0,
     );
+    await fundLatest(ctx);
     await ctx.gift.connect(ctx.alice).deactivateEnvelope(0);
     await expect(
       ctx.gift.connect(ctx.alice).setExpiry(0, (await time.latest()) + 86400),
@@ -361,6 +385,7 @@ describe("GiftMoney — setExpiry", () => {
     await ctx.gift.connect(ctx.alice).createEnvelope(
       await ctx.vault.getAddress(), [ctx.bob.address], [s[0]], s[1], "x", 0,
     );
+    await fundLatest(ctx);
     const past = (await time.latest()) - 1;
     await expect(
       ctx.gift.connect(ctx.alice).setExpiry(0, past),
@@ -385,6 +410,7 @@ describe("GiftMoney — view functions", () => {
       two.handles, two.proof,
       "twoup", 0,
     );
+    await fundLatest(ctx);
     expect(await ctx.gift.isFullyOpened(0)).to.equal(false);
 
     await ctx.gift.connect(ctx.bob).claimGift(0);
@@ -401,6 +427,7 @@ describe("GiftMoney — view functions", () => {
     await ctx.gift.connect(ctx.alice).createEnvelope(
       await ctx.vault.getAddress(), [ctx.bob.address], [s[0]], s[1], "x", future,
     );
+    await fundLatest(ctx);
     expect(await ctx.gift.isExpired(0)).to.equal(false);
 
     await time.increase(120);
@@ -419,13 +446,219 @@ describe("GiftMoney — view functions", () => {
     await ctx.gift.connect(ctx.alice).createEnvelope(
       await ctx.vault.getAddress(), [ctx.bob.address], [s1[0]], s1[1], "first", 0,
     );
+    await fundLatest(ctx);
     await ctx.gift.connect(ctx.alice).createEnvelope(
       await ctx.vault.getAddress(), [ctx.charlie.address], [s2[0]], s2[1], "second", 0,
     );
+    await fundLatest(ctx);
 
     expect((await ctx.gift.getSentEnvelopes(ctx.alice.address)).length).to.equal(2);
     expect((await ctx.gift.getReceivedEnvelopes(ctx.bob.address)).length).to.equal(1);
     expect((await ctx.gift.getReceivedEnvelopes(ctx.charlie.address)).length).to.equal(1);
     expect((await ctx.gift.getReceivedEnvelopes(ctx.dave.address)).length).to.equal(0);
+  });
+});
+
+// The vault moves zero instead of reverting when the sender is short, so an
+// envelope is only openable once the single "every share moved" bit has been
+// decrypted and published. Receipts are bumped at that point, not at create.
+describe("GiftMoney, funding gate", () => {
+  const MAX = (1n << 64n) - 1n;
+  const FUNDING_STATUS_SLOT = 12; // fundingStatus mapping (storage-layouts/GiftMoney.json)
+  const ACTIVE = 0;
+  const PENDING = 1;
+  const VOID = 2;
+  const abi = hre.ethers.AbiCoder.defaultAbiCoder();
+
+  // Eve holds nothing in the vault but has approved GiftMoney, so the only
+  // reason her envelopes can fail is a short balance.
+  async function gateFixture() {
+    const ctx = await deployFixture();
+    const eve = (await hre.ethers.getSigners())[5];
+    await ctx.vault.connect(eve).approvePlaintext(await ctx.gift.getAddress(), MAX);
+    const receipts = await deployProxy("PaymentReceipts", []);
+    await receipts.setAuthorizedCaller(await ctx.gift.getAddress(), true);
+    await ctx.gift.setPaymentReceipts(await receipts.getAddress());
+    return { ...ctx, eve, receipts };
+  }
+
+  async function create(ctx: any, sender: any, recipients: string[], amounts: bigint[], expiry = 0) {
+    const batch = await encShares(ctx.client, sender, amounts, await ctx.gift.getAddress());
+    await ctx.gift.connect(sender).createEnvelope(
+      await ctx.vault.getAddress(), recipients, batch.handles, batch.proof, "gate", expiry,
+    );
+    return (await ctx.gift.nextEnvelopeId()) - 1n;
+  }
+
+  async function fundedBit(ctx: any, id: bigint, reader: any = ctx.owner) {
+    await hre.cofhe.connectWithHardhatSigner(ctx.client, reader);
+    const handle = await ctx.gift.getFundingCheck(id);
+    const proof = await ctx.client.decryptForTx(handle, FheTypes.Bool).withoutACP().execute();
+    return { value: Boolean(proof.decryptedValue), signature: proof.signature };
+  }
+
+  const received = (ctx: any, who: any) => ctx.receipts.connect(who).getMyTotalReceived();
+
+  it("a funded envelope starts PendingFunding: funds moved, but it cannot be opened and no receipt exists", async () => {
+    const ctx = await loadFixture(gateFixture);
+    const id = await create(ctx, ctx.alice, [ctx.bob.address, ctx.charlie.address], [usdc(30), usdc(20)]);
+    expect(await ctx.gift.fundingStatus(id)).to.equal(PENDING);
+    // Irrevocable transfers already landed.
+    await mock_expectPlaintext(ctx.bob.provider, await ctx.vault.balanceOf(ctx.bob.address), usdc(30));
+    await mock_expectPlaintext(ctx.charlie.provider, await ctx.vault.balanceOf(ctx.charlie.address), usdc(20));
+
+    await expect(ctx.gift.connect(ctx.bob).claimGift(id)).to.be.revertedWith("GiftMoney: funding pending");
+    expect(await ctx.gift.hasOpened(id, ctx.bob.address)).to.equal(false);
+    expect((await ctx.gift.getEnvelope(id)).claimedCount).to.equal(0);
+    expect(await received(ctx, ctx.bob)).to.equal(0n);
+    expect(await received(ctx, ctx.charlie)).to.equal(0n);
+  });
+
+  it("funded path end to end: a stranger confirms, receipts bump once per recipient, recipients open", async () => {
+    const ctx = await loadFixture(gateFixture);
+    const id = await create(ctx, ctx.alice, [ctx.bob.address, ctx.charlie.address], [usdc(30), usdc(20)]);
+    const bit = await fundedBit(ctx, id, ctx.eve);
+    expect(bit.value).to.equal(true);
+
+    await expect(ctx.gift.connect(ctx.eve).confirmFunding(id, bit.value, bit.signature))
+      .to.emit(ctx.gift, "EnvelopeFunded").withArgs(id, ctx.alice.address)
+      .and.not.to.emit(ctx.gift, "EnvelopeVoided");
+    expect(await ctx.gift.fundingStatus(id)).to.equal(ACTIVE);
+    await mock_expectPlaintext(ctx.bob.provider, await received(ctx, ctx.bob), usdc(30));
+    await mock_expectPlaintext(ctx.charlie.provider, await received(ctx, ctx.charlie), usdc(20));
+
+    await expect(ctx.gift.connect(ctx.bob).claimGift(id)).to.emit(ctx.gift, "GiftOpened");
+    await ctx.gift.connect(ctx.charlie).claimGift(id);
+    expect(await ctx.gift.isFullyOpened(id)).to.equal(true);
+    // Settling twice must not double-count income.
+    await expect(ctx.gift.confirmFunding(id, true, bit.signature)).to.be.revertedWith("GiftMoney: not pending funding");
+    await mock_expectPlaintext(ctx.bob.provider, await received(ctx, ctx.bob), usdc(30));
+  });
+
+  it("zero-balance sender: the envelope ends Void, cannot be opened, and bumps no receipt", async () => {
+    const ctx = await loadFixture(gateFixture);
+    const id = await create(ctx, ctx.eve, [ctx.bob.address, ctx.charlie.address], [usdc(30), usdc(20)]);
+    await mock_expectPlaintext(ctx.bob.provider, await ctx.gift.connect(ctx.bob).getMyGift(id), 0n);
+    const bit = await fundedBit(ctx, id);
+    expect(bit.value).to.equal(false);
+
+    await expect(ctx.gift.connect(ctx.bob).confirmFunding(id, bit.value, bit.signature))
+      .to.emit(ctx.gift, "EnvelopeVoided").withArgs(id, ctx.eve.address)
+      .and.not.to.emit(ctx.gift, "EnvelopeFunded");
+    expect(await ctx.gift.fundingStatus(id)).to.equal(VOID);
+    expect((await ctx.gift.getEnvelope(id)).active).to.equal(false);
+
+    await expect(ctx.gift.connect(ctx.bob).claimGift(id)).to.be.revertedWith("GiftMoney: envelope not active");
+    await expect(ctx.gift.connect(ctx.charlie).claimGift(id)).to.be.revertedWith("GiftMoney: envelope not active");
+    expect(await ctx.gift.hasOpened(id, ctx.bob.address)).to.equal(false);
+    expect((await ctx.gift.getEnvelope(id)).claimedCount).to.equal(0);
+    expect(await received(ctx, ctx.bob)).to.equal(0n);
+    expect(await received(ctx, ctx.charlie)).to.equal(0n);
+    await expect(ctx.gift.confirmFunding(id, false, "0x")).to.be.revertedWith("GiftMoney: not pending funding");
+  });
+
+  it("one short share voids the whole envelope; a share that already moved stays with its recipient", async () => {
+    const ctx = await loadFixture(gateFixture);
+    // Alice holds 1,000: the first 600 moves, the second 600 does not.
+    const id = await create(ctx, ctx.alice, [ctx.bob.address, ctx.charlie.address], [usdc(600), usdc(600)]);
+    await mock_expectPlaintext(ctx.bob.provider, await ctx.vault.balanceOf(ctx.bob.address), usdc(600));
+    await mock_expectPlaintext(ctx.charlie.provider, await ctx.gift.connect(ctx.charlie).getMyGift(id), 0n);
+
+    const bit = await fundedBit(ctx, id);
+    expect(bit.value).to.equal(false);
+    await ctx.gift.confirmFunding(id, bit.value, bit.signature);
+    expect(await ctx.gift.fundingStatus(id)).to.equal(VOID);
+    await expect(ctx.gift.connect(ctx.bob).claimGift(id)).to.be.revertedWith("GiftMoney: envelope not active");
+    // Transfers are irrevocable and the contract never held the funds.
+    await mock_expectPlaintext(ctx.bob.provider, await ctx.vault.balanceOf(ctx.bob.address), usdc(600));
+    expect(await received(ctx, ctx.bob)).to.equal(0n);
+  });
+
+  it("a zero share from a funded sender is Void too", async () => {
+    const ctx = await loadFixture(gateFixture);
+    const id = await create(ctx, ctx.alice, [ctx.bob.address], [0n]);
+    await fundLatest(ctx);
+    expect(await ctx.gift.fundingStatus(id)).to.equal(VOID);
+    await mock_expectPlaintext(ctx.alice.provider, await ctx.vault.balanceOf(ctx.alice.address), usdc(1_000));
+  });
+
+  it("the published value decides, not the caller's argument", async () => {
+    const ctx = await loadFixture(gateFixture);
+    const id = await create(ctx, ctx.eve, [ctx.bob.address], [usdc(5)]);
+    const bit = await fundedBit(ctx, id);
+    expect(bit.value).to.equal(false);
+    await expect(ctx.gift.confirmFunding(id, true, bit.signature)).to.be.reverted;
+    expect(await ctx.gift.fundingStatus(id)).to.equal(PENDING);
+
+    const tm = await hre.cofhe.mocks.getMockTaskManager();
+    await tm.publishDecryptResult(await ctx.gift.getFundingCheck(id), 0, bit.signature);
+    await ctx.gift.confirmFunding(id, true, "0x");
+    expect(await ctx.gift.fundingStatus(id)).to.equal(VOID);
+  });
+
+  it("confirmFunding rejects an unknown envelope and an already settled one", async () => {
+    const ctx = await loadFixture(gateFixture);
+    await expect(ctx.gift.confirmFunding(99, true, "0x")).to.be.revertedWith("GiftMoney: not pending funding");
+    const id = await create(ctx, ctx.alice, [ctx.bob.address], [usdc(5)]);
+    await fundLatest(ctx);
+    await expect(ctx.gift.confirmFunding(id, true, "0x")).to.be.revertedWith("GiftMoney: not pending funding");
+  });
+
+  it("a deactivated pending envelope stays closed after it is confirmed, and still bumps real income", async () => {
+    const ctx = await loadFixture(gateFixture);
+    const id = await create(ctx, ctx.alice, [ctx.bob.address], [usdc(10)]);
+    await ctx.gift.connect(ctx.alice).deactivateEnvelope(id);
+    await fundLatest(ctx);
+    expect(await ctx.gift.fundingStatus(id)).to.equal(ACTIVE);
+    await expect(ctx.gift.connect(ctx.bob).claimGift(id)).to.be.revertedWith("GiftMoney: envelope not active");
+    await mock_expectPlaintext(ctx.bob.provider, await received(ctx, ctx.bob), usdc(10));
+  });
+
+  it("with no receipts contract wired, confirming still activates the envelope", async () => {
+    const ctx = await loadFixture(gateFixture);
+    await ctx.gift.setPaymentReceipts(hre.ethers.ZeroAddress);
+    const id = await create(ctx, ctx.alice, [ctx.bob.address], [usdc(10)]);
+    await fundLatest(ctx);
+    await ctx.gift.connect(ctx.bob).claimGift(id);
+    expect(await ctx.gift.hasOpened(id, ctx.bob.address)).to.equal(true);
+  });
+
+  // The mock replays CoFHE work on-chain, so a mock transaction hits the 16.7M
+  // per-transaction cap well below MAX_RECIPIENTS (the old createEnvelope ran
+  // out of gas at 10 recipients here). Five is the largest size that fits
+  // comfortably in both create and confirm under the mock.
+  it("a five-recipient envelope confirms and bumps every recipient", async () => {
+    const ctx = await loadFixture(gateFixture);
+    const wallets = Array.from({ length: 5 }, () => hre.ethers.Wallet.createRandom().address);
+    const id = await create(ctx, ctx.alice, wallets, wallets.map(() => usdc(1)));
+    await fundLatest(ctx);
+    expect(await ctx.gift.fundingStatus(id)).to.equal(ACTIVE);
+    expect((await ctx.gift.getRecipients(id)).length).to.equal(5);
+  });
+
+  // An envelope written before this upgrade has fundingStatus 0 (Active), no
+  // funding bit, and already had its receipts bumped at create. Zeroing the
+  // status slot of a pending envelope models that record.
+  it("legacy record: an envelope with no funding state opens exactly as before", async () => {
+    const ctx = await loadFixture(gateFixture);
+    const id = await create(ctx, ctx.alice, [ctx.bob.address], [usdc(10)]);
+    const slot = hre.ethers.keccak256(abi.encode(["uint256", "uint256"], [id, FUNDING_STATUS_SLOT]));
+    await hre.network.provider.send("hardhat_setStorageAt", [
+      await ctx.gift.getAddress(), slot, hre.ethers.ZeroHash,
+    ]);
+    expect(await ctx.gift.fundingStatus(id)).to.equal(ACTIVE);
+    await expect(ctx.gift.confirmFunding(id, true, "0x")).to.be.revertedWith("GiftMoney: not pending funding");
+    await ctx.gift.connect(ctx.bob).claimGift(id);
+    expect(await ctx.gift.hasOpened(id, ctx.bob.address)).to.equal(true);
+  });
+
+  it("E5: setters reject a codeless address; zero still switches receipts off", async () => {
+    const ctx = await loadFixture(gateFixture);
+    const eoa = "0x000000000000000000000000000000000000bEEF";
+    await expect(ctx.gift.setEventHub(eoa)).to.be.revertedWith("GiftMoney: bad event hub");
+    await expect(ctx.gift.setPaymentReceipts(eoa)).to.be.revertedWith("GiftMoney: bad receipts");
+    await expect(ctx.gift.setEventHub(await ctx.eventHub.getAddress())).to.not.be.reverted;
+    await expect(ctx.gift.setPaymentReceipts(hre.ethers.ZeroAddress)).to.not.be.reverted;
+    await expect(ctx.gift.connect(ctx.alice).setPaymentReceipts(await ctx.registry.getAddress())).to.be.reverted;
   });
 });
