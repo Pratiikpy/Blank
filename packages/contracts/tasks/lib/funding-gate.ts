@@ -281,6 +281,14 @@ export async function settleFunding(
     } catch (e) {
       lastErr = errText(e);
       await sleep(pollMs);
+      // The chain may reject this signature (a Threshold Network node that signed with a
+      // key the chain does not accept). Ask for a fresh one so the next try can differ.
+      try {
+        const again = await client.decryptForTx(handle).withoutACP().execute();
+        if ((again.decryptedValue !== 0n) === funded) verdict = again;
+      } catch {
+        // keep the previous signature
+      }
     }
   }
   if (!ready) throw new FundingGateTimeout("confirmFunding simulation", lastErr);

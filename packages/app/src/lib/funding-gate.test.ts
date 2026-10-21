@@ -101,6 +101,20 @@ describe("runFundingGate", () => {
     expect(confirm).toHaveBeenCalledTimes(3);
   });
 
+  it("asks for a fresh decryption on every confirm retry, so a bad signer can be replaced", async () => {
+    const sigs = ["0x01", "0x02", "0x03"] as const;
+    let d = 0;
+    const seen: string[] = [];
+    const res = await runFundingGate({
+      readHandle: async () => 1n,
+      decryptForTx: async () => ({ decryptedValue: true, signature: sigs[d++] }),
+      confirm: async (_f, sig) => { seen.push(sig); if (sig !== "0x03") throw new Error("InvalidSigner"); },
+      sleep: noSleep,
+    });
+    expect(res.funded).toBe(true);
+    expect(seen).toEqual(["0x01", "0x02", "0x03"]);
+  });
+
   it("rethrows the last confirm error once retries are used up", async () => {
     const confirm = vi.fn(async () => { throw new Error("still reverted"); });
     await expect(

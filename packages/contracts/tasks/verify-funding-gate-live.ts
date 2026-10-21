@@ -26,7 +26,8 @@ const CHAINS = {
 const STATUS = { Active: 0n, PendingFunding: 4n, Void: 5n };
 
 task("verify-funding-gate-live", "Funded and unfunded escrow through the real threshold network")
-  .setAction(async (_a, hre) => {
+  .addFlag("useDeployed", "Use the deployed EncryptedEscrow proxy instead of a throwaway one")
+  .setAction(async (args: { useDeployed: boolean }, hre) => {
     const cfg = CHAINS[hre.network.name as keyof typeof CHAINS];
     if (!cfg) throw new Error(`Unsupported network ${hre.network.name}`);
     const d = JSON.parse(readFileSync(resolve(__dirname, "..", "deployments", `${hre.network.name}.json`), "utf8")) as Record<string, string>;
@@ -41,17 +42,24 @@ task("verify-funding-gate-live", "Funded and unfunded escrow through the real th
       throw new Error(`${label} kept failing: ${(last as Error).message}`);
     };
 
-    // 1. throwaway proxy
-    const Factory = await hre.ethers.getContractFactory("EncryptedEscrow", deployer);
-    const impl = await Factory.deploy();
-    await impl.waitForDeployment();
-    const Proxy = await hre.ethers.getContractFactory("@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol:ERC1967Proxy", deployer);
-    const proxy = await Proxy.deploy(await impl.getAddress(), Factory.interface.encodeFunctionData("initialize", [d.EventHub]));
-    await proxy.waitForDeployment();
-    const escrowAddr = await proxy.getAddress();
+    // 1. throwaway proxy (or the deployed one with --use-deployed)
+    let escrowAddr: string;
+    if (args.useDeployed) {
+      escrowAddr = d.EncryptedEscrow;
+    } else {
+      const Factory = await hre.ethers.getContractFactory("EncryptedEscrow", deployer);
+      const impl = await Factory.deploy();
+      await impl.waitForDeployment();
+      const Proxy = await hre.ethers.getContractFactory("@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol:ERC1967Proxy", deployer);
+      const proxy = await Proxy.deploy(await impl.getAddress(), Factory.interface.encodeFunctionData("initialize", [d.EventHub]));
+      await proxy.waitForDeployment();
+      escrowAddr = await proxy.getAddress();
+      const fresh = (await hre.ethers.getContractAt("EncryptedEscrow", escrowAddr, deployer)) as unknown as EncryptedEscrow;
+      await (await fresh.setTokenRegistry(d.TokenRegistry)).wait();
+    }
     const escrow = (await hre.ethers.getContractAt("EncryptedEscrow", escrowAddr, deployer)) as unknown as EncryptedEscrow;
-    await (await escrow.setTokenRegistry(d.TokenRegistry)).wait();
-    console.log(`throwaway EncryptedEscrow ${escrowAddr}\n`);
+    console.log(`${args.useDeployed ? "deployed" : "throwaway"} EncryptedEscrow ${escrowAddr}
+`);
 
     const vaultAddr = d.FHERC20Vault_USDC;
     const vaultAbi = ["function approvePlaintext(address,uint64)", "function shield(uint256)"];

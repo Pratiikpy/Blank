@@ -50,7 +50,7 @@ export async function runFundingGate(opts: FundingGateOptions): Promise<FundingG
   const now = opts.now ?? Date.now;
   const timeoutMs = opts.timeoutMs ?? 90_000;
   const pollMs = opts.pollMs ?? 3_000;
-  const retries = opts.confirmRetries ?? 4;
+  const retries = opts.confirmRetries ?? 6;
   const startedAt = now();
   const left = () => timeoutMs - (now() - startedAt);
 
@@ -66,18 +66,24 @@ export async function runFundingGate(opts: FundingGateOptions): Promise<FundingG
   }
   if (handle === 0n) throw new FundingGateTimeout("The funding check");
 
-  let proof: { decryptedValue: bigint | boolean; signature: `0x${string}` } | null = null;
-  while (left() > 0) {
-    proof = await opts.decryptForTx(handle, "ebool");
-    if (proof) break;
-    await sleep(pollMs);
-  }
-  if (!proof) throw new FundingGateTimeout("The funding check result");
-
-  const funded = typeof proof.decryptedValue === "boolean" ? proof.decryptedValue : proof.decryptedValue !== 0n;
-
+  // A confirm can fail because a lagging RPC has not seen the handle yet, or because
+  // the Threshold Network node that answered signed with a key the chain does not
+  // accept (seen intermittently on Base Sepolia: InvalidSigner). Each attempt asks
+  // for a fresh decryption, so a retry can land on a different signer.
   let lastErr: unknown;
   for (let attempt = 0; attempt <= retries; attempt++) {
+    const decryptEnd = attempt === 0 ? startedAt + timeoutMs : now() + pollMs * 10;
+    let proof: { decryptedValue: bigint | boolean; signature: `0x${string}` } | null = null;
+    while (now() < decryptEnd) {
+      proof = await opts.decryptForTx(handle, "ebool");
+      if (proof) break;
+      await sleep(pollMs);
+    }
+    if (!proof) {
+      if (attempt === 0) throw new FundingGateTimeout("The funding check result");
+      break;
+    }
+    const funded = typeof proof.decryptedValue === "boolean" ? proof.decryptedValue : proof.decryptedValue !== 0n;
     try {
       await opts.confirm(funded, proof.signature);
       return { funded };

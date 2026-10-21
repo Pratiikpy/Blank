@@ -86,7 +86,7 @@ task("roundtrip-sdk", "Encrypt -> store -> decrypt -> claim round trip on a live
     // 4. decrypt off-chain through the threshold network (global allowance, no ACP)
     const pending: bigint = await vault.pendingUnshield(signer.address);
     const t0 = Date.now();
-    const dec = await client.decryptForTx(pending).withoutACP().execute();
+    let dec = await client.decryptForTx(pending).withoutACP().execute();
     const secs = ((Date.now() - t0) / 1000).toFixed(1);
     console.log(`4. decryptForTx     plaintext ${dec.decryptedValue} in ${secs}s`);
 
@@ -103,12 +103,24 @@ task("roundtrip-sdk", "Encrypt -> store -> decrypt -> claim round trip on a live
         if (waited >= 90) throw e;
         await new Promise((r) => setTimeout(r, 3000));
         waited += 3;
+        // A Threshold Network node can sign with a key the chain rejects (InvalidSigner,
+        // intermittent on Base Sepolia), so ask for a fresh signature each round.
+        dec = await client.decryptForTx(pending).withoutACP().execute();
       }
     }
     if (waited > 0) console.log(`   claim simulation reverted for ${waited}s before clearing`);
     const before: bigint = await usdc.balanceOf(signer.address);
-    const claimTx = await vault.claimUnshield(dec.decryptedValue, dec.signature);
-    const claimRc = await claimTx.wait();
+    const claimTx = await vault.getFunction("claimUnshield")(dec.decryptedValue, dec.signature, { gasLimit: 1_500_000 });
+    const claimRc = await claimTx.wait().catch(async (e: { receipt?: { blockNumber: number } }) => {
+      if (process.env.DEBUG_CLAIM && e.receipt) {
+        const data = vault.interface.encodeFunctionData("claimUnshield", [dec.decryptedValue, dec.signature]);
+        for (const bn of [e.receipt.blockNumber - 1, e.receipt.blockNumber]) {
+          try { await hre.ethers.provider.send("eth_call", [{ from: signer.address, to: vaultAddr, data }, `0x${bn.toString(16)}`]); console.log(`   replay @${bn}: ok`); }
+          catch (er) { console.log(`   replay @${bn}: ${(er as { data?: string }).data ?? (er as Error).message.slice(0, 80)}`); }
+        }
+      }
+      throw e;
+    });
     console.log(`5. claimUnshield    ${cfg.scan}/tx/${claimTx.hash}`);
 
     // Source of truth is the receipt: an ERC20 Transfer vault -> signer for the
