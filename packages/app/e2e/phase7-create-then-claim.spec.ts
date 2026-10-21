@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import * as path from "path";
 import {
-  loadSetup, openAccountPage, answerPassphrasePrompt, captureBaseline, pollForNewActivityRow,
+  loadSetup, openAccountPage, answerPassphrasePrompt, answerPromptsUntilFundingSettled, captureBaseline, pollForNewActivityRow,
   PASSPHRASE, SCREENSHOT_DIR,
 } from "./helpers/phase6-helpers";
 
@@ -15,6 +15,10 @@ import {
 // If this passes, we've proven that recipient smart account works fine for
 // any flow that doesn't require recipient-side encryption — which is the
 // crucial product capability for "I send to you, you receive."
+//
+// The envelope starts PendingFunding; the sender's app confirms it about 90s
+// after createEnvelope (one more passphrase prompt). Until then the recipient
+// sees "Funding" instead of Claim, so the sender step waits for "Gift Sent!".
 
 test.describe("Phase 7 #4 — Sender creates gift, recipient claims", () => {
   test.setTimeout(900_000);
@@ -71,6 +75,13 @@ test.describe("Phase 7 #4 — Sender creates gift, recipient claims", () => {
           }
           await s.waitForTimeout(2_000);
         }
+        const funding = await answerPromptsUntilFundingSettled(s, PASSPHRASE, {
+          settledText: /Gift Sent!/i,
+          pendingTestId: "gift-funding-pending",
+          finishText: /Finish funding/i,
+          label: "S",
+        });
+        console.log(`  [S] funding confirmed ${funding === "auto" ? "automatically" : "after pressing Finish"}`);
 
         const created = await pollForNewActivityRow(s, createdQuery, {
           label: "create",

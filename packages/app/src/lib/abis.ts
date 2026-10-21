@@ -66,6 +66,10 @@ export const PaymentHubAbi = [
   { type: "function", name: "sendPaymentAsAgent", inputs: [{ name: "to", type: "address" }, { name: "vault", type: "address" }, { name: "encAmount", type: "bytes32", internalType: "externalEuint64" }, { name: "proof", type: "bytes" }, { name: "note", type: "string" }, { name: "agent", type: "address" }, { name: "nonce", type: "bytes32" }, { name: "expiry", type: "uint256" }, { name: "agentSignature", type: "bytes" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "isAgentNonceUsed", inputs: [{ name: "nonce", type: "bytes32" }], outputs: [{ name: "", type: "bool" }], stateMutability: "view" },
   { type: "event", name: "AgentPaymentSubmission", inputs: [{ name: "user", type: "address", indexed: true }, { name: "agent", type: "address", indexed: true }, { name: "nonce", type: "bytes32", indexed: true }, { name: "expiry", type: "uint256", indexed: false }, { name: "timestamp", type: "uint256", indexed: false }] },
+  // Added with the funding-gate and shared-handle audit fixes.
+  {"anonymous":false,"inputs":[{"indexed":true,"internalType":"uint256","name":"requestId","type":"uint256"},{"indexed":true,"internalType":"address","name":"by","type":"address"},{"indexed":false,"internalType":"uint256","name":"timestamp","type":"uint256"}],"name":"RequestSettlingReopened","type":"event"},
+  {"inputs":[],"name":"SETTLING_TIMEOUT","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
+  {"inputs":[{"internalType":"uint256","name":"requestId","type":"uint256"}],"name":"reopenSettlingRequest","outputs":[],"stateMutability":"nonpayable","type":"function"},
 ] as const;
 
 export const EventHubAbi = [
@@ -145,7 +149,7 @@ export const GroupManagerAbi = [
 
 export const CreatorHubAbi = [
   { type: "function", name: "setProfile", inputs: [{ name: "name", type: "string" }, { name: "bio", type: "string" }, { name: "tier1", type: "uint64" }, { name: "tier2", type: "uint64" }, { name: "tier3", type: "uint64" }], outputs: [], stateMutability: "nonpayable" },
-  { type: "function", name: "support", inputs: [{ name: "creator", type: "address" }, { name: "vault", type: "address" }, { name: "encAmount", type: "bytes32", internalType: "externalEuint64" }, { name: "proof", type: "bytes" }, { name: "message", type: "string" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "support", inputs: [{ name: "creator", type: "address" }, { name: "vault", type: "address" }, { name: "encAmount", type: "bytes32", internalType: "externalEuint64" }, { name: "proof", type: "bytes" }, { name: "message", type: "string" }], outputs: [{ name: "tipId", type: "uint256" }], stateMutability: "nonpayable" },
   // Totals are per vault. checkMyTier / getMyContribution / getMyEarnings were removed on-chain.
   { type: "function", name: "checkMyTierIn", inputs: [{ name: "creator", type: "address" }, { name: "vault", type: "address" }], outputs: [{ name: "bronze", type: "uint256", internalType: "ebool" }, { name: "silver", type: "uint256", internalType: "ebool" }, { name: "gold", type: "uint256", internalType: "ebool" }], stateMutability: "nonpayable" },
   { type: "function", name: "getProfile", inputs: [{ name: "creator", type: "address" }], outputs: [{ name: "name", type: "string" }, { name: "bio", type: "string" }, { name: "tier1", type: "uint64" }, { name: "tier2", type: "uint64" }, { name: "tier3", type: "uint64" }, { name: "supporterCount", type: "uint256" }, { name: "active", type: "bool" }], stateMutability: "view" },
@@ -154,6 +158,13 @@ export const CreatorHubAbi = [
   { type: "function", name: "hasProfile", inputs: [{ name: "", type: "address" }], outputs: [{ name: "", type: "bool" }], stateMutability: "view" },
   { type: "event", name: "Supported", inputs: [{ name: "supporter", type: "address", indexed: true }, { name: "creator", type: "address", indexed: true }, { name: "message", type: "string", indexed: false }, { name: "timestamp", type: "uint256", indexed: false }] },
   { type: "event", name: "SupportedIn", inputs: [{ name: "supporter", type: "address", indexed: true }, { name: "creator", type: "address", indexed: true }, { name: "vault", type: "address", indexed: true }, { name: "moved", type: "bytes32", indexed: false, internalType: "euint64" }] },
+  // Added with the funding-gate and shared-handle audit fixes.
+  {"anonymous":false,"inputs":[{"indexed":true,"internalType":"uint256","name":"tipId","type":"uint256"},{"indexed":true,"internalType":"address","name":"supporter","type":"address"},{"indexed":true,"internalType":"address","name":"creator","type":"address"},{"indexed":false,"internalType":"address","name":"vault","type":"address"},{"indexed":false,"internalType":"ebool","name":"funded","type":"bytes32"}],"name":"TipPending","type":"event"},
+  {"anonymous":false,"inputs":[{"indexed":true,"internalType":"uint256","name":"tipId","type":"uint256"},{"indexed":true,"internalType":"address","name":"supporter","type":"address"},{"indexed":true,"internalType":"address","name":"creator","type":"address"}],"name":"TipVoided","type":"event"},
+  {"inputs":[{"internalType":"uint256","name":"tipId","type":"uint256"},{"internalType":"bool","name":"fundedPlaintext","type":"bool"},{"internalType":"bytes","name":"signature","type":"bytes"}],"name":"confirmFunding","outputs":[],"stateMutability":"nonpayable","type":"function"},
+  {"inputs":[{"internalType":"uint256","name":"tipId","type":"uint256"}],"name":"getTip","outputs":[{"internalType":"address","name":"supporter","type":"address"},{"internalType":"address","name":"creator","type":"address"},{"internalType":"address","name":"vault","type":"address"},{"internalType":"enum CreatorHub.TipStatus","name":"status","type":"uint8"}],"stateMutability":"view","type":"function"},
+  {"inputs":[{"internalType":"uint256","name":"tipId","type":"uint256"}],"name":"getTipFundedHandle","outputs":[{"internalType":"ebool","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
+  {"inputs":[],"name":"nextTipId","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
 ] as const;
 
 export const BusinessHubAbi = [
@@ -252,6 +263,12 @@ export const GiftMoneyAbi = [
   { type: "event", name: "GiftOpened", inputs: [{ name: "envelopeId", type: "uint256", indexed: true }, { name: "recipient", type: "address", indexed: true }, { name: "timestamp", type: "uint256", indexed: false }] },
   { type: "event", name: "EnvelopeDeactivated", inputs: [{ name: "envelopeId", type: "uint256", indexed: true }, { name: "sender", type: "address", indexed: true }, { name: "timestamp", type: "uint256", indexed: false }] },
   { type: "event", name: "EnvelopeExpirySet", inputs: [{ name: "envelopeId", type: "uint256", indexed: true }, { name: "expiryTimestamp", type: "uint256", indexed: false }] },
+  // Added with the funding-gate and shared-handle audit fixes.
+  {"anonymous":false,"inputs":[{"indexed":true,"internalType":"uint256","name":"envelopeId","type":"uint256"},{"indexed":true,"internalType":"address","name":"sender","type":"address"}],"name":"EnvelopeFunded","type":"event"},
+  {"anonymous":false,"inputs":[{"indexed":true,"internalType":"uint256","name":"envelopeId","type":"uint256"},{"indexed":true,"internalType":"address","name":"sender","type":"address"}],"name":"EnvelopeVoided","type":"event"},
+  {"inputs":[{"internalType":"uint256","name":"envelopeId","type":"uint256"},{"internalType":"bool","name":"funded","type":"bool"},{"internalType":"bytes","name":"signature","type":"bytes"}],"name":"confirmFunding","outputs":[],"stateMutability":"nonpayable","type":"function"},
+  {"inputs":[{"internalType":"uint256","name":"","type":"uint256"}],"name":"fundingStatus","outputs":[{"internalType":"enum GiftMoney.FundingStatus","name":"","type":"uint8"}],"stateMutability":"view","type":"function"},
+  {"inputs":[{"internalType":"uint256","name":"envelopeId","type":"uint256"}],"name":"getFundingCheck","outputs":[{"internalType":"ebool","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
 ] as const;
 
 export const InheritanceManagerAbi = [
@@ -277,6 +294,9 @@ export const InheritanceManagerAbi = [
   { type: "event", name: "ClaimStarted", inputs: [{ name: "owner", type: "address", indexed: true }, { name: "heir", type: "address", indexed: true }, { name: "timestamp", type: "uint256", indexed: false }] },
   { type: "event", name: "ClaimCancelled", inputs: [{ name: "owner", type: "address", indexed: true }, { name: "timestamp", type: "uint256", indexed: false }] },
   { type: "event", name: "ClaimFinalized", inputs: [{ name: "owner", type: "address", indexed: true }, { name: "heir", type: "address", indexed: true }, { name: "timestamp", type: "uint256", indexed: false }] },
+  // Added with the funding-gate and shared-handle audit fixes.
+  {"inputs":[],"name":"CLAIM_RETRY_COOLDOWN","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
+  {"inputs":[{"internalType":"address","name":"","type":"address"}],"name":"lastClaimAt","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
 ] as const;
 
 // ─── PrivacyRouter — Encrypted token swap router ─────────────────────────────
@@ -543,6 +563,13 @@ export const ClaimLinksAbi = [
     { name: "sender", type: "address", indexed: true },
     { name: "timestamp", type: "uint256", indexed: false },
   ] },
+  // Added with the funding-gate and shared-handle audit fixes.
+  {"anonymous":false,"inputs":[{"indexed":true,"internalType":"uint256","name":"linkId","type":"uint256"},{"indexed":true,"internalType":"address","name":"sender","type":"address"}],"name":"LinkFunded","type":"event"},
+  {"anonymous":false,"inputs":[{"indexed":true,"internalType":"uint256","name":"linkId","type":"uint256"},{"indexed":true,"internalType":"address","name":"sender","type":"address"}],"name":"LinkVoided","type":"event"},
+  {"inputs":[{"internalType":"uint256","name":"linkId","type":"uint256"}],"name":"cancelPendingLink","outputs":[],"stateMutability":"nonpayable","type":"function"},
+  {"inputs":[{"internalType":"uint256","name":"linkId","type":"uint256"},{"internalType":"bool","name":"funded","type":"bool"},{"internalType":"bytes","name":"signature","type":"bytes"}],"name":"confirmFunding","outputs":[],"stateMutability":"nonpayable","type":"function"},
+  {"inputs":[{"internalType":"uint256","name":"","type":"uint256"}],"name":"fundingStatus","outputs":[{"internalType":"enum ClaimLinks.FundingStatus","name":"","type":"uint8"}],"stateMutability":"view","type":"function"},
+  {"inputs":[{"internalType":"uint256","name":"linkId","type":"uint256"}],"name":"getFundingCheck","outputs":[{"internalType":"ebool","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
 ] as const;
 
 // ─── Storefront — Wave 4 task #254 ─────────────────────────────────────────
@@ -550,7 +577,7 @@ export const ClaimLinksAbi = [
 // Modes: 0=FixedPrice, 1=Auction, 2=PayWhatYouWant
 export const StorefrontAbi = [
   { type: "function", name: "createListing", inputs: [{ name: "mode", type: "uint8", internalType: "enum Storefront.SaleMode" }, { name: "vault", type: "address" }, { name: "encPrice", type: "bytes32", internalType: "externalEuint64" }, { name: "proof", type: "bytes" }, { name: "auctionSeconds", type: "uint256" }, { name: "title", type: "string" }, { name: "descriptionCidHash", type: "bytes32" }, { name: "deliveryChannel", type: "string" }], outputs: [{ name: "listingId", type: "uint256" }], stateMutability: "nonpayable" },
-  { type: "function", name: "buyFixed", inputs: [{ name: "listingId", type: "uint256" }, { name: "encAmount", type: "bytes32", internalType: "externalEuint64" }, { name: "proof", type: "bytes" }, { name: "deliveryNoteHash", type: "bytes32" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "buyFixed", inputs: [{ name: "listingId", type: "uint256" }, { name: "encAmount", type: "bytes32", internalType: "externalEuint64" }, { name: "proof", type: "bytes" }, { name: "deliveryNoteHash", type: "bytes32" }], outputs: [{ name: "purchaseId", type: "uint256" }], stateMutability: "nonpayable" },
   { type: "function", name: "placeBid", inputs: [{ name: "listingId", type: "uint256" }, { name: "encAmount", type: "bytes32", internalType: "externalEuint64" }, { name: "proof", type: "bytes" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "closeAuction", inputs: [{ name: "listingId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "claimAuctionWin", inputs: [
@@ -561,7 +588,7 @@ export const StorefrontAbi = [
     { name: "listingId", type: "uint256" },
     { name: "bidIndex", type: "uint256" },
   ], outputs: [], stateMutability: "nonpayable" },
-  { type: "function", name: "payPWYW", inputs: [{ name: "listingId", type: "uint256" }, { name: "encAmount", type: "bytes32", internalType: "externalEuint64" }, { name: "proof", type: "bytes" }, { name: "deliveryNoteHash", type: "bytes32" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "payPWYW", inputs: [{ name: "listingId", type: "uint256" }, { name: "encAmount", type: "bytes32", internalType: "externalEuint64" }, { name: "proof", type: "bytes" }, { name: "deliveryNoteHash", type: "bytes32" }], outputs: [{ name: "purchaseId", type: "uint256" }], stateMutability: "nonpayable" },
   { type: "function", name: "deactivateListing", inputs: [{ name: "listingId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
   { type: "function", name: "getListing", inputs: [{ name: "listingId", type: "uint256" }], outputs: [
     { name: "seller", type: "address" },
@@ -642,6 +669,16 @@ export const StorefrontAbi = [
     { name: "seller", type: "address", indexed: true },
     { name: "deliveryNoteHash", type: "bytes32", indexed: false },
   ] },
+  // Added with the funding-gate and shared-handle audit fixes.
+  {"anonymous":false,"inputs":[{"indexed":true,"internalType":"uint256","name":"listingId","type":"uint256"},{"indexed":false,"internalType":"uint256","name":"totalBids","type":"uint256"}],"name":"AuctionNoWinner","type":"event"},
+  {"anonymous":false,"inputs":[{"indexed":true,"internalType":"uint256","name":"purchaseId","type":"uint256"},{"indexed":true,"internalType":"uint256","name":"listingId","type":"uint256"},{"indexed":true,"internalType":"address","name":"buyer","type":"address"},{"indexed":false,"internalType":"ebool","name":"funded","type":"bytes32"}],"name":"PurchasePending","type":"event"},
+  {"anonymous":false,"inputs":[{"indexed":true,"internalType":"uint256","name":"purchaseId","type":"uint256"},{"indexed":true,"internalType":"uint256","name":"listingId","type":"uint256"},{"indexed":true,"internalType":"address","name":"buyer","type":"address"}],"name":"PurchaseVoided","type":"event"},
+  {"inputs":[],"name":"NO_WINNER","outputs":[{"internalType":"uint8","name":"","type":"uint8"}],"stateMutability":"view","type":"function"},
+  {"inputs":[{"internalType":"uint256","name":"listingId","type":"uint256"}],"name":"auctionHasNoWinner","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"view","type":"function"},
+  {"inputs":[{"internalType":"uint256","name":"purchaseId","type":"uint256"},{"internalType":"bool","name":"fundedPlaintext","type":"bool"},{"internalType":"bytes","name":"signature","type":"bytes"}],"name":"confirmFunding","outputs":[],"stateMutability":"nonpayable","type":"function"},
+  {"inputs":[{"internalType":"uint256","name":"purchaseId","type":"uint256"}],"name":"getPurchase","outputs":[{"internalType":"uint256","name":"listingId","type":"uint256"},{"internalType":"address","name":"buyer","type":"address"},{"internalType":"enum Storefront.PurchaseKind","name":"kind","type":"uint8"},{"internalType":"enum Storefront.PurchaseStatus","name":"status","type":"uint8"}],"stateMutability":"view","type":"function"},
+  {"inputs":[{"internalType":"uint256","name":"purchaseId","type":"uint256"}],"name":"getPurchaseFundedHandle","outputs":[{"internalType":"ebool","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
+  {"inputs":[],"name":"nextPurchaseId","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
 ] as const;
 
 // ─── EncryptedCrowdfund — Wave 4 task #257 ─────────────────────────────────
@@ -714,6 +751,18 @@ export const EncryptedCrowdfundAbi = [
     { name: "campaignId", type: "uint256", indexed: true },
     { name: "creator", type: "address", indexed: true },
   ] },
+  // Added with the funding-gate and shared-handle audit fixes.
+  {"anonymous":false,"inputs":[{"indexed":true,"internalType":"uint256","name":"campaignId","type":"uint256"},{"indexed":true,"internalType":"address","name":"contributor","type":"address"},{"indexed":false,"internalType":"uint256","name":"contributionIndex","type":"uint256"}],"name":"ContributionConfirmed","type":"event"},
+  {"anonymous":false,"inputs":[{"indexed":true,"internalType":"uint256","name":"campaignId","type":"uint256"},{"indexed":true,"internalType":"address","name":"contributor","type":"address"},{"indexed":false,"internalType":"uint256","name":"contributionIndex","type":"uint256"}],"name":"ContributionVoided","type":"event"},
+  {"anonymous":false,"inputs":[{"indexed":true,"internalType":"uint256","name":"campaignId","type":"uint256"},{"indexed":true,"internalType":"address","name":"contributor","type":"address"},{"indexed":false,"internalType":"uint256","name":"contributionIndex","type":"uint256"}],"name":"RefundNotPaid","type":"event"},
+  {"anonymous":false,"inputs":[{"indexed":true,"internalType":"uint256","name":"campaignId","type":"uint256"},{"indexed":true,"internalType":"address","name":"contributor","type":"address"},{"indexed":false,"internalType":"uint256","name":"contributionIndex","type":"uint256"}],"name":"RefundRequested","type":"event"},
+  {"inputs":[{"internalType":"uint256","name":"campaignId","type":"uint256"},{"internalType":"uint256","name":"contributionIndex","type":"uint256"},{"internalType":"bool","name":"funded","type":"bool"},{"internalType":"bytes","name":"signature","type":"bytes"}],"name":"confirmContribution","outputs":[],"stateMutability":"nonpayable","type":"function"},
+  {"inputs":[{"internalType":"uint256","name":"campaignId","type":"uint256"},{"internalType":"uint256","name":"contributionIndex","type":"uint256"},{"internalType":"bool","name":"paidOut","type":"bool"},{"internalType":"bytes","name":"signature","type":"bytes"}],"name":"confirmRefund","outputs":[],"stateMutability":"nonpayable","type":"function"},
+  {"inputs":[{"internalType":"uint256","name":"","type":"uint256"},{"internalType":"uint256","name":"","type":"uint256"}],"name":"contributionState","outputs":[{"internalType":"enum EncryptedCrowdfund.ContributionState","name":"","type":"uint8"}],"stateMutability":"view","type":"function"},
+  {"inputs":[{"internalType":"uint256","name":"campaignId","type":"uint256"},{"internalType":"uint256","name":"contributionIndex","type":"uint256"}],"name":"getContributionFundingCheck","outputs":[{"internalType":"ebool","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
+  {"inputs":[{"internalType":"uint256","name":"campaignId","type":"uint256"},{"internalType":"uint256","name":"contributionIndex","type":"uint256"}],"name":"getRefundCheck","outputs":[{"internalType":"ebool","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
+  {"inputs":[{"internalType":"uint256","name":"","type":"uint256"},{"internalType":"uint256","name":"","type":"uint256"}],"name":"refundInFlight","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"view","type":"function"},
+  {"inputs":[{"internalType":"uint256","name":"","type":"uint256"}],"name":"uncountedContributions","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
 ] as const;
 
 // ─── EncryptedEscrow — Wave 4 task #249 ────────────────────────────────────
@@ -797,6 +846,12 @@ export const EncryptedEscrowAbi = [
     { name: "escrowId", type: "uint256", indexed: true },
     { name: "depositor", type: "address", indexed: true },
   ] },
+  // Added with the funding-gate and shared-handle audit fixes.
+  {"anonymous":false,"inputs":[{"indexed":true,"internalType":"uint256","name":"escrowId","type":"uint256"},{"indexed":true,"internalType":"address","name":"depositor","type":"address"},{"indexed":true,"internalType":"address","name":"beneficiary","type":"address"}],"name":"EscrowFunded","type":"event"},
+  {"anonymous":false,"inputs":[{"indexed":true,"internalType":"uint256","name":"escrowId","type":"uint256"},{"indexed":true,"internalType":"address","name":"depositor","type":"address"}],"name":"EscrowVoided","type":"event"},
+  {"inputs":[{"internalType":"uint256","name":"escrowId","type":"uint256"}],"name":"cancelPendingEscrow","outputs":[],"stateMutability":"nonpayable","type":"function"},
+  {"inputs":[{"internalType":"uint256","name":"escrowId","type":"uint256"},{"internalType":"bool","name":"funded","type":"bool"},{"internalType":"bytes","name":"signature","type":"bytes"}],"name":"confirmFunding","outputs":[],"stateMutability":"nonpayable","type":"function"},
+  {"inputs":[{"internalType":"uint256","name":"escrowId","type":"uint256"}],"name":"getFundingCheck","outputs":[{"internalType":"ebool","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
 ] as const;
 
 // ─── Conditional invoice — InvoiceApprovalResolver (Reineira standard) ──
@@ -945,6 +1000,12 @@ export const P2POfframpAbi = [
   ] },
   { type: "event", name: "FillRefunded", inputs: [{ name: "fillId", type: "uint64", indexed: true }] },
   { type: "event", name: "OfferCancelled", inputs: [{ name: "offerId", type: "uint64", indexed: true }] },
+  // Added with the funding-gate and shared-handle audit fixes.
+  {"anonymous":false,"inputs":[{"indexed":true,"internalType":"uint64","name":"fillId","type":"uint64"},{"indexed":true,"internalType":"uint64","name":"offerId","type":"uint64"},{"indexed":true,"internalType":"address","name":"taker","type":"address"},{"indexed":false,"internalType":"ebool","name":"funded","type":"bytes32"}],"name":"FillPending","type":"event"},
+  {"anonymous":false,"inputs":[{"indexed":true,"internalType":"uint64","name":"fillId","type":"uint64"},{"indexed":true,"internalType":"uint64","name":"offerId","type":"uint64"}],"name":"FillVoided","type":"event"},
+  {"inputs":[{"internalType":"uint64","name":"fillId","type":"uint64"},{"internalType":"bool","name":"fundedPlaintext","type":"bool"},{"internalType":"bytes","name":"signature","type":"bytes"}],"name":"confirmFunding","outputs":[],"stateMutability":"nonpayable","type":"function"},
+  {"inputs":[{"internalType":"uint64","name":"","type":"uint64"}],"name":"fillFunded","outputs":[{"internalType":"ebool","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
+  {"inputs":[{"internalType":"uint64","name":"offerId","type":"uint64"},{"internalType":"uint64","name":"minUsdc","type":"uint64"}],"name":"takeOfferExpecting","outputs":[{"internalType":"uint64","name":"fillId","type":"uint64"}],"stateMutability":"nonpayable","type":"function"},
 ] as const;
 
 export const ReclaimAdapterAbi = [

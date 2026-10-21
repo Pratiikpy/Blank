@@ -3,7 +3,7 @@
 // path in BusinessHub.escrow for new escrows. Existing BusinessHub escrows
 // continue to work via useBusinessHub for back-compat.
 
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { parseUnits, encodeAbiParameters } from "viem";
 import { usePublicClient } from "wagmi";
 import toast from "react-hot-toast";
@@ -12,7 +12,8 @@ import { useEffectiveAddress } from "./useEffectiveAddress";
 import { useUnifiedWrite } from "./useUnifiedWrite";
 import { useFhePipeline } from "./useFhePipeline";
 import { useChain } from "@/providers/ChainProvider";
-import { useCofheEncrypt, useCofheConnection, Encryptable } from "@/lib/cofhe-shim";
+import { useCofheEncrypt, useCofheConnection, useCofheDecryptForTx, Encryptable } from "@/lib/cofhe-shim";
+import { runFundingGate, supportsFundingGate, FundingGateTimeout } from "@/lib/funding-gate";
 import type { PublicClient } from "viem";
 import {
   EncryptedEscrowAbi,
@@ -33,6 +34,8 @@ export const ESCROW_STATUS = {
   Disputed: 1,
   Released: 2,
   Refunded: 3,
+  PendingFunding: 4,
+  Void: 5,
 } as const;
 export type EscrowStatus = typeof ESCROW_STATUS[keyof typeof ESCROW_STATUS];
 
@@ -107,15 +110,26 @@ export async function readConditionalInvoice(
   };
 }
 
-export type EscrowStep ="idle" | "approving" | "encrypting" | "sending" | "success" | "error";
+export type EscrowStep = "idle" | "approving" | "encrypting" | "sending" | "funding" | "success" | "error";
+/** Outcome of the funding check for the last escrow. Null on a contract that predates the funding gate. */
+export type EscrowFunding = "funded" | "pending" | "unfunded";
 export interface EscrowState {
   step: EscrowStep;
   isProcessing: boolean;
   error: string | null;
   txHash: `0x${string}` | null;
   lastEscrowId: number | null;
+  funding: EscrowFunding | null;
 }
-const initial: EscrowState = { step: "idle", isProcessing: false, error: null, txHash: null, lastEscrowId: null };
+const initial: EscrowState = { step: "idle", isProcessing: false, error: null, txHash: null, lastEscrowId: null, funding: null };
+
+export const ESCROW_UNFUNDED_MESSAGE =
+  "The escrow was not funded: your private balance was too low. Nothing was locked.";
+
+function pendingFundingMessage(id: number, err: unknown): string {
+  const reason = err instanceof FundingGateTimeout ? "the funding check is not ready yet" : err instanceof Error ? err.message : String(err);
+  return `Escrow #${id} was created but its funding is not confirmed (${reason}). Nothing is lost: open the escrow and press Finish funding.`;
+}
 
 // §3.7 of BEST_VERSION_FULL_PLAN: friendly labels for callSimple toasts.
 const FRIENDLY_LABEL: Record<string, string> = {
@@ -123,6 +137,7 @@ const FRIENDLY_LABEL: Record<string, string> = {
   approveRelease: "Release approved",
   disputeEscrow: "Dispute opened",
   claimExpiredEscrow: "Escrow refunded after deadline",
+  cancelPendingEscrow: "Escrow cancelled",
   arbiterDecide: "Arbiter decision recorded",
   claimDisputeTimeout: "Dispute timed out. Funds returned to you",
   releaseIfConditionMet: "Funds released",
@@ -136,7 +151,74 @@ export function useEncryptedEscrow() {
   const { encryptInputsAsync } = useCofheEncrypt();
   const { unifiedWriteAndWait } = useUnifiedWrite();
   const pipeline = useFhePipeline();
+  const { decryptForTx } = useCofheDecryptForTx();
   const [state, setState] = useState<EscrowState>(initial);
+  // Chains whose EncryptedEscrow has the funding gate. Only a positive probe is
+  // kept: a failed probe may be a flaky RPC, so the next call asks again.
+  const gateSupport = useRef(new Set<string>());
+
+  const gateSupported = useCallback(
+    async (ee: `0x${string}`): Promise<boolean> => {
+      const key = `${activeChainId}:${ee.toLowerCase()}`;
+      if (gateSupport.current.has(key)) return true;
+      if (!publicClient) return false;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const ok = await supportsFundingGate(() =>
+          publicClient.readContract({ address: ee, abi: EncryptedEscrowAbi, functionName: "getFundingCheck", args: [0n] }),
+        );
+        if (ok) {
+          gateSupport.current.add(key);
+          return true;
+        }
+      }
+      return false;
+    },
+    [activeChainId, publicClient],
+  );
+
+  // Decrypts "funded" for a PendingFunding escrow and publishes it. Anyone can
+  // run this, so it is safe to call again for an escrow another tab or user
+  // already settled: the pending check below turns that into a no-op.
+  const runGate = useCallback(
+    async (ee: `0x${string}`, id: number): Promise<boolean> => {
+      const client = publicClient!;
+      const { funded } = await runFundingGate({
+        readHandle: async () =>
+          BigInt(
+            (await client.readContract({
+              address: ee,
+              abi: EncryptedEscrowAbi,
+              functionName: "getFundingCheck",
+              args: [BigInt(id)],
+            })) as bigint | `0x${string}`,
+          ),
+        decryptForTx,
+        confirm: async (verdict, signature) => {
+          try {
+            const e = (await client.readContract({
+              address: ee,
+              abi: EncryptedEscrowAbi,
+              functionName: "getEscrow",
+              args: [BigInt(id)],
+            })) as readonly unknown[];
+            if (Number(e[7]) !== ESCROW_STATUS.PendingFunding) return;
+          } catch {
+            // Status unreadable: let the write decide.
+          }
+          const r = await unifiedWriteAndWait({
+            address: ee,
+            abi: EncryptedEscrowAbi,
+            functionName: "confirmFunding",
+            args: [BigInt(id), verdict, signature],
+            gas: BigInt(5_000_000),
+          });
+          if (r.receipt?.status === "reverted") throw new Error("confirmFunding reverted on-chain");
+        },
+      });
+      return funded;
+    },
+    [publicClient, decryptForTx, unifiedWriteAndWait],
+  );
 
   // §3.17 of BEST_VERSION_FULL_PLAN: split guards. The original guardReady
   // required cofhe-connected which blocked plaintext-only ops (arbiterDecide,
@@ -185,6 +267,42 @@ export function useEncryptedEscrow() {
     }
   }, [contracts.EncryptedEscrow, unifiedWriteAndWait]);
 
+  // Runs the funding gate for a freshly created escrow and publishes the
+  // outcome. Returns the id unless the escrow is known to be unfunded. A gate
+  // that cannot finish leaves the escrow PendingFunding on-chain, which anyone
+  // can settle later, so that case still returns the id.
+  const settleCreated = useCallback(
+    async (ee: `0x${string}`, id: number, hash: `0x${string}`, gated: boolean): Promise<number | null> => {
+      if (!gated) {
+        pipeline.markDone();
+        setState({ step: "success", isProcessing: false, error: null, txHash: hash, lastEscrowId: id, funding: null });
+        invalidateBalanceQueries();
+        return id;
+      }
+      setState((s) => ({ ...s, step: "funding" }));
+      let funding: EscrowFunding;
+      let pendingNote: string | null = null;
+      try {
+        funding = (await runGate(ee, id)) ? "funded" : "unfunded";
+      } catch (err) {
+        funding = "pending";
+        pendingNote = pendingFundingMessage(id, err);
+      }
+      invalidateBalanceQueries();
+      if (funding === "unfunded") {
+        pipeline.markFailed(new Error(ESCROW_UNFUNDED_MESSAGE));
+        setState({ step: "error", isProcessing: false, error: ESCROW_UNFUNDED_MESSAGE, txHash: hash, lastEscrowId: id, funding });
+        toast.error(ESCROW_UNFUNDED_MESSAGE);
+        return null;
+      }
+      pipeline.markDone();
+      setState({ step: "success", isProcessing: false, error: null, txHash: hash, lastEscrowId: id, funding });
+      if (pendingNote) toast.error(pendingNote);
+      return id;
+    },
+    [pipeline, runGate],
+  );
+
   const createEscrow = useCallback(
     async (params: {
       beneficiary: `0x${string}`;
@@ -230,6 +348,7 @@ export function useEncryptedEscrow() {
         pipeline.start();
         setState({ ...initial, step: "approving", isProcessing: true });
         await ensureVaultApproval(params.vault);
+        const gated = await gateSupported(ee);
 
         setState((s) => ({ ...s, step: "encrypting" }));
         const amountUnits = parseUnits(params.amountTokens, params.decimals);
@@ -269,10 +388,7 @@ export function useEncryptedEscrow() {
         if (id === null) {
           throw new Error("Tx mined but escrowId could not be read; check History tab.");
         }
-        pipeline.markDone();
-        setState({ step: "success", isProcessing: false, error: null, txHash: wr.hash, lastEscrowId: id });
-        invalidateBalanceQueries();
-        return id;
+        return await settleCreated(ee, id, wr.hash, gated);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         pipeline.markFailed(err);
@@ -283,7 +399,7 @@ export function useEncryptedEscrow() {
         return null;
       }
     },
-    [guardReady, pipeline, ensureVaultApproval, encryptInputsAsync, unifiedWriteAndWait, publicClient],
+    [guardReady, pipeline, ensureVaultApproval, gateSupported, settleCreated, encryptInputsAsync, unifiedWriteAndWait, publicClient],
   );
 
   // Conditional invoice: the depositor (payer) escrows an encrypted amount to
@@ -327,6 +443,7 @@ export function useEncryptedEscrow() {
         pipeline.start();
         setState({ ...initial, step: "approving", isProcessing: true });
         await ensureVaultApproval(params.vault);
+        const gated = await gateSupported(ee);
 
         setState((s) => ({ ...s, step: "encrypting" }));
         const amountUnits = parseUnits(params.amountTokens, params.decimals);
@@ -370,10 +487,7 @@ export function useEncryptedEscrow() {
         }
         const id = extractEventId(logs, ee);
         if (id === null) throw new Error("Tx mined but invoice id could not be read; check History tab.");
-        pipeline.markDone();
-        setState({ step: "success", isProcessing: false, error: null, txHash: wr.hash, lastEscrowId: id });
-        invalidateBalanceQueries();
-        return id;
+        return await settleCreated(ee, id, wr.hash, gated);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         pipeline.markFailed(err);
@@ -382,7 +496,7 @@ export function useEncryptedEscrow() {
         return null;
       }
     },
-    [guardReady, contracts.InvoiceApprovalResolver, address, pipeline, ensureVaultApproval, encryptInputsAsync, unifiedWriteAndWait, publicClient],
+    [guardReady, contracts.InvoiceApprovalResolver, address, pipeline, ensureVaultApproval, gateSupported, settleCreated, encryptInputsAsync, unifiedWriteAndWait, publicClient],
   );
 
   const callSimple = useCallback(
@@ -394,7 +508,7 @@ export function useEncryptedEscrow() {
         | "claimExpiredEscrow"
         | "claimDisputeTimeout"
         | "arbiterDecide"
-        | "claimDisputeTimeout"
+        | "cancelPendingEscrow"
         | "releaseIfConditionMet",
       args: readonly unknown[],
       gasLimit = 5_000_000,
@@ -442,6 +556,41 @@ export function useEncryptedEscrow() {
   // Depositor exit when the arbiter never rules: DISPUTE_TIMEOUT (30 days)
   // after the dispute opened, funds go back and the status is Refunded.
   const claimDisputeTimeout = useCallback((id: number) => callSimple("claimDisputeTimeout", [BigInt(id)]), [callSimple]);
+  /** Depositor abandons an escrow still waiting for its funding check. */
+  const cancelPendingEscrow = useCallback((id: number) => callSimple("cancelPendingEscrow", [BigInt(id)]), [callSimple]);
+
+  /**
+   * Finish an escrow left PendingFunding (the funding check timed out, or the
+   * tab closed). Anyone can run it. Returns the verdict, or null when it could
+   * not be completed; the escrow then stays pending and can be retried.
+   */
+  const finishFunding = useCallback(
+    async (id: number): Promise<"funded" | "unfunded" | null> => {
+      const ready = guardWalletReady();
+      if (!ready) return null;
+      const { ee } = ready;
+      if (!(await gateSupported(ee))) {
+        toast.error("This escrow contract has no funding check to finish.");
+        return null;
+      }
+      setState((prev) => ({ ...prev, step: "funding", isProcessing: true, error: null }));
+      const toastId = toast.loading("Confirming funding...");
+      try {
+        const funded = await runGate(ee, id);
+        invalidateBalanceQueries();
+        setState((prev) => ({ ...prev, step: "success", isProcessing: false, funding: funded ? "funded" : "unfunded" }));
+        if (funded) toast.success("Escrow funded", { id: toastId });
+        else toast.error(ESCROW_UNFUNDED_MESSAGE, { id: toastId });
+        return funded ? "funded" : "unfunded";
+      } catch (err) {
+        const msg = pendingFundingMessage(id, err);
+        setState((prev) => ({ ...prev, isProcessing: false, step: "error", error: msg }));
+        toast.error(msg, { id: toastId });
+        return null;
+      }
+    },
+    [guardWalletReady, gateSupported, runGate],
+  );
 
   /** Unix seconds after which claimDisputeTimeout succeeds, or null if the
    *  escrow is not disputed. Pre-upgrade disputes carry no timestamp and
@@ -565,6 +714,8 @@ export function useEncryptedEscrow() {
     approveRelease,
     disputeEscrow,
     claimDisputeTimeout,
+    cancelPendingEscrow,
+    finishFunding,
     getDisputedAt,
     claimExpiredEscrow,
     fetchDisputeTimeoutAt,

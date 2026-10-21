@@ -84,6 +84,28 @@ on a clean machine:
 
 Any phase failing = not done. Any feature without a tx hash + screenshot = not covered.
 
+## Funding-gate actions take one signed transaction longer
+
+Claim link, gift envelope, crowdfund contribution, creator tip, storefront
+purchase, offramp take and conditional invoice start Pending on-chain. The app
+decrypts the public funded bit (Threshold Network, up to ~90s) and sends
+`confirmFunding` itself, which is one more passphrase prompt (passkey) or Rabby
+popup (EOA). The settled screen ("Link ready", "Gift Sent!", "Contribution
+submitted", "Payment confirmed") only shows after that.
+
+- Passkey specs: pass `doneSelector` to `drainPromptsAndCaptureTx` and use
+  `waitForFundingSettled` and `FUNDING_SETTLE_MS` from `helpers/app-actions.ts`.
+  Root-level specs use `answerPromptsUntilFundingSettled` or `startPromptAnswerer`
+  from `helpers/phase6-helpers.ts`.
+- Rabby scripts: use `drainRabbyPopupsUntil` from `fixtures/rabby/rabby-driver.ts`
+  instead of a fixed popup count, which misses the late confirm popup.
+- Raise `test.setTimeout` for specs that run several of these in one test.
+- Pending screens expose `claim-link-pending`, `gift-funding-pending`,
+  `contribution-pending`, `creator-pending-tips`, `storefront-pending-payment`,
+  `offramp-fill-pending` and `conditional-invoice-pending`, each with a Finish
+  control. A spec that needs the Finish button to settle is reporting that the
+  automatic step failed.
+
 ## Not-stopping-conditions (push back if asked)
 
 - "It compiled" — type-check doesn't prove the UI works.

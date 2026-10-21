@@ -37,7 +37,7 @@ export default function CreateCampaign() {
   const { contracts, activeChainId } = useChain();
   const { effectiveAddress } = useEffectiveAddress();
   const {
-    state, pipeline, createCampaign, closeCampaign, fetchCreatorCampaigns, fetchCampaign, reset,
+    state, pipeline, createCampaign, closeCampaign, finishClosing, fetchCreatorCampaigns, fetchCampaign, reset,
   } = useCrowdfund();
 
   const [title, setTitle] = useState("");
@@ -125,6 +125,22 @@ export default function CreateCampaign() {
       }
     },
     [closeCampaign, refreshCreatorCampaigns],
+  );
+
+  // Closing computes the encrypted verdict; publishing it is a second step that
+  // closeCampaign already attempts for the creator. This retries it when that
+  // attempt did not finish.
+  const handleFinishClosing = useCallback(
+    async (campaignId: bigint) => {
+      setClosingId(campaignId);
+      try {
+        const verdict = await finishClosing(Number(campaignId));
+        if (verdict) await refreshCreatorCampaigns();
+      } finally {
+        setClosingId(null);
+      }
+    },
+    [finishClosing, refreshCreatorCampaigns],
   );
 
   const copyCampaignUrl = useCallback(
@@ -329,7 +345,7 @@ export default function CreateCampaign() {
                       <p className="text-xs text-[var(--text-secondary)] mt-1">
                         {phase === "open" && "Accepting encrypted contributions."}
                         {phase === "needs close" && "Deadline passed. Close to request the encrypted goal verdict."}
-                        {phase === "awaiting" && "Close submitted. Waiting for the goal verdict to be published."}
+                        {phase === "awaiting" && "Closed. The goal verdict still has to be published before funds can move. Press Finish closing."}
                         {phase === "released" && "Goal met. Creator release path is complete."}
                         {phase === "refunding" && "Goal missed. Contributors can claim refunds."}
                       </p>
@@ -343,6 +359,22 @@ export default function CreateCampaign() {
                       >
                         <Copy size={10} /> Copy
                       </button>
+                      {phase === "awaiting" && (
+                        <button
+                          type="button"
+                          onClick={() => handleFinishClosing(c.id)}
+                          disabled={closingId === c.id}
+                          className="h-8 px-3 rounded-lg bg-[#1D1D1F] hover:bg-black text-white text-[11px] flex items-center gap-1.5 disabled:opacity-50"
+                          aria-label={`Finish closing campaign ${c.id}`}
+                        >
+                          {closingId === c.id ? (
+                            <Loader2 size={10} className="animate-spin" />
+                          ) : (
+                            <CheckCircle2 size={10} />
+                          )}
+                          Finish closing
+                        </button>
+                      )}
                       {phase === "needs close" && (
                         <button
                           type="button"

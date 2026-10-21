@@ -62,9 +62,14 @@ async function answerPassphrasePrompt(page: Page, passphrase: string, timeoutMs 
 // our own under the smart account, then support ourselves. The flow exercises
 // both the setProfile UserOp path (newly migrated to unifiedWriteAndWait)
 // and the support UserOp path.
+//
+// A tip is Pending after support() and its "tip" activity row is written only
+// when confirmFunding lands, which the app sends about 90s later (one more
+// passphrase prompt). The poll below answers that prompt and waits for it.
 
 test.describe("Phase 4 #5 — Creator Support tip (Base Sepolia)", () => {
-  test.setTimeout(600_000);
+  // Profile + tip + the funding check (~90s) and its indexing outlast 10 minutes.
+  test.setTimeout(900_000);
 
   let setup: Phase2Setup;
   test.beforeAll(() => { setup = loadSetup(); });
@@ -226,7 +231,21 @@ test.describe("Phase 4 #5 — Creator Support tip (Base Sepolia)", () => {
 
     let allRows: Array<{ tx_hash: string; user_from: string; user_to: string; activity_type: string }> = [];
     let newRows: typeof allRows = [];
-    for (let attempt = 0; attempt < 60; attempt++) {
+    let answering = true;
+    const answerer = (async () => {
+      while (answering) {
+        if (await page.locator('input[type="password"]').first().isVisible().catch(() => false)) {
+          await answerPassphrasePrompt(page, PASSPHRASE, 3_000).then(
+            () => console.log("  ✅ filled the confirmFunding prompt"),
+            () => undefined,
+          );
+          await page.waitForTimeout(1_500);
+          continue;
+        }
+        await page.waitForTimeout(1_000);
+      }
+    })();
+    for (let attempt = 0; attempt < 120; attempt++) {
       const res = await page.request.get(
         `${supabaseUrl}/rest/v1/activities?user_from=eq.${senderLower}&activity_type=eq.tip&order=created_at.desc&limit=10`,
         { headers: { apikey: anonKey } },
@@ -239,6 +258,8 @@ test.describe("Phase 4 #5 — Creator Support tip (Base Sepolia)", () => {
       if (attempt % 5 === 0) console.log(`  poll[${attempt}] total=${allRows.length} new=${newRows.length}`);
       await page.waitForTimeout(3000);
     }
+    answering = false;
+    await answerer;
     await page.screenshot({ path: path.join(SCREENSHOT_DIR, "p4-5c-creators-after.png"), fullPage: true });
     console.log(`  sender has total=${allRows.length} new=${newRows.length}`);
     expect(newRows.length, "sender must see fresh tip row").toBeGreaterThan(0);

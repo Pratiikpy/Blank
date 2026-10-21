@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { parseUnits } from "viem";
 import { usePublicClient } from "wagmi";
 import toast from "react-hot-toast";
@@ -7,7 +7,8 @@ import { useEffectiveAddress } from "./useEffectiveAddress";
 import { useUnifiedWrite } from "./useUnifiedWrite";
 import { useFhePipeline } from "./useFhePipeline";
 import { useChain } from "@/providers/ChainProvider";
-import { useCofheEncrypt, useCofheConnection, Encryptable } from "@/lib/cofhe-shim";
+import { useCofheEncrypt, useCofheConnection, useCofheDecryptForTx, Encryptable } from "@/lib/cofhe-shim";
+import { runFundingGate, supportsFundingGate, FundingGateTimeout } from "@/lib/funding-gate";
 import { ClaimLinksAbi, FHERC20VaultAbi } from "@/lib/abis";
 import { MAX_UINT64, getExplorerTxUrl } from "@/lib/constants";
 import { isVaultApproved, markVaultApproved } from "@/lib/approval";
@@ -39,8 +40,29 @@ export type ClaimLinkStep =
   | "encrypting"
   | "confirming"
   | "sending"
+  | "funding"
   | "success"
   | "error";
+
+/** ClaimLinks.FundingStatus, by name. Links created before the funding gate read as "active". */
+export type ClaimLinkFunding = "active" | "pending" | "void";
+const FUNDING_BY_CODE: readonly ClaimLinkFunding[] = ["active", "pending", "void"];
+const FUNDING_PENDING = 1;
+
+export const CLAIM_LINK_UNFUNDED_MESSAGE =
+  "The link was not funded: your private balance was too low. Nothing was locked.";
+
+function pendingFundingMessage(linkId: number, err: unknown): string {
+  const reason = err instanceof FundingGateTimeout ? "the funding check is not ready yet" : err instanceof Error ? err.message : String(err);
+  return `Link #${linkId} was created but its funding is not confirmed (${reason}). It cannot be claimed until it is. Press Finish funding to retry.`;
+}
+
+/** Turns the contract's funding-gate reverts into something a recipient can act on. */
+export function friendlyClaimError(message: string): string {
+  if (message.includes("funding pending")) return "This link is still being funded. Try again in a minute.";
+  if (message.includes("link unfunded")) return "This link was never funded, so there is nothing to claim.";
+  return message;
+}
 
 export interface ClaimLinkState {
   step: ClaimLinkStep;
@@ -51,6 +73,8 @@ export interface ClaimLinkState {
   shareableUrl: string | null;
   /** linkId returned by createLink — kept around for the success screen. */
   linkId: number | null;
+  /** Funding verdict for linkId. Null on a contract that predates the funding gate. */
+  funding: ClaimLinkFunding | null;
 }
 
 const initial: ClaimLinkState = {
@@ -60,6 +84,7 @@ const initial: ClaimLinkState = {
   txHash: null,
   shareableUrl: null,
   linkId: null,
+  funding: null,
 };
 
 // ─── Mode-specific input bag ──────────────────────────────────────────
@@ -82,8 +107,74 @@ export function useClaimLinks() {
   // built-in onStep callback. Exposed back to the caller via state.pipeline
   // so screens can render <FhePipelineProgress state={state.pipeline} />.
   const pipeline = useFhePipeline();
+  const { decryptForTx } = useCofheDecryptForTx();
 
   const [state, setState] = useState<ClaimLinkState>(initial);
+
+  // Chains whose ClaimLinks has the funding gate. Only a positive probe is
+  // kept: a failed probe may be a flaky RPC, so the next call asks again.
+  const gateSupport = useRef(new Set<string>());
+  const gateSupported = useCallback(
+    async (cl: `0x${string}`): Promise<boolean> => {
+      const key = `${activeChainId}:${cl.toLowerCase()}`;
+      if (gateSupport.current.has(key)) return true;
+      if (!publicClient) return false;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const ok = await supportsFundingGate(() =>
+          publicClient.readContract({ address: cl, abi: ClaimLinksAbi, functionName: "getFundingCheck", args: [0n] }),
+        );
+        if (ok) {
+          gateSupport.current.add(key);
+          return true;
+        }
+      }
+      return false;
+    },
+    [activeChainId, publicClient],
+  );
+
+  // Decrypts "funded" for a PendingFunding link and publishes it. Anyone can
+  // run it, so a link another tab or user already settled is a no-op.
+  const runGate = useCallback(
+    async (cl: `0x${string}`, linkId: number): Promise<boolean> => {
+      const client = publicClient!;
+      const { funded } = await runFundingGate({
+        readHandle: async () =>
+          BigInt(
+            (await client.readContract({
+              address: cl,
+              abi: ClaimLinksAbi,
+              functionName: "getFundingCheck",
+              args: [BigInt(linkId)],
+            })) as bigint | `0x${string}`,
+          ),
+        decryptForTx,
+        confirm: async (verdict, signature) => {
+          try {
+            const status = await client.readContract({
+              address: cl,
+              abi: ClaimLinksAbi,
+              functionName: "fundingStatus",
+              args: [BigInt(linkId)],
+            });
+            if (Number(status) !== FUNDING_PENDING) return;
+          } catch {
+            // Status unreadable: let the write decide.
+          }
+          const r = await unifiedWriteAndWait({
+            address: cl,
+            abi: ClaimLinksAbi,
+            functionName: "confirmFunding",
+            args: [BigInt(linkId), verdict, signature],
+            gas: BigInt(5_000_000),
+          });
+          if (r.receipt?.status === "reverted") throw new Error("confirmFunding reverted on-chain");
+        },
+      });
+      return funded;
+    },
+    [publicClient, decryptForTx, unifiedWriteAndWait],
+  );
 
   // ─── createLink ────────────────────────────────────────────────────
 
@@ -140,6 +231,8 @@ export function useClaimLinks() {
             throw err;
           }
         }
+
+        const gated = await gateSupported(claimLinksAddress);
 
         // Generate the secret and the one-time claim key it derives. Only the
         // key's address goes on-chain; the secret stays in the URL fragment.
@@ -225,6 +318,36 @@ export function useClaimLinks() {
 
         const shareableUrl = buildClaimUrl(activeChainId, linkId, params.input.mode, secret);
 
+        // The link is only claimable once the funding check is published. Until
+        // then the URL is kept in state but the screen must not offer it.
+        let funding: ClaimLinkFunding | null = null;
+        let pendingNote: string | null = null;
+        if (gated) {
+          setState((s) => ({ ...s, step: "funding" }));
+          try {
+            funding = (await runGate(claimLinksAddress, linkId)) ? "active" : "void";
+          } catch (gateErr) {
+            funding = "pending";
+            pendingNote = pendingFundingMessage(linkId, gateErr);
+          }
+        }
+        invalidateBalanceQueries();
+
+        if (funding === "void") {
+          pipeline.markFailed(new Error(CLAIM_LINK_UNFUNDED_MESSAGE));
+          setState({
+            step: "error",
+            isProcessing: false,
+            error: CLAIM_LINK_UNFUNDED_MESSAGE,
+            txHash: writeResult.hash,
+            shareableUrl: null,
+            linkId,
+            funding,
+          });
+          toast.error(CLAIM_LINK_UNFUNDED_MESSAGE);
+          return null;
+        }
+
         pipeline.markDone();
         setState({
           step: "success",
@@ -233,10 +356,10 @@ export function useClaimLinks() {
           txHash: writeResult.hash,
           shareableUrl,
           linkId,
+          funding,
         });
-
-        invalidateBalanceQueries();
-        return { linkId, shareableUrl, secretHex: secretBytes32(secret) };
+        if (pendingNote) toast.error(pendingNote);
+        return { linkId, shareableUrl, secretHex: secretBytes32(secret), funding };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         pipeline.markFailed(err);
@@ -247,7 +370,7 @@ export function useClaimLinks() {
         return null;
       }
     },
-    [address, connected, contracts.ClaimLinks, publicClient, unifiedWrite, unifiedWriteAndWait, encryptInputsAsync, activeChainId, state.isProcessing, pipeline],
+    [address, connected, contracts.ClaimLinks, publicClient, unifiedWrite, unifiedWriteAndWait, encryptInputsAsync, activeChainId, state.isProcessing, pipeline, gateSupported, runGate],
   );
 
   // ─── claim ─────────────────────────────────────────────────────────
@@ -336,11 +459,12 @@ export function useClaimLinks() {
           txHash: writeResult.hash,
           shareableUrl: null,
           linkId: params.linkId,
+          funding: null,
         });
         invalidateBalanceQueries();
         return true;
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
+        const message = friendlyClaimError(err instanceof Error ? err.message : String(err));
         pipeline.markFailed(err);
         // §3.11: preserve prev.txHash so the error state still links to the
         // failed tx on the explorer.
@@ -370,8 +494,86 @@ export function useClaimLinks() {
         toast.success("Refund completed");
         return true;
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
+        const raw = err instanceof Error ? err.message : String(err);
+        const message = raw.includes("funding pending")
+          ? "This link is still waiting for its funding check. Finish or cancel it instead."
+          : raw.includes("link unfunded")
+            ? "This link was never funded, so there is nothing to refund."
+            : raw;
         toast.error(message);
+        return false;
+      }
+    },
+    [contracts.ClaimLinks, unifiedWriteAndWait],
+  );
+
+  /**
+   * Finish a link left PendingFunding (the funding check timed out, or the tab
+   * closed). Anyone can run it. Returns the verdict, or null when it could not
+   * be completed; the link then stays pending and can be retried. When the link
+   * is the one just created, the hook state follows the verdict.
+   */
+  const finishFunding = useCallback(
+    async (linkId: number): Promise<"funded" | "unfunded" | null> => {
+      const cl = contracts.ClaimLinks as `0x${string}`;
+      if (!cl || cl === ZERO_ADDRESS) return null;
+      if (!address) {
+        toast.error(notReadyReason ?? "Wallet not connected");
+        return null;
+      }
+      if (!publicClient) {
+        toast.error("Connection lost. Please refresh.");
+        return null;
+      }
+      if (state.isProcessing) return null;
+      if (!(await gateSupported(cl))) {
+        toast.error("This claim link contract has no funding check to finish.");
+        return null;
+      }
+      const isCurrent = state.linkId === linkId;
+      setState((prev) => ({ ...prev, step: "funding", isProcessing: true, error: null }));
+      const toastId = toast.loading("Confirming funding...");
+      try {
+        const funded = await runGate(cl, linkId);
+        invalidateBalanceQueries();
+        setState((prev) =>
+          isCurrent
+            ? funded
+              ? { ...prev, step: "success", isProcessing: false, funding: "active" }
+              : { ...prev, step: "error", isProcessing: false, error: CLAIM_LINK_UNFUNDED_MESSAGE, shareableUrl: null, funding: "void" }
+            : { ...prev, step: "input", isProcessing: false },
+        );
+        if (funded) toast.success("Link funded", { id: toastId });
+        else toast.error(CLAIM_LINK_UNFUNDED_MESSAGE, { id: toastId });
+        return funded ? "funded" : "unfunded";
+      } catch (err) {
+        const msg = pendingFundingMessage(linkId, err);
+        setState((prev) => ({ ...prev, isProcessing: false, step: isCurrent ? "success" : "error", error: msg }));
+        toast.error(msg, { id: toastId });
+        return null;
+      }
+    },
+    [contracts.ClaimLinks, address, notReadyReason, publicClient, state.isProcessing, state.linkId, gateSupported, runGate],
+  );
+
+  /** Sender abandons a link still waiting for its funding check. Nothing is shareable afterwards. */
+  const cancelPending = useCallback(
+    async (linkId: number) => {
+      const cl = contracts.ClaimLinks as `0x${string}`;
+      if (!cl || cl === ZERO_ADDRESS) return false;
+      try {
+        await unifiedWriteAndWait({
+          address: cl,
+          abi: ClaimLinksAbi,
+          functionName: "cancelPendingLink",
+          args: [BigInt(linkId)],
+          gas: BigInt(5_000_000),
+        });
+        invalidateBalanceQueries();
+        toast.success("Link cancelled");
+        return true;
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : String(err));
         return false;
       }
     },
@@ -444,7 +646,23 @@ export function useClaimLinks() {
           claimKey = ZERO_ADDRESS;
         }
         const legacy = claimKey.toLowerCase() === ZERO_ADDRESS;
+        // Missing on a contract that predates the funding gate: those links are Active.
+        let funding: ClaimLinkFunding = "active";
+        try {
+          const code = Number(
+            await publicClient.readContract({
+              address: claimLinksAddress,
+              abi: ClaimLinksAbi,
+              functionName: "fundingStatus",
+              args: [linkId],
+            }),
+          );
+          funding = FUNDING_BY_CODE[code] ?? "active";
+        } catch {
+          funding = "active";
+        }
         return {
+          funding,
           legacy,
           /** Legacy Bearer/EmailBound links can only be refunded. */
           legacyRefundOnly: legacy && mode !== MODE.AddressBound,
@@ -478,6 +696,8 @@ export function useClaimLinks() {
     createLink,
     claim,
     refund,
+    finishFunding,
+    cancelPending,
     fetchSentLinks,
     fetchLink,
     reset,

@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import * as path from "path";
 import {
-  loadSetup, openAccountPage, answerPassphrasePrompt, captureBaseline, pollForNewActivityRow,
+  loadSetup, openAccountPage, answerPassphrasePrompt, startPromptAnswerer, captureBaseline, pollForNewActivityRow,
   PASSPHRASE, SCREENSHOT_DIR, SUPABASE_URL, SUPABASE_ANON_KEY,
 } from "./helpers/phase6-helpers";
 
@@ -10,6 +10,11 @@ import {
 // Closes the "CreatorHub: cannot self-tip" leave-behind from Phase 4. The
 // recipient context creates a profile via setProfile, the sender context
 // tips them via support(). Verifies activity row + supporter notification.
+//
+// A tip is Pending after support() and the "tip" activity row is written only
+// when confirmFunding lands. The sender's app sends that about 90s later (one
+// more passphrase prompt), so the poll below answers prompts in the background
+// and waits long enough for the decryption plus indexing.
 
 test.describe("Phase 6 #2 — Creator tip cross-account", () => {
   test.setTimeout(900_000);
@@ -129,7 +134,13 @@ test.describe("Phase 6 #2 — Creator tip cross-account", () => {
         await s.waitForTimeout(2_000);
       }
 
-      const result = await pollForNewActivityRow(s, tipQuery, { label: "after-tip", baselineHashes: baseline });
+      const stopAnswering = startPromptAnswerer(s, PASSPHRASE, "S");
+      let result: Awaited<ReturnType<typeof pollForNewActivityRow>>;
+      try {
+        result = await pollForNewActivityRow(s, tipQuery, { label: "after-tip", baselineHashes: baseline, attempts: 120 });
+      } finally {
+        await stopAnswering();
+      }
       await s.screenshot({ path: path.join(SCREENSHOT_DIR, "p6-2c-after-tip.png"), fullPage: true });
       expect(result.newRows.length, "creator must see fresh tip row").toBeGreaterThan(0);
       expect(result.newRows[0].user_from.toLowerCase()).toBe(setup.sender.address.toLowerCase());

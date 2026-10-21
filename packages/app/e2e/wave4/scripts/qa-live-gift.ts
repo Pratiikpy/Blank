@@ -17,7 +17,9 @@ import {
   dismissRabbyWhatsNew,
   waitAndConfirmRabbyPopup,
   selectRabbyChain,
+  drainRabbyPopupsUntil,
 } from "../../fixtures/rabby/rabby-driver";
+import { FUNDING_SETTLE_MS } from "../helpers/app-actions";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -249,8 +251,16 @@ async function main(): Promise<void> {
     const submitBtn = dapp.locator("button").filter({ hasText: /Send Gift Envelope/i }).first();
     await submitBtn.click({ force: true });
     await waitAndConfirmRabbyPopup(ctx, extId, knownPages, OUT, "rabby-gift-create-1", 60_000, { chainName: CHAIN_NAME });
-    await waitAndConfirmRabbyPopup(ctx, extId, knownPages, OUT, "rabby-gift-create-2", 45_000).catch(() => undefined);
-    await dapp.getByRole("heading", { name: /Gift Sent!/i }).waitFor({ state: "visible", timeout: 180_000 });
+    // The envelope starts PendingFunding. The app confirms it by itself about 90s
+    // after createEnvelope, which is one more Rabby popup, and only then shows
+    // "Gift Sent!". Approve whatever opens until that heading is up.
+    const giftSent = dapp.getByRole("heading", { name: /Gift Sent!/i });
+    const funded = await drainRabbyPopupsUntil(
+      ctx, extId, knownPages, OUT, "rabby-gift-create",
+      () => giftSent.isVisible().catch(() => false),
+      { timeoutMs: FUNDING_SETTLE_MS + 180_000 },
+    );
+    if (!funded.done) throw new Error("Gift Sent! never showed: the funding check did not finish");
     const createTxHash = await dapp.locator('[data-testid="gift-create-tx-hash"]').getAttribute("data-tx-hash").catch(() => null);
     const createHashes = createTxHash ? [createTxHash as Hash] : await txsFrom(DAVE, createNonce);
     await snap(dapp, "03-gift-created");

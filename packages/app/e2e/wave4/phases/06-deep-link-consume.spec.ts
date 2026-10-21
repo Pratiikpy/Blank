@@ -8,7 +8,13 @@ import {
 } from "../fixtures/wallets";
 import { snap, resetCounter } from "../helpers/screenshot";
 import { recordProof, readEntries } from "../helpers/testing-todo";
-import { drainPromptsAndCaptureTx, shieldUsdc, faucetUsdcIfNeeded } from "../helpers/app-actions";
+import {
+  drainPromptsAndCaptureTx,
+  waitForFundingSettled,
+  FUNDING_SETTLE_MS,
+  shieldUsdc,
+  faucetUsdcIfNeeded,
+} from "../helpers/app-actions";
 
 // ──────────────────────────────────────────────────────────────────
 //  Phase 6 — public deep-link CONSUME (recipient/buyer/contributor).
@@ -25,7 +31,11 @@ import { drainPromptsAndCaptureTx, shieldUsdc, faucetUsdcIfNeeded } from "../hel
 //                               post-deadline coverage and is out of
 //                               this phase's scope (auction min
 //                               duration is 1 hour).
-//   • Crowdfund campaign      → Bob + Carol each contribute (2 txs)
+//   • Crowdfund campaign      → Bob + Carol each contribute (2 txs). A
+//                               contribution is PendingFunding until the
+//                               app's automatic confirmFunding lands (about
+//                               90s, one more signed transaction), and only a
+//                               confirmed one counts toward the goal.
 //   • F1 error UI verify      → Navigate to /verify/99999999 with a
 //                               nonexistent proof id; assert the new
 //                               transient/permanent UI surfaces
@@ -133,7 +143,12 @@ test.describe("Phase 6 — public deep-link consume", () => {
       const claimBtn = bob.page
         .locator("button").filter({ hasText: /^Claim/i })
         .first();
-      await claimBtn.waitFor({ state: "visible", timeout: 30_000 });
+      await claimBtn.waitFor({ state: "visible", timeout: 30_000 }).catch(async (err) => {
+        // Phase 5 waits for the funding check before it records the URL, so a
+        // link that still reads as unfunded here is a real failure, not a race.
+        const stillFunding = await bob.page.locator("text=/still being funded|never funded/i").first().isVisible().catch(() => false);
+        throw stillFunding ? new Error(`${mode.key} link is not funded: ${claimUrl}`) : err;
+      });
       await claimBtn.click();
 
       const txHash = await drainPromptsAndCaptureTx(bob.page, PERSONAS.Bob.passphrase);
@@ -249,6 +264,9 @@ test.describe("Phase 6 — public deep-link consume", () => {
   });
 
   test("Crowdfund: Bob + Carol each contribute to Alice's campaign", async ({ browser, baseURL }) => {
+    // Each contribution waits for its funding check (about 90s) after the
+    // shield and the contribute itself.
+    test.setTimeout(30 * 60_000);
     const chain = chainContextFromProject();
     const url = baseURL ?? "http://localhost:3000";
     const chainSlug = chain.chainKey === "ETH_SEPOLIA" ? "eth-sepolia" : chain.chainKey === "ARB_SEPOLIA" ? "arb-sepolia" : "base-sepolia";
@@ -282,7 +300,24 @@ test.describe("Phase 6 — public deep-link consume", () => {
       await ctx.page
         .locator("button").filter({ hasText: /^Contribute/i })
         .click();
-      const txHash = await drainPromptsAndCaptureTx(ctx.page, persona.passphrase);
+      // The contribution starts PendingFunding. Keep answering prompts until the
+      // "Contribution submitted" screen shows, which only happens once the
+      // funding check has been confirmed.
+      const SETTLED = "text=/Contribution submitted/i";
+      const hashes: string[] = [];
+      const txHash = await drainPromptsAndCaptureTx(ctx.page, persona.passphrase, {
+        windowMs: 360_000 + FUNDING_SETTLE_MS,
+        doneSelector: SETTLED,
+        collectHashes: hashes,
+      });
+      const funding = await waitForFundingSettled(ctx.page, {
+        settled: SETTLED,
+        pending: '[data-testid="contribution-pending"]',
+        finish: 'button:has-text("Finish contribution")',
+        passphrase: persona.passphrase,
+      });
+      await expect(ctx.page.locator('[data-testid="contribution-pending"]')).toHaveCount(0);
+      const counted = await ctx.page.locator("text=/on-chain and counted/i").first().isVisible().catch(() => false);
       const successShot = await snap(ctx.page, shot, "campaign-contributed");
 
       expect(txHash).toMatch(/^0x[0-9a-fA-F]{64}$/);
@@ -294,7 +329,7 @@ test.describe("Phase 6 — public deep-link consume", () => {
         txHash,
         screenshotPath: successShot,
         urlArtifact: campaignUrl,
-        note: `${personaKey} contributes 30 USDC encrypted (cumulative 60 vs 50 goal — verdict TRUE at close)`,
+        note: `${personaKey} contributes 30 USDC encrypted (cumulative 60 vs 50 goal, verdict TRUE at close) · funding confirmed ${funding === "auto" ? "automatically" : "after pressing Finish"}, screen says counted: ${counted} · relay txs ${hashes.join(", ")}`,
         viewport: chain.viewport,
       });
 

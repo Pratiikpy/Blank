@@ -10,10 +10,14 @@ import { broadcastAction } from "@/lib/cross-tab";
 import { invalidateBalanceQueries } from "@/lib/query-invalidation";
 import { useCofheEncrypt, Encryptable } from "@/lib/cofhe-shim";
 import { log } from "@/lib/log";
+import { formatWait } from "@/lib/format-wait";
 import toast from "react-hot-toast";
 import { toastMappedError } from "@/lib/error-messages";
 
 const MAX_UINT64 = BigInt("18446744073709551615"); // type(uint64).max
+
+// InheritanceManager.CLAIM_RETRY_COOLDOWN, used only if the constant cannot be read.
+const DEFAULT_CLAIM_RETRY_COOLDOWN_SECONDS = 86400;
 
 interface InheritancePlan {
   heir: string;
@@ -435,14 +439,64 @@ export function useInheritance() {
     [address, publicClient, unifiedWrite, refetchPlan, contracts]
   );
 
+  // Seconds until the heir may call claimRemaining again. The contract allows
+  // one call per CLAIM_RETRY_COOLDOWN, counted from finalizeClaim or the last
+  // claimRemaining (lastClaimAt). 0 when no wait applies, including contracts
+  // that predate the cooldown (no lastClaimAt) and plans finalized before it.
+  const getClaimCooldownRemaining = useCallback(
+    async (ownerAddress: string): Promise<number> => {
+      if (!publicClient) return 0;
+      try {
+        const last = Number(
+          (await publicClient.readContract({
+            address: contracts.InheritanceManager,
+            abi: InheritanceManagerAbi,
+            functionName: "lastClaimAt",
+            args: [ownerAddress as `0x${string}`],
+          })) as bigint,
+        );
+        if (!last) return 0;
+        let cooldown = DEFAULT_CLAIM_RETRY_COOLDOWN_SECONDS;
+        try {
+          cooldown = Number(
+            (await publicClient.readContract({
+              address: contracts.InheritanceManager,
+              abi: InheritanceManagerAbi,
+              functionName: "CLAIM_RETRY_COOLDOWN",
+            })) as bigint,
+          );
+        } catch {
+          /* keep the contract's documented default */
+        }
+        let now = Math.floor(Date.now() / 1000);
+        try {
+          now = Number((await publicClient.getBlock({ blockTag: "latest" })).timestamp);
+        } catch {
+          /* the contract compares block.timestamp; the client clock is the fallback */
+        }
+        return Math.max(0, last + cooldown - now);
+      } catch {
+        return 0;
+      }
+    },
+    [publicClient, contracts.InheritanceManager],
+  );
+
   // Claim again after finalizeClaim (as heir). The first claim moves
   // min(requested, balance, allowance) per vault, so a vault that moved 0
   // or was funded later can be pulled again. Same max-amount request.
+  // Limited to one call per CLAIM_RETRY_COOLDOWN; a call inside the wait is
+  // refused here instead of sending a transaction that reverts "retry cooldown".
   const claimRemaining = useCallback(
     async (ownerAddress: string, vaultCount: number) => {
       if (!address || !publicClient) return;
       if (vaultCount === 0) {
         toast.error("No vaults configured in the owner's inheritance plan");
+        return;
+      }
+      const wait = await getClaimCooldownRemaining(ownerAddress);
+      if (wait > 0) {
+        toast.error(`Next claim available in ${formatWait(wait)}. Claims are limited to one per day.`);
         return;
       }
       setIsProcessing(true);
@@ -483,7 +537,7 @@ export function useInheritance() {
         setIsProcessing(false);
       }
     },
-    [address, publicClient, unifiedWrite, contracts, encryptInputsAsync],
+    [address, publicClient, unifiedWrite, contracts, encryptInputsAsync, getClaimCooldownRemaining],
   );
 
   return {
@@ -496,6 +550,7 @@ export function useInheritance() {
     startClaim,
     finalizeClaim,
     claimRemaining,
+    getClaimCooldownRemaining,
     refetchPlan,
     /** Latest on-chain block.timestamp from the active chain, refreshed
      *  every 10s. Consumers use this as the reference clock for

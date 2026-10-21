@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { renderHook, act } from "@testing-library/react";
+import { renderHook, act, waitFor } from "@testing-library/react";
 
 // §15.x test for useStorefront. Wave 4 #254 covers all 3 sale modes
 // (FixedPrice / Auction / PayWhatYouWant) via createListing + buyFixed
@@ -44,6 +44,12 @@ import { renderHook, act } from "@testing-library/react";
 //     deactivated". Raw function names leak implementation detail.
 //   - 3-mode SaleMode enum (FixedPrice=0 / Auction=1 / PWYW=2)
 //     pinned in the createListing args[0] field.
+//   - Funding gate: on an upgraded Storefront, buyFixed / payPWYW leave a
+//     Pending purchase. The hook decrypts the public "funded" bit, calls
+//     confirmFunding, and only then reports a sale. An unfunded purchase is
+//     void (no success state, no receipt); a check that cannot finish
+//     leaves the purchase Pending and recoverable. Pre-gate contracts keep
+//     the single-step behaviour. closeAuction can end with NO_WINNER (255).
 //   - claimAuctionWin optional deliveryNoteHash defaults to
 //     ZERO_BYTES32; refundLoserBid requires (listingId, bidIndex)
 //     because a single user can have multiple bids on one auction
@@ -73,6 +79,7 @@ vi.mock("./useUnifiedWrite", () => ({ useUnifiedWrite: useUnifiedWriteMock }));
 vi.mock("./useFhePipeline", () => ({ useFhePipeline: useFhePipelineMock }));
 const decryptForTxMock = vi.hoisted(() => vi.fn());
 const decryptForViewMock = vi.hoisted(() => vi.fn());
+const clearVaultApprovalMock = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/cofhe-shim", () => ({
   useCofheConnection: useCofheConnectionMock,
   useCofheEncrypt: useCofheEncryptMock,
@@ -84,7 +91,20 @@ vi.mock("@/lib/abis", () => ({ StorefrontAbi: [], FHERC20VaultAbi: [] }));
 vi.mock("@/lib/approval", () => ({
   isVaultApproved: isVaultApprovedMock,
   markVaultApproved: markVaultApprovedMock,
+  clearVaultApproval: clearVaultApprovalMock,
 }));
+// Same logic, but time only advances when the helper sleeps, so a decrypt that
+// never becomes ready times out instantly instead of after 90 real seconds.
+vi.mock("@/lib/funding-gate", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/funding-gate")>();
+  return {
+    ...actual,
+    runFundingGate: (opts: Parameters<typeof actual.runFundingGate>[0]) => {
+      let t = 0;
+      return actual.runFundingGate({ ...opts, now: () => t, sleep: async (ms) => { t += ms; } });
+    },
+  };
+});
 vi.mock("@/lib/event-parser", () => ({ extractEventId: extractEventIdMock }));
 vi.mock("@/lib/query-invalidation", () => ({
   invalidateBalanceQueries: invalidateBalanceQueriesMock,
@@ -98,6 +118,7 @@ vi.mock("react-hot-toast", () => ({
 }));
 
 import { useStorefront, SALE_MODE, friendlyStorefrontError } from "./useStorefront";
+import { PENDING_EVENT_TOPIC, addPendingFunding, listPendingFundings } from "@/lib/pending-funding";
 
 const ME = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" as `0x${string}`;
 const OTHER_SELLER = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" as `0x${string}`;
@@ -106,6 +127,13 @@ const VAULT = "0x2222222222222222222222222222222222222222" as `0x${string}`;
 const ZERO_ADDR = "0x0000000000000000000000000000000000000000" as `0x${string}`;
 const ZERO_BYTES32 = ("0x" + "00".repeat(32)) as `0x${string}`;
 const CID_HASH = ("0x" + "cd".repeat(32)) as `0x${string}`;
+
+const GATE_VIEWS = new Set([
+  "nextPurchaseId",
+  "getPurchase",
+  "getPurchaseFundedHandle",
+  "auctionHasNoWinner",
+]);
 
 const encryptInputsAsyncMock = vi.fn();
 const unifiedWriteAndWaitMock = vi.fn();
@@ -191,6 +219,8 @@ beforeEach(() => {
   pipelineResetMock.mockReset();
   decryptForTxMock.mockReset();
   decryptForViewMock.mockReset();
+  clearVaultApprovalMock.mockReset();
+  localStorage.clear();
 
   useEffectiveAddressMock.mockReturnValue({ effectiveAddress: ME });
   useChainMock.mockReturnValue({
@@ -221,8 +251,13 @@ beforeEach(() => {
   isVaultApprovedMock.mockReturnValue(true);
   extractEventIdMock.mockReturnValue(42);
   // Default getListing: seller is OTHER (not the caller) so seller-self
-  // pre-check does NOT trigger by default
-  readContractMock.mockResolvedValue([OTHER_SELLER, "other-fields-omitted"]);
+  // pre-check does NOT trigger by default. The funding-gate views do not exist
+  // on a pre-gate Storefront, so those reads fail by default: every suite
+  // below that does not opt in runs against exactly that contract.
+  readContractMock.mockImplementation(async ({ functionName }: { functionName: string }) => {
+    if (GATE_VIEWS.has(functionName)) throw new Error("execution reverted");
+    return [OTHER_SELLER, "other-fields-omitted"];
+  });
   unifiedWriteAndWaitMock.mockResolvedValue({
     hash: "0xtxhash",
     receipt: { status: "success", blockNumber: 1n, logs: [] },
@@ -1103,5 +1138,428 @@ describe("useStorefront — audit fixes", () => {
   it("friendlyStorefrontError passes unknown errors through", () => {
     expect(friendlyStorefrontError("rpc down")).toBe("rpc down");
     expect(friendlyStorefrontError("Storefront: vault not allowed")).toMatch(/not enabled/);
+  });
+});
+
+// ───────────────────────────────────────────────────────────
+//  Funding gate (buyFixed / payPWYW) + NO_WINNER auctions
+// ───────────────────────────────────────────────────────────
+
+const SIG = "0xsig" as const;
+const PURCHASE_ID = 4n;
+const HANDLE_HEX = `0x${"ef".repeat(32)}`;
+const SCOPE = { kind: "purchase", chainId: 11155111, contract: SF_ADDR, account: ME } as const;
+const padId = (n: bigint) => `0x${n.toString(16).padStart(64, "0")}`;
+const purchasePendingLog = (id: bigint) => ({
+  address: SF_ADDR,
+  topics: [PENDING_EVENT_TOPIC.purchase, padId(id), padId(7n)],
+  data: "0x",
+});
+
+/** Upgraded Storefront. Purchase status: 1 Pending, 2 Sold, 3 Void. confirmFunding moves it. */
+function gatedStorefront(over: { status?: number; next?: bigint; logs?: unknown[]; receipt?: boolean; noWinner?: boolean } = {}) {
+  const chain = { status: over.status ?? 1, next: over.next ?? PURCHASE_ID + 1n, noWinner: over.noWinner ?? false };
+  readContractMock.mockImplementation(async ({ functionName }: { functionName: string }) => {
+    switch (functionName) {
+      case "nextPurchaseId":
+        return chain.next;
+      case "getPurchase":
+        return [7n, ME, 0, chain.status];
+      case "getPurchaseFundedHandle":
+        return HANDLE_HEX;
+      case "auctionHasNoWinner":
+        return chain.noWinner;
+      case "getWinnerIdxHandle":
+        return 0x1234n;
+      default:
+        return [OTHER_SELLER, "other-fields-omitted"];
+    }
+  });
+  unifiedWriteAndWaitMock.mockImplementation(async (args: { functionName: string; args: unknown[] }) => {
+    if (args.functionName === "confirmFunding") {
+      chain.status = args.args[1] ? 2 : 3;
+      return { hash: "0xconfirm", receipt: { status: "success", blockNumber: 3n, logs: [] } };
+    }
+    if (args.functionName === "buyFixed" || args.functionName === "payPWYW") {
+      return over.receipt === false
+        ? { hash: "0xbuy" }
+        : { hash: "0xbuy", receipt: { status: "success", blockNumber: 2n, logs: over.logs ?? [purchasePendingLog(PURCHASE_ID)] } };
+    }
+    return { hash: "0xother", receipt: { status: "success", blockNumber: 1n, logs: [] } };
+  });
+  return chain;
+}
+
+const confirmCalls = () => unifiedWriteAndWaitMock.mock.calls.filter((c) => c[0].functionName === "confirmFunding");
+
+describe("useStorefront — funding gate, funded purchase", () => {
+  it("buyFixed: confirms with the decrypted bit, then reports the sale", async () => {
+    gatedStorefront();
+    decryptForTxMock.mockResolvedValue({ decryptedValue: true, signature: SIG });
+    const { result } = renderHook(() => useStorefront());
+    let ok = false;
+    await act(async () => {
+      ok = await result.current.buyFixed(buyParams({ listingId: 7 }));
+    });
+    expect(ok).toBe(true);
+    expect(confirmCalls()).toHaveLength(1);
+    expect(confirmCalls()[0][0].address).toBe(SF_ADDR);
+    expect(confirmCalls()[0][0].args).toEqual([PURCHASE_ID, true, SIG]);
+    expect(confirmCalls()[0][0].gas).toBe(3_000_000n);
+    expect(decryptForTxMock).toHaveBeenCalledWith(BigInt(HANDLE_HEX), "ebool");
+    expect(result.current.state.step).toBe("success");
+    expect(result.current.state.txHash).toBe("0xbuy");
+    expect(result.current.state.lastListingId).toBe(7);
+    expect(markDoneMock).toHaveBeenCalled();
+    expect(listPendingFundings(SCOPE)).toHaveLength(0);
+    expect(result.current.pendingPurchases).toHaveLength(0);
+  });
+
+  it("no sale is reported while the funding check is still running", async () => {
+    gatedStorefront();
+    let release: (v: unknown) => void = () => {};
+    decryptForTxMock.mockReturnValue(new Promise((r) => { release = r; }));
+    const { result } = renderHook(() => useStorefront());
+    let p!: Promise<boolean>;
+    act(() => { p = result.current.buyFixed(buyParams()); });
+    await waitFor(() => expect(decryptForTxMock).toHaveBeenCalled());
+    expect(result.current.state.step).toBe("funding");
+    expect(result.current.state.isProcessing).toBe(true);
+    expect(markDoneMock).not.toHaveBeenCalled();
+    await act(async () => {
+      release({ decryptedValue: true, signature: SIG });
+      await p;
+    });
+    expect(result.current.state.step).toBe("success");
+  });
+
+  it("payPWYW goes through the same gate", async () => {
+    gatedStorefront();
+    decryptForTxMock.mockResolvedValue({ decryptedValue: true, signature: SIG });
+    const { result } = renderHook(() => useStorefront());
+    let ok = false;
+    await act(async () => {
+      ok = await result.current.payPWYW(pwywParams());
+    });
+    expect(ok).toBe(true);
+    expect(confirmCalls()[0][0].args).toEqual([PURCHASE_ID, true, SIG]);
+    expect(result.current.state.step).toBe("success");
+  });
+
+  it("EOA path (no receipt): waits for the receipt to find the purchase id", async () => {
+    gatedStorefront({ receipt: false });
+    waitForTransactionReceiptMock.mockResolvedValue({ status: "success", blockNumber: 2n, logs: [purchasePendingLog(PURCHASE_ID)] });
+    decryptForTxMock.mockResolvedValue({ decryptedValue: true, signature: SIG });
+    const { result } = renderHook(() => useStorefront());
+    await act(async () => {
+      await result.current.buyFixed(buyParams());
+    });
+    expect(waitForTransactionReceiptMock).toHaveBeenCalledWith({ hash: "0xbuy", confirmations: 1 });
+    expect(confirmCalls()[0][0].args[0]).toBe(PURCHASE_ID);
+  });
+
+  it("reads the purchase id from nextPurchaseId - 1 when the receipt carries no PurchasePending log", async () => {
+    gatedStorefront({ logs: [], next: 10n });
+    decryptForTxMock.mockResolvedValue({ decryptedValue: true, signature: SIG });
+    const { result } = renderHook(() => useStorefront());
+    await act(async () => {
+      await result.current.buyFixed(buyParams());
+    });
+    expect(confirmCalls()[0][0].args[0]).toBe(9n);
+  });
+
+  it("someone else already confirmed it: nothing is sent, the sale still counts", async () => {
+    const chain = gatedStorefront();
+    decryptForTxMock.mockImplementation(async () => {
+      chain.status = 2;
+      return { decryptedValue: true, signature: SIG };
+    });
+    const { result } = renderHook(() => useStorefront());
+    let ok = false;
+    await act(async () => {
+      ok = await result.current.buyFixed(buyParams());
+    });
+    expect(ok).toBe(true);
+    expect(confirmCalls()).toHaveLength(0);
+  });
+});
+
+describe("useStorefront — funding gate, unfunded purchase", () => {
+  it("buyFixed: void, honest error, no success state, approval re-armed", async () => {
+    gatedStorefront();
+    decryptForTxMock.mockResolvedValue({ decryptedValue: false, signature: SIG });
+    const { result } = renderHook(() => useStorefront());
+    let ok = true;
+    await act(async () => {
+      ok = await result.current.buyFixed(buyParams());
+    });
+    expect(ok).toBe(false);
+    expect(confirmCalls()[0][0].args).toEqual([PURCHASE_ID, false, SIG]);
+    expect(result.current.state.step).toBe("error");
+    expect(result.current.state.error).toMatch(/Nothing was charged/);
+    expect(result.current.state.error).toMatch(/did not match the price/);
+    expect(toastErrorMock).toHaveBeenCalledWith(expect.stringMatching(/Nothing was charged/));
+    expect(markDoneMock).not.toHaveBeenCalled();
+    expect(markFailedMock).toHaveBeenCalled();
+    expect(clearVaultApprovalMock).toHaveBeenCalledWith(SF_ADDR);
+    expect(listPendingFundings(SCOPE)).toHaveLength(0);
+  });
+
+  it("payPWYW: void message does not mention a price match", async () => {
+    gatedStorefront();
+    decryptForTxMock.mockResolvedValue({ decryptedValue: false, signature: SIG });
+    const { result } = renderHook(() => useStorefront());
+    let ok = true;
+    await act(async () => {
+      ok = await result.current.payPWYW(pwywParams());
+    });
+    expect(ok).toBe(false);
+    expect(result.current.state.step).toBe("error");
+    expect(result.current.state.error).toBe("Nothing was charged. Your private balance was too low.");
+  });
+});
+
+describe("useStorefront — funding gate, check does not finish", () => {
+  it("decrypt never ready: returns false, keeps the purchase pending and recoverable", async () => {
+    gatedStorefront();
+    decryptForTxMock.mockResolvedValue(null);
+    const { result } = renderHook(() => useStorefront());
+    let ok = true;
+    await act(async () => {
+      ok = await result.current.buyFixed(buyParams({ listingId: 7 }));
+    });
+    expect(ok).toBe(false);
+    expect(confirmCalls()).toHaveLength(0);
+    expect(result.current.state.step).toBe("error");
+    expect(result.current.state.isProcessing).toBe(false);
+    expect(result.current.state.error).toMatch(/not ready yet/);
+    expect(result.current.state.error).toMatch(/not confirmed/);
+    expect(markDoneMock).not.toHaveBeenCalled();
+    const entries = listPendingFundings(SCOPE);
+    expect(entries).toHaveLength(1);
+    expect(entries[0].id).toBe("4");
+    expect(entries[0].data).toMatchObject({ listingId: "7", hash: "0xbuy" });
+    expect(result.current.pendingPurchases).toEqual([{ purchaseId: "4", listingId: 7, hash: "0xbuy" }]);
+  });
+
+  it("confirm keeps failing: the real reason is shown", async () => {
+    gatedStorefront();
+    decryptForTxMock.mockResolvedValue({ decryptedValue: true, signature: SIG });
+    unifiedWriteAndWaitMock.mockImplementation(async (args: { functionName: string }) => {
+      if (args.functionName === "confirmFunding") throw new Error("rpc: nonce too low");
+      return { hash: "0xbuy", receipt: { status: "success", blockNumber: 2n, logs: [purchasePendingLog(PURCHASE_ID)] } };
+    });
+    const { result } = renderHook(() => useStorefront());
+    let ok = true;
+    await act(async () => {
+      ok = await result.current.buyFixed(buyParams());
+    });
+    expect(ok).toBe(false);
+    expect(result.current.state.error).toMatch(/rpc: nonce too low/);
+    expect(listPendingFundings(SCOPE)).toHaveLength(1);
+  });
+
+  it("finishPendingPurchases completes it later and shows the original payment", async () => {
+    const chain = gatedStorefront();
+    decryptForTxMock.mockResolvedValue(null);
+    const { result } = renderHook(() => useStorefront());
+    await act(async () => {
+      await result.current.buyFixed(buyParams({ listingId: 7 }));
+    });
+    expect(chain.status).toBe(1);
+
+    decryptForTxMock.mockResolvedValue({ decryptedValue: true, signature: SIG });
+    let out = { sold: 0, voided: 0, pending: 0 };
+    await act(async () => {
+      out = await result.current.finishPendingPurchases(7);
+    });
+    expect(out).toEqual({ sold: 1, voided: 0, pending: 0 });
+    expect(confirmCalls()).toHaveLength(1);
+    expect(result.current.state.step).toBe("success");
+    expect(result.current.state.txHash).toBe("0xbuy");
+    expect(result.current.state.lastListingId).toBe(7);
+    expect(result.current.pendingPurchases).toHaveLength(0);
+    expect(toastSuccessMock).toHaveBeenCalledWith("Payment confirmed");
+  });
+
+  it("finishPendingPurchases: a purchase voided meanwhile never becomes a success", async () => {
+    gatedStorefront({ status: 3 });
+    addPendingFunding(SCOPE, 4n, { listingId: "7", hash: "0xold", kind: "fixed" });
+    const { result } = renderHook(() => useStorefront());
+    let out = { sold: 0, voided: 0, pending: 0 };
+    await act(async () => {
+      out = await result.current.finishPendingPurchases(7);
+    });
+    expect(out).toEqual({ sold: 0, voided: 1, pending: 0 });
+    expect(result.current.state.step).not.toBe("success");
+    expect(toastErrorMock).toHaveBeenCalledWith("A payment did not go through: nothing was charged.");
+    expect(listPendingFundings(SCOPE)).toHaveLength(0);
+  });
+
+  it("finishPendingPurchases: still stuck -> counted as pending, entry kept, reason shown", async () => {
+    gatedStorefront();
+    decryptForTxMock.mockResolvedValue(null);
+    addPendingFunding(SCOPE, 4n, { listingId: "7", hash: "0xold", kind: "fixed" });
+    const { result } = renderHook(() => useStorefront());
+    let out = { sold: 0, voided: 0, pending: 0 };
+    await act(async () => {
+      out = await result.current.finishPendingPurchases(7);
+    });
+    expect(out).toEqual({ sold: 0, voided: 0, pending: 1 });
+    expect(listPendingFundings(SCOPE)).toHaveLength(1);
+    expect(result.current.state.step).toBe("error");
+    expect(toastErrorMock.mock.calls.at(-1)![0]).toMatch(/not ready yet/);
+  });
+
+  it("finishPendingPurchases only touches the requested listing", async () => {
+    gatedStorefront();
+    decryptForTxMock.mockResolvedValue({ decryptedValue: true, signature: SIG });
+    addPendingFunding(SCOPE, 4n, { listingId: "7", hash: "0xa", kind: "fixed" });
+    addPendingFunding(SCOPE, 5n, { listingId: "9", hash: "0xb", kind: "pwyw" });
+    const { result } = renderHook(() => useStorefront());
+    await act(async () => {
+      await result.current.finishPendingPurchases(9);
+    });
+    expect(confirmCalls()).toHaveLength(1);
+    expect(confirmCalls()[0][0].args[0]).toBe(5n);
+    expect(listPendingFundings(SCOPE).map((e) => e.id)).toEqual(["4"]);
+  });
+
+  it("finishPendingPurchases does nothing before the FHE session is connected", async () => {
+    gatedStorefront();
+    useCofheConnectionMock.mockReturnValue({ connected: false });
+    addPendingFunding(SCOPE, 4n, { listingId: "7", hash: "0xa", kind: "fixed" });
+    const { result } = renderHook(() => useStorefront());
+    let out = { sold: 9, voided: 9, pending: 9 };
+    await act(async () => {
+      out = await result.current.finishPendingPurchases(7);
+    });
+    expect(out).toEqual({ sold: 0, voided: 0, pending: 0 });
+    expect(decryptForTxMock).not.toHaveBeenCalled();
+    expect(listPendingFundings(SCOPE)).toHaveLength(1);
+  });
+});
+
+describe("useStorefront — retry list on mount", () => {
+  it("lists the purchases this wallet still owes a confirmation for", () => {
+    addPendingFunding(SCOPE, 4n, { listingId: "7", hash: "0xa", kind: "fixed" });
+    addPendingFunding({ ...SCOPE, account: OTHER_SELLER }, 5n, { listingId: "8", hash: "0xb", kind: "fixed" });
+    const { result } = renderHook(() => useStorefront());
+    expect(result.current.pendingPurchases).toEqual([{ purchaseId: "4", listingId: 7, hash: "0xa" }]);
+    expect(result.current.fheReady).toBe(true);
+  });
+
+  it("nothing pending: empty list", () => {
+    const { result } = renderHook(() => useStorefront());
+    expect(result.current.pendingPurchases).toEqual([]);
+  });
+});
+
+describe("useStorefront — pre-gate contract fallback", () => {
+  it("no nextPurchaseId: buyFixed reports the sale from the transaction itself, no gate", async () => {
+    // readContract fails for the gate views by default (pre-gate Storefront).
+    const { result } = renderHook(() => useStorefront());
+    let ok = false;
+    await act(async () => {
+      ok = await result.current.buyFixed(buyParams());
+    });
+    expect(ok).toBe(true);
+    expect(result.current.state.step).toBe("success");
+    expect(decryptForTxMock).not.toHaveBeenCalled();
+    expect(confirmCalls()).toHaveLength(0);
+    expect(listPendingFundings(SCOPE)).toHaveLength(0);
+  });
+
+  it("no nextPurchaseId: payPWYW the same", async () => {
+    const { result } = renderHook(() => useStorefront());
+    let ok = false;
+    await act(async () => {
+      ok = await result.current.payPWYW(pwywParams());
+    });
+    expect(ok).toBe(true);
+    expect(decryptForTxMock).not.toHaveBeenCalled();
+  });
+
+  it("probe fails transiently on an upgraded contract: the PurchasePending log still routes to the gate", async () => {
+    const chain = gatedStorefront();
+    readContractMock.mockImplementation(async ({ functionName }: { functionName: string }) => {
+      if (functionName === "nextPurchaseId") throw new Error("rpc busy");
+      if (functionName === "getPurchase") return [7n, ME, 0, chain.status];
+      if (functionName === "getPurchaseFundedHandle") return HANDLE_HEX;
+      return [OTHER_SELLER, "other-fields-omitted"];
+    });
+    decryptForTxMock.mockResolvedValue({ decryptedValue: true, signature: SIG });
+    const { result } = renderHook(() => useStorefront());
+    let ok = false;
+    await act(async () => {
+      ok = await result.current.buyFixed(buyParams());
+    });
+    expect(ok).toBe(true);
+    expect(confirmCalls()).toHaveLength(1);
+  });
+});
+
+describe("useStorefront — NO_WINNER auctions", () => {
+  it("revealWinner accepts 255 and tells the user every bid is refundable", async () => {
+    gatedStorefront();
+    decryptForTxMock.mockResolvedValue({ decryptedValue: 255n, signature: "0xsig" });
+    const { result } = renderHook(() => useStorefront());
+    let ok = false;
+    await act(async () => {
+      ok = await result.current.revealWinner(5);
+    });
+    expect(ok).toBe(true);
+    const call = unifiedWriteAndWaitMock.mock.calls.find((c) => c[0].functionName === "revealWinner")![0];
+    expect(call.args).toEqual([5n, 255, "0xsig"]);
+    expect(toastSuccessMock).toHaveBeenCalledWith("No winning bid: all bids refundable", expect.anything());
+    expect(toastSuccessMock).not.toHaveBeenCalledWith("Winner revealed", expect.anything());
+  });
+
+  it("a normal index still says 'Winner revealed'", async () => {
+    gatedStorefront();
+    decryptForTxMock.mockResolvedValue({ decryptedValue: 0n, signature: "0xsig" });
+    const { result } = renderHook(() => useStorefront());
+    await act(async () => {
+      await result.current.revealWinner(5);
+    });
+    expect(toastSuccessMock).toHaveBeenCalledWith("Winner revealed", expect.anything());
+  });
+
+  it("claimAuctionWin on a no-winner auction sends nothing and explains why", async () => {
+    gatedStorefront({ noWinner: true });
+    const { result } = renderHook(() => useStorefront());
+    let ok = true;
+    await act(async () => {
+      ok = await result.current.claimAuctionWin(5);
+    });
+    expect(ok).toBe(false);
+    expect(unifiedWriteAndWaitMock.mock.calls.some((c) => c[0].functionName === "claimAuctionWin")).toBe(false);
+    expect(toastErrorMock).toHaveBeenCalledWith(expect.stringContaining("No winning bid: all bids refundable"));
+  });
+
+  it("claimAuctionWin on an auction with a winner still settles", async () => {
+    gatedStorefront({ noWinner: false });
+    const { result } = renderHook(() => useStorefront());
+    let ok = false;
+    await act(async () => {
+      ok = await result.current.claimAuctionWin(5);
+    });
+    expect(ok).toBe(true);
+    expect(unifiedWriteAndWaitMock.mock.calls.some((c) => c[0].functionName === "claimAuctionWin")).toBe(true);
+  });
+
+  it("refundLoserBid(listing, 0) passes index 0 through (refundable when nobody won)", async () => {
+    gatedStorefront({ noWinner: true });
+    const { result } = renderHook(() => useStorefront());
+    await act(async () => {
+      await result.current.refundLoserBid(5, 0);
+    });
+    const call = unifiedWriteAndWaitMock.mock.calls.find((c) => c[0].functionName === "refundLoserBid")![0];
+    expect(call.args).toEqual([5n, 0n]);
+  });
+
+  it("friendlyStorefrontError explains the confirmFunding reverts", () => {
+    expect(friendlyStorefrontError("Storefront: purchase not pending")).toMatch(/already settled/);
+    expect(friendlyStorefrontError("Storefront: decryption not ready")).toMatch(/not ready yet/);
   });
 });

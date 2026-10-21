@@ -4,7 +4,7 @@
 // Public; the buyer creates a passkey via the existing onboarding modal
 // when they need to pay/bid.
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { usePublicClient } from "wagmi";
 import { formatUnits } from "viem";
@@ -67,6 +67,9 @@ export default function StorefrontPage() {
     revealWinner,
     refundLoserBid,
     decryptPaidByBuyer,
+    pendingPurchases,
+    finishPendingPurchases,
+    fheReady,
   } = useStorefront();
   // Passkey-aware: the connected smart-account address. Used to gate
   // the Claim button so non-winners don't pay gas just to revert. Falls
@@ -76,6 +79,11 @@ export default function StorefrontPage() {
 
   const [onChain, setOnChain] = useState<OnChainListing | null>(null);
   const [bidCount, setBidCount] = useState<number>(0);
+  // The auction closed with no funded bid above the minimum (Storefront.NO_WINNER).
+  // Every bid is refundable and there is no sale to settle.
+  const [noWinner, setNoWinner] = useState(false);
+  const [finishingPending, setFinishingPending] = useState(false);
+  const resumedFor = useRef<string | null>(null);
   // Indices of bids placed by the connected viewer (post-close only). Replaces
   // a window.prompt() that asked the user to type their bid index — that
   // routed wrong-index taps to a contract revert ("not your bid") AFTER 30s
@@ -96,6 +104,7 @@ export default function StorefrontPage() {
     let cancelled = false;
     setLoadError(null);
     setOnChain(null);
+    setNoWinner(false);
     if (
       !Number.isFinite(chainId) ||
       !Number.isFinite(listingId) ||
@@ -154,6 +163,19 @@ export default function StorefrontPage() {
             args: [BigInt(listingId)],
           });
           if (!cancelled) setBidCount(Number(count));
+          if (closed) {
+            try {
+              const none = await publicClient.readContract({
+                address: contracts.Storefront,
+                abi: StorefrontAbi,
+                functionName: "auctionHasNoWinner",
+                args: [BigInt(listingId)],
+              });
+              if (!cancelled) setNoWinner(none === true);
+            } catch {
+              // Pre-gate Storefront: no such view, and no NO_WINNER outcome either.
+            }
+          }
         }
       } catch (err) {
         if (cancelled) return;
@@ -231,6 +253,30 @@ export default function StorefrontPage() {
     })();
     return () => { cancelled = true; };
   }, [publicClient, onChain, effectiveAddress, bidCount, chainId, listingId, reloadKey]);
+
+  // A payment left Pending (tab closed, slow Threshold Network) finishes on the
+  // next visit, once the FHE session is up. The hook reads its own retry list and
+  // returns at once when there is nothing to finish. The ref keeps it to one
+  // automatic run per listing and wallet, so a payment that fails during this
+  // visit is not retried in a loop; the Finish button covers a manual retry.
+  const pendingHere = pendingPurchases.filter((p) => p.listingId === listingId);
+  useEffect(() => {
+    if (!onChain || !effectiveAddress || !fheReady) return;
+    const key = `${chainId}:${listingId}:${effectiveAddress.toLowerCase()}`;
+    if (resumedFor.current === key) return;
+    resumedFor.current = key;
+    void finishPendingPurchases(listingId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onChain, effectiveAddress, fheReady]);
+
+  const handleFinishPending = async () => {
+    setFinishingPending(true);
+    try {
+      await finishPendingPurchases(listingId);
+    } finally {
+      setFinishingPending(false);
+    }
+  };
 
   // ─── Error / loading screens ───────────────────────────────────
 
@@ -393,6 +439,28 @@ export default function StorefrontPage() {
         onRefresh={() => setReloadKey((k) => k + 1)}
       />
 
+      {pendingHere.length > 0 && (
+        <div
+          data-testid="storefront-pending-payment"
+          role="status"
+          className="mb-6 text-left rounded-2xl border border-amber-500/30 bg-amber-50 p-4 text-sm text-amber-800"
+        >
+          <p className="mb-3">
+            Your payment is on-chain but not confirmed yet. The seller delivers only after it is.
+          </p>
+          <button
+            type="button"
+            data-testid="storefront-finish-payment"
+            onClick={handleFinishPending}
+            disabled={finishingPending || state.isProcessing || !fheReady}
+            className="h-10 px-4 rounded-xl bg-[#1D1D1F] text-white font-medium inline-flex items-center gap-2 disabled:opacity-40"
+          >
+            {(finishingPending || state.isProcessing) && <Loader2 size={14} className="animate-spin" />}
+            {finishingPending || state.isProcessing ? "Checking…" : !fheReady ? "Connecting…" : "Finish now"}
+          </button>
+        </div>
+      )}
+
       {/* ── FixedPrice: seller checks a buyer's payment before delivering ── */}
       {onChain.mode === SALE_MODE.FixedPrice && viewerIsSeller && (
         <SellerPaymentCheck
@@ -459,6 +527,7 @@ export default function StorefrontPage() {
           myBids={myBids}
           myBidsLoaded={myBidsLoaded}
           winnerSettled={winnerSettled}
+          noWinner={noWinner}
         />
       )}
 
@@ -595,6 +664,7 @@ function AuctionView(props: {
   myBids: { index: number; refunded: boolean }[];
   myBidsLoaded: boolean;
   winnerSettled: boolean;
+  noWinner: boolean;
 }) {
   const closeTs = Number(props.onChain.closesAt);
   const now = Math.floor(Date.now() / 1000);
@@ -649,7 +719,7 @@ function AuctionView(props: {
   const ZERO_ADDR = "0x0000000000000000000000000000000000000000";
   const revealed = props.onChain.winner.toLowerCase() !== ZERO_ADDR;
 
-  if (!revealed) {
+  if (!revealed && !props.noWinner) {
     return (
       <div className="text-left" data-testid="auction-reveal">
         <div className="px-4 py-3 rounded-xl bg-blue-50 text-blue-700 mb-4 text-sm">
@@ -669,22 +739,30 @@ function AuctionView(props: {
   }
 
   const viewerIsWinner =
+    !props.noWinner &&
     !!props.viewerAddress &&
     props.viewerAddress.toLowerCase() === props.onChain.winner.toLowerCase();
   const refundable = viewerIsWinner ? [] : props.myBids;
 
   return (
     <div className="text-left">
-      <div className="px-4 py-3 rounded-xl bg-emerald-50 text-emerald-700 mb-4 text-sm">
-        Winner: <span className="font-mono">{props.onChain.winner.slice(0, 6)}…{props.onChain.winner.slice(-4)}</span>
-        {viewerIsWinner && <span className="ml-2 px-2 py-0.5 rounded-full bg-emerald-200 text-emerald-900 text-xs font-medium">You</span>}
-      </div>
+      {props.noWinner ? (
+        <div data-testid="auction-no-winner" className="px-4 py-3 rounded-xl bg-amber-50 text-amber-800 mb-4 text-sm">
+          No winning bid: all bids refundable. No bid was funded and at or above the minimum, so
+          nobody won and the seller is not paid.
+        </div>
+      ) : (
+        <div className="px-4 py-3 rounded-xl bg-emerald-50 text-emerald-700 mb-4 text-sm">
+          Winner: <span className="font-mono">{props.onChain.winner.slice(0, 6)}…{props.onChain.winner.slice(-4)}</span>
+          {viewerIsWinner && <span className="ml-2 px-2 py-0.5 rounded-full bg-emerald-200 text-emerald-900 text-xs font-medium">You</span>}
+        </div>
+      )}
       <div className="space-y-2">
         {!props.myBidsLoaded ? (
           <div className="w-full h-12 rounded-2xl border border-[var(--border)] flex items-center justify-center text-sm text-[var(--text-secondary)]">
             <Loader2 size={14} className="animate-spin mr-2" /> Checking bids…
           </div>
-        ) : props.winnerSettled ? (
+        ) : props.noWinner ? null : props.winnerSettled ? (
           <div data-testid="auction-settled" className="w-full px-4 py-3 rounded-2xl border border-[var(--border)] text-sm text-[var(--text-secondary)] text-center">
             Settled. The winning bid was paid to the seller.
           </div>
@@ -704,6 +782,11 @@ function AuctionView(props: {
             {props.isProcessing ? "Settling…" : viewerIsWinner ? "Claim your win" : "Settle auction (pay the seller)"}
           </button>
         )}
+        {props.noWinner && !props.viewerAddress ? (
+          <div className="w-full h-12 rounded-2xl border border-[var(--border)] flex items-center justify-center text-sm text-[var(--text-secondary)]">
+            Connect your wallet to refund your bid
+          </div>
+        ) : null}
         {!props.viewerAddress || !props.myBidsLoaded ? null : props.myBids.length === 0 ? (
           <div className="w-full px-4 py-3 rounded-2xl border border-[var(--border)] text-sm text-[var(--text-secondary)] text-center">
             You didn't bid on this auction.

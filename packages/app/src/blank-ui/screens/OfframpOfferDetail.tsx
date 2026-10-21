@@ -87,7 +87,12 @@ export default function OfframpOfferDetail() {
     try {
       const out = await hook.takeOffer(offerId);
       if (out?.fillId !== undefined) {
-        toast.success(`Fill #${out.fillId.toString()} locked.`);
+        if (out.status === "locked") {
+          toast.success(`Fill #${out.fillId.toString()} locked.`);
+        } else {
+          // The escrow check has not finished. Not a success, and no fiat yet.
+          toast.error(`Fill #${out.fillId.toString()} is not locked yet. Open it to finish the escrow check before you send any fiat.`);
+        }
         navigate(`/app/offramp/fill/${out.fillId.toString()}`);
       }
     } catch (err) {
@@ -152,9 +157,10 @@ export default function OfframpOfferDetail() {
 
         <div className="mt-3 rounded-xl bg-blue-500/5 border border-blue-500/20 p-3 text-xs text-blue-700">
           Only a digest of the handle is on-chain. Get the handle from the maker
-          directly. Taking the offer locks the maker's USDC in escrow. Decrypt
-          the escrowed amount on the fill page before you pay. You can hold one
-          open fill at a time.
+          directly. Taking the offer escrows the maker's USDC, then the network
+          checks that the escrow is funded. The fill locks only after that
+          check passes, and the fill page tells you when it is safe to pay. You
+          can hold one open fill at a time.
         </div>
       </div>
 
@@ -165,7 +171,11 @@ export default function OfframpOfferDetail() {
           disabled={hook.state.isProcessing}
           className="w-full h-14 rounded-2xl bg-[#1D1D1F] text-white font-medium hover:bg-black disabled:opacity-50"
         >
-          {hook.state.isProcessing ? "Locking…" : "Take this offer"}
+          {hook.state.step === "funding"
+            ? "Checking escrow…"
+            : hook.state.isProcessing
+              ? "Locking…"
+              : "Take this offer"}
         </button>
       ) : isMine && !cancelled && !filled ? (
         <button

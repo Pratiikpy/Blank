@@ -13,7 +13,7 @@
 // Privacy boundary: payer + recipient + description + deadline are public;
 // the amount stays encrypted in the vault (visible only to the two parties).
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { usePublicClient } from "wagmi";
 import {
@@ -60,6 +60,7 @@ const STEP_LABEL: Record<string, string> = {
   approving: "Approving vault…",
   encrypting: "Encrypting amount…",
   sending: "Submitting…",
+  funding: "Confirming funding…",
 };
 
 function getExplorerBase(chainId: number): string {
@@ -79,6 +80,10 @@ function statusLabel(status: number): { label: string; tone: string } {
       return { label: "Refunded", tone: "text-slate-600 bg-slate-500/10 border-slate-500/30" };
     case ESCROW_STATUS.Disputed:
       return { label: "Disputed", tone: "text-amber-700 bg-amber-500/10 border-amber-500/30" };
+    case ESCROW_STATUS.PendingFunding:
+      return { label: "Funding", tone: "text-amber-700 bg-amber-500/10 border-amber-500/30" };
+    case ESCROW_STATUS.Void:
+      return { label: "Not funded", tone: "text-red-700 bg-red-500/10 border-red-500/30" };
     default:
       return { label: "Active", tone: "text-indigo-700 bg-indigo-500/10 border-indigo-500/30" };
   }
@@ -100,7 +105,7 @@ export default function ConditionalInvoicePage() {
   const navigate = useNavigate();
   const { effectiveAddress } = useEffectiveAddress();
   const { activeChainId, setActiveChain } = useChain();
-  const { approveInvoice, triggerRelease, state } = useEncryptedEscrow();
+  const { approveInvoice, triggerRelease, finishFunding, cancelPendingEscrow, state } = useEncryptedEscrow();
 
   const linkChainId = useMemo(() => Number(params.chainId), [params.chainId]);
   const escrowId = useMemo(() => Number(params.escrowId), [params.escrowId]);
@@ -162,9 +167,10 @@ export default function ConditionalInvoicePage() {
     return () => { cancelled = true; };
   }, [publicClient, linkChainId, escrowId, supported, tick]);
 
-  // Re-poll while Active so the screen reflects approve/release without reload.
+  // Re-poll while Active so the screen reflects approve/release without reload,
+  // and while PendingFunding so it flips once the funding check is published.
   useEffect(() => {
-    if (escrow && escrow.status !== ESCROW_STATUS.Active) return;
+    if (escrow && escrow.status !== ESCROW_STATUS.Active && escrow.status !== ESCROW_STATUS.PendingFunding) return;
     const t = setInterval(() => setTick((n) => n + 1), POLL_MS);
     return () => clearInterval(t);
   }, [escrow]);
@@ -174,6 +180,33 @@ export default function ConditionalInvoicePage() {
   const isRecipient = !!me && !!escrow && me === escrow.beneficiary.toLowerCase();
   const releasable = !!condition && (condition.isApproved || condition.deadlinePassed);
   const active = escrow?.status === ESCROW_STATUS.Active;
+  const pendingFunding = escrow?.status === ESCROW_STATUS.PendingFunding;
+  const unfunded = escrow?.status === ESCROW_STATUS.Void;
+
+  // An escrow left PendingFunding is settled by whoever opens it next: anyone
+  // may publish the funding check. Tried once per escrow per visit; the
+  // button below covers a failed attempt.
+  const autoFinished = useRef<number | null>(null);
+  useEffect(() => {
+    if (!pendingFunding || !effectiveAddress || !onLinkChain || !onArb) return;
+    if (autoFinished.current === escrowId) return;
+    autoFinished.current = escrowId;
+    void finishFunding(escrowId).then((verdict) => {
+      if (verdict) setTick((n) => n + 1);
+    });
+  }, [pendingFunding, effectiveAddress, onLinkChain, onArb, escrowId, finishFunding]);
+
+  const onFinishFunding = useCallback(async () => {
+    if (!onLinkChain) { toast.error(`Switch to ${CHAIN_NAME[linkChainId]} first`); return; }
+    const verdict = await finishFunding(escrowId);
+    if (verdict) setTick((n) => n + 1);
+  }, [onLinkChain, linkChainId, finishFunding, escrowId]);
+
+  const onCancelPending = useCallback(async () => {
+    if (!onLinkChain) { toast.error(`Switch to ${CHAIN_NAME[linkChainId]} first`); return; }
+    const ok = await cancelPendingEscrow(escrowId);
+    if (ok) setTick((n) => n + 1);
+  }, [onLinkChain, linkChainId, cancelPendingEscrow, escrowId]);
 
   const onApprove = useCallback(async () => {
     if (!onLinkChain) { toast.error(`Switch to ${CHAIN_NAME[linkChainId]} first`); return; }
@@ -343,6 +376,56 @@ export default function ConditionalInvoicePage() {
                 </div>
               )}
 
+              {pendingFunding && (
+                <div className="space-y-2" data-testid="conditional-invoice-pending">
+                  <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm text-amber-800 inline-flex items-start gap-2">
+                    <Clock size={15} className="mt-0.5 shrink-0" />
+                    <span>
+                      Funding is being confirmed. The payer's private balance is checked once, then the invoice
+                      becomes active. Nothing can be released or approved until then.
+                    </span>
+                  </div>
+                  {effectiveAddress && onArb && onLinkChain && (
+                    <button
+                      onClick={onFinishFunding}
+                      disabled={state.isProcessing}
+                      className="w-full h-11 rounded-2xl bg-[var(--text-primary)] text-white font-medium hover:bg-black disabled:opacity-50 inline-flex items-center justify-center gap-2"
+                    >
+                      {state.isProcessing && <Loader2 size={16} className="animate-spin" />}
+                      Finish funding
+                    </button>
+                  )}
+                  {isPayer && onArb && onLinkChain && (
+                    <button
+                      onClick={onCancelPending}
+                      disabled={state.isProcessing}
+                      className="w-full h-10 rounded-2xl bg-white border border-black/10 text-sm text-[var(--text-primary)]/80 hover:bg-black/5 disabled:opacity-50"
+                    >
+                      Cancel this invoice
+                    </button>
+                  )}
+                  {effectiveAddress && onArb && !onLinkChain && (
+                    <button
+                      onClick={() => setActiveChain(linkChainId as SupportedChainId)}
+                      className="w-full h-11 rounded-2xl bg-[var(--text-primary)] text-white font-medium hover:bg-black"
+                    >
+                      Switch to {CHAIN_NAME[linkChainId]}
+                    </button>
+                  )}
+                  {state.error && state.step === "error" && (
+                    <p className="text-xs text-red-600">{state.error}</p>
+                  )}
+                </div>
+              )}
+              {unfunded && (
+                <div
+                  data-testid="conditional-invoice-unfunded"
+                  className="rounded-xl border border-red-500/30 bg-red-500/5 px-4 py-3 text-sm text-red-800 inline-flex items-start gap-2"
+                >
+                  <Lock size={15} className="mt-0.5 shrink-0" />
+                  <span>This invoice was never funded. The payer's private balance was too low, so nothing was locked.</span>
+                </div>
+              )}
               {escrow.status === ESCROW_STATUS.Released && (
                 <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 px-4 py-3 text-sm text-emerald-800 inline-flex items-center gap-2">
                   <CheckCircle2 size={15} /> Released to the recipient.
@@ -354,12 +437,14 @@ export default function ConditionalInvoicePage() {
                 </div>
               )}
 
-              <button
-                onClick={copyLink}
-                className="w-full h-10 rounded-2xl bg-white border border-black/10 text-sm text-[var(--text-primary)]/80 hover:bg-black/5 inline-flex items-center justify-center gap-2"
-              >
-                <ExternalLink size={14} /> Copy share link
-              </button>
+              {!unfunded && (
+                <button
+                  onClick={copyLink}
+                  className="w-full h-10 rounded-2xl bg-white border border-black/10 text-sm text-[var(--text-primary)]/80 hover:bg-black/5 inline-flex items-center justify-center gap-2"
+                >
+                  <ExternalLink size={14} /> Copy share link
+                </button>
+              )}
             </>
           )}
         </div>

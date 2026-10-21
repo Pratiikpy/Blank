@@ -187,7 +187,21 @@ export async function drainPassphrasePrompts(
 export async function drainPromptsAndCaptureTx(
   page: Page,
   passphrase: string,
-  opts: { windowMs?: number; readTimeoutMs?: number } = {},
+  opts: {
+    windowMs?: number;
+    readTimeoutMs?: number;
+    /** How long the last relay hash must stay unchanged, with no prompt open, before the drain stops. Default 40s. */
+    stableMs?: number;
+    /**
+     * Funding-gate actions send a second signed transaction (confirmFunding) up to
+     * ~90s after the first. With a selector for the settled screen, the drain
+     * keeps answering prompts until that screen is visible instead of stopping
+     * when the first hash goes quiet.
+     */
+    doneSelector?: string;
+    /** Receives every distinct relay hash seen, in order (approve, create, confirm). */
+    collectHashes?: string[];
+  } = {},
 ): Promise<string> {
   // Use page.route() to intercept the /api/relay response BEFORE the
   // frontend consumes the body. Earlier `page.on('response')` + json()
@@ -220,6 +234,7 @@ export async function drainPromptsAndCaptureTx(
         const m = raw.match(/"hash"\s*:\s*"(0x[0-9a-fA-F]{64})"/);
         if (m && /"status"\s*:\s*"success"/.test(raw)) {
           interceptedTxHash = m[1];
+          if (opts.collectHashes && !opts.collectHashes.includes(m[1])) opts.collectHashes.push(m[1]);
         }
       }
       await route.fulfill({ status, headers, body: raw });
@@ -286,10 +301,20 @@ export async function drainPromptsAndCaptureTx(
     // — observed ~17s on Base Sepolia testnet. 40s covers that plus
     // margin for slow public-RPC ticks without making single-tx specs
     // pay an unbounded wait.
-    const STABLE_MS = 40_000;
+    const STABLE_MS = opts.stableMs ?? 40_000;
     let stableSince: number | null = null;
     let lastSeenHash: string | null = null;
     const txStable = async (): Promise<boolean> => {
+      if (opts.doneSelector) {
+        if (interceptedTxHash === null) return false;
+        const done = await page.locator(opts.doneSelector).first().isVisible().catch(() => false);
+        const promptOpen = await page
+          .locator('input[type="password"][placeholder*="assphrase" i]:visible')
+          .first()
+          .isVisible()
+          .catch(() => false);
+        return done && !promptOpen;
+      }
       if (interceptedTxHash === null) {
         stableSince = null;
         lastSeenHash = null;
@@ -375,6 +400,84 @@ export async function readTxHashFromSuccess(page: Page, timeoutMs = 90_000): Pro
     await page.waitForTimeout(2_000);
   }
   throw new Error("No tx-hash explorer link surfaced within timeout");
+}
+
+/**
+ * Budget for a funding-gate action to go from the user's click to the settled
+ * screen. The app confirms funding on its own right after the user's
+ * transaction: it reads the public funded bit, waits for the Threshold Network
+ * to decrypt it (up to ~90s) and sends confirmFunding. That is one more signed
+ * transaction than these flows had before, so create, take, buy, tip and
+ * contribute all take that much longer. Covers: escrow, claim link, gift,
+ * crowdfund contribution, creator tip, P2P offramp fill, storefront purchase.
+ */
+export const FUNDING_SETTLE_MS = 240_000;
+
+/**
+ * After the click that starts a funding-gate action: wait until the settled
+ * screen shows, answering any passphrase prompt on the way (confirmFunding is a
+ * signed transaction too). If the app has not finished by itself after
+ * `graceMs`, press its "Finish" button the way a user would and report that the
+ * automatic step did not complete.
+ *
+ * Returns "auto" when the app settled it alone, "manual" when Finish was needed.
+ * Throws, with the visible error text, if the settled screen never appears.
+ */
+export async function waitForFundingSettled(
+  page: Page,
+  opts: {
+    /** Locator for the screen that only exists once funding is confirmed. */
+    settled: string;
+    /** Locator for the "waiting for the funding check" screen, when it has one. */
+    pending?: string;
+    /** Locator for the Finish control on the pending screen. */
+    finish?: string;
+    passphrase?: string;
+    timeoutMs?: number;
+    graceMs?: number;
+    /** Fail instead of pressing Finish. */
+    requireAuto?: boolean;
+  },
+): Promise<"auto" | "manual"> {
+  const deadline = Date.now() + (opts.timeoutMs ?? FUNDING_SETTLE_MS);
+  const graceMs = opts.graceMs ?? 120_000;
+  let pendingSince: number | null = null;
+  let pressedAt = 0;
+  let manual = false;
+  while (Date.now() < deadline) {
+    if (await page.locator(opts.settled).first().isVisible().catch(() => false)) {
+      return manual ? "manual" : "auto";
+    }
+    if (opts.passphrase) {
+      const promptOpen = await page
+        .locator('input[type="password"][placeholder*="assphrase" i]:visible')
+        .first()
+        .isVisible()
+        .catch(() => false);
+      if (promptOpen) {
+        await enterPassphrase(page, opts.passphrase, 3_000).catch(() => undefined);
+        continue;
+      }
+    }
+    const onPending = opts.pending ? await page.locator(opts.pending).first().isVisible().catch(() => false) : false;
+    if (onPending && pendingSince === null) pendingSince = Date.now();
+    if (!onPending) pendingSince = null;
+    if (onPending && opts.finish && pendingSince !== null && Date.now() - pendingSince > graceMs && Date.now() - pressedAt > 60_000) {
+      if (opts.requireAuto) throw new Error(`funding was not confirmed automatically within ${graceMs / 1000}s`);
+      const finish = page.locator(opts.finish).first();
+      if (await finish.isEnabled().catch(() => false)) {
+        manual = true;
+        pressedAt = Date.now();
+        await finish.click().catch(() => undefined);
+      }
+    }
+    await page.waitForTimeout(2_000);
+  }
+  const shown = await page
+    .locator('[role="alert"], [role="status"], .text-red-700, .text-amber-800')
+    .allTextContents()
+    .catch(() => [] as string[]);
+  throw new Error(`funding did not settle within ${(opts.timeoutMs ?? FUNDING_SETTLE_MS) / 1000}s; page says: ${shown.join(" | ").slice(0, 300)}`);
 }
 
 /** Shield plaintext USDC into the FHE vault. The actual shield UX is

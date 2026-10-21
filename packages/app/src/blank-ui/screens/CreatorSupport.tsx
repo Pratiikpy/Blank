@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Heart,
   Star,
@@ -81,7 +81,7 @@ const TIER_LABELS: Record<number, string> = { 0: "None", 1: "Supporter", 2: "Fan
 export default function CreatorSupport() {
   const { effectiveAddress: address } = useEffectiveAddress();
   const { contracts } = useChain();
-  const { isTipping, tip } = useTipCreator();
+  const { isTipping, tip, pendingTipCount, isFinishing, finishPendingTips } = useTipCreator();
   const publicClient = usePublicClient();
   const { decryptForView } = useCofheDecryptForView();
   const [myEarnings, setMyEarnings] = useState<bigint | null>(null);
@@ -270,6 +270,22 @@ export default function CreatorSupport() {
     }
   };
 
+  // Called after the hook settled one or more tips: pick up the new supporter rows
+  // and the creator's recomputed supporter_count.
+  const refreshAfterTip = async () => {
+    if (!address) return;
+    setSupporters(await fetchMySupportedCreators(address.toLowerCase()));
+    fetchCreatorProfiles().then(setCreators);
+  };
+
+  // Covers both the automatic resume on mount and the Finish button.
+  const wasFinishing = useRef(false);
+  useEffect(() => {
+    if (wasFinishing.current && !isFinishing) void refreshAfterTip();
+    wasFinishing.current = isFinishing;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isFinishing]);
+
   const handleSupport = async () => {
     if (!address) { toast.error("Connect wallet first"); return; }
     if (!selectedCreator || !selectedTier) return;
@@ -277,19 +293,18 @@ export default function CreatorSupport() {
     if (!tier) return;
     const creatorAddr = selectedCreator.address;
     try {
-      await tip(creatorAddr, tier.amount, tipMessage || `${tier.name} tier support`);
-      const refreshed = await fetchMySupportedCreators(address.toLowerCase());
-      setSupporters(refreshed);
-      // Refresh the creator gallery so the tipped creator's card picks up
-      // the newly-recomputed supporter_count. Without this, the number
-      // stays frozen at whatever was loaded on mount.
-      fetchCreatorProfiles().then(setCreators);
+      const outcome = await tip(creatorAddr, tier.amount, tipMessage || `${tier.name} tier support`);
+      // Only a counted tip refreshes the lists and the tier badge. A voided or
+      // still-pending tip keeps the form so the supporter can retry or finish it.
+      if (outcome !== "confirmed") return;
+      await refreshAfterTip();
 
       // Issue 38: Read contribution and derive tier badge after successful tip
       if (publicClient) {
         try {
           // Totals are kept per vault. The view returns an encrypted handle
-          // only this supporter can decrypt.
+          // only this supporter can decrypt. It reverts "not a supporter"
+          // until the first tip to this creator is confirmed.
           const handle = await publicClient.readContract({
             address: contracts.CreatorHub,
             abi: CreatorHubAbi,
@@ -308,8 +323,11 @@ export default function CreatorSupport() {
           else if (contribution >= t2) tierLevel = 2;
           else if (contribution >= t1) tierLevel = 1;
           setMyTierLabel(TIER_LABELS[tierLevel] || null);
-        } catch {
-          // Non-critical; silently ignore
+        } catch (tierErr) {
+          // Non-critical. No badge until the supporter is counted on-chain.
+          const reason = tierErr instanceof Error ? tierErr.message : String(tierErr);
+          if (!reason.includes("not a supporter")) log.warn("creatorSupport.tierBadge.failed", tierErr instanceof Error ? tierErr : new Error(reason));
+          setMyTierLabel(null);
         }
       }
 
@@ -518,6 +536,30 @@ export default function CreatorSupport() {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {pendingTipCount > 0 && (
+          <div
+            data-testid="creator-pending-tips"
+            role="status"
+            className="rounded-2xl border border-amber-500/30 bg-amber-500/5 px-5 py-4 mb-6 flex flex-wrap items-center justify-between gap-3"
+          >
+            <p className="text-sm text-[var(--text-primary)]/70">
+              {pendingTipCount === 1
+                ? "1 tip is on-chain but not confirmed yet."
+                : `${pendingTipCount} tips are on-chain but not confirmed yet.`}{" "}
+              It counts once the balance check finishes.
+            </p>
+            <button
+              data-testid="creator-finish-tips"
+              onClick={() => void finishPendingTips()}
+              disabled={isFinishing}
+              className="h-10 px-5 rounded-xl bg-[var(--text-primary)] text-white text-sm font-medium flex items-center gap-2 disabled:opacity-50"
+            >
+              {isFinishing && <Loader2 size={16} className="animate-spin" />}
+              <span>{isFinishing ? "Finishing..." : "Finish now"}</span>
+            </button>
           </div>
         )}
 

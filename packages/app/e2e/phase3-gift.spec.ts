@@ -18,7 +18,9 @@ const SETUP_JSON = path.resolve(__dirname, "fixtures", "phase2-setup.json");
 // Verifies:
 //   1. Sender can navigate to /app/gifts and submit the form
 //   2. Two passphrase prompts (approve + createEnvelope) are signed via JS
-//      bypass — the real-fill blocker we hit in Phase 2 affects this too
+//      bypass (the real-fill blocker we hit in Phase 2 affects this too),
+//      plus a third for confirmFunding: the envelope starts PendingFunding
+//      and the app confirms it by itself ~90s after createEnvelope
 //   3. UserOps confirm on-chain via /api/relay
 //   4. Recipient row appears in Supabase activities with type=gift_created
 // ═══════════════════════════════════════════════════════════════════════
@@ -74,7 +76,8 @@ async function answerPassphrasePrompt(page: Page, passphrase: string, timeoutMs 
 }
 
 test.describe("Phase 3 #1 — Gift Envelope (Base Sepolia)", () => {
-  test.setTimeout(600_000);
+  // create + funding check (~90s) + Supabase read: past the old 10 minutes.
+  test.setTimeout(900_000);
 
   let setup: Phase2Setup;
   test.beforeAll(() => {
@@ -159,7 +162,8 @@ test.describe("Phase 3 #1 — Gift Envelope (Base Sepolia)", () => {
     await page.waitForTimeout(2_000);
 
     // Fill up to 3 prompts: warmup, approve, createEnvelope. All optional —
-    // the passphrase unlock cache may carry through multiple signs.
+    // a cached passphrase may carry through multiple signs. The
+    // confirmFunding prompt comes later and is answered in the loop below.
     for (let i = 0; i < 3; i++) {
       try {
         await answerPassphrasePrompt(page, PASSPHRASE, 180_000);
@@ -171,13 +175,17 @@ test.describe("Phase 3 #1 — Gift Envelope (Base Sepolia)", () => {
     }
 
     // Debug: snapshot UI every 15s until either success or timeout, so we can
-    // see whether the UI actually stalled mid-flow.
-    for (let i = 0; i < 20; i++) {
+    // see whether the UI actually stalled mid-flow. "Gift Sent!" only shows once
+    // the funding check is confirmed, so this also answers the confirmFunding
+    // prompt and, if the automatic step never lands, presses Finish funding.
+    let pendingTicks = 0;
+    for (let i = 0; i < 40; i++) {
       const state = await page.evaluate(() => {
         const h = document.body.innerText;
         const toastEls = Array.from(document.querySelectorAll("[role=status], [class*=toast]")).map((e) => e.textContent?.slice(0, 150) ?? "").filter(Boolean);
         return {
           hasSuccess: /Gift Sent!/i.test(h),
+          hasPending: !!document.querySelector('[data-testid="gift-funding-pending"]'),
           stepLabel: (h.match(/(Approving|Encrypting|Sending|Processing)[^\n]*/i) || [])[0] ?? null,
           anyError: (h.match(/(Failed|error|revert|insufficient)[^\n]*/i) || [])[0]?.slice(0, 150) ?? null,
           toasts: toastEls,
@@ -186,6 +194,21 @@ test.describe("Phase 3 #1 — Gift Envelope (Base Sepolia)", () => {
       });
       console.log(`  [snap ${i}@${i*15}s]`, JSON.stringify(state).slice(0, 400));
       if (state.hasSuccess) break;
+      if (await page.locator('input[type="password"]').first().isVisible().catch(() => false)) {
+        await answerPassphrasePrompt(page, PASSPHRASE, 5_000).catch(() => {});
+        console.log("  ✅ filled the confirmFunding prompt");
+      }
+      pendingTicks = state.hasPending ? pendingTicks + 1 : 0;
+      if (pendingTicks >= 8) {
+        // 2 minutes on the pending card: do what a user would.
+        pendingTicks = 0;
+        await page.evaluate(() => {
+          const card = document.querySelector('[data-testid="gift-funding-pending"]');
+          const btn = Array.from(card?.querySelectorAll("button") ?? []).find((b) => /Finish funding/i.test(b.textContent ?? ""));
+          (btn as HTMLButtonElement | undefined)?.click();
+        });
+        console.log("  automatic funding check did not finish; pressed Finish funding");
+      }
       await page.waitForTimeout(15_000);
     }
     await page.screenshot({

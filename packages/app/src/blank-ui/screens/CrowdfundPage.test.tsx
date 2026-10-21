@@ -75,6 +75,9 @@ let contributeMock: ReturnType<typeof vi.fn>;
 let closeCampaignMock: ReturnType<typeof vi.fn>;
 let claimReleaseMock: ReturnType<typeof vi.fn>;
 let claimRefundMock: ReturnType<typeof vi.fn>;
+let finishClosingMock: ReturnType<typeof vi.fn>;
+let finishContributionMock: ReturnType<typeof vi.fn>;
+let finishRefundMock: ReturnType<typeof vi.fn>;
 
 function buildCampaign(over: Partial<{
   creator: string;
@@ -106,22 +109,29 @@ function buildCampaign(over: Partial<{
 }
 
 function setHook(overrides: Partial<{
-  step: "idle" | "encrypting" | "sending" | "success" | "error";
+  step: "idle" | "encrypting" | "sending" | "funding" | "success" | "error";
   isProcessing: boolean;
   error: string | null;
   pipelinePhase: string;
+  funding: "funded" | "pending" | "unfunded" | null;
+  lastContributionIndex: number | null;
 }> = {}) {
   useCrowdfundMock.mockReturnValue({
     state: {
       step: overrides.step ?? "idle",
       isProcessing: overrides.isProcessing ?? false,
       error: overrides.error ?? null,
+      funding: overrides.funding ?? null,
+      lastContributionIndex: overrides.lastContributionIndex ?? null,
     },
     pipeline: { phase: overrides.pipelinePhase ?? "idle" },
     contribute: contributeMock,
     closeCampaign: closeCampaignMock,
     claimRelease: claimReleaseMock,
     claimRefund: claimRefundMock,
+    finishClosing: finishClosingMock,
+    finishContribution: finishContributionMock,
+    finishRefund: finishRefundMock,
   });
 }
 
@@ -159,6 +169,9 @@ beforeEach(() => {
   closeCampaignMock = vi.fn().mockResolvedValue(undefined);
   claimReleaseMock = vi.fn().mockResolvedValue(undefined);
   claimRefundMock = vi.fn().mockResolvedValue(undefined);
+  finishClosingMock = vi.fn().mockResolvedValue("met");
+  finishContributionMock = vi.fn().mockResolvedValue("funded");
+  finishRefundMock = vi.fn().mockResolvedValue("paid");
   setHook();
 });
 
@@ -296,14 +309,47 @@ describe("CrowdfundPage — 5-state phase machine (§15.x)", () => {
     expect(container.textContent).toContain("Deadline reached");
   });
 
-  it("STATUS_CLOSED + !resultPublished -> 'needsPublish' phase shows 'Refresh' CTA", async () => {
+  it("STATUS_CLOSED + !resultPublished -> 'needsPublish' phase offers 'Finish closing'", async () => {
     readContractMock = makeReadContract(
       buildCampaign({ status: STATUS_CLOSED, resultPublished: false }),
     );
     usePublicClientMock.mockReturnValue({ readContract: readContractMock });
     const { findByText, container } = render(<CrowdfundPage />);
-    await findByText("Refresh");
-    expect(container.textContent).toContain("Decrypting the goal-met answer");
+    await findByText("Finish closing");
+    expect(container.textContent).toContain("Closed, verdict not published");
+  });
+
+  it("'Finish closing' click calls finishClosing(campaignId) and reloads the campaign on a verdict", async () => {
+    readContractMock = makeReadContract(
+      buildCampaign({ status: STATUS_CLOSED, resultPublished: false }),
+    );
+    usePublicClientMock.mockReturnValue({ readContract: readContractMock });
+    const { findByText } = render(<CrowdfundPage />);
+    const btn = await findByText("Finish closing");
+    const readsBefore = readContractMock.mock.calls.length;
+    await act(async () => {
+      fireEvent.click(btn);
+      await Promise.resolve();
+    });
+    expect(finishClosingMock).toHaveBeenCalledWith(7);
+    await waitFor(() => expect(readContractMock.mock.calls.length).toBeGreaterThan(readsBefore));
+  });
+
+  it("'Finish closing' that returns no verdict does not reload", async () => {
+    finishClosingMock.mockResolvedValue(null);
+    readContractMock = makeReadContract(
+      buildCampaign({ status: STATUS_CLOSED, resultPublished: false }),
+    );
+    usePublicClientMock.mockReturnValue({ readContract: readContractMock });
+    const { findByText } = render(<CrowdfundPage />);
+    const btn = await findByText("Finish closing");
+    const readsBefore = readContractMock.mock.calls.length;
+    await act(async () => {
+      fireEvent.click(btn);
+      await Promise.resolve();
+    });
+    expect(finishClosingMock).toHaveBeenCalledWith(7);
+    expect(readContractMock.mock.calls.length).toBe(readsBefore);
   });
 
   it("STATUS_RELEASED + viewer is creator + not yet paid -> 'Claim the pool' CTA", async () => {
@@ -577,5 +623,151 @@ describe("CrowdfundPage — cancellation guard (§15.x)", () => {
     const calls = consoleErrorSpy.mock.calls.map((c) => String(c[0] ?? ""));
     expect(calls.some((c) => c.includes("unmounted component"))).toBe(false);
     consoleErrorSpy.mockRestore();
+  });
+});
+
+describe("CrowdfundPage: funding gate states", () => {
+  const VIEWER = "0xdddddddddddddddddddddddddddddddddddddddd" as `0x${string}`;
+  const OTHER = "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" as `0x${string}`;
+
+  /** makeReadContract plus per-index funding views. */
+  function withGate(
+    base: ReturnType<typeof makeReadContract>,
+    views: { state?: Record<number, number>; inFlight?: Record<number, boolean> },
+  ) {
+    return vi.fn().mockImplementation(async (args: { functionName: string; args?: readonly unknown[] }) => {
+      const i = Number((args.args ?? [])[1] ?? 0);
+      if (args.functionName === "contributionState") return views.state?.[i] ?? 0;
+      if (args.functionName === "refundInFlight") return views.inFlight?.[i] ?? false;
+      return base(args);
+    });
+  }
+
+  beforeEach(() => {
+    useEffectiveAddressMock.mockReturnValue({ effectiveAddress: VIEWER });
+  });
+
+  it("a pending contribution just made shows the confirming screen and Finish calls finishContribution", async () => {
+    setHook({ step: "success", funding: "pending", lastContributionIndex: 4 });
+    const { findByText, findByTestId, queryByText } = render(<CrowdfundPage />);
+    await findByText("Confirming your contribution");
+    expect((await findByTestId("contribution-pending")).textContent).toContain("Contribution #4");
+    // It must not claim the contribution was submitted or counted.
+    expect(queryByText("Contribution submitted")).toBeNull();
+    const btn = await findByText("Finish contribution");
+    await act(async () => {
+      fireEvent.click(btn);
+      await Promise.resolve();
+    });
+    expect(finishContributionMock).toHaveBeenCalledWith(7, 4);
+  });
+
+  it("the confirming screen stays up while the finish is running", async () => {
+    setHook({ step: "funding", funding: "pending", lastContributionIndex: 4, isProcessing: true });
+    const { findByText } = render(<CrowdfundPage />);
+    await findByText("Confirming your contribution");
+    await findByText("Confirming…");
+  });
+
+  it("a funded contribution says it is counted", async () => {
+    setHook({ step: "success", funding: "funded", lastContributionIndex: 4 });
+    const { findByText } = render(<CrowdfundPage />);
+    await findByText("Contribution submitted");
+    await findByText(/on-chain and counted/);
+  });
+
+  it("legacy success copy is unchanged when there was no funding check", async () => {
+    setHook({ step: "success" });
+    const { findByText } = render(<CrowdfundPage />);
+    await findByText(/Your encrypted contribution is on-chain\. Only you can decrypt your amount\./);
+  });
+
+  it("the contribute button says 'Confirming funding…' during the check", async () => {
+    setHook({ step: "funding", isProcessing: true });
+    const { findByText } = render(<CrowdfundPage />);
+    await findByText("Confirming funding…");
+  });
+
+  it("open campaign: a contribution left pending is found from its events and can be finished", async () => {
+    const getLogs = vi.fn().mockResolvedValue([{ args: { contributionIndex: 2n } }, { args: { contributionIndex: 5n } }]);
+    readContractMock = withGate(makeReadContract(buildCampaign(), 6), { state: { 2: 1, 5: 0 } });
+    usePublicClientMock.mockReturnValue({ readContract: readContractMock, getLogs });
+    const { findByTestId, findByText, queryByText } = render(<CrowdfundPage />);
+    await findByTestId("my-pending-contribs");
+    // Only the pending one (#2) is offered; #5 is already counted.
+    await findByText("Contribution #2");
+    expect(queryByText("Contribution #5")).toBeNull();
+    expect(getLogs.mock.calls[0][0].args).toEqual({ campaignId: 7n, contributor: VIEWER });
+    await act(async () => {
+      fireEvent.click(await findByText("Contribution #2"));
+      await Promise.resolve();
+    });
+    expect(finishContributionMock).toHaveBeenCalledWith(7, 2);
+  });
+
+  it("open campaign without log access shows no pending panel and no error", async () => {
+    const getLogs = vi.fn().mockRejectedValue(new Error("range too large"));
+    readContractMock = withGate(makeReadContract(buildCampaign(), 3), {});
+    usePublicClientMock.mockReturnValue({ readContract: readContractMock, getLogs });
+    const { queryByTestId, findByText } = render(<CrowdfundPage />);
+    await findByText(/contributions so far/);
+    await waitFor(() => expect(getLogs).toHaveBeenCalled());
+    expect(queryByTestId("my-pending-contribs")).toBeNull();
+  });
+
+  it("refund list: a refund in flight shows 'Finish refund' and calls finishRefund, not claimRefund", async () => {
+    readContractMock = withGate(
+      makeReadContract(
+        buildCampaign({ status: STATUS_REFUNDING, resultPublished: true, goalMet: false }),
+        2,
+        [[OTHER, false], [VIEWER, false]],
+      ),
+      { inFlight: { 1: true } },
+    );
+    usePublicClientMock.mockReturnValue({ readContract: readContractMock });
+    const { findByText, findByTestId } = render(<CrowdfundPage />);
+    await findByTestId("my-contribs-list");
+    await findByText("Finish refund");
+    await act(async () => {
+      fireEvent.click(await findByText("Contribution #1"));
+      await Promise.resolve();
+    });
+    expect(finishRefundMock).toHaveBeenCalledWith(7, 1);
+    expect(claimRefundMock).not.toHaveBeenCalled();
+  });
+
+  it("refund list: a contribution that never locked funds is 'Not funded' and cannot be refunded", async () => {
+    readContractMock = withGate(
+      makeReadContract(
+        buildCampaign({ status: STATUS_REFUNDING, resultPublished: true, goalMet: false }),
+        1,
+        [[VIEWER, false]],
+      ),
+      { state: { 0: 2 } },
+    );
+    usePublicClientMock.mockReturnValue({ readContract: readContractMock });
+    const { findByText, findByTestId } = render(<CrowdfundPage />);
+    await findByTestId("my-contribs-list");
+    await findByText("Not funded");
+    const row = (await findByText("Contribution #0")).closest("button") as HTMLButtonElement;
+    expect(row.disabled).toBe(true);
+  });
+
+  it("refund list on a legacy contract (funding views missing): plain Refund button as before", async () => {
+    const base = makeReadContract(
+      buildCampaign({ status: STATUS_REFUNDING, resultPublished: true, goalMet: false }),
+      1,
+      [[VIEWER, false]],
+    );
+    readContractMock = vi.fn().mockImplementation(async (args: { functionName: string }) => {
+      if (args.functionName === "contributionState" || args.functionName === "refundInFlight") {
+        throw new Error("function selector not found");
+      }
+      return base(args);
+    });
+    usePublicClientMock.mockReturnValue({ readContract: readContractMock });
+    const { findByText, findByTestId } = render(<CrowdfundPage />);
+    await findByTestId("my-contribs-list");
+    await findByText("Refund");
   });
 });

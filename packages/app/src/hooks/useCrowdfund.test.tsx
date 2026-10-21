@@ -42,6 +42,7 @@ import { renderHook, act } from "@testing-library/react";
 //     refundable independently. Other callSimple ops take one id arg.
 
 const useEffectiveAddressMock = vi.hoisted(() => vi.fn());
+const decryptForTxMock = vi.hoisted(() => vi.fn());
 const useChainMock = vi.hoisted(() => vi.fn());
 const usePublicClientMock = vi.hoisted(() => vi.fn());
 const useUnifiedWriteMock = vi.hoisted(() => vi.fn());
@@ -64,6 +65,7 @@ vi.mock("@/providers/ChainProvider", () => ({ useChain: useChainMock }));
 vi.mock("./useUnifiedWrite", () => ({ useUnifiedWrite: useUnifiedWriteMock }));
 vi.mock("./useFhePipeline", () => ({ useFhePipeline: useFhePipelineMock }));
 vi.mock("@/lib/cofhe-shim", () => ({
+  useCofheDecryptForTx: () => ({ decryptForTx: decryptForTxMock }),
   useCofheConnection: useCofheConnectionMock,
   useCofheEncrypt: useCofheEncryptMock,
   Encryptable: new Proxy({}, { get: () => (v: unknown) => ({ raw: v }) }),
@@ -77,6 +79,18 @@ vi.mock("@/lib/event-parser", () => ({ extractEventId: extractEventIdMock }));
 vi.mock("@/lib/query-invalidation", () => ({
   invalidateBalanceQueries: invalidateBalanceQueriesMock,
 }));
+// The real helper, driven by a fake clock so a funding check that never
+// arrives times out instantly instead of waiting 90 real seconds.
+vi.mock("@/lib/funding-gate", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/funding-gate")>("@/lib/funding-gate");
+  return {
+    ...actual,
+    runFundingGate: (opts: Parameters<typeof actual.runFundingGate>[0]) => {
+      let t = 0;
+      return actual.runFundingGate({ ...opts, now: () => t, sleep: async (ms: number) => { t += ms; } });
+    },
+  };
+});
 vi.mock("react-hot-toast", () => ({
   default: {
     error: toastErrorMock,
@@ -85,7 +99,12 @@ vi.mock("react-hot-toast", () => ({
   },
 }));
 
-import { useCrowdfund } from "./useCrowdfund";
+import { pad, toEventSelector, toHex } from "viem";
+import {
+  useCrowdfund,
+  CONTRIBUTION_UNFUNDED_MESSAGE,
+  REFUND_NOT_PAID_MESSAGE,
+} from "./useCrowdfund";
 
 const ME = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" as const;
 const CF_ADDR = "0x1111111111111111111111111111111111111111" as const;
@@ -128,6 +147,7 @@ function contribParams(over: Record<string, unknown> = {}) {
 }
 
 beforeEach(() => {
+  decryptForTxMock.mockReset();
   useEffectiveAddressMock.mockReset();
   useChainMock.mockReset();
   usePublicClientMock.mockReset();
@@ -712,7 +732,7 @@ describe("useCrowdfund — §3.2 publishCloseResult (§15.x)", () => {
       ok = await result.current.publishCloseResult(1, true, SIGNATURE);
     });
     expect(ok).toBe(true);
-    expect(result.current.state.step).toBe("success");
+    expect(result.current.state.step).toBe("idle");
   });
 
   it("returns false on rejection + sets error state", async () => {
@@ -832,6 +852,388 @@ describe("useCrowdfund — concurrent-invocation guard (§15.x)", () => {
     });
     await act(async () => {
       await p1;
+    });
+  });
+});
+
+// ───────────────────────────────────────────────────────────
+//  Funding gate: contributions, refunds and the close verdict
+// ───────────────────────────────────────────────────────────
+
+describe("useCrowdfund: funding gate", () => {
+  const SIG = "0x5151" as const;
+  const OTHER = "0xdddddddddddddddddddddddddddddddddddddddd" as const;
+  const readContractMock = vi.fn();
+  // Mutable chain state the reads report.
+  let contributionState = 1; // 0 Counted, 1 PendingFunding, 2 Void
+  let refundInFlight = true;
+  let campaign: { creator: string; status: number; resultPublished: boolean };
+  let contributionCount = 5;
+  let contributorAt: Record<number, string>;
+
+  const word = (n: bigint) => pad(toHex(n), { size: 32 });
+  const contributedLog = (campaignId: bigint, index: bigint) => ({
+    address: CF_ADDR,
+    topics: [
+      toEventSelector("Contributed(uint256,address,uint256,uint256)"),
+      word(campaignId),
+      pad(ME, { size: 32 }),
+    ] as readonly `0x${string}`[],
+    data: (word(index) + word(1_700_000_000n).slice(2)) as `0x${string}`,
+  });
+
+  beforeEach(() => {
+    contributionState = 1;
+    refundInFlight = true;
+    campaign = { creator: ME, status: 1, resultPublished: false };
+    contributionCount = 5;
+    contributorAt = { 4: ME };
+    readContractMock.mockReset();
+    readContractMock.mockImplementation(async ({ functionName, args }: { functionName: string; args: readonly bigint[] }) => {
+      // Probes ask about (0, 0), which has no check; real ids have a handle.
+      if (functionName === "getContributionFundingCheck") return args[0] === 0n && args[1] === 0n ? 0n : 88n;
+      if (functionName === "getRefundCheck") return 77n;
+      if (functionName === "getGoalCheckHandle") return 99n;
+      if (functionName === "contributionState") return contributionState;
+      if (functionName === "refundInFlight") return refundInFlight;
+      if (functionName === "getContributionCount") return BigInt(contributionCount);
+      if (functionName === "getContribution") return [contributorAt[Number(args[1])] ?? OTHER, false];
+      if (functionName === "getCampaign") {
+        return [campaign.creator, VAULT, 0n, campaign.status, false, campaign.resultPublished, "t", "0x" + "00".repeat(32), 0n];
+      }
+      throw new Error(`unexpected read ${functionName}`);
+    });
+    usePublicClientMock.mockReturnValue({
+      waitForTransactionReceipt: waitForTransactionReceiptMock,
+      readContract: readContractMock,
+    });
+    unifiedWriteAndWaitMock.mockResolvedValue({
+      hash: "0xtxhash",
+      receipt: { status: "success", blockNumber: 1n, logs: [contributedLog(13n, 3n)] },
+    });
+  });
+
+  const writes = (fn: string) =>
+    unifiedWriteAndWaitMock.mock.calls.map((c) => c[0]).filter((c) => c.functionName === fn);
+
+  describe("contribute", () => {
+    it("funded: reads the index from the Contributed event, confirms true, reports funded", async () => {
+      decryptForTxMock.mockResolvedValue({ decryptedValue: true, signature: SIG });
+      const { result } = renderHook(() => useCrowdfund());
+      let ok = false;
+      await act(async () => { ok = await result.current.contribute(contribParams({ campaignId: 13 })); });
+      expect(ok).toBe(true);
+      expect(decryptForTxMock).toHaveBeenCalledWith(88n, "ebool");
+      expect(writes("confirmContribution")).toHaveLength(1);
+      expect(writes("confirmContribution")[0].args).toEqual([13n, 3n, true, SIG]);
+      expect(result.current.state.step).toBe("success");
+      expect(result.current.state.funding).toBe("funded");
+      expect(result.current.state.lastContributionIndex).toBe(3);
+      expect(result.current.state.lastCampaignId).toBe(13);
+    });
+
+    it("unfunded: confirms false, returns false, says the balance was too low and nothing was locked", async () => {
+      decryptForTxMock.mockResolvedValue({ decryptedValue: false, signature: SIG });
+      const { result } = renderHook(() => useCrowdfund());
+      let ok = true;
+      await act(async () => { ok = await result.current.contribute(contribParams({ campaignId: 13 })); });
+      expect(ok).toBe(false);
+      expect(writes("confirmContribution")[0].args).toEqual([13n, 3n, false, SIG]);
+      expect(result.current.state.step).toBe("error");
+      expect(result.current.state.funding).toBe("unfunded");
+      expect(result.current.state.error).toBe(CONTRIBUTION_UNFUNDED_MESSAGE);
+      expect(result.current.state.error).toContain("too low");
+      expect(result.current.state.error).toContain("Nothing was locked");
+      expect(toastErrorMock).toHaveBeenCalledWith(CONTRIBUTION_UNFUNDED_MESSAGE);
+    });
+
+    it("decryption never arrives: stays pending and recoverable, no confirm, no fake success", async () => {
+      decryptForTxMock.mockResolvedValue(null);
+      const { result } = renderHook(() => useCrowdfund());
+      let ok = false;
+      await act(async () => { ok = await result.current.contribute(contribParams({ campaignId: 13 })); });
+      expect(ok).toBe(true);
+      expect(writes("confirmContribution")).toHaveLength(0);
+      expect(result.current.state.funding).toBe("pending");
+      expect(result.current.state.lastContributionIndex).toBe(3);
+      const msg = toastErrorMock.mock.calls.map((c) => String(c[0])).find((m) => m.includes("Contribution #3"));
+      expect(msg).toContain("not counted");
+      expect(msg).toContain("Finish");
+    });
+
+    it("EOA path (no receipt on the result): waits for the receipt to find the index", async () => {
+      unifiedWriteAndWaitMock.mockResolvedValue({ hash: "0xeoa" });
+      waitForTransactionReceiptMock.mockResolvedValue({
+        status: "success",
+        logs: [contributedLog(13n, 6n)],
+      });
+      decryptForTxMock.mockResolvedValue({ decryptedValue: true, signature: SIG });
+      const { result } = renderHook(() => useCrowdfund());
+      await act(async () => { await result.current.contribute(contribParams({ campaignId: 13 })); });
+      expect(waitForTransactionReceiptMock).toHaveBeenCalledWith({ hash: "0xeoa", confirmations: 1 });
+      expect(writes("confirmContribution")[0].args.slice(0, 2)).toEqual([13n, 6n]);
+    });
+
+    it("ignores a Contributed event for another campaign", async () => {
+      unifiedWriteAndWaitMock.mockResolvedValue({
+        hash: "0xtxhash",
+        receipt: { status: "success", blockNumber: 1n, logs: [contributedLog(99n, 8n)] },
+      });
+      decryptForTxMock.mockResolvedValue({ decryptedValue: true, signature: SIG });
+      const { result } = renderHook(() => useCrowdfund());
+      await act(async () => { await result.current.contribute(contribParams({ campaignId: 13 })); });
+      // Not in the logs, so the newest pending contribution of the caller is used.
+      expect(writes("confirmContribution")[0].args.slice(0, 2)).toEqual([13n, 4n]);
+    });
+
+    it("no event and no pending contribution found: honest error, nothing confirmed", async () => {
+      unifiedWriteAndWaitMock.mockResolvedValue({
+        hash: "0xtxhash",
+        receipt: { status: "success", blockNumber: 1n, logs: [] },
+      });
+      contributorAt = {};
+      const { result } = renderHook(() => useCrowdfund());
+      let ok = true;
+      await act(async () => { ok = await result.current.contribute(contribParams({ campaignId: 13 })); });
+      expect(ok).toBe(false);
+      expect(result.current.state.step).toBe("error");
+      expect(result.current.state.error).toContain("index could not be read");
+      expect(writes("confirmContribution")).toHaveLength(0);
+    });
+
+    it("legacy contract (no funding views): old behaviour, no decrypt, no confirm", async () => {
+      readContractMock.mockImplementation(async () => { throw new Error("function selector not found"); });
+      const { result } = renderHook(() => useCrowdfund());
+      let ok = false;
+      await act(async () => { ok = await result.current.contribute(contribParams({ campaignId: 13 })); });
+      expect(ok).toBe(true);
+      expect(decryptForTxMock).not.toHaveBeenCalled();
+      expect(writes("confirmContribution")).toHaveLength(0);
+      expect(result.current.state.step).toBe("success");
+      expect(result.current.state.funding).toBeNull();
+    });
+  });
+
+  describe("finishContribution", () => {
+    it("settles a pending contribution", async () => {
+      decryptForTxMock.mockResolvedValue({ decryptedValue: true, signature: SIG });
+      const { result } = renderHook(() => useCrowdfund());
+      let verdict: string | null = null;
+      await act(async () => { verdict = await result.current.finishContribution(13, 2); });
+      expect(verdict).toBe("funded");
+      expect(writes("confirmContribution")[0].args).toEqual([13n, 2n, true, SIG]);
+      expect(toastSuccessMock).toHaveBeenCalledWith("Contribution counted", expect.anything());
+    });
+
+    it("an unfunded verdict is reported honestly", async () => {
+      decryptForTxMock.mockResolvedValue({ decryptedValue: false, signature: SIG });
+      const { result } = renderHook(() => useCrowdfund());
+      let verdict: string | null = null;
+      await act(async () => { verdict = await result.current.finishContribution(13, 2); });
+      expect(verdict).toBe("unfunded");
+      expect(toastErrorMock).toHaveBeenCalledWith(CONTRIBUTION_UNFUNDED_MESSAGE, expect.anything());
+    });
+
+    it("already settled by someone else: no second confirm", async () => {
+      contributionState = 0;
+      decryptForTxMock.mockResolvedValue({ decryptedValue: true, signature: SIG });
+      const { result } = renderHook(() => useCrowdfund());
+      let verdict: string | null = null;
+      await act(async () => { verdict = await result.current.finishContribution(13, 2); });
+      expect(verdict).toBe("funded");
+      expect(writes("confirmContribution")).toHaveLength(0);
+    });
+
+    it("cannot decrypt yet: null, error names the contribution, stays retryable", async () => {
+      decryptForTxMock.mockResolvedValue(null);
+      const { result } = renderHook(() => useCrowdfund());
+      let verdict: string | null = "x";
+      await act(async () => { verdict = await result.current.finishContribution(13, 2); });
+      expect(verdict).toBeNull();
+      expect(result.current.state.error).toContain("Contribution #2");
+      expect(result.current.state.isProcessing).toBe(false);
+    });
+
+    it("legacy contract: says there is nothing to finish", async () => {
+      readContractMock.mockImplementation(async () => { throw new Error("function selector not found"); });
+      const { result } = renderHook(() => useCrowdfund());
+      let verdict: string | null = "x";
+      await act(async () => { verdict = await result.current.finishContribution(13, 2); });
+      expect(verdict).toBeNull();
+      expect(toastErrorMock).toHaveBeenCalledWith("This crowdfund contract has no funding check to finish.");
+    });
+  });
+
+  describe("closing: publishCloseResult is called from the app", () => {
+    it("closeCampaign by the creator also publishes the verdict (goal met)", async () => {
+      decryptForTxMock.mockResolvedValue({ decryptedValue: true, signature: SIG });
+      const { result } = renderHook(() => useCrowdfund());
+      let ok = false;
+      await act(async () => { ok = await result.current.closeCampaign(5); });
+      expect(ok).toBe(true);
+      expect(writes("closeCampaign")).toHaveLength(1);
+      expect(decryptForTxMock).toHaveBeenCalledWith(99n, "ebool");
+      expect(writes("publishCloseResult")).toHaveLength(1);
+      expect(writes("publishCloseResult")[0].args).toEqual([5n, true, SIG]);
+      expect(toastSuccessMock).toHaveBeenCalledWith(expect.stringContaining("Goal met"), expect.anything());
+      expect(result.current.state.step).toBe("idle");
+    });
+
+    it("closeCampaign by someone else only closes: the page offers Finish closing", async () => {
+      campaign.creator = OTHER;
+      const { result } = renderHook(() => useCrowdfund());
+      let ok = false;
+      await act(async () => { ok = await result.current.closeCampaign(5); });
+      expect(ok).toBe(true);
+      expect(writes("closeCampaign")).toHaveLength(1);
+      expect(writes("publishCloseResult")).toHaveLength(0);
+      expect(decryptForTxMock).not.toHaveBeenCalled();
+    });
+
+    it("a failed close does not try to publish", async () => {
+      unifiedWriteAndWaitMock.mockRejectedValue(new Error("not yet ended"));
+      const { result } = renderHook(() => useCrowdfund());
+      let ok = true;
+      await act(async () => { ok = await result.current.closeCampaign(5); });
+      expect(ok).toBe(false);
+      expect(decryptForTxMock).not.toHaveBeenCalled();
+    });
+
+    it("closing with only unconfirmed contributions explains why instead of showing the raw revert", async () => {
+      unifiedWriteAndWaitMock.mockRejectedValue(new Error("Crowdfund: no contributions to close against"));
+      const { result } = renderHook(() => useCrowdfund());
+      await act(async () => { await result.current.closeCampaign(5); });
+      expect(result.current.state.error).toContain("no confirmed contributions");
+      expect(result.current.state.error).toContain("funding check");
+    });
+
+    it("finishClosing publishes a missed goal as false", async () => {
+      decryptForTxMock.mockResolvedValue({ decryptedValue: false, signature: SIG });
+      const { result } = renderHook(() => useCrowdfund());
+      let verdict: string | null = null;
+      await act(async () => { verdict = await result.current.finishClosing(5); });
+      expect(verdict).toBe("missed");
+      expect(writes("publishCloseResult")[0].args).toEqual([5n, false, SIG]);
+      expect(toastSuccessMock).toHaveBeenCalledWith(expect.stringContaining("Goal not met"), expect.anything());
+    });
+
+    it("finishClosing on a campaign that is still Open refuses without waiting for a decryption", async () => {
+      campaign.status = 0;
+      const { result } = renderHook(() => useCrowdfund());
+      let verdict: string | null = "x";
+      await act(async () => { verdict = await result.current.finishClosing(5); });
+      expect(verdict).toBeNull();
+      expect(decryptForTxMock).not.toHaveBeenCalled();
+      expect(result.current.state.error).toContain("has not been closed yet");
+    });
+
+    it("verdict already published by someone else: no second publish", async () => {
+      campaign.resultPublished = true;
+      decryptForTxMock.mockResolvedValue({ decryptedValue: true, signature: SIG });
+      const { result } = renderHook(() => useCrowdfund());
+      let verdict: string | null = null;
+      await act(async () => { verdict = await result.current.finishClosing(5); });
+      expect(verdict).toBe("met");
+      expect(writes("publishCloseResult")).toHaveLength(0);
+    });
+
+    it("decryption not ready: null, no publish, error says how to retry", async () => {
+      decryptForTxMock.mockResolvedValue(null);
+      const { result } = renderHook(() => useCrowdfund());
+      let verdict: string | null = "x";
+      await act(async () => { verdict = await result.current.finishClosing(5); });
+      expect(verdict).toBeNull();
+      expect(writes("publishCloseResult")).toHaveLength(0);
+      expect(result.current.state.step).toBe("error");
+      expect(result.current.state.error).toContain("Finish closing");
+      expect(result.current.state.isProcessing).toBe(false);
+    });
+
+    it("works on a contract without the funding gate: publishing is not part of the gate", async () => {
+      readContractMock.mockImplementation(async ({ functionName }: { functionName: string }) => {
+        if (functionName === "getGoalCheckHandle") return 99n;
+        if (functionName === "getCampaign") {
+          return [ME, VAULT, 0n, 1, false, false, "t", "0x" + "00".repeat(32), 0n];
+        }
+        throw new Error("function selector not found");
+      });
+      decryptForTxMock.mockResolvedValue({ decryptedValue: true, signature: SIG });
+      const { result } = renderHook(() => useCrowdfund());
+      let verdict: string | null = null;
+      await act(async () => { verdict = await result.current.finishClosing(5); });
+      expect(verdict).toBe("met");
+      expect(writes("publishCloseResult")[0].args).toEqual([5n, true, SIG]);
+    });
+  });
+
+  describe("claimRefund is two steps", () => {
+    it("moves the funds, then confirms the payout; the success toast fires once, after confirmation", async () => {
+      decryptForTxMock.mockResolvedValue({ decryptedValue: true, signature: SIG });
+      const { result } = renderHook(() => useCrowdfund());
+      let ok = false;
+      await act(async () => { ok = await result.current.claimRefund(7, 2); });
+      expect(ok).toBe(true);
+      expect(writes("claimRefund")[0].args).toEqual([7n, 2n]);
+      expect(decryptForTxMock).toHaveBeenCalledWith(77n, "ebool");
+      expect(writes("confirmRefund")[0].args).toEqual([7n, 2n, true, SIG]);
+      expect(toastSuccessMock.mock.calls.filter((c) => c[0] === "Refund claimed")).toHaveLength(1);
+    });
+
+    it("nothing moved: returns false and says there was nothing to refund", async () => {
+      decryptForTxMock.mockResolvedValue({ decryptedValue: false, signature: SIG });
+      const { result } = renderHook(() => useCrowdfund());
+      let ok = true;
+      await act(async () => { ok = await result.current.claimRefund(7, 2); });
+      expect(ok).toBe(false);
+      expect(writes("confirmRefund")[0].args).toEqual([7n, 2n, false, SIG]);
+      expect(toastErrorMock).toHaveBeenCalledWith(REFUND_NOT_PAID_MESSAGE, expect.anything());
+      expect(toastSuccessMock).not.toHaveBeenCalledWith("Refund claimed");
+    });
+
+    it("confirmation times out: not reported as refunded, and finishRefund can complete it", async () => {
+      decryptForTxMock.mockResolvedValue(null);
+      const { result } = renderHook(() => useCrowdfund());
+      let ok = true;
+      await act(async () => { ok = await result.current.claimRefund(7, 2); });
+      expect(ok).toBe(false);
+      expect(writes("confirmRefund")).toHaveLength(0);
+      expect(result.current.state.error).toContain("Finish refund");
+      expect(toastSuccessMock).not.toHaveBeenCalledWith("Refund claimed");
+
+      decryptForTxMock.mockResolvedValue({ decryptedValue: true, signature: SIG });
+      let verdict: string | null = null;
+      await act(async () => { verdict = await result.current.finishRefund(7, 2); });
+      expect(verdict).toBe("paid");
+      expect(writes("confirmRefund")[0].args).toEqual([7n, 2n, true, SIG]);
+      expect(writes("claimRefund")).toHaveLength(1);
+    });
+
+    it("finishRefund when no refund is in flight sends nothing", async () => {
+      refundInFlight = false;
+      decryptForTxMock.mockResolvedValue({ decryptedValue: true, signature: SIG });
+      const { result } = renderHook(() => useCrowdfund());
+      await act(async () => { await result.current.finishRefund(7, 2); });
+      expect(writes("confirmRefund")).toHaveLength(0);
+    });
+
+    it("a second claimRefund while one is pending gets a readable message", async () => {
+      unifiedWriteAndWaitMock.mockRejectedValue(new Error("Crowdfund: refund pending"));
+      const { result } = renderHook(() => useCrowdfund());
+      let ok = true;
+      await act(async () => { ok = await result.current.claimRefund(7, 2); });
+      expect(ok).toBe(false);
+      expect(result.current.state.error).toBe("A refund for this contribution is waiting for its confirmation. Press Finish refund.");
+    });
+
+    it("legacy contract: one step, success toast right after the claim", async () => {
+      readContractMock.mockImplementation(async () => { throw new Error("function selector not found"); });
+      const { result } = renderHook(() => useCrowdfund());
+      let ok = false;
+      await act(async () => { ok = await result.current.claimRefund(7, 2); });
+      expect(ok).toBe(true);
+      expect(decryptForTxMock).not.toHaveBeenCalled();
+      expect(writes("confirmRefund")).toHaveLength(0);
+      expect(toastSuccessMock).toHaveBeenCalledWith("Refund claimed");
     });
   });
 });

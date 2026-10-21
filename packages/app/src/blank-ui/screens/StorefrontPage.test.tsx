@@ -75,6 +75,7 @@ let claimAuctionWinMock: ReturnType<typeof vi.fn>;
 let refundLoserBidMock: ReturnType<typeof vi.fn>;
 let revealWinnerMock: ReturnType<typeof vi.fn>;
 let decryptPaidByBuyerMock: ReturnType<typeof vi.fn>;
+let finishPendingPurchasesMock: ReturnType<typeof vi.fn>;
 
 function buildListing(over: Partial<{
   seller: string;
@@ -116,10 +117,16 @@ function makeReadContract(
   // Defaults to all-zero-addr / not-refunded; tests that want a viewer's
   // bid to appear in the list override here.
   bids: ReadonlyArray<readonly [`0x${string}`, boolean]> = [],
+  // Storefront.auctionHasNoWinner. undefined = a pre-gate Storefront without the view.
+  noWinner?: boolean,
 ) {
   return vi.fn().mockImplementation(async (args: { functionName: string; args?: readonly unknown[] }) => {
     if (args.functionName === "getListing") return listing;
     if (args.functionName === "getBidCount") return BigInt(bidCount);
+    if (args.functionName === "auctionHasNoWinner") {
+      if (noWinner === undefined) throw new Error("execution reverted");
+      return noWinner;
+    }
     if (args.functionName === "getBid") {
       const i = Number((args.args ?? [])[1] ?? 0);
       return bids[i] ?? (["0x0000000000000000000000000000000000000000", false] as const);
@@ -133,6 +140,8 @@ function setHook(overrides: Partial<{
   isProcessing: boolean;
   error: string | null;
   pipelinePhase: string;
+  pendingPurchases: Array<{ purchaseId: string; listingId: number; hash: string }>;
+  fheReady: boolean;
 }> = {}) {
   useStorefrontMock.mockReturnValue({
     state: {
@@ -149,6 +158,9 @@ function setHook(overrides: Partial<{
     revealWinner: revealWinnerMock,
     refundLoserBid: refundLoserBidMock,
     decryptPaidByBuyer: decryptPaidByBuyerMock,
+    pendingPurchases: overrides.pendingPurchases ?? [],
+    finishPendingPurchases: finishPendingPurchasesMock,
+    fheReady: overrides.fheReady ?? true,
   });
 }
 
@@ -175,6 +187,7 @@ beforeEach(() => {
   refundLoserBidMock = vi.fn().mockResolvedValue(undefined);
   revealWinnerMock = vi.fn().mockResolvedValue(true);
   decryptPaidByBuyerMock = vi.fn().mockResolvedValue(0n);
+  finishPendingPurchasesMock = vi.fn().mockResolvedValue({ sold: 0, voided: 0, pending: 0 });
   setHook();
 });
 
@@ -803,5 +816,155 @@ describe("StorefrontPage — paid-by-buyer check (audit fix)", () => {
       await Promise.resolve();
     });
     await waitFor(() => expect(container.textContent).toContain("Nothing was paid"));
+  });
+});
+
+describe("StorefrontPage — funding gate", () => {
+  const VIEWER = "0xdddddddddddddddddddddddddddddddddddddddd" as `0x${string}`;
+  const pending = [{ purchaseId: "4", listingId: 5, hash: "0xbuy" }];
+
+  it("a pending payment for this listing shows the banner and finishes on its own", async () => {
+    useEffectiveAddressMock.mockReturnValue({ effectiveAddress: VIEWER });
+    setHook({ pendingPurchases: pending });
+    const { findByTestId } = render(<StorefrontPage />);
+    const banner = await findByTestId("storefront-pending-payment");
+    expect(banner.textContent).toContain("not confirmed yet");
+    await waitFor(() => expect(finishPendingPurchasesMock).toHaveBeenCalledWith(5));
+    expect(finishPendingPurchasesMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("the Finish button retries by hand", async () => {
+    useEffectiveAddressMock.mockReturnValue({ effectiveAddress: VIEWER });
+    setHook({ pendingPurchases: pending });
+    const { findByTestId } = render(<StorefrontPage />);
+    await waitFor(() => expect(finishPendingPurchasesMock).toHaveBeenCalledTimes(1));
+    await act(async () => { fireEvent.click(await findByTestId("storefront-finish-payment")); });
+    expect(finishPendingPurchasesMock).toHaveBeenCalledTimes(2);
+    expect(finishPendingPurchasesMock).toHaveBeenLastCalledWith(5);
+  });
+
+  it("waits for the FHE session instead of failing", async () => {
+    useEffectiveAddressMock.mockReturnValue({ effectiveAddress: VIEWER });
+    setHook({ pendingPurchases: pending, fheReady: false });
+    const { findByTestId } = render(<StorefrontPage />);
+    const btn = (await findByTestId("storefront-finish-payment")) as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+    expect(btn.textContent).toContain("Connecting");
+    expect(finishPendingPurchasesMock).not.toHaveBeenCalled();
+  });
+
+  it("a pending payment on another listing does not show a banner here", async () => {
+    useEffectiveAddressMock.mockReturnValue({ effectiveAddress: VIEWER });
+    setHook({ pendingPurchases: [{ purchaseId: "9", listingId: 77, hash: "0xother" }] });
+    const { findByText, queryByTestId } = render(<StorefrontPage />);
+    await findByText("Buy now");
+    expect(queryByTestId("storefront-pending-payment")).toBeNull();
+  });
+
+  it("no pending payment: no banner (the hook is asked once and finds nothing)", async () => {
+    useEffectiveAddressMock.mockReturnValue({ effectiveAddress: VIEWER });
+    const { findByText, queryByTestId } = render(<StorefrontPage />);
+    await findByText("Buy now");
+    expect(queryByTestId("storefront-pending-payment")).toBeNull();
+    await waitFor(() => expect(finishPendingPurchasesMock).toHaveBeenCalledTimes(1));
+    expect(finishPendingPurchasesMock).toHaveBeenCalledWith(5);
+  });
+
+  it("the automatic resume runs once per visit, not again when a payment fails during it", async () => {
+    useEffectiveAddressMock.mockReturnValue({ effectiveAddress: VIEWER });
+    const { findByText, rerender } = render(<StorefrontPage />);
+    await findByText("Buy now");
+    await waitFor(() => expect(finishPendingPurchasesMock).toHaveBeenCalledTimes(1));
+    setHook({ pendingPurchases: pending });
+    rerender(<StorefrontPage />);
+    await act(async () => { await Promise.resolve(); });
+    expect(finishPendingPurchasesMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("StorefrontPage — auction closed with no winner", () => {
+  const VIEWER = "0xdddddddddddddddddddddddddddddddddddddddd" as `0x${string}`;
+  const OTHER = "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" as `0x${string}`;
+
+  function noWinnerAuction(bids: ReadonlyArray<readonly [`0x${string}`, boolean]>) {
+    readContractMock = makeReadContract(
+      buildListing({ mode: MODE_AUCTION, closed: true, winner: ZERO }),
+      bids.length,
+      bids,
+      true,
+    );
+    usePublicClientMock.mockReturnValue({ readContract: readContractMock });
+  }
+
+  it("says nobody won, offers no reveal and no settle", async () => {
+    useEffectiveAddressMock.mockReturnValue({ effectiveAddress: VIEWER });
+    noWinnerAuction([[OTHER, false], [VIEWER, false]]);
+    const { findByTestId, queryByTestId, queryByText } = render(<StorefrontPage />);
+    const banner = await findByTestId("auction-no-winner");
+    expect(banner.textContent).toContain("No winning bid: all bids refundable");
+    expect(queryByText("Reveal winner")).toBeNull();
+    expect(queryByTestId("auction-reveal")).toBeNull();
+    expect(queryByTestId("auction-settle")).toBeNull();
+    expect(queryByText("Claim your win")).toBeNull();
+  });
+
+  it("refund is offered for bid #0 and the click refunds index 0", async () => {
+    useEffectiveAddressMock.mockReturnValue({ effectiveAddress: VIEWER });
+    noWinnerAuction([[VIEWER, false], [OTHER, false]]);
+    const { findByTestId, findByText } = render(<StorefrontPage />);
+    await findByTestId("my-bids-list");
+    const row = await findByText("Bid #0");
+    expect((row.closest("button") as HTMLButtonElement).disabled).toBe(false);
+    await act(async () => { fireEvent.click(row); await Promise.resolve(); });
+    expect(refundLoserBidMock).toHaveBeenCalledWith(5, 0);
+  });
+
+  it("a refunded bid is shown as refunded", async () => {
+    useEffectiveAddressMock.mockReturnValue({ effectiveAddress: VIEWER });
+    noWinnerAuction([[VIEWER, true]]);
+    const { findByText } = render(<StorefrontPage />);
+    const row = await findByText("Bid #0");
+    expect((row.closest("button") as HTMLButtonElement).disabled).toBe(true);
+    await findByText("Refunded");
+  });
+
+  it("no wallet connected: asks to connect to refund", async () => {
+    noWinnerAuction([[OTHER, false]]);
+    const { findByText } = render(<StorefrontPage />);
+    await findByText(/Connect your wallet to refund your bid/);
+  });
+
+  it("a viewer who did not bid is told so", async () => {
+    useEffectiveAddressMock.mockReturnValue({ effectiveAddress: VIEWER });
+    noWinnerAuction([[OTHER, false]]);
+    const { findByText } = render(<StorefrontPage />);
+    await findByText(/didn't bid on this auction/i);
+  });
+
+  it("pre-gate Storefront (no auctionHasNoWinner view): unrevealed auction still offers Reveal winner", async () => {
+    useEffectiveAddressMock.mockReturnValue({ effectiveAddress: VIEWER });
+    readContractMock = makeReadContract(
+      buildListing({ mode: MODE_AUCTION, closed: true, winner: ZERO }),
+      1,
+      [[VIEWER, false]],
+    );
+    usePublicClientMock.mockReturnValue({ readContract: readContractMock });
+    const { findByText, queryByTestId } = render(<StorefrontPage />);
+    await findByText("Reveal winner");
+    expect(queryByTestId("auction-no-winner")).toBeNull();
+  });
+
+  it("an auction with a winner is not flagged no-winner", async () => {
+    useEffectiveAddressMock.mockReturnValue({ effectiveAddress: VIEWER });
+    readContractMock = makeReadContract(
+      buildListing({ mode: MODE_AUCTION, closed: true, winner: WINNER }),
+      1,
+      [[WINNER, false]],
+      false,
+    );
+    usePublicClientMock.mockReturnValue({ readContract: readContractMock });
+    const { findByTestId, queryByTestId } = render(<StorefrontPage />);
+    await findByTestId("auction-settle");
+    expect(queryByTestId("auction-no-winner")).toBeNull();
   });
 });

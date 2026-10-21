@@ -857,3 +857,81 @@ describe("useInheritance — claimRemaining (heir pulls again after finalize)", 
     expect(call.gas).toBe(5_000_000n);
   });
 });
+
+describe("useInheritance — claimRemaining retry cooldown", () => {
+  const NOW = 1_800_000_000;
+  const readByName = (values: Record<string, unknown>) =>
+    vi.fn(async ({ functionName }: { functionName: string }) => {
+      if (!(functionName in values)) throw new Error("execution reverted");
+      return values[functionName];
+    });
+
+  function useClient(read: ReturnType<typeof vi.fn>, blockTs = NOW) {
+    usePublicClientMock.mockReturnValue({
+      waitForTransactionReceipt: waitForTransactionReceiptMock,
+      readContract: read,
+      getBlock: vi.fn(async () => ({ timestamp: BigInt(blockTs) })),
+    });
+  }
+
+  it("inside the cooldown: no encryption, no transaction, the wait is shown", async () => {
+    useClient(readByName({ lastClaimAt: BigInt(NOW - 2 * 3600), CLAIM_RETRY_COOLDOWN: 86400n }));
+    const { result } = renderHook(() => useInheritance());
+    await act(async () => {
+      await result.current.claimRemaining(OWNER, 1);
+    });
+    expect(encryptInputsAsyncMock).not.toHaveBeenCalled();
+    expect(unifiedWriteMock).not.toHaveBeenCalled();
+    expect(toastErrorMock).toHaveBeenCalledWith(expect.stringMatching(/Next claim available in 22h/));
+  });
+
+  it("getClaimCooldownRemaining counts from lastClaimAt + CLAIM_RETRY_COOLDOWN", async () => {
+    useClient(readByName({ lastClaimAt: BigInt(NOW - 3600), CLAIM_RETRY_COOLDOWN: 86400n }));
+    const { result } = renderHook(() => useInheritance());
+    let wait = -1;
+    await act(async () => {
+      wait = await result.current.getClaimCooldownRemaining(OWNER);
+    });
+    expect(wait).toBe(86400 - 3600);
+  });
+
+  it("uses the one-day default when the constant cannot be read", async () => {
+    useClient(readByName({ lastClaimAt: BigInt(NOW - 3600) }));
+    const { result } = renderHook(() => useInheritance());
+    let wait = -1;
+    await act(async () => {
+      wait = await result.current.getClaimCooldownRemaining(OWNER);
+    });
+    expect(wait).toBe(86400 - 3600);
+  });
+
+  it("after the cooldown: the claim goes through", async () => {
+    useClient(readByName({ lastClaimAt: BigInt(NOW - 86400 - 5), CLAIM_RETRY_COOLDOWN: 86400n }));
+    const { result } = renderHook(() => useInheritance());
+    await act(async () => {
+      await result.current.claimRemaining(OWNER, 1);
+    });
+    expect(unifiedWriteMock.mock.calls[0][0].functionName).toBe("claimRemaining");
+  });
+
+  it("plan finalized before the cooldown existed (lastClaimAt = 0): first retry is not delayed", async () => {
+    useClient(readByName({ lastClaimAt: 0n, CLAIM_RETRY_COOLDOWN: 86400n }));
+    const { result } = renderHook(() => useInheritance());
+    await act(async () => {
+      await result.current.claimRemaining(OWNER, 1);
+    });
+    expect(unifiedWriteMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("pre-cooldown contract (no lastClaimAt): behaves as before", async () => {
+    useClient(readByName({}));
+    const { result } = renderHook(() => useInheritance());
+    let wait = -1;
+    await act(async () => {
+      wait = await result.current.getClaimCooldownRemaining(OWNER);
+      await result.current.claimRemaining(OWNER, 1);
+    });
+    expect(wait).toBe(0);
+    expect(unifiedWriteMock).toHaveBeenCalledTimes(1);
+  });
+});

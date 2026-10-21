@@ -17,6 +17,7 @@ import {
 import { formatDistanceToNowStrict } from "date-fns";
 import { cn } from "@/lib/cn";
 import { truncateAddress } from "@/lib/address";
+import { formatWait } from "@/lib/format-wait";
 import toast from "react-hot-toast";
 import { useInheritance } from "@/hooks/useInheritance";
 import { useEffectiveAddress } from "@/hooks/useEffectiveAddress";
@@ -424,6 +425,24 @@ export default function InheritancePlanning() {
     query: { enabled: isValidClaimOwner },
   });
   const ownerClaimFinalized = ownerClaimFinalizedData === true;
+  // claimRemaining is limited to one call per CLAIM_RETRY_COOLDOWN, counted from
+  // finalizeClaim or the previous claimRemaining. Contracts without lastClaimAt
+  // have no cooldown, so the read fails there and no wait is shown.
+  const { data: lastClaimAtData, refetch: refetchLastClaimAt } = useReadContract({
+    address: contracts.InheritanceManager,
+    abi: InheritanceManagerAbi,
+    functionName: "lastClaimAt",
+    args: isValidClaimOwner ? [claimOwner as `0x${string}`] : undefined,
+    chainId: activeChainId,
+    query: { enabled: isValidClaimOwner && ownerClaimFinalized },
+  });
+  const { data: retryCooldownData } = useReadContract({
+    address: contracts.InheritanceManager,
+    abi: InheritanceManagerAbi,
+    functionName: "CLAIM_RETRY_COOLDOWN",
+    chainId: activeChainId,
+    query: { enabled: isValidClaimOwner && ownerClaimFinalized },
+  });
   const isHeirOfClaimOwner =
     !!effectiveAddress && !!ownerPlanTuple && ownerPlanTuple[0].toLowerCase() === effectiveAddress.toLowerCase();
   // Audit Top-28 #27: derive whether the owner's 7-day challenge period
@@ -441,6 +460,13 @@ export default function InheritancePlanning() {
     : 0;
   const finalizeBlockedByGrace = ownerClaimStartedAt > 0 && ownerClaimGraceRemainingSeconds > 0;
   const finalizeBlockedNoClaim = ownerClaimStartedAt === 0 && isValidClaimOwner;
+  const lastClaimAt = typeof lastClaimAtData === "bigint" ? Number(lastClaimAtData) : 0;
+  const retryCooldownSeconds = typeof retryCooldownData === "bigint" ? Number(retryCooldownData) : 86400;
+  const retryRemainingSeconds =
+    lastClaimAt > 0
+      ? Math.max(0, lastClaimAt + retryCooldownSeconds - (blockTimestamp ?? Math.floor(Date.now() / 1000)))
+      : 0;
+  const retryBlockedByCooldown = retryRemainingSeconds > 0;
 
   // Derived state from real plan
   const isActive = plan?.active ?? false;
@@ -945,15 +971,26 @@ export default function InheritancePlanning() {
                 </p>
                 <button
                   onClick={async () => {
+                    if (retryBlockedByCooldown) {
+                      toast.error(`Next claim available in ${formatWait(retryRemainingSeconds)}.`);
+                      return;
+                    }
                     await claimRemaining(claimOwner, ownerVaultCount);
                     await refetchOwnerClaimFinalized();
+                    await refetchLastClaimAt();
                   }}
-                  disabled={isProcessing || ownerVaultCount === 0}
+                  disabled={isProcessing || ownerVaultCount === 0 || retryBlockedByCooldown}
                   className="h-11 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium flex items-center gap-2 disabled:opacity-50"
                 >
                   {isProcessing ? <Loader2 size={16} className="animate-spin" /> : null}
                   Claim remaining{ownerVaultCount > 0 ? ` (${ownerVaultCount} vault${ownerVaultCount !== 1 ? "s" : ""})` : ""}
                 </button>
+                {retryBlockedByCooldown && (
+                  <p data-testid="inheritance-retry-cooldown" className="mt-2 text-xs text-[var(--text-secondary)]">
+                    Next claim available in {formatWait(retryRemainingSeconds)}. Claims are limited to one
+                    per day, counted from your last claim.
+                  </p>
+                )}
               </div>
             )}
             {ownerClaimFinalized && !isHeirOfClaimOwner && isValidClaimOwner && (

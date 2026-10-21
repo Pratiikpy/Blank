@@ -50,6 +50,7 @@ import { renderHook, act } from "@testing-library/react";
 //     markConfirming between markSubmitting and markDone.
 
 const useEffectiveAddressMock = vi.hoisted(() => vi.fn());
+const decryptForTxMock = vi.hoisted(() => vi.fn());
 const useChainMock = vi.hoisted(() => vi.fn());
 const usePublicClientMock = vi.hoisted(() => vi.fn());
 const useUnifiedWriteMock = vi.hoisted(() => vi.fn());
@@ -72,6 +73,7 @@ vi.mock("@/providers/ChainProvider", () => ({ useChain: useChainMock }));
 vi.mock("./useUnifiedWrite", () => ({ useUnifiedWrite: useUnifiedWriteMock }));
 vi.mock("./useFhePipeline", () => ({ useFhePipeline: useFhePipelineMock }));
 vi.mock("@/lib/cofhe-shim", () => ({
+  useCofheDecryptForTx: () => ({ decryptForTx: decryptForTxMock }),
   useCofheConnection: useCofheConnectionMock,
   useCofheEncrypt: useCofheEncryptMock,
   Encryptable: new Proxy({}, { get: () => (v: unknown) => ({ raw: v }) }),
@@ -85,6 +87,18 @@ vi.mock("@/lib/event-parser", () => ({ extractEventId: extractEventIdMock }));
 vi.mock("@/lib/query-invalidation", () => ({
   invalidateBalanceQueries: invalidateBalanceQueriesMock,
 }));
+// The real helper, driven by a fake clock so a funding check that never
+// arrives times out instantly instead of waiting 90 real seconds.
+vi.mock("@/lib/funding-gate", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/funding-gate")>("@/lib/funding-gate");
+  return {
+    ...actual,
+    runFundingGate: (opts: Parameters<typeof actual.runFundingGate>[0]) => {
+      let t = 0;
+      return actual.runFundingGate({ ...opts, now: () => t, sleep: async (ms: number) => { t += ms; } });
+    },
+  };
+});
 vi.mock("react-hot-toast", () => ({
   default: {
     error: toastErrorMock,
@@ -97,7 +111,7 @@ vi.mock("react-hot-toast", () => ({
 // buildClaimUrl are exercised end-to-end. Mocking these would shadow
 // the producer/consumer contract being verified.
 
-import { useClaimLinks, LEGACY_LINK_MESSAGE } from "./useClaimLinks";
+import { useClaimLinks, LEGACY_LINK_MESSAGE, CLAIM_LINK_UNFUNDED_MESSAGE } from "./useClaimLinks";
 import { MODE, deriveClaimKeyPriv, claimKeyAddress, type LinkMode } from "@/lib/claim-links";
 import { recoverMessageAddress } from "viem";
 
@@ -163,6 +177,7 @@ function addressBoundParams(over: Record<string, unknown> = {}) {
 }
 
 beforeEach(() => {
+  decryptForTxMock.mockReset();
   useEffectiveAddressMock.mockReset();
   useChainMock.mockReset();
   usePublicClientMock.mockReset();
@@ -1047,5 +1062,223 @@ describe("useClaimLinks: fetchLink legacy flags", () => {
     const link = await result.current.fetchLink(3n);
     expect(link).not.toBeNull();
     expect(link?.legacyRefundOnly).toBe(true);
+  });
+});
+
+// ───────────────────────────────────────────────────────────
+//  Funding gate: createLink ends PendingFunding, confirmFunding settles it
+// ───────────────────────────────────────────────────────────
+
+describe("useClaimLinks: funding gate", () => {
+  const SIG = "0x5151" as const;
+  let fundingCode = 1; // ClaimLinks.FundingStatus: 0 Active, 1 PendingFunding, 2 Void
+
+  beforeEach(() => {
+    fundingCode = 1;
+    extractEventIdMock.mockReturnValue(9);
+    readContractMock.mockImplementation(async ({ functionName, args }: { functionName: string; args: readonly unknown[] }) => {
+      if (functionName === "claimKeyOf") return registeredKey;
+      if (functionName === "claimDigest") return DIGEST;
+      // The probe asks about id 0, which has no check; real ids have a handle.
+      if (functionName === "getFundingCheck") return args[0] === 0n ? 0n : 77n;
+      if (functionName === "fundingStatus") return fundingCode;
+      throw new Error(`unexpected read ${functionName}`);
+    });
+  });
+
+  const confirmCalls = () =>
+    unifiedWriteAndWaitMock.mock.calls.map((c) => c[0]).filter((c) => c.functionName === "confirmFunding");
+
+  it("funded: decrypts the check, confirms with the signature, and releases the share URL", async () => {
+    decryptForTxMock.mockResolvedValue({ decryptedValue: true, signature: SIG });
+    const { result } = renderHook(() => useClaimLinks());
+    let out: Awaited<ReturnType<typeof result.current.createLink>> = null;
+    await act(async () => {
+      out = await result.current.createLink(bearerParams());
+    });
+    expect(decryptForTxMock).toHaveBeenCalledWith(77n, "ebool");
+    expect(confirmCalls()).toHaveLength(1);
+    expect(confirmCalls()[0].args).toEqual([9n, true, SIG]);
+    expect(out).toMatchObject({ linkId: 9, funding: "active" });
+    expect(result.current.state.step).toBe("success");
+    expect(result.current.state.funding).toBe("active");
+    expect(result.current.state.shareableUrl).toContain("/9");
+    expect(markDoneMock).toHaveBeenCalled();
+  });
+
+  it("unfunded: confirms false, returns null, withholds the URL, says nothing was locked", async () => {
+    decryptForTxMock.mockResolvedValue({ decryptedValue: false, signature: SIG });
+    const { result } = renderHook(() => useClaimLinks());
+    let out: unknown = "unset";
+    await act(async () => {
+      out = await result.current.createLink(bearerParams());
+    });
+    expect(confirmCalls()[0].args).toEqual([9n, false, SIG]);
+    expect(out).toBeNull();
+    expect(result.current.state.step).toBe("error");
+    expect(result.current.state.funding).toBe("void");
+    expect(result.current.state.shareableUrl).toBeNull();
+    expect(result.current.state.error).toBe(CLAIM_LINK_UNFUNDED_MESSAGE);
+    expect(result.current.state.error).toContain("Nothing was locked");
+    expect(toastErrorMock).toHaveBeenCalledWith(CLAIM_LINK_UNFUNDED_MESSAGE);
+    expect(markFailedMock).toHaveBeenCalled();
+  });
+
+  it("decryption never arrives: link stays pending on-chain, no confirm, no fake success", async () => {
+    decryptForTxMock.mockResolvedValue(null);
+    const { result } = renderHook(() => useClaimLinks());
+    let out: Awaited<ReturnType<typeof result.current.createLink>> = null;
+    await act(async () => {
+      out = await result.current.createLink(bearerParams());
+    });
+    expect(confirmCalls()).toHaveLength(0);
+    // The secret only exists here, so the URL is kept in state for finishFunding.
+    expect(out).toMatchObject({ linkId: 9, funding: "pending" });
+    expect(result.current.state.funding).toBe("pending");
+    expect(result.current.state.shareableUrl).not.toBeNull();
+    const msg = toastErrorMock.mock.calls.map((c) => String(c[0])).find((m) => m.includes("Link #9"));
+    expect(msg).toContain("not confirmed");
+    expect(msg).toContain("Finish funding");
+  });
+
+  it("confirm tx rejected by the wallet: still pending, reason shown", async () => {
+    decryptForTxMock.mockResolvedValue({ decryptedValue: true, signature: SIG });
+    unifiedWriteAndWaitMock.mockImplementation(async (p: { functionName: string }) => {
+      if (p.functionName === "confirmFunding") throw new Error("User rejected the request");
+      return { hash: "0xtxhash", receipt: { status: "success", blockNumber: 1n, logs: [] } };
+    });
+    const { result } = renderHook(() => useClaimLinks());
+    await act(async () => {
+      await result.current.createLink(bearerParams());
+    });
+    expect(result.current.state.funding).toBe("pending");
+    expect(toastErrorMock.mock.calls.map((c) => String(c[0])).join(" ")).toContain("User rejected the request");
+  });
+
+  it("legacy contract (no getFundingCheck): old behaviour, no decrypt, no confirm", async () => {
+    readContractMock.mockImplementation(async ({ functionName }: { functionName: string }) => {
+      throw new Error(`function ${functionName} not found`);
+    });
+    const { result } = renderHook(() => useClaimLinks());
+    let out: Awaited<ReturnType<typeof result.current.createLink>> = null;
+    await act(async () => {
+      out = await result.current.createLink(bearerParams());
+    });
+    expect(decryptForTxMock).not.toHaveBeenCalled();
+    expect(confirmCalls()).toHaveLength(0);
+    expect(out).toMatchObject({ linkId: 9, funding: null });
+    expect(result.current.state.step).toBe("success");
+    expect(result.current.state.funding).toBeNull();
+  });
+
+  it("probes support once per hook: a second create does not probe again", async () => {
+    decryptForTxMock.mockResolvedValue({ decryptedValue: true, signature: SIG });
+    const { result } = renderHook(() => useClaimLinks());
+    await act(async () => { await result.current.createLink(bearerParams()); });
+    await act(async () => { await result.current.createLink(bearerParams()); });
+    const probes = readContractMock.mock.calls.filter((c) => c[0].functionName === "getFundingCheck" && c[0].args[0] === 0n);
+    expect(probes).toHaveLength(1);
+  });
+
+  it("finishFunding completes a pending link and then shows the URL", async () => {
+    decryptForTxMock.mockResolvedValueOnce(null);
+    const { result } = renderHook(() => useClaimLinks());
+    await act(async () => { await result.current.createLink(bearerParams()); });
+    expect(result.current.state.funding).toBe("pending");
+
+    decryptForTxMock.mockResolvedValue({ decryptedValue: true, signature: SIG });
+    let verdict: string | null = null;
+    await act(async () => { verdict = await result.current.finishFunding(9); });
+    expect(verdict).toBe("funded");
+    expect(confirmCalls()[0].args).toEqual([9n, true, SIG]);
+    expect(result.current.state.funding).toBe("active");
+    expect(result.current.state.step).toBe("success");
+  });
+
+  it("finishFunding on a link someone else already settled sends no second confirm", async () => {
+    fundingCode = 0;
+    decryptForTxMock.mockResolvedValue({ decryptedValue: true, signature: SIG });
+    const { result } = renderHook(() => useClaimLinks());
+    let verdict: string | null = null;
+    await act(async () => { verdict = await result.current.finishFunding(4); });
+    expect(verdict).toBe("funded");
+    expect(confirmCalls()).toHaveLength(0);
+  });
+
+  it("finishFunding that cannot decrypt returns null and leaves the link pending", async () => {
+    decryptForTxMock.mockResolvedValue(null);
+    const { result } = renderHook(() => useClaimLinks());
+    let verdict: string | null = "x";
+    await act(async () => { verdict = await result.current.finishFunding(4); });
+    expect(verdict).toBeNull();
+    expect(confirmCalls()).toHaveLength(0);
+    expect(result.current.state.error).toContain("Link #4");
+  });
+
+  it("finishFunding on a legacy contract says there is nothing to finish", async () => {
+    readContractMock.mockImplementation(async () => { throw new Error("no such function"); });
+    const { result } = renderHook(() => useClaimLinks());
+    let verdict: string | null = "x";
+    await act(async () => { verdict = await result.current.finishFunding(4); });
+    expect(verdict).toBeNull();
+    expect(toastErrorMock).toHaveBeenCalledWith("This claim link contract has no funding check to finish.");
+  });
+
+  it("cancelPending writes cancelPendingLink(id)", async () => {
+    const { result } = renderHook(() => useClaimLinks());
+    let ok = false;
+    await act(async () => { ok = await result.current.cancelPending(9); });
+    expect(ok).toBe(true);
+    const call = unifiedWriteAndWaitMock.mock.calls[0][0];
+    expect(call.functionName).toBe("cancelPendingLink");
+    expect(call.args).toEqual([9n]);
+  });
+
+  it("claim on a pending link surfaces a recipient-readable message, not the raw revert", async () => {
+    const secret = new Uint8Array(32).fill(0xab);
+    registerKeyFor(MODE.Bearer, secret);
+    unifiedWriteAndWaitMock.mockRejectedValue(new Error("execution reverted: ClaimLinks: funding pending"));
+    const { result } = renderHook(() => useClaimLinks());
+    await act(async () => { await result.current.claim({ linkId: 7, mode: MODE.Bearer, secret }); });
+    expect(toastErrorMock).toHaveBeenCalledWith("This link is still being funded. Try again in a minute.");
+  });
+
+  it("claim on a void link says it was never funded", async () => {
+    const secret = new Uint8Array(32).fill(0xab);
+    registerKeyFor(MODE.Bearer, secret);
+    unifiedWriteAndWaitMock.mockRejectedValue(new Error("ClaimLinks: link unfunded"));
+    const { result } = renderHook(() => useClaimLinks());
+    await act(async () => { await result.current.claim({ linkId: 7, mode: MODE.Bearer, secret }); });
+    expect(toastErrorMock).toHaveBeenCalledWith("This link was never funded, so there is nothing to claim.");
+  });
+
+  it("refund on a pending link points to Finish / Cancel instead", async () => {
+    unifiedWriteAndWaitMock.mockRejectedValue(new Error("ClaimLinks: funding pending"));
+    const { result } = renderHook(() => useClaimLinks());
+    await act(async () => { await result.current.refund(7); });
+    expect(toastErrorMock).toHaveBeenCalledWith("This link is still waiting for its funding check. Finish or cancel it instead.");
+  });
+
+  it("fetchLink reports funding from fundingStatus, and active when the view is missing", async () => {
+    const tuple = [ME, VAULT, MODE.Bearer, ZERO_ADDR, 1n, 2n, false, false, "n", ZERO_ADDR, 0n] as const;
+    const reads = (status: number | Error) =>
+      readContractMock.mockImplementation(async ({ functionName }: { functionName: string }) => {
+        if (functionName === "getLink") return tuple;
+        if (functionName === "claimKeyOf") return "0x" + "c".repeat(40);
+        if (functionName === "fundingStatus") {
+          if (status instanceof Error) throw status;
+          return status;
+        }
+        throw new Error(functionName);
+      });
+    const { result } = renderHook(() => useClaimLinks());
+    reads(1);
+    expect((await result.current.fetchLink(3n))?.funding).toBe("pending");
+    reads(2);
+    expect((await result.current.fetchLink(3n))?.funding).toBe("void");
+    reads(0);
+    expect((await result.current.fetchLink(3n))?.funding).toBe("active");
+    reads(new Error("function not found"));
+    expect((await result.current.fetchLink(3n))?.funding).toBe("active");
   });
 });

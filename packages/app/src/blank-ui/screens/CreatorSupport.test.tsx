@@ -101,6 +101,7 @@ function buildCreator(over: Partial<CreatorProfileRow> = {}): CreatorProfileRow 
 }
 
 let tipMock: ReturnType<typeof vi.fn>;
+let finishPendingTipsMock: ReturnType<typeof vi.fn>;
 let unifiedWriteAndWaitMock: ReturnType<typeof vi.fn>;
 let subscribeMock: ReturnType<typeof vi.fn>;
 let readContractMock: ReturnType<typeof vi.fn>;
@@ -120,8 +121,15 @@ beforeEach(() => {
   toastErrorMock.mockReset();
   toastSuccessMock.mockReset();
 
-  tipMock = vi.fn().mockResolvedValue(undefined);
-  useTipCreatorMock.mockReturnValue({ tip: tipMock, isTipping: false });
+  tipMock = vi.fn().mockResolvedValue("confirmed");
+  finishPendingTipsMock = vi.fn().mockResolvedValue(0);
+  useTipCreatorMock.mockReturnValue({
+    tip: tipMock,
+    isTipping: false,
+    pendingTipCount: 0,
+    isFinishing: false,
+    finishPendingTips: finishPendingTipsMock,
+  });
 
   unifiedWriteAndWaitMock = vi.fn().mockResolvedValue({
     hash: "0xtxhash",
@@ -600,6 +608,81 @@ describe("CreatorSupport — creator-card selection + tip submission (§15.x)", 
     expect(readArg.functionName).toBe("getMyContributionIn");
     expect(readArg.args[1]).toBe(VAULT_FOR_TEST);
     expect(decryptForViewMock).toHaveBeenCalledWith(0xabcn, "uint64");
+  });
+});
+
+async function sendFiveDollarTip(r: ReturnType<typeof render>) {
+  const { findByText, container } = r;
+  await findByText("Alice the Maker");
+  fireEvent.click(container.querySelector(`[data-creator-address='${ALICE_CREATOR.toLowerCase()}']`) as HTMLElement);
+  await waitFor(() => expect(container.textContent).toContain("Supporting:"));
+  const supporterTier = Array.from(container.querySelectorAll("button"))
+    .find((b) => b.textContent?.includes("Supporter") && b.textContent?.includes("$5") &&
+      !b.textContent?.includes("Become")) as HTMLButtonElement;
+  fireEvent.click(supporterTier);
+  const sendBtn = await findByText(/Send \$5 Support/);
+  await act(async () => {
+    fireEvent.click(sendBtn);
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+  });
+}
+
+describe("CreatorSupport — funding gate outcomes", () => {
+  beforeEach(() => {
+    fetchCreatorProfilesMock.mockResolvedValue([
+      buildCreator({ address: ALICE_CREATOR, name: "Alice the Maker", bio: "indie" }),
+    ]);
+  });
+
+  it.each(["voided", "pending", "failed"])(
+    "tip outcome '%s': no tier read, no list refresh, the form is kept for a retry",
+    async (outcome) => {
+      tipMock.mockResolvedValue(outcome);
+      const r = render(<CreatorSupport />);
+      const refreshesBefore = fetchMySupportedCreatorsMock.mock.calls.length;
+      await sendFiveDollarTip(r);
+      expect(tipMock).toHaveBeenCalled();
+      expect(readContractMock.mock.calls.some((c) => c[0].functionName === "getMyContributionIn")).toBe(false);
+      expect(fetchMySupportedCreatorsMock.mock.calls.length).toBe(refreshesBefore);
+      expect(r.container.textContent).toContain("Supporting:");
+    },
+  );
+
+  it("confirmed tip: reads the contribution only after the tip is counted", async () => {
+    readContractMock.mockResolvedValue(0xabcn);
+    decryptForViewMock.mockResolvedValue(5_000_000n);
+    const r = render(<CreatorSupport />);
+    await sendFiveDollarTip(r);
+    expect(readContractMock.mock.calls.some((c) => c[0].functionName === "getMyContributionIn")).toBe(true);
+  });
+
+  it("getMyContributionIn reverting 'not a supporter' is handled quietly, no error toast", async () => {
+    readContractMock.mockRejectedValue(new Error("execution reverted: CreatorHub: not a supporter"));
+    const r = render(<CreatorSupport />);
+    await sendFiveDollarTip(r);
+    expect(toastErrorMock).not.toHaveBeenCalled();
+    expect(r.container.textContent).not.toContain("Your Tier");
+  });
+
+  it("pending tips show a Finish button that resumes them", async () => {
+    useTipCreatorMock.mockReturnValue({
+      tip: tipMock,
+      isTipping: false,
+      pendingTipCount: 2,
+      isFinishing: false,
+      finishPendingTips: finishPendingTipsMock,
+    });
+    const { findByTestId } = render(<CreatorSupport />);
+    const banner = await findByTestId("creator-pending-tips");
+    expect(banner.textContent).toContain("2 tips are on-chain but not confirmed yet");
+    fireEvent.click(await findByTestId("creator-finish-tips"));
+    expect(finishPendingTipsMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("no pending tips: no banner", async () => {
+    const { queryByTestId, findByText } = render(<CreatorSupport />);
+    await findByText("Alice the Maker");
+    expect(queryByTestId("creator-pending-tips")).toBeNull();
   });
 });
 

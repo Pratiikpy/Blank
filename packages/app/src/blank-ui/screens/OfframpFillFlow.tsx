@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { usePublicClient } from "wagmi";
 import toast from "react-hot-toast";
@@ -10,6 +10,7 @@ import { useEffectiveAddress } from "@/hooks/useEffectiveAddress";
 import { useP2POfframp } from "@/hooks/useP2POfframp";
 import { P2POfframpAbi } from "@/lib/abis";
 import { railById, type RailId } from "@/lib/reclaim-providers";
+import { FILL_STATE } from "@/lib/offramp-fill-state";
 import { ReclaimWidget } from "@/blank-ui/components/offramp/ReclaimWidget";
 
 interface FillView {
@@ -20,7 +21,7 @@ interface FillView {
   lockedAt: number;
   proofSubmittedAt: number;
   reclaimProofHash: `0x${string}`;
-  state: number; // 0 Locked / 1 ProofSubmitted / 2 Released / 3 Disputed / 4 Resolved / 5 Refunded
+  state: number; // 0 Locked / 1 ProofSubmitted / 2 Released / 3 Disputed / 4 Resolved / 5 Refunded / 6 Pending / 7 Voided
 }
 
 interface OfferView {
@@ -38,12 +39,16 @@ const STATE_LABEL: Record<number, string> = {
   3: "Disputed. Awaiting arbiter.",
   4: "Dispute resolved.",
   5: "Refunded to maker.",
+  6: "Checking the maker's escrow. Do not send fiat yet.",
+  7: "Voided. The maker's balance was too low; the offer is open again.",
 };
 
 /**
  * Wave 5 Block 1 — fill lifecycle screen.
  *
  * Five-phase flow for the taker (with maker-disputable side path):
+ *   6 Pending         → funding check of the maker's escrow; fiat leg stays closed
+ *   7 Voided          → escrow was empty or short; offer reopened, nothing is due
  *   0 Locked          → ReclaimWidget to attest off-chain payment
  *   1 ProofSubmitted  → Challenge window countdown + Release button
  *   2 Released        → Success — USDC received
@@ -69,6 +74,9 @@ export default function OfframpFillFlow() {
   const [escrowError, setEscrowError] = useState<string | null>(null);
   const [decrypting, setDecrypting] = useState(false);
   const [escrowConfirmed, setEscrowConfirmed] = useState(false);
+  const [finishing, setFinishing] = useState(false);
+  const [finishError, setFinishError] = useState<string | null>(null);
+  const autoFinishedFor = useRef<string | null>(null);
 
   // Tick clock every second so the challenge-window countdown is live.
   useEffect(() => {
@@ -148,6 +156,33 @@ export default function OfframpFillFlow() {
   };
 
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [fillId, publicClient, hook.deploy.status]);
+
+  // Finish the escrow check of a fill left Pending (tab closed, slow Threshold
+  // Network). Anyone may confirm, so this runs for taker, maker and visitors.
+  const finishFill = async () => {
+    if (fillId === null) return;
+    setFinishing(true);
+    setFinishError(null);
+    try {
+      const verdict = await hook.confirmPendingFill(fillId);
+      if (verdict === "locked") toast.success("Escrow confirmed. You can now pay the maker.");
+      else toast.error("The maker's balance was too low; the offer is open again.");
+      await load();
+    } catch (err) {
+      setFinishError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setFinishing(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!fill || fill.state !== FILL_STATE.Pending || !hook.fheReady) return;
+    const key = fill.fillId.toString();
+    if (autoFinishedFor.current === key) return;
+    autoFinishedFor.current = key;
+    void finishFill();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fill, hook.fheReady]);
 
   if (loading) {
     return <Shell><div className="text-[var(--text-secondary)]">Loading fill…</div></Shell>;
@@ -249,6 +284,58 @@ export default function OfframpFillFlow() {
           {STATE_LABEL[fill.state] ?? `state ${fill.state}`}
         </div>
       </div>
+
+      {/* Phase 6: Pending, the maker's escrow is being checked */}
+      {fill.state === FILL_STATE.Pending && (
+        <div className="space-y-3" data-testid="offramp-fill-pending">
+          <div className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-5 text-sm text-amber-700">
+            <Clock size={16} className="inline mr-1" />
+            The network is checking that the maker's escrow is funded. The payment step opens
+            only once it is. Do not send any fiat before then.
+          </div>
+          {finishError && (
+            <div
+              data-testid="offramp-fill-finish-error"
+              className="flex items-start gap-2 rounded-xl bg-rose-500/10 border border-rose-500/20 p-3 text-sm text-rose-700"
+            >
+              <AlertTriangle size={16} className="shrink-0 mt-0.5" />
+              <span>{finishError}</span>
+            </div>
+          )}
+          <button
+            data-testid="offramp-fill-finish"
+            onClick={finishFill}
+            disabled={finishing || !hook.fheReady}
+            className="w-full h-12 rounded-2xl bg-[#1D1D1F] text-white font-medium hover:bg-black disabled:opacity-40 inline-flex items-center justify-center gap-2"
+          >
+            {finishing && <Loader2 size={16} className="animate-spin" />}
+            {finishing ? "Checking escrow…" : !hook.fheReady ? "Connecting to the FHE network…" : "Finish escrow check"}
+          </button>
+          {isMaker && (
+            <button
+              data-testid="offramp-fill-expire-pending"
+              onClick={expire}
+              disabled={now < fill.lockedAt + 24 * 3600}
+              className="w-full h-12 rounded-2xl bg-white/60 border border-white/60 hover:bg-white/80 disabled:opacity-40 font-medium"
+            >
+              {now < fill.lockedAt + 24 * 3600
+                ? `Reclaim escrow available in ${Math.ceil((fill.lockedAt + 24 * 3600 - now) / 60)} min`
+                : "Reclaim unconfirmed escrow"}
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Phase 7: Voided */}
+      {fill.state === FILL_STATE.Voided && (
+        <div
+          data-testid="offramp-fill-voided"
+          className="rounded-2xl border border-slate-300 bg-slate-100 p-5 text-sm text-slate-700"
+        >
+          Voided. The maker's escrow was empty or short, so no fiat is due. Anything that moved
+          went back to the maker and the offer is open again.
+        </div>
+      )}
 
       {/* Phase 0 — Locked, taker should pay off-chain + submit Reclaim proof */}
       {fill.state === 0 && (isTaker || isMaker) && (

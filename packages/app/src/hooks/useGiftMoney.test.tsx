@@ -67,6 +67,7 @@ import { renderHook, act } from "@testing-library/react";
 //     share would drift by sub-cent in the last decimal place.
 
 const useEffectiveAddressMock = vi.hoisted(() => vi.fn());
+const decryptForTxMock = vi.hoisted(() => vi.fn());
 const useChainMock = vi.hoisted(() => vi.fn());
 const usePublicClientMock = vi.hoisted(() => vi.fn());
 const useUnifiedWriteMock = vi.hoisted(() => vi.fn());
@@ -94,6 +95,7 @@ vi.mock("@/providers/ChainProvider", () => ({ useChain: useChainMock }));
 vi.mock("./useUnifiedWrite", () => ({ useUnifiedWrite: useUnifiedWriteMock }));
 const NOT_READY = vi.hoisted(() => "encryption-not-ready");
 vi.mock("@/lib/cofhe-shim", () => ({
+  useCofheDecryptForTx: () => ({ decryptForTx: decryptForTxMock }),
   // Pins "the not-ready message is shown" without pinning the exact copy.
   ENCRYPTION_NOT_READY: NOT_READY,
   useCofheEncrypt: useCofheEncryptMock,
@@ -122,6 +124,18 @@ vi.mock("@/lib/storage", () => ({
   getStoredJson: getStoredJsonMock,
   setStoredJson: setStoredJsonMock,
 }));
+// The real helper, driven by a fake clock so a funding check that never
+// arrives times out instantly instead of waiting 90 real seconds.
+vi.mock("@/lib/funding-gate", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/funding-gate")>("@/lib/funding-gate");
+  return {
+    ...actual,
+    runFundingGate: (opts: Parameters<typeof actual.runFundingGate>[0]) => {
+      let t = 0;
+      return actual.runFundingGate({ ...opts, now: () => t, sleep: async (ms: number) => { t += ms; } });
+    },
+  };
+});
 vi.mock("react-hot-toast", () => ({
   default: {
     error: toastErrorMock,
@@ -134,6 +148,7 @@ import {
   useGiftMoney,
   computeRandomSplits,
   computeEqualSplits,
+  GIFT_UNFUNDED_MESSAGE,
 } from "./useGiftMoney";
 
 const ME = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" as `0x${string}`;
@@ -149,6 +164,7 @@ const encryptInputsAsyncMock = vi.fn();
 const waitForTransactionReceiptMock = vi.fn();
 
 beforeEach(() => {
+  decryptForTxMock.mockReset();
   useEffectiveAddressMock.mockReset();
   useChainMock.mockReset();
   usePublicClientMock.mockReset();
@@ -946,5 +962,174 @@ describe("useGiftMoney — reset (§15.x)", () => {
     expect(result.current.error).toBeNull();
     expect(result.current.txHash).toBeNull();
     expect(result.current.encryptionProgress).toBe(0);
+  });
+});
+
+// ───────────────────────────────────────────────────────────
+//  Funding gate: createEnvelope ends PendingFunding, confirmFunding settles it
+// ───────────────────────────────────────────────────────────
+
+describe("useGiftMoney: funding gate", () => {
+  const SIG = "0x5151" as const;
+  let fundingCode = 1; // GiftMoney.FundingStatus: 0 Active, 1 PendingFunding, 2 Void
+  const readContractMock = vi.fn();
+
+  beforeEach(() => {
+    fundingCode = 1;
+    extractEventIdMock.mockReturnValue(7);
+    readContractMock.mockReset();
+    readContractMock.mockImplementation(async ({ functionName, args }: { functionName: string; args: readonly unknown[] }) => {
+      // The probe asks about id 0, which has no check; real ids have a handle.
+      if (functionName === "getFundingCheck") return args[0] === 0n ? 0n : 66n;
+      if (functionName === "fundingStatus") return fundingCode;
+      if (functionName === "getEnvelope") return [ME, VAULT, 2n, 0n, "n", 1n, true, 0n];
+      throw new Error(`unexpected read ${functionName}`);
+    });
+    usePublicClientMock.mockReturnValue({
+      waitForTransactionReceipt: waitForTransactionReceiptMock,
+      readContract: readContractMock,
+    });
+  });
+
+  const confirmCalls = () =>
+    unifiedWriteAndWaitMock.mock.calls.map((c) => c[0]).filter((c) => c.functionName === "confirmFunding");
+
+  it("funded: confirms true, then syncs every recipient row and reports success", async () => {
+    decryptForTxMock.mockResolvedValue({ decryptedValue: true, signature: SIG });
+    const { result } = renderHook(() => useGiftMoney());
+    let hash: string | undefined;
+    await act(async () => { hash = await result.current.createGift(VAULT, ["60", "40"], [ALICE, BOB], "Hi"); });
+    expect(decryptForTxMock).toHaveBeenCalledWith(66n, "ebool");
+    expect(confirmCalls()).toHaveLength(1);
+    expect(confirmCalls()[0].args).toEqual([7n, true, SIG]);
+    expect(hash).toBe("0xtxhash");
+    expect(result.current.step).toBe("success");
+    expect(result.current.funding).toBe("active");
+    expect(result.current.lastEnvelopeId).toBe(7);
+    expect(insertActivitiesFanoutMock.mock.calls[0][0]).toHaveLength(3);
+    expect(toastSuccessMock).toHaveBeenCalledWith("Gift envelope created!");
+  });
+
+  it("confirm gas scales with the number of recipients", async () => {
+    decryptForTxMock.mockResolvedValue({ decryptedValue: true, signature: SIG });
+    const { result } = renderHook(() => useGiftMoney());
+    await act(async () => { await result.current.createGift(VAULT, ["60", "40"], [ALICE, BOB], "Hi"); });
+    const two = confirmCalls()[0].gas as bigint;
+    unifiedWriteAndWaitMock.mockClear();
+    await act(async () => { await result.current.createGift(VAULT, ["100"], [ALICE], "Hi"); });
+    const one = confirmCalls()[0].gas as bigint;
+    expect(two).toBeGreaterThan(one);
+  });
+
+  it("void: returns nothing, errors with the partial-delivery warning, and syncs only the sender row", async () => {
+    decryptForTxMock.mockResolvedValue({ decryptedValue: false, signature: SIG });
+    const { result } = renderHook(() => useGiftMoney());
+    let hash: string | undefined = "x";
+    await act(async () => { hash = await result.current.createGift(VAULT, ["60", "40"], [ALICE, BOB], "Hi"); });
+    expect(confirmCalls()[0].args).toEqual([7n, false, SIG]);
+    expect(hash).toBeUndefined();
+    expect(result.current.step).toBe("error");
+    expect(result.current.funding).toBe("void");
+    expect(result.current.error).toBe(GIFT_UNFUNDED_MESSAGE);
+    expect(result.current.error).toContain("Some recipients may already have received their share");
+    expect(toastErrorMock).toHaveBeenCalledWith(GIFT_UNFUNDED_MESSAGE);
+    const rows = insertActivitiesFanoutMock.mock.calls[0][0] as Array<{ tx_hash: string }>;
+    expect(rows).toHaveLength(1);
+    expect(rows[0].tx_hash).toBe("0xtxhash_sender");
+    expect(toastSuccessMock).not.toHaveBeenCalledWith("Gift envelope created!");
+  });
+
+  it("decryption never arrives: envelope stays pending, hash returned, no confirm, no success toast", async () => {
+    decryptForTxMock.mockResolvedValue(null);
+    const { result } = renderHook(() => useGiftMoney());
+    let hash: string | undefined;
+    await act(async () => { hash = await result.current.createGift(VAULT, ["100"], [ALICE], "Hi"); });
+    expect(confirmCalls()).toHaveLength(0);
+    expect(hash).toBe("0xtxhash");
+    expect(result.current.funding).toBe("pending");
+    expect(result.current.step).toBe("success");
+    expect(result.current.lastEnvelopeId).toBe(7);
+    // Recipients still get their rows: the envelope exists and can be finished later.
+    expect(insertActivitiesFanoutMock.mock.calls[0][0]).toHaveLength(2);
+    const msg = toastErrorMock.mock.calls.map((c) => String(c[0])).find((m) => m.includes("Envelope #7"));
+    expect(msg).toContain("Finish funding");
+    expect(toastSuccessMock).not.toHaveBeenCalledWith("Gift envelope created!");
+  });
+
+  it("legacy contract (no getFundingCheck): old behaviour, no decrypt, no confirm", async () => {
+    readContractMock.mockImplementation(async () => { throw new Error("function selector not found"); });
+    const { result } = renderHook(() => useGiftMoney());
+    let hash: string | undefined;
+    await act(async () => { hash = await result.current.createGift(VAULT, ["100"], [ALICE], "Hi"); });
+    expect(hash).toBe("0xtxhash");
+    expect(decryptForTxMock).not.toHaveBeenCalled();
+    expect(confirmCalls()).toHaveLength(0);
+    expect(result.current.funding).toBeNull();
+    expect(result.current.step).toBe("success");
+  });
+
+  it("finishFunding settles a pending envelope and flips the current one to active", async () => {
+    decryptForTxMock.mockResolvedValueOnce(null);
+    const { result } = renderHook(() => useGiftMoney());
+    await act(async () => { await result.current.createGift(VAULT, ["100"], [ALICE], "Hi"); });
+    expect(result.current.funding).toBe("pending");
+
+    decryptForTxMock.mockResolvedValue({ decryptedValue: true, signature: SIG });
+    let verdict: string | null = null;
+    await act(async () => { verdict = await result.current.finishFunding(7); });
+    expect(verdict).toBe("funded");
+    expect(confirmCalls()[0].args).toEqual([7n, true, SIG]);
+    expect(result.current.funding).toBe("active");
+    expect(toastSuccessMock).toHaveBeenCalledWith("Gift funded", expect.anything());
+  });
+
+  it("finishFunding with an unfunded verdict says so, with the partial-delivery warning", async () => {
+    decryptForTxMock.mockResolvedValue({ decryptedValue: false, signature: SIG });
+    const { result } = renderHook(() => useGiftMoney());
+    let verdict: string | null = null;
+    await act(async () => { verdict = await result.current.finishFunding(9); });
+    expect(verdict).toBe("unfunded");
+    expect(toastErrorMock).toHaveBeenCalledWith(GIFT_UNFUNDED_MESSAGE, expect.anything());
+  });
+
+  it("finishFunding on an envelope someone else settled sends no second confirm", async () => {
+    fundingCode = 0;
+    decryptForTxMock.mockResolvedValue({ decryptedValue: true, signature: SIG });
+    const { result } = renderHook(() => useGiftMoney());
+    let verdict: string | null = null;
+    await act(async () => { verdict = await result.current.finishFunding(9); });
+    expect(verdict).toBe("funded");
+    expect(confirmCalls()).toHaveLength(0);
+  });
+
+  it("finishFunding that cannot decrypt returns null, names the envelope, and stays retryable", async () => {
+    decryptForTxMock.mockResolvedValue(null);
+    const { result } = renderHook(() => useGiftMoney());
+    let verdict: string | null = "x";
+    await act(async () => { verdict = await result.current.finishFunding(9); });
+    expect(verdict).toBeNull();
+    expect(confirmCalls()).toHaveLength(0);
+    expect(result.current.error).toContain("Envelope #9");
+    expect(result.current.isProcessing).toBe(false);
+  });
+
+  it("finishFunding on a legacy contract says there is nothing to finish", async () => {
+    readContractMock.mockImplementation(async () => { throw new Error("function selector not found"); });
+    const { result } = renderHook(() => useGiftMoney());
+    let verdict: string | null = "x";
+    await act(async () => { verdict = await result.current.finishFunding(9); });
+    expect(verdict).toBeNull();
+    expect(toastErrorMock).toHaveBeenCalledWith("This gift contract has no funding check to finish.");
+  });
+
+  it("claimGift on a pending or void envelope shows a readable message, not the raw revert", async () => {
+    unifiedWriteAndWaitMock.mockRejectedValueOnce(new Error("GiftMoney: funding pending"));
+    const { result } = renderHook(() => useGiftMoney());
+    await act(async () => { await result.current.claimGift(5); });
+    expect(toastErrorMock).toHaveBeenCalledWith("This gift is still being funded. Try again in a minute.");
+
+    unifiedWriteAndWaitMock.mockRejectedValueOnce(new Error("GiftMoney: envelope unfunded"));
+    await act(async () => { await result.current.claimGift(5); });
+    expect(toastErrorMock).toHaveBeenCalledWith("This gift was never fully funded, so it cannot be opened.");
   });
 });

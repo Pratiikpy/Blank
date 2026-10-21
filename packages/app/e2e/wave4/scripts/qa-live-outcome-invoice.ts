@@ -8,9 +8,11 @@ import { arbitrumSepolia, baseSepolia, sepolia } from "viem/chains";
 import {
   confirmRabbyPopup,
   dismissRabbyWhatsNew,
+  drainRabbyPopupsUntil,
   unlockRabby,
   waitAndConfirmRabbyPopup,
 } from "../../fixtures/rabby/rabby-driver";
+import { FUNDING_SETTLE_MS } from "../helpers/app-actions";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -559,7 +561,20 @@ async function supportCreator(
   await safeFill(dave.page.locator('textarea[placeholder="Say something nice..."]').first(), message);
   await snap(dave.page, "creator-dave-tip-filled");
   await dave.page.getByRole("button", { name: /Send \$5 Support/i }).click({ force: true });
-  await drainRabbyPopups(dave.ctx, dave.extId, dave.known, "creator-tip", 6);
+  // The tip is Pending after support(). The app confirms it by itself about 90s
+  // later, which is one more Rabby popup, and the supporter lists below only
+  // change once it has. The form reads "Sending encrypted tip..." for the whole
+  // sequence, so approve popups from the first busy state until it clears.
+  let sawBusy = false;
+  await drainRabbyPopupsUntil(
+    dave.ctx, dave.extId, dave.known, OUT, "creator-tip",
+    async () => {
+      const busy = await dave.page.getByText(/Sending encrypted tip/i).first().isVisible().catch(() => false);
+      if (busy) sawBusy = true;
+      return sawBusy && !busy;
+    },
+    { timeoutMs: FUNDING_SETTLE_MS + 180_000 },
+  );
 
   const daveDeadline = Date.now() + 180_000;
   while (Date.now() < daveDeadline) {

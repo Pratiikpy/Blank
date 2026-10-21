@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, fireEvent, act } from "@testing-library/react";
+import { render, fireEvent, act, waitFor } from "@testing-library/react";
 
 // §15.x test for CreateCampaign screen. The PRODUCER side of the
 // /fund/:chainId/:campaignId URL contract that CrowdfundPage (the
@@ -372,5 +372,71 @@ describe("CreateCampaign — success state + share URL (PRODUCER side of Crowdfu
     setHook({ step: "success", lastCampaignId: 7 });
     const { container } = render(<CreateCampaign />);
     expect(container.textContent).toMatch(/\/fund\/84532\/7/);
+  });
+});
+
+describe("CreateCampaign: closing publishes the verdict", () => {
+  const ME = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  const campaign = (over: Record<string, unknown>) => ({
+    id: 3n,
+    deadline: BigInt(Math.floor(Date.now() / 1000) - 3600),
+    status: 1,
+    goalMet: false,
+    resultPublished: false,
+    title: "Podcast",
+    createdAt: 1n,
+    ...over,
+  });
+
+  function withCampaigns(rec: ReturnType<typeof campaign>, finishClosing: ReturnType<typeof vi.fn>) {
+    useEffectiveAddressMock.mockReturnValue({ effectiveAddress: ME });
+    const fetchCreatorCampaigns = vi.fn().mockResolvedValue([rec.id]);
+    useCrowdfundMock.mockReturnValue({
+      state: { step: "idle", isProcessing: false, error: null, lastCampaignId: null },
+      pipeline: { phase: "idle" },
+      createCampaign: createCampaignMock,
+      closeCampaign: vi.fn().mockResolvedValue(true),
+      finishClosing,
+      fetchCreatorCampaigns,
+      fetchCampaign: vi.fn().mockResolvedValue(rec),
+      reset: resetMock,
+    });
+    return fetchCreatorCampaigns;
+  }
+
+  it("a closed campaign whose verdict is unpublished offers 'Finish closing' and refreshes after a verdict", async () => {
+    const finishClosing = vi.fn().mockResolvedValue("met");
+    const fetchCreatorCampaigns = withCampaigns(campaign({}), finishClosing);
+    const { findByLabelText, container } = render(<CreateCampaign />);
+    const btn = await findByLabelText("Finish closing campaign 3");
+    expect(container.textContent).toContain("verdict still has to be published");
+    const before = fetchCreatorCampaigns.mock.calls.length;
+    await act(async () => {
+      fireEvent.click(btn);
+      await Promise.resolve();
+    });
+    expect(finishClosing).toHaveBeenCalledWith(3);
+    await waitFor(() => expect(fetchCreatorCampaigns.mock.calls.length).toBeGreaterThan(before));
+  });
+
+  it("no verdict (decryption not ready) leaves the row as it was", async () => {
+    const finishClosing = vi.fn().mockResolvedValue(null);
+    const fetchCreatorCampaigns = withCampaigns(campaign({}), finishClosing);
+    const { findByLabelText } = render(<CreateCampaign />);
+    const btn = await findByLabelText("Finish closing campaign 3");
+    const before = fetchCreatorCampaigns.mock.calls.length;
+    await act(async () => {
+      fireEvent.click(btn);
+      await Promise.resolve();
+    });
+    expect(finishClosing).toHaveBeenCalledWith(3);
+    expect(fetchCreatorCampaigns.mock.calls.length).toBe(before);
+  });
+
+  it("a campaign with a published verdict has no Finish closing button", async () => {
+    withCampaigns(campaign({ status: 2, resultPublished: true, goalMet: true }), vi.fn());
+    const { findByText, queryByLabelText } = render(<CreateCampaign />);
+    await findByText("Podcast");
+    expect(queryByLabelText("Finish closing campaign 3")).toBeNull();
   });
 });

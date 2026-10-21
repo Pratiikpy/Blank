@@ -40,6 +40,12 @@ import { renderHook, act, waitFor } from "@testing-library/react";
 //     state change). Defensive: the UI gates the button so this path
 //     shouldn't fire, but the ref still flips false in finally so a
 //     subsequent valid call works.
+//   - Funding gate: on an upgraded CreatorHub, support() leaves a Pending
+//     tip. The hook decrypts the public "funded" bit, calls
+//     confirmFunding, and only then records the supporter. An unfunded
+//     tip is voided and never recorded; a check that cannot finish leaves
+//     the tip Pending and recoverable. Pre-gate contracts keep the
+//     single-step behaviour.
 
 const useEffectiveAddressMock = vi.hoisted(() => vi.fn());
 const useCofheConnectionMock = vi.hoisted(() => vi.fn());
@@ -58,6 +64,8 @@ const clearVaultApprovalMock = vi.hoisted(() => vi.fn());
 const toastErrorMock = vi.hoisted(() => vi.fn());
 const toastSuccessMock = vi.hoisted(() => vi.fn());
 const toastLoadingMock = vi.hoisted(() => vi.fn());
+const decryptForTxMock = vi.hoisted(() => vi.fn());
+const readContractMock = vi.hoisted(() => vi.fn());
 
 vi.mock("wagmi", () => ({ usePublicClient: usePublicClientMock }));
 vi.mock("./useEffectiveAddress", () => ({
@@ -69,6 +77,7 @@ vi.mock("@/lib/cofhe-shim", () => ({
   ENCRYPTION_NOT_READY: NOT_READY,
   useCofheConnection: useCofheConnectionMock,
   useCofheEncrypt: useCofheEncryptMock,
+  useCofheDecryptForTx: () => ({ decryptForTx: decryptForTxMock }),
   Encryptable: new Proxy({}, { get: () => (v: unknown) => ({ raw: v }) }),
 }));
 vi.mock("@/providers/ChainProvider", () => ({ useChain: useChainMock }));
@@ -88,6 +97,18 @@ vi.mock("@/lib/approval", () => ({
   clearVaultApproval: clearVaultApprovalMock,
 }));
 vi.mock("@/lib/abis", () => ({ CreatorHubAbi: [], FHERC20VaultAbi: [] }));
+// Same logic, but time only advances when the helper sleeps, so a decrypt that
+// never becomes ready times out instantly instead of after 90 real seconds.
+vi.mock("@/lib/funding-gate", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/funding-gate")>();
+  return {
+    ...actual,
+    runFundingGate: (opts: Parameters<typeof actual.runFundingGate>[0]) => {
+      let t = 0;
+      return actual.runFundingGate({ ...opts, now: () => t, sleep: async (ms) => { t += ms; } });
+    },
+  };
+});
 vi.mock("@/lib/log", () => ({ log: { warn: vi.fn(), debug: vi.fn() } }));
 vi.mock("react-hot-toast", () => ({
   default: {
@@ -98,6 +119,7 @@ vi.mock("react-hot-toast", () => ({
 }));
 
 import { useTipCreator } from "./useTipCreator";
+import { PENDING_EVENT_TOPIC, addPendingFunding, listPendingFundings } from "@/lib/pending-funding";
 
 const ME = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const CREATOR = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
@@ -128,6 +150,9 @@ beforeEach(() => {
   toastErrorMock.mockReset();
   toastSuccessMock.mockReset();
   toastLoadingMock.mockReset();
+  decryptForTxMock.mockReset();
+  readContractMock.mockReset();
+  localStorage.clear();
   encryptInputsAsyncMock.mockReset();
   unifiedWriteMock.mockReset();
   unifiedWriteAndWaitMock.mockReset();
@@ -146,9 +171,13 @@ beforeEach(() => {
       FHERC20Vault_USDC: VAULT,
     },
   });
+  // A pre-gate CreatorHub has no nextTipId, so reads fail by default: the
+  // legacy suites below run against exactly that contract.
+  readContractMock.mockRejectedValue(new Error("execution reverted"));
   usePublicClientMock.mockReturnValue({
     waitForTransactionReceipt: waitForTransactionReceiptMock,
     getTransactionReceipt: getTransactionReceiptMock,
+    readContract: readContractMock,
   });
   useUnifiedWriteMock.mockReturnValue({
     unifiedWrite: unifiedWriteMock,
@@ -173,6 +202,7 @@ describe("useTipCreator — initial state (§15.x)", () => {
     const { result } = renderHook(() => useTipCreator());
     expect(result.current.isTipping).toBe(false);
     expect(typeof result.current.tip).toBe("function");
+    expect(result.current.pendingTipCount).toBe(0);
   });
 });
 
@@ -582,5 +612,288 @@ describe("useTipCreator — error handling (§15.x)", () => {
       await result.current.tip(CREATOR, "5", "msg");
     });
     expect(toastErrorMock).toHaveBeenCalledWith("Tip failed");
+  });
+});
+
+// ----- funding gate ----- //
+
+const SIG = "0xsig" as const;
+const TIP_ID = 7n;
+const SCOPE = { kind: "tip", chainId: 11155111, contract: HUB, account: ME } as const;
+const padId = (n: bigint) => `0x${n.toString(16).padStart(64, "0")}`;
+const pendingLog = (id: bigint) => ({
+  address: HUB,
+  topics: [PENDING_EVENT_TOPIC.tip, padId(id)],
+  data: "0x",
+});
+const HANDLE_HEX = `0x${"ab".repeat(32)}`;
+
+/** Upgraded CreatorHub: status 1 Pending, 2 Confirmed, 3 Voided. confirmFunding moves it. */
+function gatedHub(over: { status?: number; nextTipId?: bigint; logs?: unknown[] } = {}) {
+  const chain = { status: over.status ?? 1, nextTipId: over.nextTipId ?? TIP_ID + 1n };
+  readContractMock.mockImplementation(async ({ functionName }: { functionName: string }) => {
+    if (functionName === "nextTipId") return chain.nextTipId;
+    if (functionName === "getTip") return [ME, CREATOR, VAULT, chain.status];
+    if (functionName === "getTipFundedHandle") return HANDLE_HEX;
+    throw new Error(`unexpected read ${functionName}`);
+  });
+  unifiedWriteAndWaitMock.mockImplementation(async (args: { functionName: string; args: unknown[] }) => {
+    if (args.functionName === "confirmFunding") {
+      chain.status = args.args[1] ? 2 : 3;
+      return { hash: "0xconfirm", receipt: { status: "success", blockNumber: 13000n, logs: [] } };
+    }
+    return {
+      hash: "0xtxhash",
+      receipt: { status: "success", blockNumber: 12345n, logs: over.logs ?? [pendingLog(TIP_ID)] },
+    };
+  });
+  return chain;
+}
+
+const confirmCalls = () => unifiedWriteAndWaitMock.mock.calls.filter((c) => c[0].functionName === "confirmFunding");
+
+describe("useTipCreator — funding gate, funded tip", () => {
+  it("confirms the tip with the decrypted bit, then records the supporter", async () => {
+    gatedHub();
+    decryptForTxMock.mockResolvedValue({ decryptedValue: true, signature: SIG });
+    const { result } = renderHook(() => useTipCreator());
+    let outcome: unknown;
+    await act(async () => {
+      outcome = await result.current.tip(CREATOR, "5", "great stream");
+    });
+    expect(outcome).toBe("confirmed");
+    const confirm = confirmCalls();
+    expect(confirm).toHaveLength(1);
+    expect(confirm[0][0].address).toBe(HUB);
+    expect(confirm[0][0].args).toEqual([TIP_ID, true, SIG]);
+    expect(confirm[0][0].gas).toBe(1_500_000n);
+    // The handle is declared bytes32 (a hex string from viem) and decryptForTx wants a bigint.
+    expect(decryptForTxMock).toHaveBeenCalledWith(BigInt(HANDLE_HEX), "ebool");
+    expect(insertActivityMock).toHaveBeenCalledWith(
+      expect.objectContaining({ tx_hash: "0xtxhash", block_number: 12345, note: "great stream" }),
+    );
+    expect(insertCreatorSupporterMock).toHaveBeenCalledTimes(1);
+    expect(toastSuccessMock).toHaveBeenCalledWith("Tip sent!", expect.anything());
+    expect(listPendingFundings(SCOPE)).toHaveLength(0);
+  });
+
+  it("records nothing before the confirmation lands", async () => {
+    gatedHub();
+    let release: (v: unknown) => void = () => {};
+    decryptForTxMock.mockReturnValue(new Promise((r) => { release = r; }));
+    const { result } = renderHook(() => useTipCreator());
+    let p!: Promise<unknown>;
+    act(() => { p = result.current.tip(CREATOR, "5", "msg"); });
+    await waitFor(() => expect(decryptForTxMock).toHaveBeenCalled());
+    expect(insertActivityMock).toHaveBeenCalledTimes(0);
+    expect(toastSuccessMock).not.toHaveBeenCalledWith("Tip sent!", expect.anything());
+    await act(async () => {
+      release({ decryptedValue: true, signature: SIG });
+      await p;
+    });
+    expect(insertActivityMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("reads the tip id from nextTipId - 1 when the receipt carries no TipPending log", async () => {
+    gatedHub({ logs: [], nextTipId: 9n });
+    decryptForTxMock.mockResolvedValue({ decryptedValue: true, signature: SIG });
+    const { result } = renderHook(() => useTipCreator());
+    await act(async () => {
+      await result.current.tip(CREATOR, "5", "msg");
+    });
+    expect(confirmCalls()[0][0].args[0]).toBe(8n);
+  });
+
+  it("someone else already confirmed it: nothing is sent, the tip still counts", async () => {
+    const chain = gatedHub();
+    decryptForTxMock.mockImplementation(async () => {
+      chain.status = 2;
+      return { decryptedValue: true, signature: SIG };
+    });
+    const { result } = renderHook(() => useTipCreator());
+    let outcome: unknown;
+    await act(async () => {
+      outcome = await result.current.tip(CREATOR, "5", "msg");
+    });
+    expect(outcome).toBe("confirmed");
+    expect(confirmCalls()).toHaveLength(0);
+    expect(insertActivityMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("useTipCreator — funding gate, unfunded tip", () => {
+  it("voids the tip: honest toast, no supporter, no activity, approval re-armed", async () => {
+    gatedHub();
+    decryptForTxMock.mockResolvedValue({ decryptedValue: false, signature: SIG });
+    const { result } = renderHook(() => useTipCreator());
+    let outcome: unknown;
+    await act(async () => {
+      outcome = await result.current.tip(CREATOR, "5", "msg");
+    });
+    expect(outcome).toBe("voided");
+    expect(confirmCalls()[0][0].args).toEqual([TIP_ID, false, SIG]);
+    expect(toastErrorMock).toHaveBeenCalledWith("Tip did not go through: balance too low", expect.anything());
+    expect(toastSuccessMock).not.toHaveBeenCalledWith("Tip sent!", expect.anything());
+    expect(insertActivityMock).toHaveBeenCalledTimes(0);
+    expect(insertCreatorSupporterMock).toHaveBeenCalledTimes(0);
+    expect(recomputeCreatorSupporterCountMock).toHaveBeenCalledTimes(0);
+    expect(broadcastActionMock).toHaveBeenCalledTimes(0);
+    expect(clearVaultApprovalMock).toHaveBeenCalledWith(HUB);
+    expect(listPendingFundings(SCOPE)).toHaveLength(0);
+  });
+});
+
+describe("useTipCreator — funding gate, second step does not finish", () => {
+  it("decrypt never ready: tip stays pending, recorded nowhere, retry entry kept", async () => {
+    gatedHub();
+    decryptForTxMock.mockResolvedValue(null);
+    const { result } = renderHook(() => useTipCreator());
+    let outcome: unknown;
+    await act(async () => {
+      outcome = await result.current.tip(CREATOR, "5", "msg");
+    });
+    expect(outcome).toBe("pending");
+    expect(confirmCalls()).toHaveLength(0);
+    expect(insertActivityMock).toHaveBeenCalledTimes(0);
+    expect(toastSuccessMock).not.toHaveBeenCalledWith("Tip sent!", expect.anything());
+    const msg = toastErrorMock.mock.calls.at(-1)![0] as string;
+    expect(msg).toMatch(/not ready yet/);
+    expect(msg).toMatch(/not counted yet/);
+    expect(result.current.pendingTipCount).toBe(1);
+    const entries = listPendingFundings(SCOPE);
+    expect(entries).toHaveLength(1);
+    expect(entries[0].id).toBe("7");
+    expect(entries[0].data).toMatchObject({ creator: CREATOR, message: "msg", hash: "0xtxhash", blockNumber: "12345" });
+  });
+
+  it("confirm keeps failing: the real reason reaches the toast and the tip stays recoverable", async () => {
+    gatedHub();
+    decryptForTxMock.mockResolvedValue({ decryptedValue: true, signature: SIG });
+    unifiedWriteAndWaitMock.mockImplementation(async (args: { functionName: string }) => {
+      if (args.functionName === "confirmFunding") throw new Error("rpc: nonce too low");
+      return { hash: "0xtxhash", receipt: { status: "success", blockNumber: 12345n, logs: [pendingLog(TIP_ID)] } };
+    });
+    const { result } = renderHook(() => useTipCreator());
+    let outcome: unknown;
+    await act(async () => {
+      outcome = await result.current.tip(CREATOR, "5", "msg");
+    });
+    expect(outcome).toBe("pending");
+    expect(toastErrorMock.mock.calls.at(-1)![0]).toMatch(/rpc: nonce too low/);
+    expect(insertActivityMock).toHaveBeenCalledTimes(0);
+    expect(listPendingFundings(SCOPE)).toHaveLength(1);
+  });
+
+  it("a reverted confirmation is an error, never a success", async () => {
+    gatedHub();
+    decryptForTxMock.mockResolvedValue({ decryptedValue: true, signature: SIG });
+    unifiedWriteAndWaitMock.mockImplementation(async (args: { functionName: string }) =>
+      args.functionName === "confirmFunding"
+        ? { hash: "0xconfirm", receipt: { status: "reverted", blockNumber: 2n, logs: [] } }
+        : { hash: "0xtxhash", receipt: { status: "success", blockNumber: 12345n, logs: [pendingLog(TIP_ID)] } },
+    );
+    const { result } = renderHook(() => useTipCreator());
+    let outcome: unknown;
+    await act(async () => {
+      outcome = await result.current.tip(CREATOR, "5", "msg");
+    });
+    expect(outcome).toBe("pending");
+    expect(toastErrorMock.mock.calls.at(-1)![0]).toMatch(/reverted/);
+    expect(insertActivityMock).toHaveBeenCalledTimes(0);
+  });
+
+  it("finishPendingTips completes a tip left pending, with the original tx hash", async () => {
+    const chain = gatedHub();
+    decryptForTxMock.mockResolvedValue(null);
+    const { result } = renderHook(() => useTipCreator());
+    await act(async () => {
+      await result.current.tip(CREATOR, "5", "msg");
+    });
+    expect(chain.status).toBe(1);
+
+    decryptForTxMock.mockResolvedValue({ decryptedValue: true, signature: SIG });
+    let counted = 0;
+    await act(async () => {
+      counted = await result.current.finishPendingTips();
+    });
+    expect(counted).toBe(1);
+    expect(confirmCalls()).toHaveLength(1);
+    expect(insertActivityMock).toHaveBeenCalledWith(
+      expect.objectContaining({ tx_hash: "0xtxhash", block_number: 12345, user_to: CREATOR.toLowerCase() }),
+    );
+    expect(result.current.pendingTipCount).toBe(0);
+  });
+
+  it("a tip voided while the tab was closed records nothing and clears the entry on the next visit", async () => {
+    gatedHub({ status: 3 });
+    addPendingFunding(SCOPE, 7n, { creator: CREATOR, message: "msg", hash: "0xold", blockNumber: "5" });
+    const { result } = renderHook(() => useTipCreator());
+    await waitFor(() => expect(result.current.pendingTipCount).toBe(0));
+    expect(insertActivityMock).toHaveBeenCalledTimes(0);
+    expect(toastErrorMock).toHaveBeenCalledWith("A tip did not go through: balance too low");
+  });
+
+  it("a tip confirmed by someone else while the tab was closed is recorded on the next visit", async () => {
+    gatedHub({ status: 2 });
+    addPendingFunding(SCOPE, 7n, { creator: CREATOR, message: "hello", hash: "0xold", blockNumber: "5" });
+    const { result } = renderHook(() => useTipCreator());
+    await waitFor(() => expect(insertActivityMock).toHaveBeenCalledTimes(1));
+    expect(insertActivityMock).toHaveBeenCalledWith(expect.objectContaining({ tx_hash: "0xold", block_number: 5 }));
+    expect(confirmCalls()).toHaveLength(0);
+    await waitFor(() => expect(result.current.pendingTipCount).toBe(0));
+  });
+
+  it("does not resume while the FHE session is not connected", async () => {
+    gatedHub();
+    useCofheConnectionMock.mockReturnValue({ connected: false });
+    addPendingFunding(SCOPE, 7n, { creator: CREATOR, message: "m", hash: "0xold", blockNumber: "5" });
+    const { result } = renderHook(() => useTipCreator());
+    await act(async () => { await Promise.resolve(); });
+    expect(result.current.pendingTipCount).toBe(1);
+    expect(decryptForTxMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("useTipCreator — pre-gate contract fallback", () => {
+  it("no nextTipId: single step, records straight away, never touches the gate", async () => {
+    // readContract rejects by default (pre-gate CreatorHub).
+    const { result } = renderHook(() => useTipCreator());
+    let outcome: unknown;
+    await act(async () => {
+      outcome = await result.current.tip(CREATOR, "5", "msg");
+    });
+    expect(outcome).toBe("confirmed");
+    expect(decryptForTxMock).not.toHaveBeenCalled();
+    expect(confirmCalls()).toHaveLength(0);
+    expect(readContractMock.mock.calls.every((c) => c[0].functionName === "nextTipId")).toBe(true);
+    expect(toastSuccessMock).toHaveBeenCalledWith("Tip sent!");
+    expect(insertActivityMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("probe fails transiently on an upgraded contract: the TipPending log still routes to the gate", async () => {
+    const chain = gatedHub();
+    readContractMock.mockImplementation(async ({ functionName }: { functionName: string }) => {
+      if (functionName === "nextTipId") throw new Error("rpc busy");
+      if (functionName === "getTip") return [ME, CREATOR, VAULT, chain.status];
+      return HANDLE_HEX;
+    });
+    decryptForTxMock.mockResolvedValue({ decryptedValue: true, signature: SIG });
+    const { result } = renderHook(() => useTipCreator());
+    let outcome: unknown;
+    await act(async () => {
+      outcome = await result.current.tip(CREATOR, "5", "msg");
+    });
+    expect(outcome).toBe("confirmed");
+    expect(confirmCalls()).toHaveLength(1);
+  });
+
+  it("tip returns failed when the write throws", async () => {
+    unifiedWriteAndWaitMock.mockRejectedValue(new Error("rpc timeout"));
+    const { result } = renderHook(() => useTipCreator());
+    let outcome: unknown;
+    await act(async () => {
+      outcome = await result.current.tip(CREATOR, "5", "msg");
+    });
+    expect(outcome).toBe("failed");
   });
 });

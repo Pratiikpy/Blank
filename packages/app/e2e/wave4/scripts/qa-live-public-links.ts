@@ -10,7 +10,9 @@ import {
   dismissRabbyWhatsNew,
   waitAndConfirmRabbyPopup,
   confirmRabbyPopup,
+  drainRabbyPopupsUntil,
 } from "../../fixtures/rabby/rabby-driver";
+import { FUNDING_SETTLE_MS } from "../helpers/app-actions";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -114,6 +116,26 @@ async function drainRabbyPopups(
   }
   return total;
 }
+
+/// Funding-gate actions (claim link, gift, contribution, storefront buy,
+/// conditional invoice, offramp take) leave the item pending after the user's
+/// own transaction. The app then waits for the Threshold Network (up to ~90s)
+/// and sends confirmFunding, which Rabby must approve too. A fixed count of
+/// popups, each waited for 45s, misses that one. Approve popups until the
+/// settled screen shows instead.
+async function approveUntil(
+  ctx: BrowserContext,
+  extId: string,
+  known: Set<Page>,
+  label: string,
+  settled: () => Promise<boolean>,
+  timeoutMs = FUNDING_SETTLE_MS + 180_000,
+): Promise<void> {
+  const r = await drainRabbyPopupsUntil(ctx, extId, known, OUT, label, settled, { timeoutMs });
+  if (!r.done) throw new Error(`${label}: settled screen not reached within ${timeoutMs / 1000}s (approved ${r.popups} popups)`);
+}
+
+const visible = (loc: Locator) => () => loc.isVisible().catch(() => false);
 
 async function txHashesFrom(address: Address, fromNonce: number): Promise<Hash[]> {
   const deadline = Date.now() + 150_000;
@@ -378,8 +400,10 @@ async function createClaimLink(page: Page, ctx: BrowserContext, extId: string, k
   await snap(page, "claim-create-filled");
   const before = await getNonce(DAVE);
   await page.locator("button:visible:not([disabled])").filter({ hasText: /^Create link$/i }).first().click();
-  await drainRabbyPopups(ctx, extId, known, "claim-create", 5);
-  await page.locator("text=/Link ready/i").first().waitFor({ state: "visible", timeout: 180_000 });
+  // The link is PendingFunding until confirmFunding lands; "Link ready" and the
+  // share URL only show after that.
+  await approveUntil(ctx, extId, known, "claim-create", visible(page.locator("text=/Link ready/i").first()));
+  await page.locator('[data-testid="claim-link-pending"]').waitFor({ state: "detached", timeout: 10_000 });
   await snap(page, "claim-create-success");
   const text = (await page.locator("body").textContent().catch(() => "")) ?? "";
   const m = text.match(new RegExp(`${VERCEL_URL.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/claim/${CHAIN_ID}/\\d+#[A-Za-z0-9._:-]+`));
@@ -468,11 +492,18 @@ async function buyStorefrontAsBob(page: Page, ctx: BrowserContext, extId: string
   await snap(page, "storefront-bob-ready");
   const before = await getNonce(BOB);
   await page.locator("button:visible:not([disabled])").filter({ hasText: /^Buy now$/i }).first().click();
-  await drainRabbyPopups(ctx, extId, known, "storefront-bob", 5);
-  // 300s — storefront encrypted-payment lock takes longer than a normal FHE
-  // settlement (encrypted listing + escrow lock + buyer ciphertext). Prior
-  // 180s timed out exactly when the live UI hit "Payment locked in".
-  await page.locator("text=/Payment locked in|Your encrypted payment is on-chain/i").first().waitFor({ state: "visible", timeout: 300_000 });
+  // The purchase is Pending until confirmFunding lands (about 90s after the
+  // buy, one more Rabby popup). "Payment confirmed" only shows after that; the
+  // storefront-pending-payment card is the unsettled state. Budget covers the
+  // encrypted-payment lock (which already needed 300s) plus the funding check.
+  await approveUntil(
+    ctx, extId, known, "storefront-bob",
+    visible(page.locator("text=/Payment confirmed|Payment locked in|Your encrypted payment is on-chain/i").first()),
+    FUNDING_SETTLE_MS + 300_000,
+  );
+  if (await page.locator('[data-testid="storefront-pending-payment"]').isVisible().catch(() => false)) {
+    throw new Error("storefront purchase is still pending its funding check");
+  }
   await snap(page, "storefront-bob-success");
   return await txHashesFrom(BOB, before);
 }
@@ -562,8 +593,9 @@ async function contributeAsBob(page: Page, ctx: BrowserContext, extId: string, k
   await snap(page, "fund-bob-ready");
   const before = await getNonce(BOB);
   await page.locator("button:visible:not([disabled])").filter({ hasText: /^Contribute privately$/i }).first().click();
-  await drainRabbyPopups(ctx, extId, known, "fund-bob", 5);
-  await page.locator("text=/Contribution submitted/i").first().waitFor({ state: "visible", timeout: 180_000 });
+  // A contribution is Pending and does not count until confirmFunding lands.
+  await approveUntil(ctx, extId, known, "fund-bob", visible(page.locator("text=/Contribution submitted/i").first()));
+  await page.locator('[data-testid="contribution-pending"]').waitFor({ state: "detached", timeout: 10_000 });
   await snap(page, "fund-bob-success");
   return await txHashesFrom(BOB, before);
 }
@@ -575,8 +607,8 @@ async function contributeAs(page: Page, ctx: BrowserContext, extId: string, know
   await snap(page, `fund-${persona.toLowerCase()}-ready`);
   const before = await getNonce(accountByPersona[persona]);
   await page.locator("button:visible:not([disabled])").filter({ hasText: /^Contribute privately$/i }).first().click();
-  await drainRabbyPopups(ctx, extId, known, `fund-${persona.toLowerCase()}`, 5);
-  await page.locator("text=/Contribution submitted/i").first().waitFor({ state: "visible", timeout: 180_000 });
+  await approveUntil(ctx, extId, known, `fund-${persona.toLowerCase()}`, visible(page.locator("text=/Contribution submitted/i").first()));
+  await page.locator('[data-testid="contribution-pending"]').waitFor({ state: "detached", timeout: 10_000 });
   await snap(page, `fund-${persona.toLowerCase()}-success`);
   return await txHashesFrom(accountByPersona[persona], before);
 }
@@ -683,10 +715,21 @@ async function main(): Promise<void> {
     await snap(page, "cinvoice-create-filled");
     const before = await getNonce(DAVE);
     await page.locator("button:visible:not([disabled])").filter({ hasText: /Create conditional invoice/i }).first().click();
-    await drainRabbyPopups(ctx, extId, known, "cinvoice-create", 10);
-    // The hook navigates to /conditional-invoice/<chain>/<id> on success.
-    await page.waitForURL(/\/conditional-invoice\/\d+\/\d+/, { timeout: 180_000 }).catch(() => undefined);
+    // The hook navigates to /conditional-invoice/<chain>/<id> once the escrow is
+    // created AND its funding check has run (PendingFunding -> confirmFunding,
+    // one more Rabby popup about 90s after the create).
+    await approveUntil(ctx, extId, known, "cinvoice-create", async () => /\/conditional-invoice\/\d+\/\d+/.test(page.url()));
     await page.locator("text=/Conditional invoice/i").first().waitFor({ state: "visible", timeout: 60_000 });
+    // Nothing can be approved or released while it is pending, so fail here with
+    // a clear reason instead of on the missing Approve button below.
+    if (await page.locator('[data-testid="conditional-invoice-pending"]').isVisible({ timeout: 5_000 }).catch(() => false)) {
+      await page.locator('[data-testid="conditional-invoice-pending"] button:has-text("Finish funding")').first().click();
+      await approveUntil(ctx, extId, known, "cinvoice-finish", async () =>
+        !(await page.locator('[data-testid="conditional-invoice-pending"]').isVisible().catch(() => false)));
+    }
+    if (await page.locator('[data-testid="conditional-invoice-unfunded"]').isVisible().catch(() => false)) {
+      throw new Error("conditional invoice settled as never funded");
+    }
     await page.waitForTimeout(3_000);
     await snap(page, "cinvoice-created");
     const url = page.url();
@@ -779,8 +822,14 @@ async function main(): Promise<void> {
     const sendGiftBtn = page.locator("main button:visible:not([disabled])").filter({ hasText: /Send Gift Envelope/i }).first();
     await sendGiftBtn.scrollIntoViewIfNeeded({ timeout: 10_000 }).catch(() => undefined);
     await sendGiftBtn.click({ timeout: 30_000 });
-    await drainRabbyPopups(ctx, extId, known, "gift", 14);
-    await page.getByRole("heading", { name: /Gift Sent!/i }).waitFor({ state: "visible", timeout: 120_000 }).catch(() => undefined);
+    // The envelope is PendingFunding; "Gift Sent!" only shows once the app's
+    // confirmFunding has landed (one more Rabby popup about 90s after the create).
+    await drainRabbyPopupsUntil(
+      ctx, extId, known, OUT, "gift",
+      visible(page.getByRole("heading", { name: /Gift Sent!/i })),
+      { timeoutMs: FUNDING_SETTLE_MS + 180_000 },
+    );
+    await page.getByRole("heading", { name: /Gift Sent!/i }).waitFor({ state: "visible", timeout: 10_000 }).catch(() => undefined);
     await snap(page, "gift-sent");
     const ok = await page.evaluate(() => /Gift Sent/i.test(document.body.innerText)).catch(() => false);
     return {
@@ -1394,9 +1443,14 @@ async function main(): Promise<void> {
       await snap(page, "offramp-take-before");
       const beforeTake = await getNonce(BOB);
       await page.locator('[data-testid="offramp-detail-take"]').click();
-      await drainRabbyPopups(ctx, extId, known, "offramp-take", 3);
-      // After takeOffer, page navigates to /app/offramp/fill/:fillId.
-      await page.waitForURL(/\/app\/offramp\/fill\/\d+/, { timeout: 180_000 }).catch(() => undefined);
+      // takeOffer leaves the fill Pending. The hook runs the escrow check (about
+      // 90s, one more Rabby popup) and only then navigates to
+      // /app/offramp/fill/:fillId, so approve popups until that URL shows.
+      await drainRabbyPopupsUntil(
+        ctx, extId, known, OUT, "offramp-take",
+        async () => /\/app\/offramp\/fill\/\d+/.test(page.url()),
+        { timeoutMs: FUNDING_SETTLE_MS + 180_000 },
+      );
       await snap(page, "offramp-take-after");
       const takeHashes = await txHashesFrom(BOB, beforeTake);
       hashes.push(...takeHashes);
@@ -1416,6 +1470,27 @@ async function main(): Promise<void> {
         };
       }
       note += `take: Bob took offer ${offerId.toString()} → fill ${fillIdFromUrl}. `;
+
+      // The proof step opens only on a Locked fill. A fill still Pending after the
+      // hook returned needs its escrow check finished; a Voided one means the
+      // maker's escrow was short and no fiat is due, which fails this lifecycle.
+      const escrowCheck = page.locator('[data-testid="offramp-escrow-check"]');
+      if (!(await escrowCheck.isVisible({ timeout: 15_000 }).catch(() => false))) {
+        if (await page.locator('[data-testid="offramp-fill-pending"]').isVisible().catch(() => false)) {
+          await page.locator('[data-testid="offramp-fill-finish"]').click();
+          await approveUntil(ctx, extId, known, "offramp-finish", visible(escrowCheck));
+          note += "escrow check finished by hand. ";
+        } else if (await page.locator('[data-testid="offramp-fill-voided"]').isVisible().catch(() => false)) {
+          return {
+            name: "Offramp take + proof + release",
+            status: "red",
+            url: `${VERCEL_URL}/app/offramp/fill/${fillIdFromUrl}`,
+            hashes,
+            note: note + "fill was Voided by the escrow check (maker escrow short), see offramp-take-after.png",
+            screenshot: resolve(OUT, "offramp-take-after.png"),
+          };
+        }
+      }
 
       // (2) Bob submits the Reclaim proof. The widget POSTs to /api/relay
       // (server-side operator signing), then the hook fires submitProof

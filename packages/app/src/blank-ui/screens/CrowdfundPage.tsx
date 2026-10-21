@@ -21,6 +21,30 @@ const STATUS_CLOSED = 1;
 const STATUS_RELEASED = 2;
 const STATUS_REFUNDING = 3;
 
+// ContributionState: 0 Counted (also every pre-gate contribution), 1 PendingFunding, 2 Void.
+const CONTRIBUTION_PENDING = 1;
+const CONTRIBUTION_VOID = 2;
+
+const CONTRIBUTED_EVENT = {
+  type: "event",
+  name: "Contributed",
+  inputs: [
+    { name: "campaignId", type: "uint256", indexed: true },
+    { name: "contributor", type: "address", indexed: true },
+    { name: "contributionIndex", type: "uint256", indexed: false },
+    { name: "timestamp", type: "uint256", indexed: false },
+  ],
+} as const;
+
+interface MyContribution {
+  index: number;
+  refunded: boolean;
+  /** claimRefund ran and its payout check is not published yet. */
+  refundInFlight: boolean;
+  /** Funding check never passed: nothing was locked, so nothing can be refunded. */
+  unfunded: boolean;
+}
+
 interface OnChainCampaign {
   creator: `0x${string}`;
   vault: `0x${string}`;
@@ -38,7 +62,10 @@ export default function CrowdfundPage() {
   const chainId = params.chainId ? Number(params.chainId) : NaN;
   const campaignId = params.campaignId ? Number(params.campaignId) : NaN;
   const publicClient = usePublicClient({ chainId });
-  const { state, pipeline, contribute, closeCampaign, claimRelease, claimRefund } = useCrowdfund();
+  const {
+    state, pipeline, contribute, closeCampaign, claimRelease, claimRefund,
+    finishClosing, finishContribution, finishRefund,
+  } = useCrowdfund();
   const { effectiveAddress } = useEffectiveAddress();
 
   const [onChain, setOnChain] = useState<OnChainCampaign | null>(null);
@@ -47,8 +74,11 @@ export default function CrowdfundPage() {
   // Replaces a window.prompt() that asked the user to type an index —
   // wrong taps cost gas + revealed the typed integer. §1.7 WAVE4_HALF_BAKED
   // #9.
-  const [myContribs, setMyContribs] = useState<{ index: number; refunded: boolean }[]>([]);
+  const [myContribs, setMyContribs] = useState<MyContribution[]>([]);
   const [myContribsLoaded, setMyContribsLoaded] = useState(false);
+  // The viewer's contributions still waiting for their funding check. They do
+  // not count until it is published, and anyone can publish it.
+  const [myPending, setMyPending] = useState<number[]>([]);
   const [loadError, setLoadError] = useState<ClassifiedLoadError | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [amount, setAmount] = useState("");
@@ -135,6 +165,7 @@ export default function CrowdfundPage() {
     let cancelled = false;
     setMyContribsLoaded(false);
     setMyContribs([]);
+    setMyPending([]);
     if (
       !publicClient ||
       !onChain ||
@@ -144,26 +175,69 @@ export default function CrowdfundPage() {
     ) {
       return;
     }
-    // Only load when the user could actually need to refund.
-    if (onChain.status !== STATUS_REFUNDING && !(onChain.resultPublished && !onChain.goalMet)) {
-      return;
-    }
     const contracts = CONTRACTS_BY_CHAIN[chainId as SupportedChainId];
     if (!contracts.EncryptedCrowdfund) return;
+    const me = effectiveAddress.toLowerCase();
+    const cf = contracts.EncryptedCrowdfund;
+    // Both views are missing on a contract from before the funding gate; a
+    // failed read then means the contribution is counted and nothing is in flight.
+    const readState = async (index: number) => {
+      const [st, inFlight] = await Promise.allSettled([
+        publicClient.readContract({ address: cf, abi: EncryptedCrowdfundAbi, functionName: "contributionState", args: [BigInt(campaignId), BigInt(index)] }),
+        publicClient.readContract({ address: cf, abi: EncryptedCrowdfundAbi, functionName: "refundInFlight", args: [BigInt(campaignId), BigInt(index)] }),
+      ]);
+      return {
+        state: st.status === "fulfilled" ? Number(st.value) || 0 : 0,
+        refundInFlight: inFlight.status === "fulfilled" && inFlight.value === true,
+      };
+    };
+
+    const refunding = onChain.status === STATUS_REFUNDING || (onChain.resultPublished && !onChain.goalMet);
+    if (!refunding) {
+      if (me === onChain.creator.toLowerCase()) return; // creators cannot contribute
+      // Not refundable yet: only look for contributions stuck PendingFunding, via
+      // the Contributed events of this contributor (one call, no per-index walk).
+      (async () => {
+        try {
+          const logs = await publicClient.getLogs({
+            address: cf,
+            event: CONTRIBUTED_EVENT,
+            args: { campaignId: BigInt(campaignId), contributor: effectiveAddress as `0x${string}` },
+            fromBlock: "earliest",
+            toBlock: "latest",
+          });
+          const pending: number[] = [];
+          for (const log of logs) {
+            const index = Number(log.args.contributionIndex);
+            if ((await readState(index)).state === CONTRIBUTION_PENDING) pending.push(index);
+          }
+          if (!cancelled) setMyPending(pending);
+        } catch {
+          // No log access: the contribution can still be finished from the refund list later.
+        }
+      })();
+      return () => { cancelled = true; };
+    }
+
     (async () => {
       try {
-        const me = effectiveAddress.toLowerCase();
-        const collected: { index: number; refunded: boolean }[] = [];
+        const collected: MyContribution[] = [];
         for (let i = 0; i < contributionCount; i++) {
           const result = (await publicClient.readContract({
-            address: contracts.EncryptedCrowdfund,
+            address: cf,
             abi: EncryptedCrowdfundAbi,
             functionName: "getContribution",
             args: [BigInt(campaignId), BigInt(i)],
           })) as readonly [`0x${string}`, boolean];
           if (cancelled) return;
           if (result[0].toLowerCase() === me) {
-            collected.push({ index: i, refunded: result[1] });
+            const gate = await readState(i);
+            collected.push({
+              index: i,
+              refunded: result[1],
+              refundInFlight: gate.refundInFlight,
+              unfunded: gate.state === CONTRIBUTION_VOID,
+            });
           }
         }
         if (!cancelled) {
@@ -228,12 +302,39 @@ export default function CrowdfundPage() {
       </CenterCard>
     );
   }
+  if ((state.step === "success" || state.step === "funding") && state.funding === "pending" && state.lastContributionIndex != null) {
+    const index = state.lastContributionIndex;
+    return (
+      <CenterCard>
+        <IconBubble color="bg-amber-50" icon={<Clock size={32} className="text-amber-600" />} />
+        <h1 className="text-2xl font-heading font-semibold mb-3">Confirming your contribution</h1>
+        <p className="text-[var(--text-secondary)] mb-6" data-testid="contribution-pending">
+          Contribution #{index} is on-chain, but it does not count until your private balance is checked once.
+          Finish that check now, or come back to this page later.
+        </p>
+        {state.error && (
+          <div className="mb-4 px-4 py-3 rounded-xl bg-amber-50 text-amber-800 text-sm text-left">{state.error}</div>
+        )}
+        <button
+          onClick={() => finishContribution(campaignId, index)}
+          disabled={state.isProcessing}
+          className="w-full h-14 rounded-2xl bg-[#1D1D1F] text-white font-medium hover:bg-black transition-colors disabled:opacity-40"
+        >
+          {state.isProcessing ? "Confirming…" : "Finish contribution"}
+        </button>
+      </CenterCard>
+    );
+  }
   if (state.step === "success") {
     return (
       <CenterCard>
         <IconBubble color="bg-emerald-50" icon={<CheckCircle2 size={32} className="text-emerald-600" />} />
         <h1 className="text-2xl font-heading font-semibold mb-3">Contribution submitted</h1>
-        <p className="text-[var(--text-secondary)] mb-6">Your encrypted contribution is on-chain. Only you can decrypt your amount.</p>
+        <p className="text-[var(--text-secondary)] mb-6">
+          {state.funding === "funded"
+            ? "Your encrypted contribution is on-chain and counted. Only you can decrypt your amount."
+            : "Your encrypted contribution is on-chain. Only you can decrypt your amount."}
+        </p>
         <a href="/app" className="inline-block px-6 h-12 leading-[3rem] rounded-2xl bg-[#1D1D1F] text-white font-medium">
           Open Blank
         </a>
@@ -269,6 +370,7 @@ export default function CrowdfundPage() {
           amount={amount}
           setAmount={setAmount}
           isProcessing={state.isProcessing}
+          confirming={state.step === "funding"}
           onSubmit={() => contribute({
             campaignId,
             vault: onChain.vault,
@@ -284,18 +386,19 @@ export default function CrowdfundPage() {
           body="Anyone can finalize the campaign. Once closed, the goal-met verdict is published."
           ctaLabel="Close campaign"
           isProcessing={state.isProcessing}
-          onClick={() => closeCampaign(campaignId)}
+          onClick={async () => { if (await closeCampaign(campaignId)) setReloadKey((k) => k + 1); }}
           icon={<Clock size={14} />}
         />
       )}
 
       {phase === "needsPublish" && (
         <SimpleAction
-          headline="Decrypting the goal-met answer"
-          body="The encrypted comparison finished on-chain. Fhenix is decrypting the verdict (goal hit or missed). This usually takes 10-30 seconds. Refresh after a moment."
-          ctaLabel="Refresh"
-          isProcessing={false}
-          onClick={() => location.reload()}
+          headline="Closed, verdict not published"
+          body="The encrypted goal comparison finished on-chain. Its yes/no result has to be decrypted and published once before the creator can release the pool or contributors can claim refunds. Anyone can do this."
+          ctaLabel="Finish closing"
+          isProcessing={state.isProcessing}
+          onClick={async () => { if (await finishClosing(campaignId)) setReloadKey((k) => k + 1); }}
+          icon={<Clock size={14} />}
         />
       )}
 
@@ -330,6 +433,28 @@ export default function CrowdfundPage() {
         </div>
       )}
 
+      {phase !== "refunding" && myPending.length > 0 && (
+        <div data-testid="my-pending-contribs" className="mt-4 space-y-2 text-left">
+          <div className="px-4 py-3 rounded-xl bg-amber-50 text-amber-800 text-sm">
+            {myPending.length === 1 ? "A contribution of yours is" : "Some contributions of yours are"} waiting for the funding
+            check and not counted yet.
+          </div>
+          {myPending.map((index) => (
+            <button
+              key={index}
+              onClick={async () => { if (await finishContribution(campaignId, index)) setReloadKey((k) => k + 1); }}
+              disabled={state.isProcessing}
+              className="w-full h-12 px-4 rounded-2xl border border-[var(--border)] hover:bg-[var(--surface-2)] disabled:opacity-40 flex items-center justify-between text-sm"
+            >
+              <span>Contribution #{index}</span>
+              <span className="text-xs text-[var(--text-primary)] font-medium">
+                {state.isProcessing ? "Confirming…" : "Finish"}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+
       {phase === "refunding" && (
         <div className="text-left">
           <div className="px-4 py-3 rounded-xl bg-amber-50 text-amber-700 mb-4 text-sm flex items-start gap-2">
@@ -353,19 +478,33 @@ export default function CrowdfundPage() {
               <div className="text-xs uppercase tracking-wide text-[var(--text-secondary)]">
                 Your contributions
               </div>
-              {myContribs.map((c) => (
-                <button
-                  key={c.index}
-                  onClick={() => claimRefund(campaignId, c.index)}
-                  disabled={state.isProcessing || c.refunded}
-                  className="w-full h-12 px-4 rounded-2xl border border-[var(--border)] hover:bg-[var(--surface-2)] disabled:opacity-40 flex items-center justify-between text-sm"
-                >
-                  <span>Contribution #{c.index}</span>
-                  <span className={cn("text-xs", c.refunded ? "text-[var(--text-secondary)]" : "text-[var(--text-primary)] font-medium")}>
-                    {c.refunded ? "Refunded" : state.isProcessing ? "Refunding…" : "Refund"}
-                  </span>
-                </button>
-              ))}
+              {myContribs.map((c) => {
+                const inactive = c.refunded || c.unfunded;
+                return (
+                  <button
+                    key={c.index}
+                    onClick={async () => {
+                      if (c.refundInFlight) await finishRefund(campaignId, c.index);
+                      else await claimRefund(campaignId, c.index);
+                      setReloadKey((k) => k + 1);
+                    }}
+                    disabled={state.isProcessing || inactive}
+                    title={c.unfunded ? "This contribution never locked funds, so there is nothing to refund" : undefined}
+                    className="w-full h-12 px-4 rounded-2xl border border-[var(--border)] hover:bg-[var(--surface-2)] disabled:opacity-40 flex items-center justify-between text-sm"
+                  >
+                    <span>Contribution #{c.index}</span>
+                    <span className={cn("text-xs", inactive ? "text-[var(--text-secondary)]" : "text-[var(--text-primary)] font-medium")}>
+                      {c.refunded
+                        ? "Refunded"
+                        : c.unfunded
+                          ? "Not funded"
+                          : c.refundInFlight
+                            ? state.isProcessing ? "Confirming…" : "Finish refund"
+                            : state.isProcessing ? "Refunding…" : "Refund"}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>
@@ -392,6 +531,7 @@ function ContributeForm(props: {
   amount: string;
   setAmount: (v: string) => void;
   isProcessing: boolean;
+  confirming?: boolean;
   onSubmit: () => void;
 }) {
   return (
@@ -413,7 +553,7 @@ function ContributeForm(props: {
         disabled={props.isProcessing || !props.amount || Number.parseFloat(props.amount) <= 0}
         className="mt-4 w-full h-14 rounded-2xl bg-[#1D1D1F] text-white font-medium hover:bg-black transition-colors disabled:opacity-40"
       >
-        {props.isProcessing ? "Submitting…" : "Contribute privately"}
+        {props.isProcessing ? (props.confirming ? "Confirming funding…" : "Submitting…") : "Contribute privately"}
       </button>
       <p className="text-xs text-[var(--text-secondary)] mt-3">
         Your contribution is FHE-encrypted before it leaves your browser. Nobody, not even the creator, sees the amount.

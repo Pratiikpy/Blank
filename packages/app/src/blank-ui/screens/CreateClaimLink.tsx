@@ -1,9 +1,9 @@
 import { useState, useMemo, useEffect, useCallback } from "react";
-import { Link2, Mail, AtSign, Lock, Copy, Check, AlertCircle, Loader2, RefreshCw, RotateCcw } from "lucide-react";
+import { Link2, Mail, AtSign, Lock, Copy, Check, AlertCircle, Loader2, RefreshCw, RotateCcw, Clock } from "lucide-react";
 import toast from "react-hot-toast";
 import { isAddress, type Address } from "viem";
 
-import { useClaimLinks, type CreateLinkInput } from "@/hooks/useClaimLinks";
+import { useClaimLinks, type ClaimLinkFunding, type CreateLinkInput } from "@/hooks/useClaimLinks";
 import { useChain } from "@/providers/ChainProvider";
 import { useEffectiveAddress } from "@/hooks/useEffectiveAddress";
 import { MODE, type LinkMode } from "@/lib/claim-links";
@@ -36,11 +36,15 @@ interface SentLinkRecord {
   legacy: boolean;
   /** Legacy Bearer/EmailBound link: the claim path was removed on-chain. */
   legacyRefundOnly: boolean;
+  /** Funding check state. Links from before the funding gate read as active. */
+  funding: ClaimLinkFunding;
 }
 
-type SentLinkStatus = "claimable" | "claimed" | "refunded" | "expired";
+type SentLinkStatus = "claimable" | "claimed" | "refunded" | "expired" | "funding" | "unfunded";
 
 function deriveStatus(record: SentLinkRecord): SentLinkStatus {
+  if (record.funding === "pending") return "funding";
+  if (record.funding === "void") return "unfunded";
   if (record.claimed) return "claimed";
   if (record.refunded) return "refunded";
   if (Number(record.expiryTimestamp) * 1000 < Date.now()) return "expired";
@@ -50,7 +54,7 @@ function deriveStatus(record: SentLinkRecord): SentLinkStatus {
 export default function CreateClaimLink() {
   const { contracts, activeChain } = useChain();
   const { effectiveAddress } = useEffectiveAddress();
-  const { state, pipeline, createLink, refund, fetchSentLinks, fetchLink, reset } = useClaimLinks();
+  const { state, pipeline, createLink, refund, finishFunding, cancelPending, fetchSentLinks, fetchLink, reset } = useClaimLinks();
 
   const [mode, setMode] = useState<LinkMode>(MODE.EmailBound);
   const [amount, setAmount] = useState("");
@@ -232,6 +236,35 @@ export default function CreateClaimLink() {
     [refund, refreshSentLinks],
   );
 
+  const handleFinishFunding = useCallback(
+    async (linkId: bigint) => {
+      setRefundingId(linkId);
+      try {
+        await finishFunding(Number(linkId));
+        await refreshSentLinks();
+      } finally {
+        setRefundingId(null);
+      }
+    },
+    [finishFunding, refreshSentLinks],
+  );
+
+  const handleCancelPending = useCallback(
+    async (linkId: bigint) => {
+      setRefundingId(linkId);
+      try {
+        const ok = await cancelPending(Number(linkId));
+        if (ok) {
+          if (state.linkId === Number(linkId)) reset();
+          await refreshSentLinks();
+        }
+      } finally {
+        setRefundingId(null);
+      }
+    },
+    [cancelPending, refreshSentLinks, state.linkId, reset],
+  );
+
   const copySentLink = useCallback(
     async (linkId: bigint) => {
       // The full claim URL needs the secret in the URL fragment, which
@@ -245,8 +278,56 @@ export default function CreateClaimLink() {
     [activeChain, contracts.ClaimLinks],
   );
 
+  // ─── Waiting for the funding check ────────────────────────────────
+  // The link exists on-chain but cannot be claimed yet, so its URL is withheld.
+  // The secret lives only in this tab, which is why the copy says to keep it open.
+  if (
+    state.linkId !== null &&
+    state.funding === "pending" &&
+    (state.step === "success" || state.step === "funding")
+  ) {
+    const linkId = BigInt(state.linkId);
+    return (
+      <div className="max-w-xl mx-auto">
+        <div className="glass-card-static rounded-[2rem] p-10 text-center" data-testid="claim-link-pending">
+          <div className="w-16 h-16 rounded-2xl bg-amber-50 flex items-center justify-center mx-auto mb-6">
+            <Clock size={32} className="text-amber-600" />
+          </div>
+          <h2 className="text-2xl font-heading font-semibold mb-3">Confirming funding</h2>
+          <p className="text-[var(--text-secondary)] mb-6">
+            Link #{state.linkId} is created, but it cannot be claimed until your private balance is checked once.
+            The share URL appears as soon as that check passes. Keep this tab open: the URL exists only here.
+          </p>
+          {state.error && (
+            <div className="mb-4 px-4 py-3 rounded-xl bg-amber-50 text-amber-800 flex items-start gap-2 text-sm text-left">
+              <AlertCircle size={16} className="mt-0.5 flex-shrink-0" />
+              <span>{state.error}</span>
+            </div>
+          )}
+          <button
+            onClick={() => finishFunding(state.linkId as number)}
+            disabled={state.isProcessing}
+            className="inline-flex items-center gap-2 px-6 h-12 rounded-2xl bg-[#1D1D1F] text-white font-medium hover:bg-black transition-colors disabled:opacity-50 mb-3"
+          >
+            {state.isProcessing && <Loader2 size={16} className="animate-spin" />}
+            Finish funding
+          </button>
+          <div>
+            <button
+              onClick={() => handleCancelPending(linkId)}
+              disabled={state.isProcessing}
+              className="text-sm underline text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-50"
+            >
+              Cancel this link
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // ─── Success screen ───────────────────────────────────────────────
-  if (state.step === "success" && state.shareableUrl) {
+  if (state.step === "success" && state.shareableUrl && state.funding !== "pending") {
     return (
       <div className="max-w-xl mx-auto">
         <div className="glass-card-static rounded-[2rem] p-10 text-center">
@@ -441,7 +522,7 @@ export default function CreateClaimLink() {
           disabled={state.isProcessing || !!validation}
           className="w-full h-14 rounded-2xl bg-[#1D1D1F] text-white font-medium hover:bg-black transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         >
-          {state.isProcessing ? "Creating…" : "Create link"}
+          {state.isProcessing ? (state.step === "funding" ? "Confirming funding…" : "Creating…") : "Create link"}
         </button>
       </div>
 
@@ -496,7 +577,9 @@ export default function CreateClaimLink() {
                       ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300"
                       : status === "refunded"
                         ? "bg-slate-100 text-slate-700 dark:bg-slate-500/10 dark:text-slate-300"
-                        : "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300";
+                        : status === "unfunded"
+                          ? "bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-300"
+                          : "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300";
                 // The contract requires `block.timestamp >= expiryTimestamp`
                 // for refundLink; only show the Refund CTA on expired
                 // links. Claimable links can't be cancel-refunded early
@@ -514,7 +597,7 @@ export default function CreateClaimLink() {
                           #{link.id.toString()}
                         </span>
                         <span className={cn("px-2 py-0.5 rounded-full text-[10px] font-medium uppercase tracking-wide", statusColor)}>
-                          {status}
+                          {status === "funding" ? "funding" : status === "unfunded" ? "not funded" : status}
                         </span>
                       </div>
                       {link.note && (
@@ -533,17 +616,45 @@ export default function CreateClaimLink() {
                         {status === "claimed" && "Claim complete. Funds are with the recipient."}
                         {status === "refunded" && "Refund complete. The link can no longer be claimed."}
                         {status === "expired" && "Expired and ready to refund."}
+                        {status === "funding" &&
+                          "Waiting for the funding check, so it cannot be claimed yet. The share URL only exists in the tab that created it: if you closed that tab, cancel this link and create a new one."}
+                        {status === "unfunded" && "Not funded: the balance was too low when it was created. Nothing was locked."}
                       </p>
                     </div>
                     <div className="flex flex-col gap-1.5 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => copySentLink(link.id)}
-                        className="h-8 px-3 rounded-lg bg-black/[0.04] hover:bg-black/[0.07] dark:bg-white/[0.05] dark:hover:bg-white/[0.08] text-[var(--text-secondary)] text-[11px] flex items-center gap-1.5"
-                        aria-label={`Copy link ${link.id}`}
-                      >
-                        <Copy size={10} /> Copy
-                      </button>
+                      {status !== "funding" && status !== "unfunded" && (
+                        <button
+                          type="button"
+                          onClick={() => copySentLink(link.id)}
+                          className="h-8 px-3 rounded-lg bg-black/[0.04] hover:bg-black/[0.07] dark:bg-white/[0.05] dark:hover:bg-white/[0.08] text-[var(--text-secondary)] text-[11px] flex items-center gap-1.5"
+                          aria-label={`Copy link ${link.id}`}
+                        >
+                          <Copy size={10} /> Copy
+                        </button>
+                      )}
+                      {status === "funding" && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => handleFinishFunding(link.id)}
+                            disabled={refundingId === link.id || state.isProcessing}
+                            className="h-8 px-3 rounded-lg bg-[#1D1D1F] hover:bg-black text-white text-[11px] flex items-center gap-1.5 disabled:opacity-50"
+                            aria-label={`Finish funding link ${link.id}`}
+                          >
+                            {refundingId === link.id ? <Loader2 size={10} className="animate-spin" /> : <Clock size={10} />}
+                            Finish
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleCancelPending(link.id)}
+                            disabled={refundingId === link.id || state.isProcessing}
+                            className="h-8 px-3 rounded-lg bg-black/[0.04] hover:bg-black/[0.07] dark:bg-white/[0.05] dark:hover:bg-white/[0.08] text-[var(--text-secondary)] text-[11px] disabled:opacity-50"
+                            aria-label={`Cancel pending link ${link.id}`}
+                          >
+                            Cancel
+                          </button>
+                        </>
+                      )}
                       {canRefund && (
                         <button
                           type="button"

@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import * as path from "path";
 import {
-  loadSetup, openAccountPage, answerPassphrasePrompt, captureBaseline, pollForNewActivityRow,
+  loadSetup, openAccountPage, answerPassphrasePrompt, answerPromptsUntilFundingSettled, captureBaseline, pollForNewActivityRow,
   PASSPHRASE, SCREENSHOT_DIR, SUPABASE_URL, SUPABASE_ANON_KEY,
 } from "./helpers/phase6-helpers";
 
@@ -10,6 +10,11 @@ import {
 // Sender creates a $1 gift envelope to recipient. Recipient opens /app/gifts,
 // their "Received" tab shows the envelope, clicks Claim, signs UserOp. Supabase
 // gets a new gift_claimed row for the recipient.
+//
+// The envelope starts PendingFunding and the recipient's button reads "Funding"
+// until the sender's app confirms it (about 90s after createEnvelope, one more
+// passphrase prompt), so the sender step waits for "Gift Sent!" before the
+// recipient looks for Claim.
 
 test.describe("Phase 7 #1 — Gift claim cross-account", () => {
   test.setTimeout(900_000);
@@ -56,6 +61,13 @@ test.describe("Phase 7 #1 — Gift claim cross-account", () => {
         }
         await s.waitForTimeout(2_000);
       }
+      const funding = await answerPromptsUntilFundingSettled(s, PASSPHRASE, {
+        settledText: /Gift Sent!/i,
+        pendingTestId: "gift-funding-pending",
+        finishText: /Finish funding/i,
+        label: "S",
+      });
+      console.log(`  [S] funding confirmed ${funding === "auto" ? "automatically" : "after pressing Finish"}`);
       const createdResult = await pollForNewActivityRow(s, createdQuery, {
         label: "gift-created",
         baselineHashes: createBaseline,

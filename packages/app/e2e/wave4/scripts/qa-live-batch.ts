@@ -15,7 +15,9 @@ import {
   dismissRabbyWhatsNew,
   waitAndConfirmRabbyPopup,
   confirmRabbyPopup,
+  drainRabbyPopupsUntil,
 } from "../../fixtures/rabby/rabby-driver";
+import { FUNDING_SETTLE_MS } from "../helpers/app-actions";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -485,8 +487,23 @@ async function driveClaimLink(dapp: Page, ctx: BrowserContext, extId: string, kn
     return { name, status: "red", notes: "Create-link not enabled", screenshot: await snap(dapp, "claim-link-disabled") };
   }
   await submit.click();
-  await drainPopups(ctx, extId, known, "claim-link");
-  await dapp.waitForTimeout(8_000);
+  // The link is PendingFunding after createLink. The app confirms it by itself
+  // about 90s later (one more Rabby popup) and only then shows "Link ready" and
+  // the share URL, so approve popups until that screen is up.
+  const linkReady = dapp.locator("text=/Link ready/i").first();
+  const settled = await drainRabbyPopupsUntil(
+    ctx, extId, known, OUT, "claim-link",
+    () => linkReady.isVisible().catch(() => false),
+    { timeoutMs: FUNDING_SETTLE_MS + 180_000 },
+  );
+  if (!settled.done) {
+    return {
+      name,
+      status: "red",
+      notes: "Link never reached 'Link ready': the funding check did not finish",
+      screenshot: await snap(dapp, "claim-link-pending"),
+    };
+  }
   // Success: URL surfaced as a/text containing /c/ or /claim/.
   const claimUrl = await dapp.locator('a[href*="/claim/"], a[href*="/c/"]').first().getAttribute("href", { timeout: 3_000 }).catch(() => null);
   const bodyText = (await dapp.locator("body").textContent().catch(() => "")) ?? "";

@@ -8,7 +8,13 @@ import {
 } from "../fixtures/wallets";
 import { snap, resetCounter } from "../helpers/screenshot";
 import { recordProof } from "../helpers/testing-todo";
-import { drainPromptsAndCaptureTx, shieldUsdc, faucetUsdcIfNeeded } from "../helpers/app-actions";
+import {
+  drainPromptsAndCaptureTx,
+  waitForFundingSettled,
+  FUNDING_SETTLE_MS,
+  shieldUsdc,
+  faucetUsdcIfNeeded,
+} from "../helpers/app-actions";
 
 // ──────────────────────────────────────────────────────────────────
 //  Phase 5 — public deep-link CREATE (sender/seller/creator side).
@@ -22,6 +28,9 @@ import { drainPromptsAndCaptureTx, shieldUsdc, faucetUsdcIfNeeded } from "../hel
 //
 //  For each create:
 //   • One on-chain tx hash captured from the SendSuccess explorer link
+//   • Claim links start PendingFunding. The app confirms funding by itself
+//     (about 90s, one more signed transaction) and only then shows the share
+//     URL, so the claim-link leg waits for that and records the final hash
 //   • The full share URL written to WAVE4_TESTING_TODO.md as the
 //     urlArtifact so phase 6 (consume) can pick it up
 //   • Screenshots at pre-create, post-passphrase, post-success
@@ -83,7 +92,12 @@ async function bringUpAlice(
  *    /shop/  → listing-share-url
  *    /fund/  → crowdfund-share-url
  */
-async function readShareUrl(page: Page, pathPrefix: string, baseURL: string): Promise<string> {
+async function readShareUrl(
+  page: Page,
+  pathPrefix: string,
+  baseURL: string,
+  timeoutMs = 120_000,
+): Promise<string> {
   const testIdByPrefix: Record<string, string> = {
     "/claim/": "claim-link-share-url",
     "/shop/": "listing-share-url",
@@ -97,8 +111,9 @@ async function readShareUrl(page: Page, pathPrefix: string, baseURL: string): Pr
   // the receipt alone can take 30-40s, leaving 20s for the DOM
   // transition. Doubling the budget removes the cascade where all 3
   // modes (Bearer/EmailBound/AddressBound) timeout in sequence on a
-  // single suite run.
-  const deadline = Date.now() + 120_000;
+  // single suite run. Claim links get FUNDING_SETTLE_MS instead: the URL is
+  // withheld until the funding check passes.
+  const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     // Preferred path: stable data-testid.
     if (testId) {
@@ -143,6 +158,9 @@ test.describe("Phase 5 — public deep-link create", () => {
     browser,
     baseURL,
   }) => {
+    // Three links, each waits for its own funding check (about 90s) on top of
+    // the create, so the 10-minute project default is too short.
+    test.setTimeout(30 * 60_000);
     const chain = chainContextFromProject();
     const url = baseURL ?? "http://localhost:3000";
     const chainSlug = chain.chainKey === "ETH_SEPOLIA" ? "eth-sepolia" : chain.chainKey === "ARB_SEPOLIA" ? "arb-sepolia" : "base-sepolia";
@@ -207,19 +225,33 @@ test.describe("Phase 5 — public deep-link create", () => {
         .locator("button").filter({ hasText: /^Create link/i })
         .click();
 
+      // 300s budget: claim-link create has the FHE encryption pipeline
+      // (load WASM module + fetch keys + encrypt + ZK proof + submit
+      // + confirm) PLUS the on-chain UserOp. First iteration of the
+      // 3-mode loop (Bearer/Email/Address) bears the cold-cache cost.
+      // On top of that the link is PendingFunding until the app's automatic
+      // confirmFunding lands, so the drain runs until the share URL shows.
+      const SHARE_URL = '[data-testid="claim-link-share-url"]';
+      const hashes: string[] = [];
       const txHash = await drainPromptsAndCaptureTx(alice.page, PERSONAS.Alice.passphrase, {
-        // 300s budget: claim-link create has the FHE encryption pipeline
-        // (load WASM module + fetch keys + encrypt + ZK proof + submit
-        // + confirm) PLUS the on-chain UserOp. First iteration of the
-        // 3-mode loop (Bearer/Email/Address) bears the cold-cache cost.
         readTimeoutMs: 300_000,
-        windowMs: 600_000,
+        windowMs: 600_000 + FUNDING_SETTLE_MS,
+        doneSelector: SHARE_URL,
+        collectHashes: hashes,
       });
-      const shareUrl = await readShareUrl(alice.page, "/claim/", url);
+      const funding = await waitForFundingSettled(alice.page, {
+        settled: SHARE_URL,
+        pending: '[data-testid="claim-link-pending"]',
+        finish: '[data-testid="claim-link-pending"] button:has-text("Finish funding")',
+        passphrase: PERSONAS.Alice.passphrase,
+      });
+      const shareUrl = await readShareUrl(alice.page, "/claim/", url, FUNDING_SETTLE_MS);
       const successShot = await snap(alice.page, shot, `claim-${mode.key.toLowerCase()}-success`);
 
       expect(txHash).toMatch(/^0x[0-9a-fA-F]{64}$/);
       expect(shareUrl).toContain("/claim/");
+      // The share URL only renders for a funded link; the pending card must be gone.
+      await expect(alice.page.locator('[data-testid="claim-link-pending"]')).toHaveCount(0);
 
       recordProof({
         phase: `${PHASE} · claim ${mode.key}`,
@@ -228,7 +260,7 @@ test.describe("Phase 5 — public deep-link create", () => {
         txHash,
         screenshotPath: successShot,
         urlArtifact: shareUrl,
-        note: `Alice creates 10-USDC claim link · mode=${mode.key}`,
+        note: `Alice creates 10-USDC claim link · mode=${mode.key} · funding confirmed ${funding === "auto" ? "automatically" : "after pressing Finish"} · relay txs ${hashes.join(", ")}`,
         viewport: chain.viewport,
       });
     }

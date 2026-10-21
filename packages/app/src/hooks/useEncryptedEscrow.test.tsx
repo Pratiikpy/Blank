@@ -45,6 +45,7 @@ import { renderHook, act } from "@testing-library/react";
 //     helpful message rather than fail silently.
 
 const useEffectiveAddressMock = vi.hoisted(() => vi.fn());
+const decryptForTxMock = vi.hoisted(() => vi.fn());
 const useChainMock = vi.hoisted(() => vi.fn());
 const usePublicClientMock = vi.hoisted(() => vi.fn());
 const useUnifiedWriteMock = vi.hoisted(() => vi.fn());
@@ -67,6 +68,7 @@ vi.mock("@/providers/ChainProvider", () => ({ useChain: useChainMock }));
 vi.mock("./useUnifiedWrite", () => ({ useUnifiedWrite: useUnifiedWriteMock }));
 vi.mock("./useFhePipeline", () => ({ useFhePipeline: useFhePipelineMock }));
 vi.mock("@/lib/cofhe-shim", () => ({
+  useCofheDecryptForTx: () => ({ decryptForTx: decryptForTxMock }),
   useCofheConnection: useCofheConnectionMock,
   useCofheEncrypt: useCofheEncryptMock,
   Encryptable: new Proxy({}, { get: () => (v: unknown) => ({ raw: v }) }),
@@ -85,6 +87,18 @@ vi.mock("@/lib/event-parser", () => ({ extractEventId: extractEventIdMock }));
 vi.mock("@/lib/query-invalidation", () => ({
   invalidateBalanceQueries: invalidateBalanceQueriesMock,
 }));
+// The real helper, driven by a fake clock so a funding check that never
+// arrives times out instantly instead of waiting 90 real seconds.
+vi.mock("@/lib/funding-gate", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/funding-gate")>("@/lib/funding-gate");
+  return {
+    ...actual,
+    runFundingGate: (opts: Parameters<typeof actual.runFundingGate>[0]) => {
+      let t = 0;
+      return actual.runFundingGate({ ...opts, now: () => t, sleep: async (ms: number) => { t += ms; } });
+    },
+  };
+});
 vi.mock("react-hot-toast", () => ({
   default: {
     error: toastErrorMock,
@@ -93,7 +107,12 @@ vi.mock("react-hot-toast", () => ({
   },
 }));
 
-import { useEncryptedEscrow, readConditionalInvoice } from "./useEncryptedEscrow";
+import {
+  useEncryptedEscrow,
+  readConditionalInvoice,
+  ESCROW_STATUS,
+  ESCROW_UNFUNDED_MESSAGE,
+} from "./useEncryptedEscrow";
 
 const ME = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" as const;
 const ALICE = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" as const;
@@ -127,6 +146,7 @@ function defaultParams(over: Record<string, unknown> = {}) {
 }
 
 beforeEach(() => {
+  decryptForTxMock.mockReset();
   useEffectiveAddressMock.mockReset();
   useChainMock.mockReset();
   usePublicClientMock.mockReset();
@@ -993,5 +1013,196 @@ describe("useEncryptedEscrow — conditional invoice resolver keyed by (escrow, 
     );
     expect(readContract.mock.calls[0][0].address).toBe(RESOLVER);
     expect(c).toMatchObject({ deadlinePassed: true, legacy: false });
+  });
+});
+
+// ───────────────────────────────────────────────────────────
+//  Funding gate: create ends PendingFunding, confirmFunding settles it
+// ───────────────────────────────────────────────────────────
+
+describe("useEncryptedEscrow: funding gate", () => {
+  const SIG = "0x5151" as const;
+  const RESOLVER = "0x4444444444444444444444444444444444444444" as const;
+  let escrowStatus: number = ESCROW_STATUS.PendingFunding;
+  const readContractMock = vi.fn();
+
+  beforeEach(() => {
+    escrowStatus = ESCROW_STATUS.PendingFunding;
+    readContractMock.mockReset();
+    readContractMock.mockImplementation(async ({ functionName, args }: { functionName: string; args: readonly unknown[] }) => {
+      // The probe asks about id 0, which has no check; real ids have a handle.
+      if (functionName === "getFundingCheck") return args[0] === 0n ? 0n : 55n;
+      if (functionName === "getEscrow") return [ME, ALICE, ARBITER, VAULT, 0n, false, false, escrowStatus, "d", 0n];
+      throw new Error(`unexpected read ${functionName}`);
+    });
+    usePublicClientMock.mockReturnValue({
+      waitForTransactionReceipt: waitForTransactionReceiptMock,
+      readContract: readContractMock,
+    });
+    useChainMock.mockReturnValue({
+      activeChainId: 421614,
+      contracts: { EncryptedEscrow: EE_ADDR, InvoiceApprovalResolver: RESOLVER },
+    });
+  });
+
+  const confirmCalls = () =>
+    unifiedWriteAndWaitMock.mock.calls.map((c) => c[0]).filter((c) => c.functionName === "confirmFunding");
+
+  it("status codes: PendingFunding is 4 and Void is 5, after the four original values", () => {
+    expect(ESCROW_STATUS).toMatchObject({ Active: 0, Disputed: 1, Released: 2, Refunded: 3, PendingFunding: 4, Void: 5 });
+  });
+
+  it("funded: decrypts the check and confirms true, so the escrow becomes Active", async () => {
+    decryptForTxMock.mockResolvedValue({ decryptedValue: true, signature: SIG });
+    const { result } = renderHook(() => useEncryptedEscrow());
+    let id: number | null = null;
+    await act(async () => { id = await result.current.createEscrow(defaultParams()); });
+    expect(decryptForTxMock).toHaveBeenCalledWith(55n, "ebool");
+    expect(confirmCalls()).toHaveLength(1);
+    expect(confirmCalls()[0].args).toEqual([7n, true, SIG]);
+    expect(id).toBe(7);
+    expect(result.current.state.step).toBe("success");
+    expect(result.current.state.funding).toBe("funded");
+    expect(markDoneMock).toHaveBeenCalled();
+  });
+
+  it("unfunded: confirms false, returns null, says the balance was too low and nothing was locked", async () => {
+    decryptForTxMock.mockResolvedValue({ decryptedValue: false, signature: SIG });
+    const { result } = renderHook(() => useEncryptedEscrow());
+    let id: number | null = 1;
+    await act(async () => { id = await result.current.createEscrow(defaultParams()); });
+    expect(confirmCalls()[0].args).toEqual([7n, false, SIG]);
+    expect(id).toBeNull();
+    expect(result.current.state.step).toBe("error");
+    expect(result.current.state.funding).toBe("unfunded");
+    expect(result.current.state.lastEscrowId).toBe(7);
+    expect(result.current.state.error).toBe(ESCROW_UNFUNDED_MESSAGE);
+    expect(result.current.state.error).toContain("too low");
+    expect(result.current.state.error).toContain("Nothing was locked");
+    expect(toastErrorMock).toHaveBeenCalledWith(ESCROW_UNFUNDED_MESSAGE);
+    expect(markFailedMock).toHaveBeenCalled();
+  });
+
+  it("decryption never arrives: escrow stays pending, id is returned, no confirm, no fake success toast", async () => {
+    decryptForTxMock.mockResolvedValue(null);
+    const { result } = renderHook(() => useEncryptedEscrow());
+    let id: number | null = null;
+    await act(async () => { id = await result.current.createEscrow(defaultParams()); });
+    expect(confirmCalls()).toHaveLength(0);
+    expect(id).toBe(7);
+    expect(result.current.state.funding).toBe("pending");
+    const msg = toastErrorMock.mock.calls.map((c) => String(c[0])).find((m) => m.includes("Escrow #7"));
+    expect(msg).toContain("not confirmed");
+    expect(msg).toContain("Finish funding");
+    expect(toastSuccessMock).not.toHaveBeenCalled();
+  });
+
+  it("confirm tx rejected: pending, with the wallet's reason in the message", async () => {
+    decryptForTxMock.mockResolvedValue({ decryptedValue: true, signature: SIG });
+    unifiedWriteAndWaitMock.mockImplementation(async (p: { functionName: string }) => {
+      if (p.functionName === "confirmFunding") throw new Error("User rejected the request");
+      return { hash: "0xtxhash", receipt: { status: "success", blockNumber: 1n, logs: [] } };
+    });
+    const { result } = renderHook(() => useEncryptedEscrow());
+    await act(async () => { await result.current.createEscrow(defaultParams()); });
+    expect(result.current.state.funding).toBe("pending");
+    expect(toastErrorMock.mock.calls.map((c) => String(c[0])).join(" ")).toContain("User rejected the request");
+  });
+
+  it("legacy contract (no getFundingCheck): old behaviour, no decrypt, no confirm", async () => {
+    readContractMock.mockImplementation(async () => { throw new Error("function selector not found"); });
+    const { result } = renderHook(() => useEncryptedEscrow());
+    let id: number | null = null;
+    await act(async () => { id = await result.current.createEscrow(defaultParams()); });
+    expect(id).toBe(7);
+    expect(decryptForTxMock).not.toHaveBeenCalled();
+    expect(confirmCalls()).toHaveLength(0);
+    expect(result.current.state.funding).toBeNull();
+    expect(result.current.state.step).toBe("success");
+  });
+
+  it("conditional invoice: funded and unfunded go through the same gate", async () => {
+    decryptForTxMock.mockResolvedValue({ decryptedValue: true, signature: SIG });
+    const { result } = renderHook(() => useEncryptedEscrow());
+    const params = { beneficiary: ALICE, vault: VAULT, amountTokens: "5", decimals: 6, description: "inv", deadlineSeconds: Math.floor(Date.now() / 1000) + 3 * 86400 };
+    let id: number | null = null;
+    await act(async () => { id = await result.current.createConditionalInvoice(params); });
+    expect(id).toBe(7);
+    expect(confirmCalls()[0].args).toEqual([7n, true, SIG]);
+
+    decryptForTxMock.mockResolvedValue({ decryptedValue: false, signature: SIG });
+    await act(async () => { id = await result.current.createConditionalInvoice(params); });
+    expect(id).toBeNull();
+    expect(result.current.state.funding).toBe("unfunded");
+    expect(result.current.state.error).toBe(ESCROW_UNFUNDED_MESSAGE);
+  });
+
+  it("probes support once per hook: a second create does not probe again", async () => {
+    decryptForTxMock.mockResolvedValue({ decryptedValue: true, signature: SIG });
+    const { result } = renderHook(() => useEncryptedEscrow());
+    await act(async () => { await result.current.createEscrow(defaultParams()); });
+    await act(async () => { await result.current.createEscrow(defaultParams()); });
+    const probes = readContractMock.mock.calls.filter((c) => c[0].functionName === "getFundingCheck" && c[0].args[0] === 0n);
+    expect(probes).toHaveLength(1);
+  });
+
+  it("finishFunding settles a pending escrow", async () => {
+    decryptForTxMock.mockResolvedValue({ decryptedValue: true, signature: SIG });
+    const { result } = renderHook(() => useEncryptedEscrow());
+    let verdict: string | null = null;
+    await act(async () => { verdict = await result.current.finishFunding(12); });
+    expect(verdict).toBe("funded");
+    expect(confirmCalls()[0].args).toEqual([12n, true, SIG]);
+    expect(toastSuccessMock).toHaveBeenCalledWith("Escrow funded", expect.anything());
+    expect(result.current.state.step).toBe("success");
+  });
+
+  it("finishFunding reports an unfunded verdict honestly", async () => {
+    decryptForTxMock.mockResolvedValue({ decryptedValue: false, signature: SIG });
+    const { result } = renderHook(() => useEncryptedEscrow());
+    let verdict: string | null = null;
+    await act(async () => { verdict = await result.current.finishFunding(12); });
+    expect(verdict).toBe("unfunded");
+    expect(toastErrorMock).toHaveBeenCalledWith(ESCROW_UNFUNDED_MESSAGE, expect.anything());
+  });
+
+  it("finishFunding on an escrow someone else already settled sends no second confirm", async () => {
+    escrowStatus = ESCROW_STATUS.Active;
+    decryptForTxMock.mockResolvedValue({ decryptedValue: true, signature: SIG });
+    const { result } = renderHook(() => useEncryptedEscrow());
+    let verdict: string | null = null;
+    await act(async () => { verdict = await result.current.finishFunding(12); });
+    expect(verdict).toBe("funded");
+    expect(confirmCalls()).toHaveLength(0);
+  });
+
+  it("finishFunding that cannot decrypt returns null, names the escrow, and stays retryable", async () => {
+    decryptForTxMock.mockResolvedValue(null);
+    const { result } = renderHook(() => useEncryptedEscrow());
+    let verdict: string | null = "x";
+    await act(async () => { verdict = await result.current.finishFunding(12); });
+    expect(verdict).toBeNull();
+    expect(confirmCalls()).toHaveLength(0);
+    expect(result.current.state.step).toBe("error");
+    expect(result.current.state.error).toContain("Escrow #12");
+    expect(result.current.state.isProcessing).toBe(false);
+  });
+
+  it("finishFunding on a legacy contract says there is nothing to finish", async () => {
+    readContractMock.mockImplementation(async () => { throw new Error("function selector not found"); });
+    const { result } = renderHook(() => useEncryptedEscrow());
+    let verdict: string | null = "x";
+    await act(async () => { verdict = await result.current.finishFunding(12); });
+    expect(verdict).toBeNull();
+    expect(toastErrorMock).toHaveBeenCalledWith("This escrow contract has no funding check to finish.");
+  });
+
+  it("cancelPendingEscrow writes cancelPendingEscrow(id) with the friendly toast", async () => {
+    const { result } = renderHook(() => useEncryptedEscrow());
+    await act(async () => { await result.current.cancelPendingEscrow(12); });
+    const call = unifiedWriteAndWaitMock.mock.calls[0][0];
+    expect(call.functionName).toBe("cancelPendingEscrow");
+    expect(call.args).toEqual([12n]);
+    expect(toastSuccessMock).toHaveBeenCalledWith("Escrow cancelled");
   });
 });

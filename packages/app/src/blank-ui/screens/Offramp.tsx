@@ -8,6 +8,7 @@ import { useEffectiveAddress } from "@/hooks/useEffectiveAddress";
 import { OfferRow } from "@/blank-ui/components/offramp/OfferRow";
 import { CreateOfferModal } from "@/blank-ui/components/offramp/CreateOfferModal";
 import { ALL_RAILS } from "@/lib/reclaim-providers";
+import { FILL_STATE_LABEL } from "@/lib/offramp-fill-state";
 
 type Tab = "buy" | "sell" | "myOffers" | "myFills";
 
@@ -162,7 +163,7 @@ export default function Offramp() {
                     <div>
                       <div className="font-medium">Fill #{f.fillId.toString()}</div>
                       <div className="text-xs text-[var(--text-secondary)]">
-                        offer #{f.offerId.toString()} · state {f.state}
+                        offer #{f.offerId.toString()} · {FILL_STATE_LABEL[f.state] ?? `state ${f.state}`}
                       </div>
                     </div>
                     <div className="text-sm tabular-nums">

@@ -2,7 +2,14 @@
 import { PERSONAS, injectPasskey, setActiveChain, type ChainKey } from "../fixtures/wallets";
 import { snap, resetCounter } from "../helpers/screenshot";
 import { recordProof } from "../helpers/testing-todo";
-import { drainPromptsAndCaptureTx, drainPassphrasePrompts, shieldUsdc, faucetUsdcIfNeeded } from "../helpers/app-actions";
+import {
+  drainPromptsAndCaptureTx,
+  drainPassphrasePrompts,
+  waitForFundingSettled,
+  FUNDING_SETTLE_MS,
+  shieldUsdc,
+  faucetUsdcIfNeeded,
+} from "../helpers/app-actions";
 
 // ──────────────────────────────────────────────────────────────────
 //  Phase 20 , Gift envelopes (/app/gifts).
@@ -12,7 +19,9 @@ import { drainPromptsAndCaptureTx, drainPassphrasePrompts, shieldUsdc, faucetUsd
 //
 //    1. Alice creates a gift envelope: single recipient (Bob),
 //       $5 USDC, equal split, default theme, optional message,
-//       no expiry. createGift UserOp through the AA path.
+//       no expiry. createGift UserOp through the AA path. The envelope
+//       starts PendingFunding; the app confirms it by itself (about 90s,
+//       one more signed transaction) and only then shows "Gift Sent!".
 //    2. Bob opens /app/gifts → Received tab → sees pending
 //       envelope from Alice → taps the green Claim button →
 //       claimGift UserOp moves the FHE-encrypted USDC into
@@ -73,6 +82,8 @@ test.describe("Phase 20 , Gift envelopes (Alice gifts Bob $5)", () => {
     browser,
     baseURL,
   }) => {
+    // Create + funding check + claim + Alice's status refresh: past the 10-minute default.
+    test.setTimeout(30 * 60_000);
     const chain = chainContextFromProject();
     const url = baseURL ?? "http://localhost:3000";
     const chainSlug = chain.chainKey === "ETH_SEPOLIA" ? "eth-sepolia" : chain.chainKey === "ARB_SEPOLIA" ? "arb-sepolia" : "base-sepolia";
@@ -139,7 +150,10 @@ test.describe("Phase 20 , Gift envelopes (Alice gifts Bob $5)", () => {
     // permit warm + AA approve + createGift). drainPromptsAndCaptureTx
     // terminates on the FIRST /api/relay success, which is the approve
     // UserOp not the gift. Capture every relay tx hash, then keep
-    // draining prompts until the "Gift Sent!" success card mounts.
+    // draining prompts until the "Gift Sent!" success card mounts. That card
+    // only shows once the funding check is confirmed, which is a further
+    // signed transaction about 90s after createEnvelope, so the gap between
+    // prompts and the overall window are wider than a plain send needs.
     const relayHashes: string[] = [];
     const routePredicate = (url: URL): boolean => /\/api\/relay(\b|\/|\?)/.test(url.toString());
     const routeHandler = async (route: import("@playwright/test").Route): Promise<void> => {
@@ -162,28 +176,34 @@ test.describe("Phase 20 , Gift envelopes (Alice gifts Bob $5)", () => {
     await alice.page.route(routePredicate, routeHandler);
 
     let createTx: string;
+    let giftFunding: "auto" | "manual" | null = null;
     try {
       await drainPassphrasePrompts(alice.page, PERSONAS.Alice.passphrase, {
-        windowMs: 360_000,
-        gapMs: 90_000,
+        windowMs: 360_000 + FUNDING_SETTLE_MS,
+        gapMs: 150_000,
         expectAtLeast: 0,
         terminateOn: async () =>
           (await alice.page.getByRole("heading", { name: /Gift Sent!/i }).count()) > 0,
       });
-      // Wait once more for the success card if it surfaced near the
-      // window edge, then pick the LAST relay hash (createGift, not
-      // the warm-up approve).
-      await alice.page
-        .getByRole("heading", { name: /Gift Sent!/i })
-        .waitFor({ state: "visible", timeout: 60_000 })
-        .catch(() => undefined);
+      // If the automatic step has not finished, press Finish like a user and
+      // report which way it went. Throws when the card never appears.
+      giftFunding = await waitForFundingSettled(alice.page, {
+        settled: "h3:has-text('Gift Sent!')",
+        pending: '[data-testid="gift-funding-pending"]',
+        finish: '[data-testid="gift-funding-pending"] button:has-text("Finish funding")',
+        passphrase: PERSONAS.Alice.passphrase,
+      });
+      // The LAST relay hash is the transaction after which the envelope is
+      // openable (confirmFunding on an upgraded contract, else createEnvelope).
       createTx = relayHashes[relayHashes.length - 1] ?? `0x${"0".repeat(64)}`;
-    } catch {
+    } catch (err) {
+      if (err instanceof Error && /funding did not settle/.test(err.message)) throw err;
       createTx = relayHashes[relayHashes.length - 1] ?? `0x${"0".repeat(64)}`;
     } finally {
       await alice.page.unroute(routePredicate, routeHandler).catch(() => undefined);
     }
     const createShot = await snap(alice.page, aliceShot, "gift-created-success-card");
+    await expect(alice.page.locator('[data-testid="gift-funding-pending"]')).toHaveCount(0);
 
     recordProof({
       phase: `${PHASE} · Alice createGift`,
@@ -191,7 +211,7 @@ test.describe("Phase 20 , Gift envelopes (Alice gifts Bob $5)", () => {
       chainId: chain.chainId,
       txHash: createTx,
       screenshotPath: createShot,
-      note: `Alice creates $5 USDC gift envelope for Bob via /app/gifts → form → "Send Gift Envelope". Single recipient, equal split (1-of-1 = 100%), default theme, encrypted message. createGift UserOp through the AA path.`,
+      note: `Alice creates $5 USDC gift envelope for Bob via /app/gifts → form → "Send Gift Envelope". Single recipient, equal split (1-of-1 = 100%), default theme, encrypted message. createGift UserOp through the AA path. Funding confirmed ${giftFunding === null ? "n/a (older contract)" : giftFunding === "auto" ? "automatically" : "after pressing Finish"}. Relay txs: ${relayHashes.join(", ")}.`,
       viewport: chain.viewport,
     });
 

@@ -91,16 +91,22 @@ let computeEqualSplitsMock: ReturnType<typeof vi.fn>;
 let computeRandomSplitsMock: ReturnType<typeof vi.fn>;
 let resetMock: ReturnType<typeof vi.fn>;
 let readContractMock: ReturnType<typeof vi.fn>;
+let finishFundingMock: ReturnType<typeof vi.fn>;
 
 function setHook(overrides: Partial<{
   step: string;
   isProcessing: boolean;
   error: string | null;
+  funding: "active" | "pending" | "void" | null;
+  lastEnvelopeId: number | null;
 }> = {}) {
   useGiftMoneyMock.mockReturnValue({
     step: overrides.step ?? "idle",
     isProcessing: overrides.isProcessing ?? false,
     error: overrides.error ?? null,
+    funding: overrides.funding ?? null,
+    lastEnvelopeId: overrides.lastEnvelopeId ?? null,
+    finishFunding: finishFundingMock,
     createGift: createGiftMock,
     claimGift: claimGiftMock,
     deactivateEnvelope: deactivateMock,
@@ -152,6 +158,7 @@ beforeEach(() => {
   computeEqualSplitsMock = vi.fn().mockReturnValue(["5000000", "5000000"]);
   computeRandomSplitsMock = vi.fn().mockReturnValue(["3000000", "7000000"]);
   resetMock = vi.fn();
+  finishFundingMock = vi.fn().mockResolvedValue("funded");
   setHook();
 
   useEffectiveAddressMock.mockReturnValue({ effectiveAddress: ME });
@@ -592,5 +599,149 @@ describe("Gifts — count label (§15.x)", () => {
     });
     const second = render(<Gifts />);
     expect(second.container.textContent).toContain("2 Gifts");
+  });
+});
+
+// ───────────────────────────────────────────────────────────
+//  Funding gate: an envelope can only be opened once every share is confirmed funded
+// ───────────────────────────────────────────────────────────
+
+describe("Gifts: funding gate", () => {
+  /** getEnvelope keeps its default tuple, nothing is opened yet; fundingStatus answers `code`. */
+  function withFunding(code: number | Error) {
+    readContractMock = vi.fn().mockImplementation(async (args: { functionName: string }) => {
+      if (args.functionName === "fundingStatus") {
+        if (code instanceof Error) throw code;
+        return code;
+      }
+      if (args.functionName === "opened") return false;
+      return ["0xowner", "0xvault", 100n, "ipfs", 0, 0, false, 0n];
+    });
+    usePublicClientMock.mockReturnValue({ readContract: readContractMock });
+  }
+
+  const received = () =>
+    useActivityFeedMock.mockReturnValue({ activities: [buildActivity({ note: "[envelope:42] Birthday" })] });
+  const sent = () =>
+    useActivityFeedMock.mockReturnValue({
+      activities: [
+        buildActivity({ user_from: ME.toLowerCase(), user_to: ALICE.toLowerCase(), note: "[envelope:42] Birthday" }),
+      ],
+    });
+  const openSentTab = (container: HTMLElement) =>
+    fireEvent.click(container.querySelector("[aria-label='Sent gifts']") as HTMLElement);
+
+  it("received + pending: badge 'funding', Claim disabled and relabelled, reason shown", async () => {
+    withFunding(1);
+    received();
+    const { container } = render(<Gifts />);
+    await waitFor(() => expect(container.textContent).toContain("Still being funded"));
+    const claim = Array.from(container.querySelectorAll("button")).find((b) => b.textContent === "Funding") as HTMLButtonElement;
+    expect(claim.disabled).toBe(true);
+    expect(container.textContent).toContain("funding");
+  });
+
+  it("received + void: 'not funded', Claim disabled, no promise that money is coming", async () => {
+    withFunding(2);
+    received();
+    const { container } = render(<Gifts />);
+    await waitFor(() => expect(container.textContent).toContain("This envelope cannot be opened"));
+    const claim = Array.from(container.querySelectorAll("button")).find((b) => b.textContent === "Not funded") as HTMLButtonElement;
+    expect(claim.disabled).toBe(true);
+    expect(container.textContent).toContain("not funded");
+  });
+
+  it("received + active: Claim stays enabled", async () => {
+    withFunding(0);
+    received();
+    const { container } = render(<Gifts />);
+    await waitFor(() => expect(readContractMock).toHaveBeenCalled());
+    const claim = Array.from(container.querySelectorAll("button")).find((b) => b.textContent === "Claim") as HTMLButtonElement;
+    expect(claim.disabled).toBe(false);
+  });
+
+  it("legacy contract (no fundingStatus): Claim stays enabled", async () => {
+    withFunding(new Error("function selector not found"));
+    received();
+    const { container } = render(<Gifts />);
+    await waitFor(() => expect(readContractMock).toHaveBeenCalled());
+    const claim = Array.from(container.querySelectorAll("button")).find((b) => b.textContent === "Claim") as HTMLButtonElement;
+    expect(claim.disabled).toBe(false);
+  });
+
+  it("sent + pending: 'Finish funding' calls finishFunding(envelopeId) and the row refreshes", async () => {
+    withFunding(1);
+    sent();
+    const { container } = render(<Gifts />);
+    openSentTab(container);
+    const btn = await waitFor(() => {
+      const b = Array.from(container.querySelectorAll("button")).find((x) => x.textContent?.includes("Finish funding"));
+      expect(b).toBeDefined();
+      return b as HTMLButtonElement;
+    });
+    const readsBefore = readContractMock.mock.calls.length;
+    await act(async () => { fireEvent.click(btn); });
+    expect(finishFundingMock).toHaveBeenCalledWith(42);
+    await waitFor(() => expect(readContractMock.mock.calls.length).toBeGreaterThan(readsBefore));
+  });
+
+  it("sent + void: warns that some recipients may already have received their share; no Deactivate", async () => {
+    withFunding(2);
+    sent();
+    const { container } = render(<Gifts />);
+    openSentTab(container);
+    await waitFor(() => expect(container.textContent).toContain("Some recipients may already have received their share"));
+    expect(container.textContent).toContain("not funded");
+    expect(container.textContent).not.toContain("Deactivate");
+  });
+
+  it("sent + active: Deactivate is still offered", async () => {
+    withFunding(0);
+    sent();
+    const { container } = render(<Gifts />);
+    openSentTab(container);
+    await waitFor(() => expect(container.textContent).toContain("Deactivate"));
+  });
+
+  describe("after sending", () => {
+    async function send(container: HTMLElement) {
+      fireEvent.change(container.querySelector("input[placeholder*='0.00']") as HTMLInputElement, { target: { value: "10" } });
+      fireEvent.change(container.querySelector("input[placeholder*='(address)']") as HTMLInputElement, { target: { value: ALICE } });
+      const sendBtn = Array.from(container.querySelectorAll("button")).find((b) => b.textContent?.includes("Send Gift Envelope")) as HTMLButtonElement;
+      await act(async () => { fireEvent.click(sendBtn); });
+    }
+
+    it("pending: shows 'Confirming funding' instead of 'Gift Sent!' and Finish funding calls the hook", async () => {
+      setHook({ step: "success", funding: "pending", lastEnvelopeId: 42 });
+      const { container, findByText, findByTestId } = render(<Gifts />);
+      await send(container);
+      await findByTestId("gift-funding-pending");
+      expect(container.textContent).toContain("Confirming funding");
+      expect(container.textContent).toContain("Envelope #42");
+      expect(container.textContent).not.toContain("Gift Sent!");
+      await act(async () => { fireEvent.click(await findByText("Finish funding")); });
+      expect(finishFundingMock).toHaveBeenCalledWith(42);
+    });
+
+    it("pending: a failed finish shows its error under the card", async () => {
+      setHook({ step: "error", funding: "pending", lastEnvelopeId: 42, error: "Envelope #42 was created but its funding is not confirmed (rpc down)." });
+      const { container, findByText } = render(<Gifts />);
+      await send(container);
+      await findByText(/funding is not confirmed \(rpc down\)/);
+    });
+
+    it("funded: the normal 'Gift Sent!' card", async () => {
+      setHook({ step: "success", funding: "active", lastEnvelopeId: 42 });
+      const { container, findByText } = render(<Gifts />);
+      await send(container);
+      await findByText("Gift Sent!");
+    });
+
+    it("legacy contract: the normal 'Gift Sent!' card", async () => {
+      setHook({ step: "success" });
+      const { container, findByText } = render(<Gifts />);
+      await send(container);
+      await findByText("Gift Sent!");
+    });
   });
 });

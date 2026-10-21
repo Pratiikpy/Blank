@@ -69,6 +69,7 @@ let readContractMock: ReturnType<typeof vi.fn>;
 let claimKeyOfMock: ReturnType<typeof vi.fn>;
 const CLAIM_KEY = "0xcccccccccccccccccccccccccccccccccccccccc";
 let claimMock: ReturnType<typeof vi.fn>;
+let finishFundingMock: ReturnType<typeof vi.fn>;
 
 function buildOnChainTuple(over: Partial<{
   sender: string;
@@ -117,6 +118,7 @@ function setHook(overrides: Partial<{
     },
     pipeline: { phase: overrides.pipelinePhase ?? "idle" },
     claim: claimMock,
+    finishFunding: finishFundingMock,
   });
 }
 
@@ -141,6 +143,7 @@ beforeEach(() => {
   });
 
   claimMock = vi.fn().mockResolvedValue(undefined);
+  finishFundingMock = vi.fn().mockResolvedValue("funded");
   setHook();
 
   // Default: parseClaimUrl returns a valid Bearer fragment.
@@ -510,5 +513,78 @@ describe("ClaimLinkPage — loading skeleton (§15.x)", () => {
     await waitFor(() => {
       expect(container.textContent).toContain("Loading link");
     });
+  });
+});
+
+// ───────────────────────────────────────────────────────────
+//  Funding gate: a link that has not passed its funding check cannot be claimed
+// ───────────────────────────────────────────────────────────
+
+describe("ClaimLinkPage: funding gate", () => {
+  /** Serves fundingStatus with `code`; everything else as in the default setup. */
+  function withFunding(code: number | Error) {
+    usePublicClientMock.mockReturnValue({
+      readContract: (args: { functionName: string }) => {
+        if (args.functionName === "fundingStatus") {
+          return code instanceof Error ? Promise.reject(code) : Promise.resolve(code);
+        }
+        return args.functionName === "claimKeyOf" ? claimKeyOfMock(args) : readContractMock(args);
+      },
+    });
+  }
+
+  it("pending: no Claim button, says the link is still being funded", async () => {
+    withFunding(1);
+    const { findByText, queryByText } = render(<ClaimLinkPage />);
+    await findByText("This link is still being funded");
+    expect(queryByText("Claim private payment")).toBeNull();
+  });
+
+  it("pending: 'Check again' re-reads the link", async () => {
+    withFunding(1);
+    const { findByText } = render(<ClaimLinkPage />);
+    const btn = await findByText("Check again");
+    const before = readContractMock.mock.calls.length;
+    await act(async () => { fireEvent.click(btn); });
+    await findByText("This link is still being funded");
+    expect(readContractMock.mock.calls.length).toBeGreaterThan(before);
+  });
+
+  it("pending: a connected viewer can finish the check, which reloads the link", async () => {
+    withFunding(1);
+    useEffectiveAddressMock.mockReturnValue({ effectiveAddress: "0xdddddddddddddddddddddddddddddddddddddddd" });
+    const { findByText } = render(<ClaimLinkPage />);
+    const btn = await findByText("Finish the check");
+    const before = readContractMock.mock.calls.length;
+    await act(async () => { fireEvent.click(btn); });
+    expect(finishFundingMock).toHaveBeenCalledWith(42);
+    expect(readContractMock.mock.calls.length).toBeGreaterThan(before);
+  });
+
+  it("pending: without a wallet there is no finish button", async () => {
+    withFunding(1);
+    const { findByText, queryByText } = render(<ClaimLinkPage />);
+    await findByText("This link is still being funded");
+    expect(queryByText("Finish the check")).toBeNull();
+  });
+
+  it("void: says it was never funded, no Claim button", async () => {
+    withFunding(2);
+    const { findByText, queryByText, container } = render(<ClaimLinkPage />);
+    await findByText("This link was never funded");
+    expect(container.textContent).toContain("nothing to claim");
+    expect(queryByText("Claim private payment")).toBeNull();
+  });
+
+  it("active: the normal claim screen", async () => {
+    withFunding(0);
+    const { findByText } = render(<ClaimLinkPage />);
+    await findByText("Claim private payment");
+  });
+
+  it("fundingStatus missing (contract not upgraded yet): treated as active", async () => {
+    withFunding(new Error("function selector not found"));
+    const { findByText } = render(<ClaimLinkPage />);
+    await findByText("Claim private payment");
   });
 });

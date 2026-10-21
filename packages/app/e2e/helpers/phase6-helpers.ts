@@ -108,6 +108,109 @@ export async function answerPassphrasePrompt(page: Page, passphrase: string, tim
   });
 }
 
+/**
+ * Answers every passphrase prompt that opens until stopped, in the background.
+ * For specs that poll something else (a Supabase row, a status) while the app
+ * sends a transaction of its own: the funding-gate confirmFunding step is
+ * signed by the same passkey and opens a prompt up to ~90s after the user's
+ * transaction. Call the returned function to stop; it resolves with the number
+ * of prompts answered.
+ */
+export function startPromptAnswerer(page: Page, passphrase: string, label = "bg"): () => Promise<number> {
+  let running = true;
+  let answered = 0;
+  const loop = (async () => {
+    while (running) {
+      const open = await page.locator('input[type="password"]').first().isVisible().catch(() => false);
+      if (open) {
+        await answerPassphrasePrompt(page, passphrase, 3_000).then(
+          () => {
+            answered += 1;
+            console.log(`  [${label}] ✅ answered background prompt #${answered}`);
+          },
+          () => undefined,
+        );
+        await page.waitForTimeout(1_500);
+        continue;
+      }
+      await page.waitForTimeout(1_000);
+    }
+  })();
+  return async () => {
+    running = false;
+    await loop;
+    return answered;
+  };
+}
+
+/**
+ * Funding-gate actions (gift envelope, claim link, contribution, tip) leave the
+ * item pending after the user's own transaction. The app then reads the public
+ * funded bit, waits for the Threshold Network (up to ~90s) and sends
+ * confirmFunding, which is one more signed transaction and one more passphrase
+ * prompt. A spec that stops answering prompts after the create leaves the item
+ * pending and the recipient sees "Funding" instead of Claim.
+ *
+ * Keeps answering prompts until `settledText` shows in the page. If the pending
+ * card (`pendingTestId`) is still up after `graceMs`, presses its Finish button
+ * the way a user would. Returns "auto" when the app finished alone, "manual"
+ * when Finish was needed. Throws when the settled text never appears.
+ */
+export async function answerPromptsUntilFundingSettled(
+  page: Page,
+  passphrase: string,
+  opts: {
+    settledText: RegExp;
+    pendingTestId: string;
+    finishText?: RegExp;
+    timeoutMs?: number;
+    graceMs?: number;
+    label?: string;
+  },
+): Promise<"auto" | "manual"> {
+  const label = opts.label ?? "funding";
+  const deadline = Date.now() + (opts.timeoutMs ?? 360_000);
+  const graceMs = opts.graceMs ?? 120_000;
+  const finishRe = opts.finishText ?? /Finish/i;
+  let pendingSince: number | null = null;
+  let manual = false;
+  while (Date.now() < deadline) {
+    const state = await page.evaluate(
+      ({ settled, flags, pendingId }) => ({
+        settled: new RegExp(settled, flags).test(document.body.innerText || ""),
+        pending: !!document.querySelector(`[data-testid="${pendingId}"]`),
+        prompt: !!document.querySelector('input[type="password"]'),
+      }),
+      { settled: opts.settledText.source, flags: opts.settledText.flags, pendingId: opts.pendingTestId },
+    );
+    if (state.settled) return manual ? "manual" : "auto";
+    if (state.prompt) {
+      await answerPassphrasePrompt(page, passphrase, 5_000).then(
+        () => console.log(`  [${label}] ✅ filled a funding-check prompt`),
+        () => undefined,
+      );
+      continue;
+    }
+    pendingSince = state.pending ? (pendingSince ?? Date.now()) : null;
+    if (pendingSince !== null && Date.now() - pendingSince > graceMs) {
+      pendingSince = Date.now();
+      manual = true;
+      await page.evaluate(
+        ({ pendingId, finish, flags }) => {
+          const card = document.querySelector(`[data-testid="${pendingId}"]`);
+          const re = new RegExp(finish, flags);
+          const btn = Array.from(card?.querySelectorAll("button") ?? []).find((b) => re.test(b.textContent ?? ""));
+          (btn as HTMLButtonElement | undefined)?.click();
+        },
+        { pendingId: opts.pendingTestId, finish: finishRe.source, flags: finishRe.flags },
+      );
+      console.log(`  [${label}] automatic funding check did not finish; pressed Finish`);
+    }
+    await page.waitForTimeout(3_000);
+  }
+  throw new Error(`${label}: funding did not settle (${opts.settledText}) within ${(opts.timeoutMs ?? 360_000) / 1000}s`);
+}
+
 /** JS-direct click — same reason as fill above. Searches by visible text. */
 export async function clickByText(page: Page, text: string | RegExp, opts?: { last?: boolean }) {
   const re = typeof text === "string" ? new RegExp(text, "i") : text;

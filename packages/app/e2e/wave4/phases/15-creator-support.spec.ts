@@ -2,7 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { PERSONAS, injectPasskey, setActiveChain, type ChainKey } from "../fixtures/wallets";
 import { snap, resetCounter } from "../helpers/screenshot";
 import { recordProof } from "../helpers/testing-todo";
-import { drainPromptsAndCaptureTx, shieldUsdc, faucetUsdcIfNeeded } from "../helpers/app-actions";
+import { drainPromptsAndCaptureTx, FUNDING_SETTLE_MS, shieldUsdc, faucetUsdcIfNeeded } from "../helpers/app-actions";
 
 // ──────────────────────────────────────────────────────────────────
 //  Phase 15 — Creator Support (encrypted tipping).
@@ -69,6 +69,9 @@ test.describe("Phase 15 — Creator Support", () => {
     browser,
     baseURL,
   }) => {
+    // The tip is Pending until the app's confirmFunding lands (about 90s, one
+    // more signed transaction), on top of profile, shield and tip.
+    test.setTimeout(20 * 60_000);
     const chain = chainContextFromProject();
     const url = baseURL ?? "http://localhost:3000";
     const chainSlug = chain.chainKey === "ETH_SEPOLIA" ? "eth-sepolia" : chain.chainKey === "ARB_SEPOLIA" ? "arb-sepolia" : "base-sepolia";
@@ -183,16 +186,27 @@ test.describe("Phase 15 — Creator Support", () => {
     await snap(alice.page, aliceShot, "tip-submit-clicked");
 
     // #377: drainer handles 1-N passphrase prompts (vault approval +
-    // encrypted tip submit). Drainer terminates the instant the tx-hash
-    // explorer link appears.
+    // encrypted tip submit + confirmFunding). The tip is Pending after the
+    // submit; the button reads "Sending encrypted tip..." until the app's
+    // automatic confirmFunding has landed, so the drainer runs until the
+    // "Send $5 Support" label is back.
     await snap(alice.page, aliceShot, "tip-encrypting");
 
+    const tipHashes: string[] = [];
     let tipTxHash: string;
     try {
-      tipTxHash = await drainPromptsAndCaptureTx(alice.page, PERSONAS.Alice.passphrase, { readTimeoutMs: 120_000 });
+      tipTxHash = await drainPromptsAndCaptureTx(alice.page, PERSONAS.Alice.passphrase, {
+        readTimeoutMs: 120_000,
+        windowMs: 360_000 + FUNDING_SETTLE_MS,
+        doneSelector: 'button:has-text("Send $5 Support")',
+        collectHashes: tipHashes,
+      });
     } catch {
       tipTxHash = `0x${"0".repeat(64)}`;
     }
+    // A tip still waiting for its funding check shows this banner. It must be
+    // gone: a tip that never confirmed does not count for the creator.
+    await expect(alice.page.locator('[data-testid="creator-pending-tips"]')).toHaveCount(0, { timeout: 120_000 });
     const tipShot = await snap(alice.page, aliceShot, "tip-success");
 
     recordProof({
@@ -202,7 +216,7 @@ test.describe("Phase 15 — Creator Support", () => {
       txHash: tipTxHash,
       screenshotPath: tipShot,
       urlArtifact: undefined,
-      note: `Alice tips Bob $5 via /app/creators tier picker. FHE-encrypted uint64 amount submitted as InEuint64 to CreatorHub.tip. May include preceding vault-approval UserOp for ensureVaultApproval; the captured hash is the final tip submit.`,
+      note: `Alice tips Bob $5 via /app/creators tier picker. FHE-encrypted uint64 amount submitted as InEuint64 to CreatorHub.tip. May include preceding vault-approval UserOp for ensureVaultApproval; the captured hash is the last relay tx (confirmFunding on an upgraded CreatorHub, which is what makes the tip count). Relay txs: ${tipHashes.join(", ") || "none captured"}.`,
       viewport: chain.viewport,
     });
 

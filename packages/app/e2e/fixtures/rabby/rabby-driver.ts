@@ -518,3 +518,37 @@ export async function waitAndConfirmRabbyPopup(
   const result = await confirmRabbyPopup(popup, shotsDir, label, opts);
   return { popup, ...result };
 }
+
+/**
+ * Approve Rabby popups as they open until `done()` is true or `timeoutMs`
+ * passes. Funding-gate actions (claim link, gift, contribution, tip, offramp
+ * take, storefront purchase, conditional invoice) send a second transaction,
+ * confirmFunding, which the app signs on its own about 90s after the user's
+ * first one. A fixed count of popups, each waited for 45s, misses it. This waits
+ * for the settled screen instead and approves whatever opens in between.
+ *
+ * Returns how many popups were approved and whether `done()` was reached.
+ */
+export async function drainRabbyPopupsUntil(
+  ctx: BrowserContext,
+  extId: string,
+  knownPages: Set<Page>,
+  shotsDir: string,
+  label: string,
+  done: () => Promise<boolean>,
+  opts: { timeoutMs?: number; chainName?: string } = {},
+): Promise<{ popups: number; done: boolean }> {
+  const deadline = Date.now() + (opts.timeoutMs ?? 360_000);
+  let popups = 0;
+  while (Date.now() < deadline) {
+    if (await done()) return { popups, done: true };
+    const open = ctx.pages().find((p) => !p.isClosed() && p.url().includes(extId) && p.url().includes("notification.html"));
+    const popup = open ?? (await waitForRabbyPopup(ctx, extId, knownPages, 3_000));
+    if (!popup) continue;
+    knownPages.add(popup);
+    const r = await confirmRabbyPopup(popup, shotsDir, `${label}-${popups + 1}`, { chainName: opts.chainName });
+    if (r.clicks > 0) popups += 1;
+    else await new Promise((res) => setTimeout(res, 1_500));
+  }
+  return { popups, done: await done() };
+}

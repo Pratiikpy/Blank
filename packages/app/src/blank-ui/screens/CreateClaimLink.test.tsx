@@ -81,12 +81,19 @@ let createLinkMock: ReturnType<typeof vi.fn>;
 let resetMock: ReturnType<typeof vi.fn>;
 let writeTextMock: ReturnType<typeof vi.fn>;
 
+let finishFundingMock: ReturnType<typeof vi.fn>;
+let cancelPendingMock: ReturnType<typeof vi.fn>;
+let fetchSentLinksMock: ReturnType<typeof vi.fn>;
+let fetchLinkMock: ReturnType<typeof vi.fn>;
+
 function setHook(overrides: Partial<{
-  step: "idle" | "encrypting" | "sending" | "success" | "error";
+  step: "idle" | "encrypting" | "sending" | "funding" | "success" | "error";
   isProcessing: boolean;
   error: string | null;
   shareableUrl: string | null;
   pipelinePhase: string;
+  funding: "active" | "pending" | "void" | null;
+  linkId: number | null;
 }> = {}) {
   useClaimLinksMock.mockReturnValue({
     state: {
@@ -94,6 +101,8 @@ function setHook(overrides: Partial<{
       isProcessing: overrides.isProcessing ?? false,
       error: overrides.error ?? null,
       shareableUrl: overrides.shareableUrl ?? null,
+      funding: overrides.funding ?? null,
+      linkId: overrides.linkId ?? null,
     },
     pipeline: { phase: overrides.pipelinePhase ?? "idle" },
     createLink: createLinkMock,
@@ -101,8 +110,10 @@ function setHook(overrides: Partial<{
     // §1.15 B3 — sent-links surface. Default mocks return empty so the
     // "Your sent links" empty-state shows.
     refund: vi.fn().mockResolvedValue(true),
-    fetchSentLinks: vi.fn().mockResolvedValue([]),
-    fetchLink: vi.fn().mockResolvedValue(null),
+    finishFunding: finishFundingMock,
+    cancelPending: cancelPendingMock,
+    fetchSentLinks: fetchSentLinksMock,
+    fetchLink: fetchLinkMock,
   });
 }
 
@@ -125,6 +136,10 @@ beforeEach(() => {
 
   createLinkMock = vi.fn().mockResolvedValue(undefined);
   resetMock = vi.fn();
+  finishFundingMock = vi.fn().mockResolvedValue("funded");
+  cancelPendingMock = vi.fn().mockResolvedValue(true);
+  fetchSentLinksMock = vi.fn().mockResolvedValue([]);
+  fetchLinkMock = vi.fn().mockResolvedValue(null);
   setHook();
 
   // Default: isAddress matches the standard 40-hex pattern.
@@ -480,5 +495,122 @@ describe("CreateClaimLink — success state (§15.x)", () => {
     const { container } = render(<CreateClaimLink />);
     expect(container.textContent).not.toContain("Link ready");
     expect(container.textContent).toContain("Send by link");
+  });
+});
+
+// ───────────────────────────────────────────────────────────
+//  Funding gate: a link is only shareable once its funding check passed
+// ───────────────────────────────────────────────────────────
+
+describe("CreateClaimLink: funding gate", () => {
+  it("pending: withholds the share URL, explains why, and offers Finish and Cancel", async () => {
+    setHook({ step: "success", shareableUrl: SHARE_URL, funding: "pending", linkId: 42 });
+    const { findByTestId, queryByTestId, queryByText, findByText, container } = render(<CreateClaimLink />);
+    await findByTestId("claim-link-pending");
+    expect(container.textContent).toContain("Confirming funding");
+    expect(container.textContent).toContain("Link #42");
+    expect(container.textContent).toContain("Keep this tab open");
+    // The URL and its copy button must not exist until the link is claimable.
+    expect(queryByTestId("claim-link-share-url")).toBeNull();
+    expect(container.textContent).not.toContain(SHARE_URL);
+    expect(queryByText("Copy link")).toBeNull();
+    await act(async () => { fireEvent.click(await findByText("Finish funding")); });
+    expect(finishFundingMock).toHaveBeenCalledWith(42);
+    await act(async () => { fireEvent.click(await findByText("Cancel this link")); });
+    expect(cancelPendingMock).toHaveBeenCalledWith(42);
+  });
+
+  it("pending: stays on the pending screen while the finish runs, with a disabled button", async () => {
+    setHook({ step: "funding", isProcessing: true, shareableUrl: SHARE_URL, funding: "pending", linkId: 42 });
+    const { findByTestId, findByText } = render(<CreateClaimLink />);
+    await findByTestId("claim-link-pending");
+    expect(((await findByText("Finish funding")).closest("button") as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("pending: a failed finish attempt shows its reason on the pending screen", async () => {
+    setHook({
+      step: "success",
+      shareableUrl: SHARE_URL,
+      funding: "pending",
+      linkId: 42,
+      error: "Link #42 was created but its funding is not confirmed (the funding check is not ready yet).",
+    });
+    const { findByText } = render(<CreateClaimLink />);
+    await findByText(/funding check is not ready yet/);
+  });
+
+  it("funded: shows the share URL and the copy button", async () => {
+    setHook({ step: "success", shareableUrl: SHARE_URL, funding: "active", linkId: 42 });
+    const { findByTestId, findByText } = render(<CreateClaimLink />);
+    expect((await findByTestId("claim-link-share-url")).textContent).toBe(SHARE_URL);
+    await findByText("Copy link");
+  });
+
+  it("creating: the button says 'Confirming funding…' during the check", async () => {
+    setHook({ step: "funding", isProcessing: true });
+    const { findByText } = render(<CreateClaimLink />);
+    await findByText("Confirming funding…");
+  });
+
+  it("unfunded: back on the form with the error, and no share URL", async () => {
+    setHook({
+      step: "error",
+      shareableUrl: null,
+      funding: "void",
+      linkId: 42,
+      error: "The link was not funded: your private balance was too low. Nothing was locked.",
+    });
+    const { findByText, queryByTestId } = render(<CreateClaimLink />);
+    await findByText(/Nothing was locked/);
+    expect(queryByTestId("claim-link-share-url")).toBeNull();
+  });
+
+  describe("Your sent links", () => {
+    const record = (id: bigint, funding: "active" | "pending" | "void") => ({
+      id,
+      sender: VALID_ADDR,
+      vault: VAULT_USDC,
+      mode: 0,
+      boundAddress: "0x0000000000000000000000000000000000000000",
+      createdAt: id,
+      expiryTimestamp: BigInt(Math.floor(Date.now() / 1000) + 86400),
+      claimed: false,
+      refunded: false,
+      note: `note ${id}`,
+      claimer: "0x0000000000000000000000000000000000000000",
+      claimedAt: 0n,
+      legacy: false,
+      legacyRefundOnly: false,
+      funding,
+    });
+
+    beforeEach(() => {
+      useEffectiveAddressMock.mockReturnValue({ effectiveAddress: VALID_ADDR });
+      fetchSentLinksMock.mockResolvedValue([1n, 2n, 3n]);
+      fetchLinkMock.mockImplementation(async (id: bigint) =>
+        record(id, id === 1n ? "pending" : id === 2n ? "void" : "active"),
+      );
+    });
+
+    it("pending shows 'funding' with Finish and Cancel; void shows 'not funded'; neither can be copied or refunded", async () => {
+      setHook();
+      const { findByLabelText, findByText, queryByLabelText, container } = render(<CreateClaimLink />);
+      await findByText("note 1");
+      expect(container.textContent).toContain("funding");
+      expect(container.textContent).toContain("not funded");
+      expect(container.textContent).toContain("cancel this link and create a new one");
+      expect(container.textContent).toContain("Nothing was locked");
+      // Active link keeps its copy button; pending and void do not get one.
+      await findByLabelText("Copy link 3");
+      expect(queryByLabelText("Copy link 1")).toBeNull();
+      expect(queryByLabelText("Copy link 2")).toBeNull();
+      expect(queryByLabelText("Refund link 1")).toBeNull();
+      expect(queryByLabelText("Refund link 2")).toBeNull();
+
+      await act(async () => { fireEvent.click(await findByLabelText("Finish funding link 1")); });
+      expect(finishFundingMock).toHaveBeenCalledWith(1);
+      await act(async () => { fireEvent.click(await findByLabelText("Cancel pending link 1")); });
+      expect(cancelPendingMock).toHaveBeenCalledWith(1);
+    });
   });
 });

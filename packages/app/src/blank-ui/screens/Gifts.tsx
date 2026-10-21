@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import toast from "react-hot-toast";
-import { useGiftMoney } from "@/hooks/useGiftMoney";
+import { useGiftMoney, type GiftFunding } from "@/hooks/useGiftMoney";
 import { usePublicClient } from "wagmi";
 import { useEffectiveAddress } from "@/hooks/useEffectiveAddress";
 import { useActivityFeed } from "@/hooks/useActivityFeed";
@@ -73,6 +73,8 @@ const themes: ThemeOption[] = [
 
 type TabValue = "received" | "sent";
 
+const FUNDING_BY_CODE: readonly GiftFunding[] = ["active", "pending", "void"];
+
 // ---------------------------------------------------------------
 //  ENVELOPE ID PARSER
 // ---------------------------------------------------------------
@@ -104,6 +106,8 @@ function getStepLabel(step: string): string {
       return "Confirming encryption...";
     case "sending":
       return "Sending gift envelope...";
+    case "funding":
+      return "Confirming funding...";
     default:
       return "Processing...";
   }
@@ -128,6 +132,9 @@ export default function Gifts() {
     createGift,
     claimGift,
     deactivateEnvelope,
+    finishFunding,
+    funding: lastFunding,
+    lastEnvelopeId,
     computeEqualSplits,
     computeRandomSplits,
     reset,
@@ -141,6 +148,10 @@ export default function Gifts() {
   // Value is the unix-second expiry timestamp (0 means "no expiry").
   const [envelopeExpiry, setEnvelopeExpiry] = useState<Record<number, number>>({});
   const [envelopeOpened, setEnvelopeOpened] = useState<Record<string, boolean>>({});
+  // Funding check state per envelope. Not cached like expiry: it changes from
+  // pending to active (or void) once the check is published.
+  const [envelopeFunding, setEnvelopeFunding] = useState<Record<number, GiftFunding>>({});
+  const [fundingTick, setFundingTick] = useState(0);
 
   const [activeTab, setActiveTab] = useState<TabValue>("received");
   // Start on a theme rather than null. The whole submit block below is
@@ -303,6 +314,51 @@ export default function Gifts() {
     };
   }, [publicClient, contracts.GiftMoney, visibleEnvelopeIds, visibleOpenChecks, envelopeExpiry, envelopeOpened]);
 
+  // Funding state of every visible envelope. Contracts from before the funding
+  // gate have no such view, so a failed read leaves the envelope as active.
+  useEffect(() => {
+    if (!publicClient || visibleEnvelopeIds.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      const results = await Promise.allSettled(
+        visibleEnvelopeIds.map((id) =>
+          publicClient.readContract({
+            address: contracts.GiftMoney as `0x${string}`,
+            abi: GiftMoneyAbi,
+            functionName: "fundingStatus",
+            args: [BigInt(id)],
+          }),
+        ),
+      );
+      if (cancelled) return;
+      const next: Record<number, GiftFunding> = {};
+      results.forEach((r, i) => {
+        if (r.status !== "fulfilled") return;
+        next[visibleEnvelopeIds[i]] = FUNDING_BY_CODE[Number(r.value)] ?? "active";
+      });
+      if (Object.keys(next).length > 0) setEnvelopeFunding((prev) => ({ ...prev, ...next }));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [publicClient, contracts.GiftMoney, visibleEnvelopeIds, fundingTick]);
+
+  // Pending envelopes flip once someone publishes the funding check.
+  const anyPendingFunding = Object.values(envelopeFunding).includes("pending");
+  useEffect(() => {
+    if (!anyPendingFunding) return;
+    const t = setInterval(() => setFundingTick((n) => n + 1), 10_000);
+    return () => clearInterval(t);
+  }, [anyPendingFunding]);
+
+  const handleFinishFunding = useCallback(
+    async (envelopeId: number) => {
+      const verdict = await finishFunding(envelopeId);
+      if (verdict) setFundingTick((n) => n + 1);
+    },
+    [finishFunding],
+  );
+
   const addRecipient = () => {
     const trimmed = recipientInput.trim();
     if (!trimmed) return;
@@ -415,21 +471,49 @@ export default function Gifts() {
         <div id="create-gift-section" />
         {sentGift ? (
           <div className="rounded-[2rem] glass-card p-12 text-center mb-6">
-            <div className="w-20 h-20 rounded-full bg-emerald-50 flex items-center justify-center mx-auto mb-4">
-              <CheckCircle2 size={48} className="text-emerald-500" />
-            </div>
-            <h3 className="text-2xl font-heading font-medium text-[var(--text-primary)] mb-2">
-              Gift Sent!
-            </h3>
-            <p className="text-[var(--text-primary)]/60 mb-2">
-              Your {sentGift.theme} gift of
-            </p>
-            <p className="text-4xl font-heading font-medium text-[var(--text-primary)] mb-2">
-              ${sentGift.amount}
-            </p>
-            <p className="text-[var(--text-primary)]/60 mb-6">
-              was sent to {sentGift.recipient}
-            </p>
+            {lastFunding === "pending" && lastEnvelopeId !== null ? (
+              <div data-testid="gift-funding-pending">
+                <div className="w-20 h-20 rounded-full bg-amber-50 flex items-center justify-center mx-auto mb-4">
+                  <Clock size={48} className="text-amber-500" />
+                </div>
+                <h3 className="text-2xl font-heading font-medium text-[var(--text-primary)] mb-2">
+                  Confirming funding
+                </h3>
+                <p className="text-[var(--text-primary)]/60 mb-4 max-w-sm mx-auto">
+                  Envelope #{lastEnvelopeId} of ${sentGift.amount} is created, but nobody can open it until your
+                  private balance is checked once. Finish that check to send the gift to {sentGift.recipient}.
+                </p>
+                {error && (
+                  <p className="text-sm text-red-700 mb-4 max-w-sm mx-auto">{error}</p>
+                )}
+                <button
+                  onClick={() => handleFinishFunding(lastEnvelopeId)}
+                  disabled={isProcessing}
+                  className="h-12 px-8 rounded-2xl bg-[var(--text-primary)] text-white font-medium mb-6 inline-flex items-center gap-2 disabled:opacity-50"
+                >
+                  {isProcessing && <Loader2 size={16} className="animate-spin" />}
+                  Finish funding
+                </button>
+              </div>
+            ) : (
+              <>
+                <div className="w-20 h-20 rounded-full bg-emerald-50 flex items-center justify-center mx-auto mb-4">
+                  <CheckCircle2 size={48} className="text-emerald-500" />
+                </div>
+                <h3 className="text-2xl font-heading font-medium text-[var(--text-primary)] mb-2">
+                  Gift Sent!
+                </h3>
+                <p className="text-[var(--text-primary)]/60 mb-2">
+                  Your {sentGift.theme} gift of
+                </p>
+                <p className="text-4xl font-heading font-medium text-[var(--text-primary)] mb-2">
+                  ${sentGift.amount}
+                </p>
+                <p className="text-[var(--text-primary)]/60 mb-6">
+                  was sent to {sentGift.recipient}
+                </p>
+              </>
+            )}
             {sentGift.message && (
               <div className="p-4 rounded-2xl bg-white/50 border border-black/5 mx-auto max-w-sm mb-4">
                 <p className="italic text-[var(--text-primary)]/60">
@@ -825,6 +909,10 @@ export default function Gifts() {
                   envelopeId != null ? envelopeExpiry[envelopeId] ?? 0 : 0;
                 const isExpired =
                   expiryTs > 0 && Math.floor(Date.now() / 1000) > expiryTs;
+                const rowFunding: GiftFunding =
+                  envelopeId != null ? envelopeFunding[envelopeId] ?? "active" : "active";
+                const isFundingPending = rowFunding === "pending";
+                const isVoid = rowFunding === "void";
 
                 return (
                   <div
@@ -864,6 +952,20 @@ export default function Gifts() {
                           {activity.created_at &&
                             ` \u00B7 ${new Date(activity.created_at).toLocaleDateString()}`}
                         </p>
+                        {isFundingPending && (
+                          <p className="text-xs text-amber-700 mt-1">
+                            {isSent
+                              ? "Waiting for the funding check. Recipients cannot open it yet."
+                              : "Still being funded. You can open it once the check passes."}
+                          </p>
+                        )}
+                        {isVoid && (
+                          <p className="text-xs text-red-700 mt-1">
+                            {isSent
+                              ? "Not funded: your balance was too low for at least one share. Some recipients may already have received their share."
+                              : "Not funded. This envelope cannot be opened; any share you were already sent is in your balance."}
+                          </p>
+                        )}
                         {/* #255: subtitle for sent expired envelopes */}
                         {isSent && isExpired && (
                           <p className="text-xs text-amber-700 mt-1">
@@ -880,28 +982,52 @@ export default function Gifts() {
                         <div
                           className={cn(
                             "inline-flex px-2 py-1 rounded-full text-xs font-medium border",
-                            isExpired
-                              ? "bg-amber-50 text-amber-700 border-amber-200"
-                              : isOpened
-                                ? "bg-blue-50 text-blue-700 border-blue-100"
-                              : "bg-emerald-50 text-emerald-700 border-emerald-100",
+                            isVoid
+                              ? "bg-red-50 text-red-700 border-red-200"
+                              : isFundingPending || isExpired
+                                ? "bg-amber-50 text-amber-700 border-amber-200"
+                                : isOpened
+                                  ? "bg-blue-50 text-blue-700 border-blue-100"
+                                  : "bg-emerald-50 text-emerald-700 border-emerald-100",
                           )}
                         >
-                          {isExpired ? "expired" : isOpened ? "claimed" : isSent ? "sent" : "received"}
+                          {isVoid
+                            ? "not funded"
+                            : isFundingPending
+                              ? "funding"
+                              : isExpired
+                                ? "expired"
+                                : isOpened
+                                  ? "claimed"
+                                  : isSent
+                                    ? "sent"
+                                    : "received"}
                         </div>
                       </div>
                       {/* Auto-claim for received gifts with known envelope ID */}
                       {!isSent && envelopeId != null && (
                         <button
                           onClick={() => handleClaim(envelopeId)}
-                          disabled={isProcessing || isExpired || isOpened}
-                          title={isExpired ? "Envelope expired. No longer claimable" : undefined}
+                          disabled={isProcessing || isExpired || isOpened || isFundingPending || isVoid}
+                          title={
+                            isExpired
+                              ? "Envelope expired. No longer claimable"
+                              : isFundingPending
+                                ? "Still being funded"
+                                : isVoid
+                                  ? "This envelope was never funded"
+                                  : undefined
+                          }
                           className="h-10 shrink-0 px-4 rounded-xl bg-emerald-500 text-white text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           {isProcessing ? (
                             <Loader2 size={16} className="animate-spin" />
                           ) : isOpened ? (
                             "Claimed"
+                          ) : isVoid ? (
+                            "Not funded"
+                          ) : isFundingPending ? (
+                            "Funding"
                           ) : isExpired ? (
                             "Expired"
                           ) : (
@@ -937,8 +1063,18 @@ export default function Gifts() {
                           </button>
                         </div>
                       )}
+                      {isSent && envelopeId != null && isFundingPending && (
+                        <button
+                          onClick={() => handleFinishFunding(envelopeId)}
+                          disabled={isProcessing}
+                          className="h-10 px-4 rounded-xl bg-[var(--text-primary)] text-white text-sm font-medium disabled:opacity-50 flex items-center gap-1.5"
+                        >
+                          {isProcessing ? <Loader2 size={14} className="animate-spin" /> : <Clock size={14} />}
+                          <span>Finish funding</span>
+                        </button>
+                      )}
                       {/* Deactivate button for sent gifts */}
-                      {isSent && envelopeId != null && !isOpened && (
+                      {isSent && envelopeId != null && !isOpened && !isVoid && (
                         <button
                           onClick={() => {
                             if (window.confirm("Deactivate this envelope? This cannot be undone.")) {

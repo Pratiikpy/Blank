@@ -26,7 +26,11 @@ interface OnChainLink {
   claimedAt: bigint;
   /** No claim key registered: created before the v2 claim upgrade. */
   legacy: boolean;
+  /** Funding check state. Links from before the funding gate read as active. */
+  funding: "active" | "pending" | "void";
 }
+
+const FUNDING_BY_CODE = ["active", "pending", "void"] as const;
 
 const MODE_LABEL: Record<LinkMode, string> = {
   [MODE.Bearer]: "Open link. Anyone can claim",
@@ -54,7 +58,7 @@ export default function ClaimLinkPage() {
   // transient so users always have a path forward on infra issues.
   const [reloadKey, setReloadKey] = useState(0);
   const [email, setEmail] = useState("");
-  const { state, pipeline, claim } = useClaimLinks();
+  const { state, pipeline, claim, finishFunding } = useClaimLinks();
   // Passkey-aware address resolution: passkey-only users have no wagmi
   // address but still have a smart-account address. Use the same hook
   // every other screen uses so AddressBound links behave consistently.
@@ -143,9 +147,23 @@ export default function ClaimLinkPage() {
         } catch {
           // Pre-upgrade deployment without the view: treat as legacy.
         }
+        let funding: OnChainLink["funding"] = "active";
+        try {
+          const code = Number(
+            await publicClient.readContract({
+              address: contracts.ClaimLinks,
+              abi: ClaimLinksAbi,
+              functionName: "fundingStatus",
+              args: [BigInt(linkId)],
+            }),
+          );
+          funding = FUNDING_BY_CODE[code] ?? "active";
+        } catch {
+          // Pre-upgrade deployment without the view: the link is active.
+        }
         if (cancelled) return;
         const legacy = BigInt(claimKey) === 0n;
-        setOnChain({ sender, vault, mode, boundAddress, createdAt, expiryTimestamp, claimed, refunded, note, claimer, claimedAt, legacy });
+        setOnChain({ sender, vault, mode, boundAddress, createdAt, expiryTimestamp, claimed, refunded, note, claimer, claimedAt, legacy, funding });
       } catch (err) {
         if (cancelled) return;
         setLoadError(classifyLoadError(err, { resourceName: "Link" }));
@@ -156,6 +174,8 @@ export default function ClaimLinkPage() {
 
   const status = useMemo(() => {
     if (!onChain) return "loading";
+    if (onChain.funding === "pending") return "funding";
+    if (onChain.funding === "void") return "unfunded";
     if (onChain.claimed) return "claimed";
     if (onChain.refunded) return "refunded";
     if (Number(onChain.expiryTimestamp) * 1000 < Date.now()) return "expired";
@@ -256,6 +276,55 @@ export default function ClaimLinkPage() {
       <CenterCard>
         <Loader2 size={32} className="animate-spin text-[var(--text-secondary)] mb-4" />
         <p className="text-[var(--text-secondary)]">Loading link…</p>
+      </CenterCard>
+    );
+  }
+
+  if (status === "funding") {
+    return (
+      <CenterCard>
+        <IconBubble color="bg-amber-50" icon={<Clock size={32} className="text-amber-600" />} />
+        <h1 className="text-2xl font-heading font-semibold mb-3">This link is still being funded</h1>
+        <p className="text-[var(--text-secondary)] mb-6">
+          The sender's payment is waiting for its one-time balance check. It cannot be claimed until that
+          passes. Check again in a minute, or finish the check yourself.
+        </p>
+        {state.error && (
+          <div className="mb-4 px-4 py-3 rounded-xl bg-red-50 text-red-700 text-sm text-left">{state.error}</div>
+        )}
+        <div className="flex flex-col gap-2">
+          <button
+            onClick={() => setReloadKey((k) => k + 1)}
+            className="w-full h-12 rounded-2xl bg-[#1D1D1F] text-white font-medium hover:bg-black transition-colors"
+          >
+            Check again
+          </button>
+          {effectiveAddress && parsed && (
+            <button
+              onClick={async () => {
+                const verdict = await finishFunding(linkId);
+                if (verdict) setReloadKey((k) => k + 1);
+              }}
+              disabled={state.isProcessing}
+              className="w-full h-12 rounded-2xl border border-[var(--border)] hover:bg-[var(--surface-2)] transition-colors disabled:opacity-50"
+            >
+              {state.isProcessing ? "Finishing…" : "Finish the check"}
+            </button>
+          )}
+        </div>
+      </CenterCard>
+    );
+  }
+
+  if (status === "unfunded") {
+    return (
+      <CenterCard>
+        <IconBubble color="bg-red-50" icon={<AlertCircle size={32} className="text-red-600" />} />
+        <h1 className="text-2xl font-heading font-semibold mb-3">This link was never funded</h1>
+        <p className="text-[var(--text-secondary)]">
+          The sender's balance was too low when the link was created, so nothing was locked and there is
+          nothing to claim. Ask them to send a new link.
+        </p>
       </CenterCard>
     );
   }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { parseUnits, keccak256, toBytes, type Hex } from "viem";
 import { usePublicClient } from "wagmi";
 import toast from "react-hot-toast";
@@ -7,12 +7,17 @@ import { useEffectiveAddress } from "./useEffectiveAddress";
 import { useUnifiedWrite } from "./useUnifiedWrite";
 import { useFhePipeline } from "./useFhePipeline";
 import { useChain } from "@/providers/ChainProvider";
-import { useCofheEncrypt, useCofheConnection, useCofheDecryptForView, Encryptable } from "@/lib/cofhe-shim";
+import { useCofheEncrypt, useCofheConnection, useCofheDecryptForView, useCofheDecryptForTx, Encryptable } from "@/lib/cofhe-shim";
 import { P2POfframpAbi, FHERC20VaultAbi } from "@/lib/abis";
 import { isVaultApproved, markVaultApproved } from "@/lib/approval";
 import { extractEventId } from "@/lib/event-parser";
 import { invalidateBalanceQueries } from "@/lib/query-invalidation";
 import { type RailId } from "@/lib/reclaim-providers";
+import { runFundingGate, supportsFundingGate } from "@/lib/funding-gate";
+import { asHandle, describeGateFailure, findPendingId } from "@/lib/pending-funding";
+import { FILL_STATE } from "@/lib/offramp-fill-state";
+
+export { FILL_STATE, FILL_STATE_LABEL } from "@/lib/offramp-fill-state";
 
 // Wave 5 Block 1 — encrypted P2P offramp hook.
 //
@@ -20,8 +25,9 @@ import { type RailId } from "@/lib/reclaim-providers";
 //   1. Pre-flight (vault approval if needed)
 //   2. Encrypt FHE inputs via the cofhe shim
 //   3. Submit UserOp via unifiedWriteAndWait
-//   4. Parse OfferCreated / FillLocked event for the id
-//   5. Expose state machine to the screen for progress UI
+//   4. Parse OfferCreated / FillPending event for the id (FillLocked on pre-gate contracts)
+//   5. takeOffer only: confirm the maker's escrow (funding gate) before the fiat leg opens
+//   6. Expose state machine to the screen for progress UI
 //
 // All wallet-side operations route through `useUnifiedWrite` so the
 // caller doesn't need to know whether they're on the EOA path or the
@@ -33,8 +39,19 @@ export type OfframpStep =
   | "encrypting"
   | "submitting"
   | "confirming"
+  // takeOffer mined; waiting for the funding check of the maker's escrow.
+  | "funding"
   | "success"
   | "error";
+
+export type TakeOfferStatus = "locked" | "pending";
+
+const CONFIRM_GAS = BigInt(3_000_000);
+// FHERC20Vault.tokenDecimals() is public on-chain but not in the shared vault ABI.
+const VAULT_DECIMALS_ABI = [
+  { type: "function", name: "tokenDecimals", inputs: [], outputs: [{ name: "", type: "uint8" }], stateMutability: "view" },
+] as const;
+const UINT64_MAX = BigInt("18446744073709551615");
 
 export interface OfframpState {
   step: OfframpStep;
@@ -109,6 +126,8 @@ export function friendlyOfframpError(raw: string): string {
   if (raw.includes("offer expired")) return "This offer has expired.";
   if (raw.includes("offer not open")) return "This offer is no longer open.";
   if (raw.includes("proof window open")) return "The taker still has time to submit a proof.";
+  if (raw.includes("fill not pending")) return "This fill was already settled.";
+  if (raw.includes("decryption not ready")) return "The funding check is not ready yet. Try again in a minute.";
   return raw;
 }
 
@@ -121,10 +140,12 @@ export function useP2POfframp() {
   const { connected } = useCofheConnection();
   const { encryptInputsAsync } = useCofheEncrypt();
   const { decryptForView } = useCofheDecryptForView();
+  const { decryptForTx } = useCofheDecryptForTx();
   const { unifiedWriteAndWait } = useUnifiedWrite();
   const pipeline = useFhePipeline();
 
   const [state, setState] = useState<OfframpState>(initial);
+  const gateSupportRef = useRef<{ key: string; value: boolean } | null>(null);
 
   const deploy: OfframpDeployInfo = useMemo(() => {
     const addr = contracts.P2POfframp;
@@ -269,22 +290,163 @@ export function useP2POfframp() {
     [guardReady, ensureVaultApproval, encryptInputsAsync, pipeline, unifiedWriteAndWait, publicClient],
   );
 
+  // ─── Funding gate (second step of takeOffer) ───────────────────────
+
+  // Contracts that predate the funding gate have no fillFunded. Probed once per
+  // chain; those contracts keep the single-step takeOffer.
+  const isGated = useCallback(
+    async (offramp: `0x${string}`): Promise<boolean> => {
+      const key = `${activeChainId}:${offramp}`;
+      if (gateSupportRef.current?.key === key) return gateSupportRef.current.value;
+      const value = await supportsFundingGate(() =>
+        publicClient!.readContract({ address: offramp, abi: P2POfframpAbi, functionName: "fillFunded", args: [0n] }),
+      );
+      gateSupportRef.current = { key, value };
+      return value;
+    },
+    [activeChainId, publicClient],
+  );
+
+  const readFillState = useCallback(
+    async (offramp: `0x${string}`, fillId: bigint): Promise<number> => {
+      const f = (await publicClient!.readContract({
+        address: offramp,
+        abi: P2POfframpAbi,
+        functionName: "getFill",
+        args: [fillId],
+      })) as readonly [bigint, `0x${string}`, bigint, number, number, `0x${string}`, number];
+      return Number(f[6]);
+    },
+    [publicClient],
+  );
+
+  // Decrypt the public "escrow is non-zero and covers the taker's minimum" bit
+  // and publish it with confirmFunding. Locked: the fiat leg may start. Voided:
+  // the maker's escrow was empty or short, the offer is open again. Throws when
+  // the check did not finish; the fill then stays Pending on-chain.
+  const settleFill = useCallback(
+    async (offramp: `0x${string}`, fillId: bigint): Promise<"locked" | "voided"> => {
+      let funded: boolean;
+      try {
+        ({ funded } = await runFundingGate({
+          readHandle: async () =>
+            asHandle(
+              await publicClient!.readContract({
+                address: offramp,
+                abi: P2POfframpAbi,
+                functionName: "fillFunded",
+                args: [fillId],
+              }),
+            ),
+          decryptForTx,
+          confirm: async (verdict, signature) => {
+            // Anyone may confirm; if someone already did there is nothing to send.
+            if ((await readFillState(offramp, fillId)) !== FILL_STATE.Pending) return;
+            const res = await unifiedWriteAndWait({
+              address: offramp,
+              abi: P2POfframpAbi,
+              functionName: "confirmFunding",
+              args: [fillId, verdict, signature],
+              gas: CONFIRM_GAS,
+            });
+            const receipt =
+              res.receipt ?? (await publicClient!.waitForTransactionReceipt({ hash: res.hash, confirmations: 1, timeout: 300_000 }));
+            if (receipt.status === "reverted") throw new Error("Funding confirmation reverted on-chain");
+          },
+        }));
+      } catch (err) {
+        const settled = await readFillState(offramp, fillId).catch(() => null);
+        if (settled === null || settled === FILL_STATE.Pending) throw err;
+        funded = settled !== FILL_STATE.Voided;
+      }
+      return funded ? "locked" : "voided";
+    },
+    [publicClient, decryptForTx, unifiedWriteAndWait, readFillState],
+  );
+
+  /**
+   * Finish a fill left Pending (tab closed, slow Threshold Network). Anyone can
+   * call it. Resolves with the on-chain verdict; throws with the real reason when
+   * the check still cannot finish.
+   */
+  const confirmPendingFill = useCallback(
+    async (fillId: bigint): Promise<"locked" | "voided"> => {
+      if (deploy.status !== "live" || !deploy.address || !publicClient) {
+        throw new Error(deploy.reason ?? "Offramp not available on this chain.");
+      }
+      if (!connected) throw new Error("FHE network connecting; try again in a moment.");
+      const offramp = deploy.address;
+      const current = await readFillState(offramp, fillId);
+      if (current !== FILL_STATE.Pending) return current === FILL_STATE.Voided ? "voided" : "locked";
+      setState({ ...initial, step: "funding", isProcessing: true, lastFillId: fillId });
+      try {
+        const verdict = await settleFill(offramp, fillId);
+        setState({ ...initial, step: "success", lastFillId: fillId });
+        invalidateBalanceQueries();
+        return verdict;
+      } catch (err) {
+        const msg = friendlyOfframpError(
+          describeGateFailure(err, "The fill is still pending on-chain; anyone can finish it later."),
+        );
+        setState({ ...initial, step: "error", error: msg, lastFillId: fillId });
+        throw new Error(msg);
+      }
+    },
+    [deploy, publicClient, connected, readFillState, settleFill],
+  );
+
   // ─── Take offer ─────────────────────────────────────────────────────
 
+  // Least USDC (base units) the taker accepts for the fiat price on the offer:
+  // fiat * 10^decimals / rate. The contract voids a fill whose escrow is below it.
+  const minUsdcFor = useCallback(
+    async (offramp: `0x${string}`, offerId: bigint): Promise<bigint> => {
+      const o = (await publicClient!.readContract({
+        address: offramp,
+        abi: P2POfframpAbi,
+        functionName: "getOffer",
+        args: [offerId],
+      })) as readonly [`0x${string}`, `0x${string}`, bigint, bigint, number, `0x${string}`, number, number];
+      const [, vault, fiatMicroUsd, rateMicroUsd] = o;
+      if (rateMicroUsd === 0n) throw new Error("This offer has no price set.");
+      let decimals = 6;
+      try {
+        decimals = Number(
+          await publicClient!.readContract({ address: vault, abi: VAULT_DECIMALS_ABI, functionName: "tokenDecimals" }),
+        );
+      } catch {
+        // Every offramp screen prices in a 6-decimal USDC vault.
+      }
+      const min = (fiatMicroUsd * 10n ** BigInt(decimals)) / rateMicroUsd;
+      if (min > UINT64_MAX) throw new Error("This offer's price is out of range.");
+      return min;
+    },
+    [publicClient],
+  );
+
   const takeOffer = useCallback(
-    async (offerId: bigint) => {
+    async (offerId: bigint): Promise<{ txHash: `0x${string}`; fillId: bigint; status: TakeOfferStatus } | null> => {
       const ready = guardReady();
       if (!ready) return null;
       const { offramp } = ready;
       try {
         setState({ ...initial, step: "submitting", isProcessing: true });
-        const wr = await unifiedWriteAndWait({
-          address: offramp,
-          abi: P2POfframpAbi,
-          functionName: "takeOffer",
-          args: [offerId],
-          gas: BigInt(3_000_000),
-        });
+        const gated = await isGated(offramp);
+        const wr = gated
+          ? await unifiedWriteAndWait({
+              address: offramp,
+              abi: P2POfframpAbi,
+              functionName: "takeOfferExpecting",
+              args: [offerId, await minUsdcFor(offramp, offerId)],
+              gas: BigInt(3_000_000),
+            })
+          : await unifiedWriteAndWait({
+              address: offramp,
+              abi: P2POfframpAbi,
+              functionName: "takeOffer",
+              args: [offerId],
+              gas: BigInt(3_000_000),
+            });
 
         let logs: ReadonlyArray<{ address: `0x${string}`; topics: readonly `0x${string}`[]; data: `0x${string}` }>;
         if (wr.receipt) logs = wr.receipt.logs as never;
@@ -294,26 +456,74 @@ export function useP2POfframp() {
           if (r.status === "reverted") throw new Error("takeOffer reverted");
           logs = r.logs as never;
         }
-        const fillId = extractEventId(logs, offramp);
+        // The receipt is the authority on which contract version answered: a
+        // FillPending log means the fiat leg must wait, whatever the probe said.
+        const pendingFillId = findPendingId(logs, offramp, "fill");
+        const fillId = pendingFillId !== null ? Number(pendingFillId) : extractEventId(logs, offramp);
         if (fillId === null) throw new Error("Tx mined but fillId could not be parsed.");
 
+        if (pendingFillId === null) {
+          setState({
+            step: "success",
+            isProcessing: false,
+            error: null,
+            txHash: wr.hash,
+            lastOfferId: offerId,
+            lastFillId: BigInt(fillId),
+          });
+          invalidateBalanceQueries();
+          return { txHash: wr.hash, fillId: BigInt(fillId), status: "locked" };
+        }
+
+        setState({
+          step: "funding",
+          isProcessing: true,
+          error: null,
+          txHash: wr.hash,
+          lastOfferId: offerId,
+          lastFillId: pendingFillId,
+        });
+        let verdict: "locked" | "voided";
+        try {
+          verdict = await settleFill(offramp, pendingFillId);
+        } catch (gateErr) {
+          const msg = friendlyOfframpError(
+            describeGateFailure(
+              gateErr,
+              "The fill exists but is not locked yet. Do not send fiat until it is; open the fill to finish the check.",
+            ),
+          );
+          setState({
+            step: "error",
+            isProcessing: false,
+            error: msg,
+            txHash: wr.hash,
+            lastOfferId: offerId,
+            lastFillId: pendingFillId,
+          });
+          invalidateBalanceQueries();
+          return { txHash: wr.hash, fillId: pendingFillId, status: "pending" };
+        }
+        invalidateBalanceQueries();
+        if (verdict === "voided") {
+          throw new Error("The maker's balance was too low; the offer is open again.");
+        }
         setState({
           step: "success",
           isProcessing: false,
           error: null,
           txHash: wr.hash,
           lastOfferId: offerId,
-          lastFillId: BigInt(fillId),
+          lastFillId: pendingFillId,
         });
-        invalidateBalanceQueries();
-        return { txHash: wr.hash, fillId: BigInt(fillId) };
+        return { txHash: wr.hash, fillId: pendingFillId, status: "locked" };
       } catch (err) {
         const msg = friendlyOfframpError(err instanceof Error ? err.message : String(err));
         setState((prev) => ({ ...initial, step: "error", error: msg, txHash: prev.txHash }));
         throw new Error(msg);
       }
     },
-    [guardReady, unifiedWriteAndWait, publicClient],
+    [guardReady, unifiedWriteAndWait, publicClient, isGated, minUsdcFor, settleFill],
   );
 
   // ─── Submit proof ───────────────────────────────────────────────────
@@ -565,6 +775,8 @@ export function useP2POfframp() {
     state,
     createOffer,
     takeOffer,
+    confirmPendingFill,
+    fheReady: connected,
     submitProof,
     releaseFill,
     disputeFill,

@@ -940,3 +940,89 @@ describe("InheritancePlanning — Vault selector modal (§15.x)", () => {
     expect(container.textContent).not.toContain("Select Protected Vaults");
   });
 });
+
+// ----- Claim remaining: retry cooldown ----- //
+
+describe("InheritancePlanning — claim remaining retry cooldown", () => {
+  const now = () => Math.floor(Date.now() / 1000);
+  const refetchMock = vi.fn();
+
+  function setup(opts: { lastClaimAt?: bigint | undefined; cooldown?: bigint | undefined; claimRemaining?: ReturnType<typeof vi.fn> }) {
+    const claimRemaining = opts.claimRemaining ?? vi.fn().mockResolvedValue(undefined);
+    useInheritanceMock.mockReturnValue({
+      plan: null,
+      setHeir: vi.fn(),
+      setVaults: vi.fn(),
+      heartbeat: vi.fn(),
+      removeHeir: vi.fn(),
+      startClaim: vi.fn(),
+      finalizeClaim: vi.fn(),
+      claimRemaining,
+      isProcessing: false,
+      blockTimestamp: null,
+    });
+    useReadContractMock.mockImplementation(({ functionName }: { functionName: string }) => {
+      switch (functionName) {
+        case "getPlan":
+          return { data: [ME, BigInt(30 * 86400), BigInt(now() - 60 * 86400), BigInt(now() - 20 * 86400), false, [VAULT_USDC]] };
+        case "claimFinalized":
+          return { data: true, refetch: refetchMock };
+        case "lastClaimAt":
+          return { data: opts.lastClaimAt, refetch: refetchMock };
+        case "CLAIM_RETRY_COOLDOWN":
+          return { data: opts.cooldown };
+        default:
+          return { data: undefined };
+      }
+    });
+    const view = render(<InheritancePlanning />);
+    const input = view.container.querySelector(
+      "input[placeholder='Owner address (who set you as heir)']",
+    ) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: PRINCIPAL } });
+    return { ...view, claimRemaining };
+  }
+
+  beforeEach(() => refetchMock.mockReset());
+
+  it("inside the cooldown: button disabled, time remaining shown, no transaction", async () => {
+    const { container, getByTestId, claimRemaining } = setup({ lastClaimAt: BigInt(now() - 2 * 3600), cooldown: 86400n });
+    const btn = findButton(container, "Claim remaining");
+    expect(btn.disabled).toBe(true);
+    expect(getByTestId("inheritance-retry-cooldown").textContent).toMatch(/Next claim available in 21h|22h/);
+    fireEvent.click(btn);
+    await flush();
+    expect(claimRemaining).not.toHaveBeenCalled();
+  });
+
+  it("after the cooldown: button enabled, no wait shown, click claims and refreshes lastClaimAt", async () => {
+    const { container, queryByTestId, claimRemaining } = setup({ lastClaimAt: BigInt(now() - 86400 - 10), cooldown: 86400n });
+    const btn = findButton(container, "Claim remaining");
+    expect(btn.disabled).toBe(false);
+    expect(queryByTestId("inheritance-retry-cooldown")).toBeNull();
+    fireEvent.click(btn);
+    await flush();
+    expect(claimRemaining).toHaveBeenCalledWith(PRINCIPAL, 1);
+    expect(refetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("pre-cooldown contract (lastClaimAt unreadable): no wait, claim allowed", async () => {
+    const { container, queryByTestId, claimRemaining } = setup({ lastClaimAt: undefined, cooldown: undefined });
+    const btn = findButton(container, "Claim remaining");
+    expect(btn.disabled).toBe(false);
+    expect(queryByTestId("inheritance-retry-cooldown")).toBeNull();
+    fireEvent.click(btn);
+    await flush();
+    expect(claimRemaining).toHaveBeenCalledTimes(1);
+  });
+
+  it("lastClaimAt = 0 (finalized before the cooldown existed): first retry not delayed", async () => {
+    const { container } = setup({ lastClaimAt: 0n, cooldown: 86400n });
+    expect(findButton(container, "Claim remaining").disabled).toBe(false);
+  });
+
+  it("falls back to the one-day cooldown when the constant is unreadable", async () => {
+    const { container } = setup({ lastClaimAt: BigInt(now() - 3600), cooldown: undefined });
+    expect(findButton(container, "Claim remaining").disabled).toBe(true);
+  });
+});

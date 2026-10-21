@@ -1,9 +1,10 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { usePublicClient } from "wagmi";
 import { useEffectiveAddress } from "./useEffectiveAddress";
 import { useUnifiedWrite } from "./useUnifiedWrite";
 import { parseUnits } from "viem";
-import { useCofheEncrypt, useCofheConnection, ENCRYPTION_NOT_READY } from "@/lib/cofhe-shim";
+import { useCofheEncrypt, useCofheConnection, useCofheDecryptForTx, ENCRYPTION_NOT_READY } from "@/lib/cofhe-shim";
+import { runFundingGate, supportsFundingGate, FundingGateTimeout } from "@/lib/funding-gate";
 import { Encryptable } from "@/lib/cofhe-shim";
 import toast from "react-hot-toast";
 import { MAX_UINT64 } from "@/lib/constants";
@@ -29,8 +30,13 @@ export type GiftStep =
   | "encrypting"
   | "confirming"
   | "sending"
+  | "funding"
   | "success"
   | "error";
+
+/** GiftMoney.FundingStatus, by name. Envelopes from before the funding gate read as "active". */
+export type GiftFunding = "active" | "pending" | "void";
+const FUNDING_PENDING = 1;
 
 export interface GiftMoneyState {
   step: GiftStep;
@@ -38,6 +44,10 @@ export interface GiftMoneyState {
   error: string | null;
   txHash: string | null;
   encryptionProgress: number;
+  /** Envelope created by the last createGift, so the screen can finish it. */
+  lastEnvelopeId: number | null;
+  /** Funding verdict for lastEnvelopeId. Null on a contract that predates the funding gate. */
+  funding: GiftFunding | null;
 }
 
 const initialState: GiftMoneyState = {
@@ -46,7 +56,35 @@ const initialState: GiftMoneyState = {
   error: null,
   txHash: null,
   encryptionProgress: 0,
+  lastEnvelopeId: null,
+  funding: null,
 };
+
+/** Shown when any share fell short. The shares that did move stay with their recipients. */
+export const GIFT_UNFUNDED_MESSAGE =
+  "The gift was not fully funded: your private balance was too low for at least one share, so the envelope is void. Some recipients may already have received their share.";
+
+function pendingFundingMessage(envelopeId: number, err: unknown): string {
+  const reason = err instanceof FundingGateTimeout ? "the funding check is not ready yet" : err instanceof Error ? err.message : String(err);
+  return `Envelope #${envelopeId} was created but its funding is not confirmed (${reason}). It cannot be opened until it is. Press Finish funding to retry.`;
+}
+
+/** Turns the contract's funding-gate reverts into something a recipient can act on. */
+export function friendlyGiftError(message: string): string {
+  if (message.includes("funding pending")) return "This gift is still being funded. Try again in a minute.";
+  if (message.includes("envelope unfunded")) return "This gift was never fully funded, so it cannot be opened.";
+  return message;
+}
+
+// confirmFunding bumps the receipts counters for every recipient, so gas grows
+// with the envelope size. GiftMoney allows at most 30 recipients.
+const GIFT_CONFIRM_GAS_BASE = 1_500_000;
+const GIFT_CONFIRM_GAS_PER_RECIPIENT = 600_000;
+const GIFT_MAX_RECIPIENTS = 30;
+function confirmGas(recipientCount: number): bigint {
+  const n = Math.min(Math.max(recipientCount, 1), GIFT_MAX_RECIPIENTS);
+  return BigInt(GIFT_CONFIRM_GAS_BASE + GIFT_CONFIRM_GAS_PER_RECIPIENT * n);
+}
 
 async function ensureVaultApproval(
   unifiedWrite: ReturnType<typeof useUnifiedWrite>["unifiedWrite"],
@@ -154,7 +192,89 @@ export function useGiftMoney() {
   const { encryptInputsAsync } = useCofheEncrypt();
   const { unifiedWrite, unifiedWriteAndWait } = useUnifiedWrite();
 
+  const { decryptForTx } = useCofheDecryptForTx();
+
   const [state, setState] = useState<GiftMoneyState>(initialState);
+
+  // Chains whose GiftMoney has the funding gate. Only a positive probe is
+  // kept: a failed probe may be a flaky RPC, so the next call asks again.
+  const gateSupport = useRef(new Set<string>());
+  const gateSupported = useCallback(
+    async (gm: `0x${string}`): Promise<boolean> => {
+      const key = `${activeChainId}:${gm.toLowerCase()}`;
+      if (gateSupport.current.has(key)) return true;
+      if (!publicClient) return false;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const ok = await supportsFundingGate(() =>
+          publicClient.readContract({ address: gm, abi: GiftMoneyAbi, functionName: "getFundingCheck", args: [0n] }),
+        );
+        if (ok) {
+          gateSupport.current.add(key);
+          return true;
+        }
+      }
+      return false;
+    },
+    [activeChainId, publicClient],
+  );
+
+  // Decrypts "every share moved" for a PendingFunding envelope and publishes
+  // it. Anyone can run it, so an envelope another tab or user already settled
+  // is a no-op.
+  const runGate = useCallback(
+    async (gm: `0x${string}`, envelopeId: number, recipientCount?: number): Promise<boolean> => {
+      const client = publicClient!;
+      const { funded } = await runFundingGate({
+        readHandle: async () =>
+          BigInt(
+            (await client.readContract({
+              address: gm,
+              abi: GiftMoneyAbi,
+              functionName: "getFundingCheck",
+              args: [BigInt(envelopeId)],
+            })) as bigint | `0x${string}`,
+          ),
+        decryptForTx,
+        confirm: async (verdict, signature) => {
+          try {
+            const status = await client.readContract({
+              address: gm,
+              abi: GiftMoneyAbi,
+              functionName: "fundingStatus",
+              args: [BigInt(envelopeId)],
+            });
+            if (Number(status) !== FUNDING_PENDING) return;
+          } catch {
+            // Status unreadable: let the write decide.
+          }
+          let count = recipientCount;
+          if (count === undefined) {
+            try {
+              const env = (await client.readContract({
+                address: gm,
+                abi: GiftMoneyAbi,
+                functionName: "getEnvelope",
+                args: [BigInt(envelopeId)],
+              })) as readonly unknown[];
+              count = Number(env[2]);
+            } catch {
+              count = GIFT_MAX_RECIPIENTS;
+            }
+          }
+          const r = await unifiedWriteAndWait({
+            address: gm,
+            abi: GiftMoneyAbi,
+            functionName: "confirmFunding",
+            args: [BigInt(envelopeId), verdict, signature],
+            gas: confirmGas(count),
+          });
+          if (r.receipt?.status === "reverted") throw new Error("confirmFunding reverted on-chain");
+        },
+      });
+      return funded;
+    },
+    [publicClient, decryptForTx, unifiedWriteAndWait],
+  );
 
   // ─── Create Gift Envelope ───────────────────────────────────────────
 
@@ -195,6 +315,7 @@ export function useGiftMoney() {
 
         const vaultAddress = vault as `0x${string}`;
         const giftMoneyAddress = contracts.GiftMoney as `0x${string}`;
+        const gated = await gateSupported(giftMoneyAddress);
 
         // Ensure GiftMoney contract is approved to transferFrom on the vault
         if (!isVaultApproved(contracts.GiftMoney)) {
@@ -270,13 +391,6 @@ export function useGiftMoney() {
           throw new Error("Transaction reverted on-chain");
         }
 
-        setState((s) => ({
-          ...s,
-          step: "success",
-          isProcessing: false,
-          txHash: hash,
-        }));
-
         // Record gift creation timestamp for rate limiting
         {
           const now = Date.now();
@@ -293,32 +407,51 @@ export function useGiftMoney() {
         }
         const envelopeNote = `[envelope:${envelopeId}] ${note || "Gift envelope"}`;
 
+        // The envelope is only openable once every share is shown to have
+        // moved. A gate that cannot finish leaves it PendingFunding on-chain,
+        // which anyone can settle later, so that case is not an error here.
+        let funding: GiftFunding | null = null;
+        let pendingNote: string | null = null;
+        if (gated) {
+          setState((s) => ({ ...s, step: "funding", txHash: hash, lastEnvelopeId: envelopeId }));
+          try {
+            funding = (await runGate(giftMoneyAddress, envelopeId, recipients.length)) ? "active" : "void";
+          } catch (gateErr) {
+            funding = "pending";
+            pendingNote = pendingFundingMessage(envelopeId, gateErr);
+          }
+        }
+
         // Sync to Supabase for each recipient + the sender-copy row, all in
         // parallel via Promise.allSettled so a single row failure doesn't halt
         // sync for the remaining rows. Unique tx_hash per row (recipient
-        // address or `_sender`) since insertActivity upserts on tx_hash.
+        // address or `_sender`) since insertActivity upserts on tx_hash. A void
+        // envelope only gets the sender-copy row: recipients have nothing to open.
+        const senderRow = {
+          tx_hash: `${hash}_sender`,
+          user_from: address.toLowerCase(),
+          user_to: address.toLowerCase(),
+          activity_type: ACTIVITY_TYPES.GIFT_CREATED,
+          contract_address: giftMoneyAddress,
+          note: envelopeNote,
+          token_address: contracts.TestUSDC,
+          block_number: Number(giftReceipt.blockNumber),
+        };
         await insertActivitiesFanout(
           [
-            ...recipients.map((recipient) => ({
-              tx_hash: `${hash}_${recipient.toLowerCase()}`,
-              user_from: address.toLowerCase(),
-              user_to: recipient.toLowerCase(),
-              activity_type: ACTIVITY_TYPES.GIFT_CREATED,
-              contract_address: giftMoneyAddress,
-              note: envelopeNote,
-              token_address: contracts.TestUSDC,
-              block_number: Number(giftReceipt.blockNumber),
-            })),
-            {
-              tx_hash: `${hash}_sender`,
-              user_from: address.toLowerCase(),
-              user_to: address.toLowerCase(),
-              activity_type: ACTIVITY_TYPES.GIFT_CREATED,
-              contract_address: giftMoneyAddress,
-              note: envelopeNote,
-              token_address: contracts.TestUSDC,
-              block_number: Number(giftReceipt.blockNumber),
-            },
+            ...(funding === "void"
+              ? []
+              : recipients.map((recipient) => ({
+                  tx_hash: `${hash}_${recipient.toLowerCase()}`,
+                  user_from: address.toLowerCase(),
+                  user_to: recipient.toLowerCase(),
+                  activity_type: ACTIVITY_TYPES.GIFT_CREATED,
+                  contract_address: giftMoneyAddress,
+                  note: envelopeNote,
+                  token_address: contracts.TestUSDC,
+                  block_number: Number(giftReceipt.blockNumber),
+                }))),
+            senderRow,
           ],
           { userToastOnFailure: true, context: "gift-create" },
         );
@@ -330,7 +463,30 @@ export function useGiftMoney() {
         broadcastAction("activity_added");
         invalidateBalanceQueries();
 
-        toast.success("Gift envelope created!");
+        if (funding === "void") {
+          setState((s) => ({
+            ...s,
+            step: "error",
+            isProcessing: false,
+            error: GIFT_UNFUNDED_MESSAGE,
+            txHash: hash,
+            lastEnvelopeId: envelopeId,
+            funding,
+          }));
+          toast.error(GIFT_UNFUNDED_MESSAGE);
+          return;
+        }
+
+        setState((s) => ({
+          ...s,
+          step: "success",
+          isProcessing: false,
+          txHash: hash,
+          lastEnvelopeId: envelopeId,
+          funding,
+        }));
+        if (pendingNote) toast.error(pendingNote);
+        else toast.success("Gift envelope created!");
         return hash;
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Failed to create gift";
@@ -346,7 +502,58 @@ export function useGiftMoney() {
         toast.error(msg);
       }
     },
-    [address, connected, state.isProcessing, encryptInputsAsync, unifiedWrite, unifiedWriteAndWait, publicClient, contracts]
+    [address, connected, state.isProcessing, encryptInputsAsync, unifiedWrite, unifiedWriteAndWait, publicClient, contracts, gateSupported, runGate]
+  );
+
+  // ─── Finish Funding ─────────────────────────────────────────────────
+
+  /**
+   * Finish an envelope left PendingFunding (the funding check timed out, or the
+   * tab closed). Anyone can run it. Returns the verdict, or null when it could
+   * not be completed; the envelope then stays pending and can be retried.
+   */
+  const finishFunding = useCallback(
+    async (envelopeId: number): Promise<"funded" | "unfunded" | null> => {
+      if (!address) return null;
+      if (state.isProcessing) return null;
+      if (!publicClient) {
+        toast.error("Connection lost. Please refresh.");
+        return null;
+      }
+      const giftMoneyAddress = contracts.GiftMoney as `0x${string}`;
+      if (!(await gateSupported(giftMoneyAddress))) {
+        toast.error("This gift contract has no funding check to finish.");
+        return null;
+      }
+      const isCurrent = state.lastEnvelopeId === envelopeId;
+      setState((s) => ({ ...s, step: "funding", isProcessing: true, error: null }));
+      const toastId = toast.loading("Confirming funding...");
+      try {
+        const funded = await runGate(giftMoneyAddress, envelopeId);
+        invalidateBalanceQueries();
+        broadcastAction("balance_changed");
+        setState((s) =>
+          funded
+            ? { ...s, step: "success", isProcessing: false, funding: isCurrent ? "active" : s.funding }
+            : {
+                ...s,
+                step: "error",
+                isProcessing: false,
+                error: GIFT_UNFUNDED_MESSAGE,
+                funding: isCurrent ? "void" : s.funding,
+              },
+        );
+        if (funded) toast.success("Gift funded", { id: toastId });
+        else toast.error(GIFT_UNFUNDED_MESSAGE, { id: toastId });
+        return funded ? "funded" : "unfunded";
+      } catch (err) {
+        const msg = pendingFundingMessage(envelopeId, err);
+        setState((s) => ({ ...s, step: isCurrent ? "success" : "error", isProcessing: false, error: msg }));
+        toast.error(msg, { id: toastId });
+        return null;
+      }
+    },
+    [address, state.isProcessing, state.lastEnvelopeId, publicClient, contracts.GiftMoney, gateSupported, runGate],
   );
 
   // ─── Claim (Open) Gift ──────────────────────────────────────────────
@@ -417,7 +624,7 @@ export function useGiftMoney() {
         toast.success("Gift opened!");
         return hash;
       } catch (err) {
-        const msg = err instanceof Error ? err.message : "Failed to open gift";
+        const msg = friendlyGiftError(err instanceof Error ? err.message : "Failed to open gift");
         setState((s) => ({
           ...s,
           step: "error",
@@ -601,6 +808,7 @@ export function useGiftMoney() {
   return {
     ...state,
     createGift,
+    finishFunding,
     claimGift,
     deactivateEnvelope,
     setExpiry,

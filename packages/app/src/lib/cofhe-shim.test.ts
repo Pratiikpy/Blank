@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, renderHook } from "@testing-library/react";
 import { createElement } from "react";
 import {
@@ -25,6 +25,10 @@ import { ETH_SEPOLIA_ID, BASE_SEPOLIA_ID } from "./constants";
 //                  Uint64=5, Uint128=6, Uint160=7
 
 describe("FheTypes proxy fallback", () => {
+  // The shim loads the real SDK in the background on import; these tests assert the
+  // fallback values that apply before it has loaded.
+  beforeEach(() => _resetSdkForChainChange());
+
   it("Bool=0", () => expect(FheTypes.Bool).toBe(0));
   it("Uint4=1", () => expect(FheTypes.Uint4).toBe(1));
   it("Uint8=2", () => expect(FheTypes.Uint8).toBe(2));
@@ -43,6 +47,10 @@ describe("FheTypes proxy fallback", () => {
 });
 
 describe("Encryptable proxy fallback", () => {
+  // The shim loads the real SDK in the background on import; these tests assert the
+  // fallback values that apply before it has loaded.
+  beforeEach(() => _resetSdkForChainChange());
+
   it("uint64 returns InEuint64 ABI tuple shape with utype=5", () => {
     const out = Encryptable.uint64(42);
     expect(out).toEqual({
